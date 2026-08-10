@@ -11,6 +11,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using Markout;
+using Markout.Formatting;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -373,6 +374,13 @@ public class ApiCommand
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
+        if (options is MemberOptions memberFormat
+            && options.Discover is null
+            && !ValidateMemberGraphFormat(memberFormat, selectionSections))
+        {
+            return (null!, 1);
+        }
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -427,6 +435,52 @@ public class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static bool ValidateMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree)
+        {
+            if (options.FormatExplicitlySet)
+            {
+                CommandError.Write(
+                    "--tree is a standalone output format and cannot combine with another output format.");
+                return false;
+            }
+
+            if (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "--tree requires exactly one selected tree shape.",
+                    "Use -S \"Call Graph\" --tree.");
+                return false;
+            }
+        }
+
+        if (options.MermaidOutput
+            && (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--mermaid requires exactly one selected graph.",
+                "Use -S \"Call Graph\" --mermaid.");
+            return false;
+        }
+
+        if (options.EmbeddedMermaid
+            && (sections is null
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--markdown --mermaid requires the Call Graph section.",
+                "Select it with -S \"Call Graph\"; other Markdown sections may be selected with it.");
+            return false;
+        }
+
+        return true;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -1318,8 +1372,8 @@ public class ApiCommand
         if (options.Count)
         {
             // A call graph declares edge rows in its projection. Count those rows directly
-            // rather than scanning the rendered tree, which has a different node-shaped
-            // lowering and therefore cannot answer the row question.
+            // rather than scanning any rendered lowering, whose syntax cannot answer the
+            // row question.
             if (options.IncludeSections is { Count: 1 } sections
                 && sections.Contains(SectionNames.CallGraph)
                 && view.MemberCode?.CallGraphRowCount is { } graphRows)
@@ -1332,12 +1386,41 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
-            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+        }
+
+        if (options is MemberOptions { Tree: true } or { MermaidOutput: true })
+        {
+            var graph = view.MemberCode?.CallGraph;
+            if (graph is null)
+            {
+                CommandError.Write(
+                    "Call Graph output requires exactly one selected method overload.",
+                    "Select an overload by Name:N, Name~digest, or --index N.");
+                return 1;
+            }
+
+            if (graph.IsEmpty)
+            {
+                sink.WriteLine("No inbound callers or outbound calls found for this method.");
+            }
+            else
+            {
+                IMarkoutFormatter formatter = options.Tree
+                    ? new PlainTextFormatter()
+                    : new MermaidFormatter();
+                var graphWriter = new MarkoutWriter(sink, formatter);
+                graphWriter.WriteGraph(graph);
+                graphWriter.Flush();
+            }
+
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -1409,7 +1492,7 @@ public class ApiCommand
 
                 writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
