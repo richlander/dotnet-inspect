@@ -105,7 +105,36 @@ jobs:
                 RECORDS=$(
                   gh api --paginate \
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-                    --jq '.[] | select((.filename | type) == "string" and (.filename | length) > 0 and (.status == "added" or .status == "removed" or .status == "modified" or .status == "copied" or .status == "changed" or .status == "unchanged" or (.status == "renamed" and (.previous_filename | type) == "string" and (.previous_filename | length) > 0))) | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)'
+                    --jq '
+                      def valid_file_record:
+                        type == "object"
+                        and (.filename | type) == "string"
+                        and (.filename | length) > 0
+                        and (
+                          .status == "added"
+                          or .status == "removed"
+                          or .status == "modified"
+                          or .status == "copied"
+                          or .status == "changed"
+                          or .status == "unchanged"
+                          or (
+                            .status == "renamed"
+                            and (.previous_filename | type) == "string"
+                            and (.previous_filename | length) > 0
+                          )
+                        );
+                      if type != "array" then
+                        error("pull request files response is not an array")
+                      elif any(.[]; valid_file_record | not) then
+                        error("pull request files response contains an invalid record")
+                      else
+                        .[]
+                        | ":file",
+                          ([.previous_filename?, .filename][]
+                            | select(. != null)
+                            | @base64)
+                      end
+                    '
                 ) || exit 1
                 ACTUAL_FILES=0
                 while IFS= read -r encoded; do

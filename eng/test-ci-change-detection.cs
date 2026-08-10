@@ -55,6 +55,25 @@ AssertAll(
         outputs,
         malformedFileRecord: true),
     "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        reportedChangedFileCount: "1",
+        malformedFileRecord: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        objectShapedFilePage: true),
+    "true");
 
 Dictionary<string, string> readme =
     RunDetection(repository, body, "pull_request", "README.md", outputs);
@@ -151,8 +170,8 @@ if (renamedBuildInput["code"] != "true")
 }
 
 string brokenGhInvocation = body.Replace(
-    "| @base64)'",
-    ")'",
+    "| @base64)",
+    ")",
     StringComparison.Ordinal);
 if (brokenGhInvocation == body)
 {
@@ -514,6 +533,7 @@ static Dictionary<string, string> RunDetection(
     string? reportedChangedFileCount = null,
     bool resolutionSucceeds = true,
     bool malformedFileRecord = false,
+    bool objectShapedFilePage = false,
     string fileStatus = "modified")
 {
     const string Before = "1111111111111111111111111111111111111111";
@@ -551,10 +571,10 @@ static Dictionary<string, string> RunDetection(
             if [ "$#" -eq 4 ] && [ "$1" = "api" ] \
                && [ "$2" = "repos/richlander/dotnet-inspect/pulls/3704" ] \
                && [ "$3" = "--jq" ] && [ "$4" = ".changed_files" ]; then
-              if [ "$MALFORMED_FILE_RECORD" = "true" ]; then
-              printf '8\n'
-              elif [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
+              if [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
               printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
+              elif [ "$MALFORMED_FILE_RECORD" = "true" ]; then
+              printf '8\n'
               elif [ -n "$PREVIOUS_FILES" ]; then
               printf '1\n'
               elif [ -z "$CHANGED_FILES" ]; then
@@ -574,7 +594,10 @@ static Dictionary<string, string> RunDetection(
                && [ "$3" = "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
                && [ "$4" = "--jq" ]; then
               records=$(
-                if [ "$MALFORMED_FILE_RECORD" = "true" ]; then
+                if [ "$OBJECT_SHAPED_FILE_PAGE" = "true" ]; then
+                  printf '%s\n' \
+                    '{"status":"modified","filename":"README.md"}'
+                elif [ "$MALFORMED_FILE_RECORD" = "true" ]; then
                   printf '%s\n' '[
                     {"status":"modified","filename":"README.md"},
                     {"status":"modified"},
@@ -663,6 +686,8 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["GITHUB_OUTPUT"] = output;
         startInfo.Environment["MALFORMED_FILE_RECORD"] =
             malformedFileRecord.ToString().ToLowerInvariant();
+        startInfo.Environment["OBJECT_SHAPED_FILE_PAGE"] =
+            objectShapedFilePage.ToString().ToLowerInvariant();
         startInfo.Environment["PATH"] =
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
         startInfo.Environment["PREVIOUS_FILES"] = previousFiles;
