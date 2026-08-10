@@ -136,11 +136,13 @@ public sealed record InspectionTarget(
     MemberSelector? Selector = null);   // optional: which member / IL coordinate inside it
 ```
 
-The current metadata canary implements the inner, facet-level contract as
+The current metadata canaries implement the inner, facet-level contract as
 `InspectionQuery<TResult>` plus an `InspectionQueryDefinition` identity. That
-generic definition says what one facet returns and costs; it is not the
-non-generic aggregate request above, which will carry the target, selected
-facets, and options when the acquisition seam migrates.
+generic definition says what one facet returns and costs. Assembly-context
+queries apply the same contract to ordered participant outcomes for extension
+members and reachability, implementation relationships, and type/member
+search. They are not the non-generic aggregate request above, which will carry
+the target, selected facets, and options when the acquisition seam migrates.
 
 Each facet executor receives a result view restricted to its declared
 transitive prerequisite closure. Reading an undeclared result throws even when

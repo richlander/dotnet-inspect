@@ -9,6 +9,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Research;
@@ -199,7 +200,10 @@ public class DiffCommand
                     new DiffQueryContext(
                         inputs.FromSurface,
                         inputs.ToSurface,
-                        () => CreateBodySignalComparisonInput(inputs, options)));
+                        () => CreateBodySignalComparisonInput(inputs, options),
+                        () => CreateImplementationComparisonInput(
+                            inputs,
+                            options)));
 
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
@@ -240,13 +244,13 @@ public class DiffCommand
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
                 {
                     var implementation = await BuildImplementationDiffWithSourceAsync(
+                        queryResults.Get(
+                            ImplementationComparisonQuery.Definition),
                         inputs.FromPaths,
                         inputs.ToPaths,
                         options,
                         context.HttpClient,
-                        logger,
-                        inputs.FromSurface,
-                        inputs.ToSurface);
+                        logger);
                     var view = DiffOutputFormatter.BuildImplementationDiffView(
                         inputs.Name,
                         implementation,
@@ -730,11 +734,18 @@ public class DiffCommand
                 };
             }
         }
-        else if (SelectsFindingTransitions(options)
-            || (SelectsImplementationDiff(options)
-                && !SelectsAnalysisDiff(options)))
+        else if (SelectsFindingTransitions(options))
         {
             return [];
+        }
+        else if (SelectsImplementationDiff(options)
+            && !SelectsAnalysisDiff(options))
+        {
+            querySections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.ImplementationDiff.Name,
+            };
         }
         else if (SelectsAnalysisDiff(options))
         {
@@ -796,13 +807,12 @@ public class DiffCommand
         if (selected.Contains(DiffSections.ImplementationDiff.Name))
         {
             var implementation = await BuildImplementationDiffWithSourceAsync(
+                queryResults.Get(ImplementationComparisonQuery.Definition),
                 inputs.FromPaths,
                 inputs.ToPaths,
                 options,
                 httpClient,
-                logger,
-                inputs.FromSurface,
-                inputs.ToSurface);
+                logger);
             implementationView = DiffOutputFormatter.BuildImplementationDiffView(
                 inputs.Name,
                 implementation,
@@ -933,6 +943,32 @@ public class DiffCommand
         DiffOptions options,
         ApiSurface? fromSurface = null,
         ApiSurface? toSurface = null)
+        => ImplementationComparisonQuery.Execute(
+            CreateImplementationComparisonInput(
+                fromPaths,
+                toPaths,
+                options,
+                fromSurface,
+                toSurface));
+
+    private static ImplementationComparisonInput
+        CreateImplementationComparisonInput(
+            DiffInputs inputs,
+            DiffOptions options)
+        => CreateImplementationComparisonInput(
+            inputs.FromPaths,
+            inputs.ToPaths,
+            options,
+            inputs.FromSurface,
+            inputs.ToSurface);
+
+    internal static ImplementationComparisonInput
+        CreateImplementationComparisonInput(
+            IReadOnlyList<string> fromPaths,
+            IReadOnlyList<string> toPaths,
+            DiffOptions options,
+            ApiSurface? fromSurface = null,
+            ApiSurface? toSurface = null)
     {
         var memberTargetIdentities = options.MemberFilter.Count == 0
             ? null
@@ -944,13 +980,22 @@ public class DiffCommand
                 requireBodyTargets: true,
                 bodySectionName: "Implementation Diff").MemberIdentities;
 
-        return ImplementationDiff.Compare(
-            ResearchDiffInput.FromAssemblies(fromPaths),
-            ResearchDiffInput.FromAssemblies(toPaths),
-            new ImplementationDiffOptions(
-                TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: memberTargetIdentities));
+        return new ImplementationComparisonInput(
+            fromPaths.Select(CreateImplementationAssemblyInput).ToArray(),
+            toPaths.Select(CreateImplementationAssemblyInput).ToArray(),
+            options.TypeFilter,
+            memberTargetIdentities);
     }
+
+    static ImplementationAssemblyInput CreateImplementationAssemblyInput(
+        string path)
+        => new(
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "diff implementation comparison")),
+            MetadataSource.DefaultAssemblyReferenceResolver(path),
+            LibraryBodyIndex.Open(path));
 
     internal static async Task<ImplementationDiffResult> BuildImplementationDiffWithSourceAsync(
         IReadOnlyList<string> fromPaths,
@@ -967,6 +1012,25 @@ public class DiffCommand
             options,
             fromSurface,
             toSurface);
+        return await BuildImplementationDiffWithSourceAsync(
+            result,
+            fromPaths,
+            toPaths,
+            options,
+            httpClient,
+            logger);
+    }
+
+    internal static async Task<ImplementationDiffResult>
+        BuildImplementationDiffWithSourceAsync(
+            ImplementationDiffResult result,
+            IReadOnlyList<string> fromPaths,
+            IReadOnlyList<string> toPaths,
+            DiffOptions options,
+            HttpClient httpClient,
+            VerboseLogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(result);
         if (!options.IncludeAuthoredSource || result.Members.Count == 0)
             return result;
 
