@@ -14655,6 +14655,36 @@ public partial class CommandExecutionTests
             Assert.Empty(wildcardError);
             Assert.Equal("2\n", wildcardOutput.ReplaceLineEndings("\n"));
 
+            foreach (var columns in new[] { "Version", "V*" })
+            {
+                var (wrongKindExit, wrongKindOutput, wrongKindError) =
+                    await RunAppAsync(
+                        "package", packagePath, packagePath,
+                        "-S", "Package Info", "--columns", columns, "--count");
+                Assert.Equal(1, wrongKindExit);
+                Assert.Empty(wrongKindOutput);
+                Assert.Contains($"No columns matched projection: {columns}", wrongKindError);
+            }
+
+            var (columnMapExit, columnMapOutput, columnMapError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info,Target Frameworks",
+                    "--columns", "TFM", "--count", "--json");
+            Assert.Equal(0, columnMapExit);
+            Assert.Empty(columnMapError);
+            using (var columnMap = JsonDocument.Parse(columnMapOutput))
+            {
+                var columnCounts = columnMap.RootElement
+                    .EnumerateArray()
+                    .ToDictionary(
+                        row => row.GetProperty("section").GetString()!,
+                        row => row.GetProperty("count").GetInt32(),
+                        StringComparer.Ordinal);
+                Assert.Equal(0, columnCounts["Package Info"]);
+                Assert.Equal(targetFrameworksCount, columnCounts["Target Frameworks"]);
+            }
+
             var (emptyProjectionExit, emptyProjectionOutput, emptyProjectionError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,

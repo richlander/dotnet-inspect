@@ -880,6 +880,14 @@ public class PackageCommand
         var countSections = options.Count
             ? ResolveMultiPackageCountSections(options, pipeline)
             : null;
+        if (!ValidateMultiPackagePackageInfoColumns(
+                options,
+                countSections,
+                rowSection))
+        {
+            return 1;
+        }
+
         bool wantsFilesSection = HasPathFilter(options)
             || IsPackageFileSection(rowSection)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
@@ -972,12 +980,19 @@ public class PackageCommand
 
         if (documentSections.Remove(PackageSections.PackageInfo))
         {
-            var rows = BuildMultiPackagePackageInfoRows(results, options.Fields);
-            ProjectionDiagnostics.DiagnoseProjected(
-                options.Fields, rows.Select(row => row[1]));
-            projection.RecordRows(
-                PackageSections.PackageInfo,
-                WindowedCount(rows.Length, options.Rows));
+            if (options.Columns is { Length: > 0 })
+            {
+                projection.RecordRows(PackageSections.PackageInfo, 0);
+            }
+            else
+            {
+                var rows = BuildMultiPackagePackageInfoRows(results, options.Fields);
+                ProjectionDiagnostics.DiagnoseProjected(
+                    options.Fields, rows.Select(row => row[1]));
+                projection.RecordRows(
+                    PackageSections.PackageInfo,
+                    WindowedCount(rows.Length, options.Rows));
+            }
         }
 
         foreach (var section in selectedSections.Where(IsPackageFileSection))
@@ -1054,6 +1069,42 @@ public class PackageCommand
 
         CommandError.Write($"Multiple package row output does not support section: {section}.");
         CommandError.WriteLine("Use --json, or select Package Info, Package files, or a package file section (see -D @Files).");
+        return false;
+    }
+
+    private static bool ValidateMultiPackagePackageInfoColumns(
+        InspectionOptions options,
+        IReadOnlySet<string>? countSections,
+        string? rowSection)
+    {
+        if (options.Columns is not { Length: > 0 })
+            return true;
+
+        bool includesPackageInfo = countSections?.Contains(PackageSections.PackageInfo) == true
+            || string.Equals(
+                rowSection,
+                PackageSections.PackageInfo,
+                StringComparison.OrdinalIgnoreCase);
+        if (!includesPackageInfo)
+            return true;
+
+        var schema = PackageDiscoverySchema();
+        var selectedColumnSections = countSections?
+            .Where(section => schema.GetSection(section)?.ItemKind.Equals(
+                "column",
+                StringComparison.OrdinalIgnoreCase) == true)
+            .ToArray() ?? [];
+        if (selectedColumnSections.Length > 0)
+        {
+            return ProjectionDiagnostics.ValidateProjection(
+                schema,
+                selectedColumnSections,
+                fields: null,
+                columns: options.Columns);
+        }
+
+        CommandError.Write(
+            $"No columns matched projection: {string.Join(", ", options.Columns)}");
         return false;
     }
 
