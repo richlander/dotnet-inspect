@@ -16350,6 +16350,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Value_RejectsMultipleSelectedFields()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Value.Fields",
+                "1.0.0",
+                "README.md",
+                "readme",
+                AgentsText: "guidance"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Agent Guidance",
+                "--fields", "Package,Version",
+                "--value");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--value accepts at most one field or column",
+                error);
+            Assert.DoesNotContain("InvalidOperationException", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_PrintRequiresSingleSelectedSection()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16434,6 +16466,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Discover_SelectionNarrowsStructuralCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "-S", "Skills");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Skills", output);
+        Assert.DoesNotContain("Agent Guidance", output);
+        Assert.DoesNotContain("Package Docs", output);
+    }
+
+    [Fact]
+    public async Task Project_DiscoverSchema_RemainsCompleteWithSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "--schema",
+            "-S", "Skills");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Skills", output);
+        Assert.Contains("Agent Guidance", output);
+        Assert.Contains("Package Docs", output);
+    }
+
+    [Fact]
     public async Task Project_EffectiveDiscovery_DoesNotAcquireUnboundedPackageDocs()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16454,6 +16516,103 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("Package Docs", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_SelectionNarrowsDemandAndCatalog()
+    {
+        const string id = "Test.Project.Discovery.Selection";
+        const string missingSkill = "skills/missing/SKILL.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc(missingSkill, "skill")]));
+        File.Delete(Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0",
+            missingSkill.Replace('/', Path.DirectorySeparatorChar)));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-D", "--effective",
+                "-S", "Package Docs");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Package Docs", output);
+            Assert.DoesNotContain("Skills", output);
+            Assert.DoesNotContain("Agent Guidance", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Project_EffectiveDiscovery_SupportsDiscoveryFormats(
+        string format)
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Discovery.Format",
+                "1.0.0",
+                "README.md",
+                "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-D", "--effective",
+                format);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Skills", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_DetailedVerbosityRendersTree()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Discovery.Tree",
+                "1.0.0",
+                "README.md",
+                "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-D", "--effective",
+                "-v:d");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Package (column)", output);
+            Assert.Contains("Description (column)", output);
         }
         finally
         {
@@ -16535,6 +16694,20 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Project_Readme_RejectsCountBeforeDiscovery()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "--readme", "Test.Project.Readme.Count",
+            "--count");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with --print", error);
     }
 
     [Fact]

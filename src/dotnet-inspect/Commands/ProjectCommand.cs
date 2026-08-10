@@ -56,13 +56,23 @@ public class ProjectCommand
             return 1;
         }
 
+        HashSet<string> candidateSections = ResolveCandidateSections(
+            options,
+            pipeline,
+            selectedSections);
         bool structuralDiscovery = options.Discover is not null
             && !options.Effective;
         if (structuralDiscovery)
         {
-            return DiscoverOutput.Execute(
+            var schema = ProjectSections.CreateSchema();
+            List<string> discoverableSections =
+                pipeline.GetDiscoverableSections(
+                    new ProjectInspection(),
+                    candidateSections);
+            return DiscoverOutput.ExecuteEffective(
                 options.Discover!,
-                ProjectSections.CreateSchema(),
+                discoverableSections,
+                schema,
                 projection: options,
                 tree: options.Tree,
                 json: options.JsonOutput,
@@ -70,6 +80,7 @@ public class ProjectCommand
                 jsonl: options.Jsonl,
                 markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
+                fullSchema: schema,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap(),
                 catalogHiddenSections: options.Schema
@@ -78,10 +89,6 @@ public class ProjectCommand
                 listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
-        HashSet<string> candidateSections = ResolveCandidateSections(
-            options,
-            pipeline,
-            selectedSections);
         if (options.Discover is null
             && !ProjectionDiagnostics.ValidateProjection(
                 ProjectSections.CreateSchema(),
@@ -155,9 +162,12 @@ public class ProjectCommand
                 tsv: options.Tsv,
                 jsonl: options.Jsonl,
                 markdown: !options.Tabular && !options.JsonOutput,
+                verbosity: (int)options.Verbosity,
                 fullSchema: ProjectSections.CreateSchema(),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap(),
+                catalogHiddenSections: pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
                 projection: options);
             return discoverExitCode == 0 && failures.Length > 0
                 ? 1
@@ -314,6 +324,12 @@ public class ProjectCommand
             return false;
         }
 
+        if (options.Count && options.Print)
+        {
+            CommandError.Write("--count cannot be combined with --print.");
+            return false;
+        }
+
         return true;
     }
 
@@ -330,14 +346,20 @@ public class ProjectCommand
                 pipeline.InfoSectionNames,
                 pipeline.GetCategoryMap(),
                 selectDefault: false);
-            return discoverSelection.Sections ?? [];
+            HashSet<string> discoveredSections = discoverSelection.Sections ?? [];
+            if (!options.Schema
+                && selectedSections is { Count: > 0 })
+                discoveredSections.IntersectWith(selectedSections);
+            return discoveredSections;
         }
 
         if (options.Discover is not null)
         {
-            return options.Effective
-                ? [.. pipeline.BaseSectionNames]
-                : pipeline.GetCandidateSections(Verbosity.Minimal);
+            HashSet<string> discoveredSections = [.. pipeline.BaseSectionNames];
+            if (!options.Schema
+                && selectedSections is { Count: > 0 })
+                discoveredSections.IntersectWith(selectedSections);
+            return discoveredSections;
         }
 
         return pipeline.GetCandidateSections(
@@ -357,6 +379,9 @@ public class ProjectCommand
             return false;
         }
 
+        if (options.Discover is not null)
+            return true;
+
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
                 options.Tabular && !options.Print,
                 candidateSections))
@@ -368,11 +393,6 @@ public class ProjectCommand
             options.Value,
             options.Urls,
             options.Paths);
-        if (options.Count && options.Print)
-        {
-            CommandError.Write("--count cannot be combined with --print.");
-            return false;
-        }
         if (shapeCount > 1)
         {
             CommandError.Write("specify only one of --value, --urls, or --paths.");
@@ -386,6 +406,15 @@ public class ProjectCommand
                 : options.Urls
                     ? "--urls"
                     : "--paths";
+            int selectedFieldCount =
+                (options.Columns?.Length ?? 0)
+                + (options.Fields?.Length ?? 0);
+            if (options.Value && selectedFieldCount > 1)
+            {
+                CommandError.Write(
+                    "--value accepts at most one field or column.");
+                return false;
+            }
             if (!ShapeProjectionOutput.ValidateSingleSection(
                     candidateSections,
                     optionName))
@@ -972,8 +1001,8 @@ public class ProjectCommand
         };
 
     static string? SelectedField(ProjectOptions options)
-        => (options.Columns?.SingleOrDefault()
-                ?? options.Fields?.SingleOrDefault())
+        => (options.Columns?.FirstOrDefault()
+                ?? options.Fields?.FirstOrDefault())
             ?.ToLowerInvariant();
 
     static void WriteCounts(
