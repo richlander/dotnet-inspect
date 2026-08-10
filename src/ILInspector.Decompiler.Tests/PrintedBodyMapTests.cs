@@ -238,6 +238,10 @@ public class PrintedBodyMapTests
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var intType = TypeRef.CoreLib("System", "Int32");
         var objectType = TypeRef.CoreLib("System", "Object");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var nullableIntType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
         var boxed = new Box(
             intType,
             new LoadArgument(0, "value", intType));
@@ -262,12 +266,43 @@ public class PrintedBodyMapTests
         var typeTest = new IsInstance(
             intType,
             new LoadArgument(4, "subject", objectType));
+        var coalesced = new Coerce(
+            intType,
+            new Coalesce(
+                new LoadArgument(5, "optional", nullableIntType),
+                new Constant(4, intType)));
+        var collapsedConstant = new Coerce(
+            uintType,
+            new ILInspector.Decompiler.Pipeline.Convert(
+                intType,
+                isChecked: false,
+                isUnsigned: false,
+                new Constant(1, intType)));
+        var binary = new Coerce(
+            uintType,
+            new Binary(
+                BinaryKind.Remainder,
+                isChecked: false,
+                isUnsigned: true,
+                new ILInspector.Decompiler.Pipeline.Convert(
+                    uintType,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadArgument(6, "signed", intType)),
+                new ILInspector.Decompiler.Pipeline.Convert(
+                    uintType,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new Constant(32, intType))));
         var block = new Block(0);
         block.Add(new StoreLocal(0, objectType, boxed));
         block.Add(new StoreLocal(1, intType, coerced));
         block.Add(new StoreLocal(2, intType, pointerRead));
         block.Add(new StoreLocal(3, intType, conditional));
         block.Add(new StoreLocal(4, boolType, typeTest));
+        block.Add(new StoreLocal(5, intType, coalesced));
+        block.Add(new StoreLocal(6, uintType, collapsedConstant));
+        block.Add(new StoreLocal(7, uintType, binary));
         block.Add(new Return(managedRead));
         var container = new BlockContainer();
         container.Add(block);
@@ -282,10 +317,12 @@ public class PrintedBodyMapTests
                     new Parameter("pointer", TypeRef.Pointer(intType)),
                     new Parameter("flag", boolType),
                     new Parameter("subject", objectType),
+                    new Parameter("optional", nullableIntType),
+                    new Parameter("signed", intType),
                 ],
                 HasThis: false,
                 GenericParameterCount: 0),
-            [objectType, intType, intType, intType, boolType],
+            [objectType, intType, intType, intType, boolType, intType, uintType, uintType],
             container);
 
         var result = CSharpPrinter.Print(function, out var ranges);
@@ -297,6 +334,9 @@ public class PrintedBodyMapTests
         AssertSurfaceKind(ranges, pointerRead, "*pointer", "IndirectAccessExpression");
         AssertSurfaceKind(ranges, conditional, "flag ? 1 : 0", "ConditionalExpression");
         AssertSurfaceKind(ranges, typeTest, "subject is int", "PatternExpression");
+        AssertSurfaceKind(ranges, coalesced, "optional ?? 4", "CoalesceExpression");
+        AssertSurfaceKind(ranges, collapsedConstant, "1", "LiteralExpression");
+        AssertSurfaceKind(ranges, binary, "((uint)signed) % ((uint)32)", "BinaryExpression");
     }
 
     [Fact]
@@ -1357,6 +1397,7 @@ public class PrintedBodyMapTests
         Assert.Equal(expectedText, ranges.Output[range]);
         Assert.True(ranges.TryGetNodeKind(node, out string? kind));
         Assert.Equal(expectedKind, kind);
+        Assert.True(AnnotatedSourceNodeKinds.IsKnown(kind));
     }
 
     static int ComparePosition(int line, int column, int otherLine, int otherColumn)

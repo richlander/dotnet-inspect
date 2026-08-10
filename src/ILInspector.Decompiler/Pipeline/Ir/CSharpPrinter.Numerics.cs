@@ -1813,62 +1813,37 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceNodeText(Coerce coerce)
     {
-        string text = CoerceText(coerce.Operand, coerce.Target);
+        var rendered = RenderCoercion(coerce.Operand, coerce.Target);
         return WithNodeKind(
             coerce,
-            text,
-            CoerceSurfaceKind(coerce.Operand, coerce.Target, text));
+            rendered.Text,
+            rendered.Kind);
     }
 
-    string CoerceSurfaceKind(IrExpression value, TypeRef? target, string? renderedText = null)
-    {
-        string text = renderedText ?? CoerceText(value, target);
-        if (target is { } explicitTarget)
-        {
-            string cast = $"({TypeText(explicitTarget)})";
-            if (text.StartsWith(cast, StringComparison.Ordinal)
-                || (text.StartsWith("checked(", StringComparison.Ordinal)
-                    || text.StartsWith("unchecked(", StringComparison.Ordinal))
-                    && text.Contains(cast, StringComparison.Ordinal))
-            {
-                return "ConversionExpression";
-            }
-        }
-        if (text.StartsWith('&'))
-            return "AddressExpression";
-        if (TryLongLiteralText(value) == text || value is Constant)
-            return "LiteralExpression";
-        if (target is { } integerTarget
-            && CoercionRendering.CanSpellBoolToInteger(EffectiveType(value), integerTarget))
-        {
-            return "ConditionalExpression";
-        }
-
-        return value switch
-        {
-            Conditional conditional => SpellsAsLogicalAnd(conditional)
-                ? "BinaryExpression"
-                : "ConditionalExpression",
-            SwitchExpression or UnionSwitchExpression or TupleSwitchExpression or PatternSwitchExpression
-                => "SwitchExpression",
-            Coalesce => "NullCoalescingExpression",
-            _ => RenderedNodeKind(value),
-        };
-    }
+    readonly record struct CoercedText(string Text, string Kind);
 
     string CoerceText(IrExpression value, TypeRef? target)
+        => RenderCoercion(value, target).Text;
+
+    CoercedText TransparentCoercion(IrExpression value)
+    {
+        string text = Expression(value);
+        return new(text, RenderedNodeKind(value));
+    }
+
+    CoercedText RenderCoercion(IrExpression value, TypeRef? target)
     {
         // The long-literal lens (#3347) at a value sink — a return, an argument, an
         // assignment, a field/array store, a box. Gated on an Int64 sink so the fold
         // only ever replaces a rendering that was already the bare `(long)N` cast;
         // a wider or differently-typed sink keeps whichever coercion cast it needs.
         if (IsCoreInt64(target) && TryLongLiteralText(value) is { } longSinkLiteral)
-            return longSinkLiteral;
+            return new(longSinkLiteral, "LiteralExpression");
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
             && AddressOfValue(value) is { } address)
         {
-            return $"({TypeText(nativeTarget)})(&{Deref(address)})";
+            return new($"({TypeText(nativeTarget)})(&{Deref(address)})", "ConversionExpression");
         }
         // A fixed-statement pinned local reads as a pointer (the fixed variable),
         // so the IL's conv.u/conv.i deriving an unmanaged pointer from it
@@ -1879,7 +1854,7 @@ public sealed partial class CSharpPrinter
             && value is Convert { Operand: LoadLocal pinnedLoad }
             && _fixedLocals.Contains(pinnedLoad.Index))
         {
-            return $"({TypeText(target)}){LocalName(pinnedLoad.Index)}";
+            return new($"({TypeText(target)}){LocalName(pinnedLoad.Index)}", "ConversionExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is Convert
@@ -1889,7 +1864,7 @@ public sealed partial class CSharpPrinter
             }
             && fixedBufferAddress.ElementType.Equals(target.ElementType))
         {
-            return $"&{Deref(fixedBufferAddress)}";
+            return new($"&{Deref(fixedBufferAddress)}", "AddressExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is Convert
@@ -1898,22 +1873,24 @@ public sealed partial class CSharpPrinter
                 Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
             } addressConvert)
         {
-            return $"({TypeText(target)})(&{Deref(addressConvert.Operand)})";
+            return new($"({TypeText(target)})(&{Deref(addressConvert.Operand)})", "ConversionExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is not Constant { Value: null }
             && EffectiveType(value) is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" })
         {
-            return IsZeroConstant(value)
-                ? $"({TypeText(target)})null"
-                : $"({TypeText(target)}){Operand(value)}";
+            return new(
+                IsZeroConstant(value)
+                    ? $"({TypeText(target)})null"
+                    : $"({TypeText(target)}){Operand(value)}",
+                "ConversionExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
             && value is not Constant { Value: null }
             && !target.Equals(pointerSource))
         {
-            return $"({TypeText(target)}){Operand(value)}";
+            return new($"({TypeText(target)}){Operand(value)}", "ConversionExpression");
         }
         // An enum shift — or a bitwise chain over one — renders as its underlying
         // integer (ShiftEnumLeftOperand: `(int)e >> n`), not the enum its stale
@@ -1934,7 +1911,7 @@ public sealed partial class CSharpPrinter
             && (CoercionRendering.CanSpellIntegerToEnum(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes)
                 || CoercionRendering.CanSpellUnknownEnumConstant(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes)))
         {
-            return EnumIntegerCast(value, shiftEnumTarget);
+            return new(EnumIntegerCast(value, shiftEnumTarget), "ConversionExpression");
         }
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#
@@ -1949,15 +1926,23 @@ public sealed partial class CSharpPrinter
         if (target is { } enumTarget
             && CoercionRendering.CanSpellIntegerToEnum(EffectiveType(value), enumTarget, _function.TypeShapes))
         {
-            return value is Constant { Value: int or long } enumKonst
-                ? EnumConstantText(enumKonst, enumTarget)
-                : EnumIntegerCast(value, enumTarget);
+            if (value is Constant { Value: int or long } enumKonst)
+            {
+                long enumValue = enumKonst.Value is int i ? i : (long)enumKonst.Value!;
+                bool hasName = EnumMemberName(new Constant(enumValue, enumTarget)) is not null;
+                return new(
+                    EnumConstantText(enumKonst, enumTarget),
+                    hasName ? "LiteralExpression" : "ConversionExpression");
+            }
+            return new(EnumIntegerCast(value, enumTarget), "ConversionExpression");
         }
         if (value is Binary enumArithmetic
             && target is { } enumArithmeticTarget
             && EnumArithmeticUnderlyingType(enumArithmetic)?.Equals(enumArithmeticTarget) == true)
         {
-            return EnumArithmeticValueText(enumArithmetic) ?? Expression(value);
+            return new(
+                EnumArithmeticValueText(enumArithmetic) ?? Expression(value),
+                RenderedNodeKind(value));
         }
         // An enum value at an integer-typed sink: cast to the target whenever
         // the cast is value-preserving — same stack family (a byte-backed enum
@@ -1979,9 +1964,11 @@ public sealed partial class CSharpPrinter
             // must stay bare (work-2302 CI canary). A missing value__ assumes
             // the I4-signed shape, matching EnumSemanticFamily.
             var underlying = EnumUnderlyingType(EffectiveType(value)) ?? TypeRef.CoreLib("System", "Int32");
-            return CSharpConversionRules.CheckedConversionCanThrow(underlying, primitiveTarget)
-                ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
-                : $"({TypeText(primitiveTarget)}){Operand(value)}";
+            return new(
+                CSharpConversionRules.CheckedConversionCanThrow(underlying, primitiveTarget)
+                    ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
+                    : $"({TypeText(primitiveTarget)}){Operand(value)}",
+                "ConversionExpression");
         }
         // Enum → enum: C# permits the explicit conversion between any two enum
         // types directly. Reached when a slot join carries one enum and a
@@ -1995,7 +1982,9 @@ public sealed partial class CSharpPrinter
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes))
         {
-            return CheckedSafeCast(() => $"({TypeText(enumToEnumTarget)}){Operand(value)}");
+            return new(
+                CheckedSafeCast(() => $"({TypeText(enumToEnumTarget)}){Operand(value)}"),
+                "ConversionExpression");
         }
         // The same cast, for a cross-assembly enum. ClassifyShape only sees types
         // defined in the inspected assembly, so a framework enum like
@@ -2014,7 +2003,7 @@ public sealed partial class CSharpPrinter
             && target is { } unknownEnum
             && CoercionRendering.CanSpellUnknownEnumConstant(EffectiveType(value), unknownEnum, _function.TypeShapes))
         {
-            return EnumConstantText(unknownKonst, unknownEnum);
+            return new(EnumConstantText(unknownKonst, unknownEnum), "ConversionExpression");
         }
         // A bool-valued expression flowing into an integer target is IL's
         // comparison/test result consumed as a number — `cgt.un; ret` from an int
@@ -2029,26 +2018,41 @@ public sealed partial class CSharpPrinter
             // and wider signed targets; narrow and unsigned targets need the
             // explicit cast — `(byte)(b ? 1 : 0)` (slice-5b round 4: denying
             // these severed single live ranges into unassigned reads).
-            return BoolToIntegerText(value, intTarget);
+            var rendered = BoolToInteger(value, intTarget);
+            string kind = intTarget is
+            {
+                Namespace: "System",
+                Name: "Int32" or "Int64",
+                Assembly: TypeRef.CoreLibrary,
+            }
+                ? "ConditionalExpression"
+                : "ConversionExpression";
+            return new(rendered.Text, kind);
         }
         if (value is Conditional conditional
             && target is { } conditionalTarget
             && TryConditionalTextForTarget(conditional, conditionalTarget) is { } targetedConditional)
-            return targetedConditional;
+        {
+            return new(
+                targetedConditional,
+                SpellsAsLogicalAnd(conditional)
+                    ? "BinaryExpression"
+                    : "ConditionalExpression");
+        }
         if (value is SwitchExpression switchExpression
             && target is { } switchTarget
             && CanRenderSwitchExpressionForTarget(switchExpression, switchTarget))
-            return SwitchExpressionInline(switchExpression, switchTarget);
+            return new(SwitchExpressionInline(switchExpression, switchTarget), "SwitchExpression");
         if (value is UnionSwitchExpression unionSwitchExpression
             && target is { } unionSwitchTarget)
-            return UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget);
+            return new(UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget), "SwitchExpression");
         if (value is TupleSwitchExpression tupleSwitchExpression
             && target is { } tupleSwitchTarget)
-            return TupleSwitchExpressionInline(tupleSwitchExpression, tupleSwitchTarget);
+            return new(TupleSwitchExpressionInline(tupleSwitchExpression, tupleSwitchTarget), "SwitchExpression");
         if (value is Coalesce coalesce
             && target is { } coalesceTarget
             && TryCoalesceTextForTarget(coalesce, coalesceTarget) is { } targetedCoalesce)
-            return targetedCoalesce;
+            return new(targetedCoalesce, "CoalesceExpression");
         // Cast only off a value whose rendered C# type reliably equals its IR
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of
@@ -2056,18 +2060,25 @@ public sealed partial class CSharpPrinter
         // generic bodies, where a keyed cast would be illegal (CS0030). Leave
         // those to render as-is (the enum cast above is the one safe exception).
         if (value is Conditional or Coalesce or LoadStackSlot)
-            return Expression(value);
+            return TransparentCoercion(value);
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a
         // negative into unsigned, a bitmask wider than the target — does not
         // convert bare and is CS0266/CS0221, so reinterpret its bits with an
         // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
-            return NumericConstant(konst, t);
+        {
+            long literal = konst.Value is int i ? i : (long)konst.Value!;
+            return new(
+                NumericConstant(konst, t),
+                CSharpConversionRules.ConstantFits(literal, t)
+                    ? "LiteralExpression"
+                    : "ConversionExpression");
+        }
         if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(EffectiveType(value), numericTarget))
-            return Expression(value);
+            return TransparentCoercion(value);
         if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
-            return Expression(value);
+            return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
         // target on the conversion's operand, not (char)((ushort)x). An
@@ -2077,10 +2088,29 @@ public sealed partial class CSharpPrinter
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, numericTarget))
-            return conv.Operand is Constant { Value: int or long } convConst
-                ? NumericConstant(convConst, numericTarget)
-                : CheckedSafeNumericCast(EffectiveType(conv.Operand), numericTarget, () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}");
-        return CheckedSafeNumericCast(EffectiveType(value), numericTarget, () => $"({TypeText(numericTarget)}){Operand(value)}");
+        {
+            if (conv.Operand is Constant { Value: int or long } convConst)
+            {
+                long literal = convConst.Value is int i ? i : (long)convConst.Value!;
+                return new(
+                    NumericConstant(convConst, numericTarget),
+                    CSharpConversionRules.ConstantFits(literal, numericTarget)
+                        ? "LiteralExpression"
+                        : "ConversionExpression");
+            }
+            return new(
+                CheckedSafeNumericCast(
+                    EffectiveType(conv.Operand),
+                    numericTarget,
+                    () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}"),
+                "ConversionExpression");
+        }
+        return new(
+            CheckedSafeNumericCast(
+                EffectiveType(value),
+                numericTarget,
+                () => $"({TypeText(numericTarget)}){Operand(value)}"),
+            "ConversionExpression");
     }
 
     string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)

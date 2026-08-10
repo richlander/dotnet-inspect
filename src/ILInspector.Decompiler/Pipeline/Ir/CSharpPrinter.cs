@@ -4106,11 +4106,11 @@ public sealed partial class CSharpPrinter
 
     string BoxText(Box box)
     {
-        string text = CoerceText(box.Operand, box.Type);
+        var rendered = RenderCoercion(box.Operand, box.Type);
         return WithNodeKind(
             box,
-            text,
-            CoerceSurfaceKind(box.Operand, box.Type, text));
+            rendered.Text,
+            rendered.Kind);
     }
 
     string DerefLoadSurfaceKind(LoadIndirect load)
