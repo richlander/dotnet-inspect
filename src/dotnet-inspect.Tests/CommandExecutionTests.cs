@@ -11289,6 +11289,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
         Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', all);
+        Assert.DoesNotContain('\r', windowed);
 
         static int DataRows(string output) =>
             output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
@@ -11296,6 +11298,32 @@ public partial class CommandExecutionTests
 
         Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
         Assert.Equal(2, DataRows(windowed));
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+            var (windowedExit, windowed, windowedError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, windowedExit);
+            Assert.DoesNotContain("Tip:", error);
+            Assert.DoesNotContain("Tip:", windowedError);
+            Assert.Contains('\n', output);
+            Assert.Contains('\n', windowed);
+            Assert.DoesNotContain('\r', output);
+            Assert.DoesNotContain('\r', windowed);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -13576,6 +13604,8 @@ public partial class CommandExecutionTests
 
                 Assert.Equal(1, exit);
                 Assert.False(string.IsNullOrWhiteSpace(output));
+                if (outputOption.Length == 0)
+                    Assert.DoesNotContain('\r', output);
                 Assert.Contains(
                     "Integrations inspection failed for",
                     commandError,

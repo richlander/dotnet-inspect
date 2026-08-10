@@ -2639,7 +2639,7 @@ public class PackageCommand
         if (libraryOptions.Count)
             CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
-            Console.WriteLine(markdown);
+            OutputFormatter.WriteLfLine(Console.Out, markdown);
         return completionExitCode;
     }
 
@@ -3048,8 +3048,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.AppendLine($"# {title}");
-        sb.AppendLine();
+        sb.Append("# ").Append(title).Append('\n').Append('\n');
 
         foreach (var section in sections)
         {
@@ -3072,15 +3071,16 @@ public class PackageCommand
         {
             Sections = [new AggregatedSectionView { Name = section, Body = table }]
         };
-        var rendered = MarkoutSerializer.Serialize(
-            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows)).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            document, output, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
+        var rendered = output.ToString().Trim();
         if (rendered.Length == 0)
             return;
 
         if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine(rendered);
-        sb.AppendLine();
+            sb.Append('\n');
+        sb.Append(rendered).Append('\n').Append('\n');
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3201,9 +3201,8 @@ public class PackageCommand
                 continue;
 
             if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.AppendLine();
-            sb.AppendLine(rendered);
-            sb.AppendLine();
+                sb.Append('\n');
+            sb.Append(rendered).Append('\n').Append('\n');
         }
     }
 
@@ -3218,7 +3217,9 @@ public class PackageCommand
             // the only text this path edits, and it does not touch rows.
             RowWindow = RowWindow.ToMarkout(options.Rows)
         };
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(view, output, InspectionContext.Default, writerOptions);
+        var markdown = output.ToString().Trim();
         if (markdown.Length == 0)
             return "";
 
