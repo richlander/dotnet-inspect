@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.ExceptionServices;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -1117,17 +1118,47 @@ public class PdbContext : IDisposable
 
         BlobHandle value = default;
         bool found = false;
-        foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
+        Exception? scanError = null;
+        try
         {
-            var info = _pdbReader.GetCustomDebugInformation(handle);
-            if (_pdbReader.GetGuid(info.Kind) != kind)
-                continue;
+            foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
+            {
+                CustomDebugInformation info;
+                try
+                {
+                    info = _pdbReader.GetCustomDebugInformation(handle);
+                    if (_pdbReader.GetGuid(info.Kind) != kind)
+                        continue;
+                }
+                catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
+                {
+                    scanError ??= ex;
+                    continue;
+                }
 
+                if (found)
+                    return new(PdbCustomDebugInformationStatus.Duplicate, null);
+
+                found = true;
+                value = info.Value;
+            }
+        }
+        catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
+        {
+            scanError ??= ex;
+        }
+
+        if (scanError is not null)
+        {
             if (found)
-                return new(PdbCustomDebugInformationStatus.Duplicate, null);
+            {
+                return new(
+                    PdbCustomDebugInformationStatus.Present,
+                    null,
+                    scanError.Message);
+            }
 
-            found = true;
-            value = info.Value;
+            ExceptionDispatchInfo.Capture(scanError).Throw();
         }
 
         if (!found)
@@ -1139,9 +1170,7 @@ public class PdbContext : IDisposable
                 PdbCustomDebugInformationStatus.Present,
                 _pdbReader.GetBlobBytes(value));
         }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentOutOfRangeException)
+        catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
         {
             return new(
                 PdbCustomDebugInformationStatus.Present,
@@ -1149,6 +1178,11 @@ public class PdbContext : IDisposable
                 ex.Message);
         }
     }
+
+    static bool IsCustomDebugInformationReadFailure(Exception exception)
+        => exception is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException;
 
     private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(
         MetadataReader metadata,

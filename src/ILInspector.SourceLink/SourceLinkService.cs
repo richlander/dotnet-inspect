@@ -24,6 +24,8 @@ public record SourceDocument(
 /// </summary>
 public sealed class SourceLinkService : IDisposable
 {
+    static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     static readonly Guid SourceLinkKind =
         new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
     static readonly Guid EmbeddedSourceKind =
@@ -304,7 +306,7 @@ public sealed class SourceLinkService : IDisposable
                 return;
             }
 
-            _sourceLinkJson = Encoding.UTF8.GetString(sourceLink.Value);
+            _sourceLinkJson = StrictUtf8.GetString(sourceLink.Value);
             _map = SLF.SourceLinkResolver.Parse(_sourceLinkJson);
             _pathResolver = SourceDocumentPathResolver.Create(_map);
             _resolver = new SourceLinkResolver(_context, _map);
@@ -417,7 +419,8 @@ public sealed class SourceLinkService : IDisposable
     static bool IsPdbInspectionFailure(Exception exception)
         => exception is BadImageFormatException
             or InvalidOperationException
-            or ArgumentOutOfRangeException;
+            or ArgumentOutOfRangeException
+            or DecoderFallbackException;
 
     public void Dispose() => _context.Dispose();
 }

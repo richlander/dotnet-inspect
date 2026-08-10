@@ -634,6 +634,90 @@ public sealed class MetadataSourceFindingsTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MalformedCdiAlongsideSourceLink_PreservesProvenSourceLinkPresence(
+        bool malformedFirst)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteSourceLinkAlongsideMalformedCdiPdb(
+            assemblyPath,
+            pdbPath,
+            malformedFirst);
+
+        try
+        {
+            using (var context = PdbContext.Open(assemblyPath))
+            {
+                var result = context.ReadModuleCustomDebugInformation(SourceLinkKind);
+                Assert.Equal(PdbCustomDebugInformationStatus.Present, result.Status);
+                Assert.Null(result.Value);
+                Assert.NotNull(result.Error);
+            }
+
+            using var source = SourceLinkService.Open(assemblyPath);
+            Assert.True(source.HasSourceLink);
+            Assert.Equal(SourceLinkMapStatus.Unusable, source.SourceLinkMap.Status);
+            Assert.Contains(
+                "could not be read",
+                source.SourceLinkMap.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("/_/*", true)]
+    [InlineData("/_1/*", true)]
+    [InlineData("/_12/*", true)]
+    [InlineData("/_0/*", false)]
+    [InlineData("/_01/*", false)]
+    [InlineData("/_evil/*", false)]
+    [InlineData("/_", false)]
+    public void DeterministicSourceRoots_MatchRoslynGeneratedPrefixFamily(
+        string path,
+        bool expected)
+        => Assert.Equal(expected, SourceDocumentPath.HasDeterministicRoot(path));
+
+    [Fact]
+    public void InvalidUtf8SourceLink_IsReportedAsUnusable()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteInvalidUtf8SourceLinkPdb(assemblyPath, pdbPath);
+
+        try
+        {
+            using var source = SourceLinkService.Open(assemblyPath);
+            Assert.True(source.HasSourceLink);
+            Assert.Null(source.SourceLinkJson);
+            Assert.Equal(SourceLinkMapStatus.Unusable, source.SourceLinkMap.Status);
+            Assert.Contains(
+                "could not be read",
+                source.SourceLinkMap.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void DuplicateCustomDebugInformation_IsRejectedWithoutCopyingItsBlobs()
     {
@@ -759,6 +843,57 @@ public sealed class MetadataSourceFindingsTests
         });
         PatchStreamSize(image, "#Blob", 0);
         File.WriteAllBytes(pdbPath, image);
+    }
+
+    static void WriteSourceLinkAlongsideMalformedCdiPdb(
+        string assemblyPath,
+        string pdbPath,
+        bool malformedFirst)
+    {
+        WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var blob = new BlobBuilder();
+            blob.WriteUTF8("""{"documents":{"/_/*":"https://example.test/*"}}""");
+            var value = pdbMetadata.GetOrAddBlob(blob);
+            var sourceLinkKind = pdbMetadata.GetOrAddGuid(SourceLinkKind);
+            var malformedKind = MetadataTokens.GuidHandle(ushort.MaxValue);
+
+            if (malformedFirst)
+            {
+                pdbMetadata.AddCustomDebugInformation(
+                    EntityHandle.ModuleDefinition,
+                    malformedKind,
+                    value);
+            }
+
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                sourceLinkKind,
+                value);
+
+            if (!malformedFirst)
+            {
+                pdbMetadata.AddCustomDebugInformation(
+                    EntityHandle.ModuleDefinition,
+                    malformedKind,
+                    value);
+            }
+        });
+    }
+
+    static void WriteInvalidUtf8SourceLinkPdb(string assemblyPath, string pdbPath)
+    {
+        WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var blob = new BlobBuilder();
+            blob.WriteUTF8("""{"documents":{"/_/*":"https://example.test/""");
+            blob.WriteByte(0xFF);
+            blob.WriteUTF8("""*"}}""");
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                pdbMetadata.GetOrAddGuid(SourceLinkKind),
+                pdbMetadata.GetOrAddBlob(blob));
+        });
     }
 
     static void WriteDuplicateSourceLinkPdb(string assemblyPath, string pdbPath)
