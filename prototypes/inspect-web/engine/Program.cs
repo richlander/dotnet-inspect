@@ -6,19 +6,19 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
-using DotnetInspector.CSharpBodySlicer;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using NuGet.Versioning;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 using Research = ILInspector.Research;
@@ -523,10 +523,17 @@ public static partial class BrowserInspectionEngine
     static readonly Dictionary<string, PackageCacheEntry> PackageCache = new(StringComparer.Ordinal);
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
+    const int MaxPackageBytes = 64 * 1024 * 1024;
+    const int MaxAssemblyBytes = 64 * 1024 * 1024;
+    const int MaxDocumentBytes = 4 * 1024 * 1024;
+    const int MaxIndexBytes = 4 * 1024 * 1024;
+    const int MaxRuntimeCacheEntries = 16;
+    const long MaxRuntimeCacheBytes = 128L * 1024 * 1024;
     static long _packageCacheClock;
     static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
 
     sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
+    sealed record RuntimeFileCacheEntry(byte[] Bytes, long LastAccess);
     sealed record SelectedPackageAssembly(
         PackageCompileAsset Asset,
         byte[] Image);
@@ -573,9 +580,10 @@ public static partial class BrowserInspectionEngine
 
             await using (entryStream)
             {
-                using var assemblyStream = new MemoryStream();
-                await entryStream.CopyToAsync(assemblyStream);
-                var image = assemblyStream.ToArray();
+                var image = await ReadLimitedAsync(
+                    entryStream,
+                    MaxAssemblyBytes,
+                    $"Assembly '{asset.Path}'");
 
                 var reference = ResolvedAssemblyReference.Create(
                     new AssemblyReferenceIdentity(
@@ -605,9 +613,12 @@ public static partial class BrowserInspectionEngine
                 // member lists from the surface above; the includeAll surface would also expand
                 // every public type's members to include private ones, so we take non-public
                 // TYPES from it but not the public entries.
+                var publicTypeIds = publicTypes
+                    .Select(type => type.Id)
+                    .ToHashSet(StringComparer.Ordinal);
                 var nonPublicTypes = inspection.ApiSurface(includeAll: true).Types
-                    .Where(type => !string.IsNullOrWhiteSpace(type.Accessibility))
                     .Select(type => ToBrowserType(type, asset.AssemblyName))
+                    .Where(type => !publicTypeIds.Contains(type.Id))
                     .ToArray();
 
                 var assemblyTypes = publicTypes
@@ -615,6 +626,12 @@ public static partial class BrowserInspectionEngine
                     .OrderBy(type => type.Namespace, StringComparer.Ordinal)
                     .ThenBy(type => type.Name, StringComparer.Ordinal)
                     .ToArray();
+                if (assemblyTypes.Select(type => type.Id).Distinct(StringComparer.Ordinal).Count()
+                    != assemblyTypes.Length)
+                {
+                    throw new InvalidOperationException(
+                        $"Assembly '{asset.AssemblyName}' produced duplicate browser type identities.");
+                }
 
                 assemblies.Add(new BrowserAssemblySurface(
                     asset.Id,
@@ -677,13 +694,25 @@ public static partial class BrowserInspectionEngine
             var segments = fullName.Split('/');
             var fileName = segments[^1];
             var isRoot = segments.Length == 1;
+            var isBrowsable =
+                (isRoot
+                    && (fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase)
+                        || fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase)))
+                || (fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+                    && IsUnderSkillsDirectory(segments));
+            if (isBrowsable && entry.Length > MaxDocumentBytes)
+            {
+                throw new InvalidDataException(
+                    $"Browsable document '{fullName}' exceeds the "
+                    + $"{MaxDocumentBytes}-byte limit.");
+            }
 
             if (isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase))
-                documents.Add(new BrowserPackageDocument("readme", fileName, fullName, (int)entry.Length));
+                documents.Add(new BrowserPackageDocument("readme", fileName, fullName, checked((int)entry.Length)));
             else if (isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase))
-                documents.Add(new BrowserPackageDocument("package", fileName, fullName, (int)entry.Length));
+                documents.Add(new BrowserPackageDocument("package", fileName, fullName, checked((int)entry.Length)));
             else if (fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && IsUnderSkillsDirectory(segments))
-                documents.Add(new BrowserPackageDocument("skill", SkillDisplayName(segments), fullName, (int)entry.Length));
+                documents.Add(new BrowserPackageDocument("skill", SkillDisplayName(segments), fullName, checked((int)entry.Length)));
         }
 
         // Stable order: README, then PACKAGE, then skills alphabetically.
@@ -741,8 +770,11 @@ public static partial class BrowserInspectionEngine
         var entry = archive.GetEntry(document.Path)
             ?? throw new InvalidOperationException($"'{path}' was not found in the package.");
         await using var entryStream = entry.Open();
-        using var reader = new StreamReader(entryStream, Encoding.UTF8);
-        var text = await reader.ReadToEndAsync();
+        var bytes = await ReadLimitedAsync(
+            entryStream,
+            MaxDocumentBytes,
+            $"Browsable document '{document.Path}'");
+        var text = AuthoredSourceAcquisition.DecodeSourceText(bytes);
 
         var content = new BrowserPackageDocumentContent(document.Kind, document.Name, document.Path, text);
         return JsonSerializer.Serialize(content, BrowserJsonContext.Default.BrowserPackageDocumentContent);
@@ -833,7 +865,7 @@ public static partial class BrowserInspectionEngine
 
         var indexUrl =
             $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/index.json";
-        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        var indexBytes = await GetBytesLimitedAsync(indexUrl, MaxIndexBytes, "Package version index");
         using var document = JsonDocument.Parse(indexBytes);
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -844,6 +876,66 @@ public static partial class BrowserInspectionEngine
         return versions.LastOrDefault(candidate => !candidate.Contains('-'))
             ?? throw new InvalidOperationException(
                 $"Package '{normalizedId}' has no stable published version. Specify a prerelease version explicitly.");
+    }
+
+    [JSExport]
+    public static string SortPackageVersions(string versionsJson)
+    {
+        var versions = JsonSerializer.Deserialize(
+                versionsJson,
+                BrowserJsonContext.Default.StringArray)
+            ?? [];
+        var parsed = versions
+            .Select(value => (
+                Value: value,
+                Parsed: NuGetVersion.TryParse(value, out var version),
+                Version: version))
+            .ToArray();
+        var sorted = parsed
+            .Where(item => item.Parsed)
+            .OrderByDescending(item => item.Version, VersionComparer.VersionReleaseMetadata)
+            .Select(item => item.Value)
+            .Concat(parsed
+                .Where(item => !item.Parsed)
+                .Select(item => item.Value)
+                .Order(StringComparer.Ordinal))
+            .ToArray();
+        return JsonSerializer.Serialize(sorted, BrowserJsonContext.Default.StringArray);
+    }
+
+    [JSExport]
+    public static async Task<string> ResolveDependencyVersion(
+        string packageId,
+        string? versionRange)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        var normalizedId = packageId.ToLowerInvariant();
+        var indexUrl =
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/index.json";
+        var indexBytes = await GetBytesLimitedAsync(indexUrl, MaxIndexBytes, "Package version index");
+        using var document = JsonDocument.Parse(indexBytes);
+        var versions = document.RootElement.GetProperty("versions")
+            .EnumerateArray()
+            .Select(element => element.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => NuGetVersion.Parse(value!))
+            .ToArray();
+
+        if (string.IsNullOrWhiteSpace(versionRange))
+        {
+            return versions
+                .Where(version => !version.IsPrerelease)
+                .OrderByDescending(version => version, VersionComparer.VersionReleaseMetadata)
+                .FirstOrDefault()?.ToNormalizedString()
+                ?? throw new InvalidOperationException(
+                    $"Package '{packageId}' has no stable published version.");
+        }
+
+        return DependencyResolutionService.ResolveVersionFromRange(
+                versionRange,
+                versions.Select(version => version.ToNormalizedString()))
+            ?? throw new InvalidOperationException(
+                $"Package '{packageId}' has no published version satisfying '{versionRange}'.");
     }
 
     [JSExport]
@@ -949,7 +1041,8 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string memberName,
-        string memberSignature,
+        string stableSelector,
+        int metadataToken,
         string styleOptionsJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
@@ -966,7 +1059,11 @@ public static partial class BrowserInspectionEngine
             var symbolPackageUrl =
                 $"https://globalcdn.nuget.org/symbol-packages/" +
                 $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
-            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+            var pdbUnavailable = await TryAcquirePackagePdbAsync(
+                symbolPackageUrl,
+                targetFramework,
+                assemblyName,
+                pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
@@ -976,20 +1073,27 @@ public static partial class BrowserInspectionEngine
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
-            var member = type.Members.FirstOrDefault(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal)
-                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            var member = ResolveBrowserMember(
+                type,
+                memberName,
+                stableSelector,
+                metadataToken == 0 ? null : metadataToken);
 
-            if (File.Exists(pdbPath)
-                && member.MetadataToken is int token
-                && await TryGetAuthoredSourceAsync(
+            string? authoredUnavailable = pdbUnavailable;
+            if (File.Exists(pdbPath) && member.MetadataToken is int token)
+            {
+                var authored = await TryGetAuthoredSourceAsync(
                     implementationPath,
                     type,
                     member,
-                    token) is { } authored)
-            {
-                return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
+                    token);
+                if (authored.Source is { } source)
+                {
+                    return JsonSerializer.Serialize(
+                        source,
+                        BrowserJsonContext.Default.BrowserMemberSource);
+                }
+                authoredUnavailable = authored.Absence;
             }
 
             var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null, printerOptions: BuildPrinterOptions(styleOptionsJson));
@@ -1001,7 +1105,10 @@ public static partial class BrowserInspectionEngine
                     "decompiled",
                     text,
                     null,
-                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"
+                    + (authoredUnavailable is { Length: > 0 }
+                        ? $"; authored source unavailable: {authoredUnavailable}"
+                        : "")),
                 BrowserJsonContext.Default.BrowserMemberSource);
         }
         finally
@@ -1023,7 +1130,8 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string memberName,
-        string memberSignature,
+        string stableSelector,
+        int metadataToken,
         string styleOptionsJson)
     {
         _ = styleOptionsJson;
@@ -1041,7 +1149,11 @@ public static partial class BrowserInspectionEngine
             var symbolPackageUrl =
                 $"https://globalcdn.nuget.org/symbol-packages/" +
                 $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
-            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+            _ = await TryAcquirePackagePdbAsync(
+                symbolPackageUrl,
+                targetFramework,
+                assemblyName,
+                pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
@@ -1051,10 +1163,11 @@ public static partial class BrowserInspectionEngine
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
-            var member = type.Members.FirstOrDefault(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal)
-                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            var member = ResolveBrowserMember(
+                type,
+                memberName,
+                stableSelector,
+                metadataToken == 0 ? null : metadataToken);
             if (member.MetadataToken is not int token)
                 throw new InvalidOperationException("The selected member has no method body identity.");
 
@@ -1287,13 +1400,14 @@ public static partial class BrowserInspectionEngine
                 else
                 {
                     using (assemblyStream)
-                    using (var buffer = new MemoryStream())
                     {
-                        await assemblyStream.CopyToAsync(buffer);
+                        var image = await ReadLimitedAsync(
+                            assemblyStream,
+                            MaxAssemblyBytes,
+                            $"Assembly '{selectedAssembly.Path}'");
                         AssemblyReferencesResult references;
                         try
                         {
-                            var image = buffer.ToArray();
                             var reference = ResolvedAssemblyReference.Create(
                                 new AssemblyReferenceIdentity(
                                     Path.GetFileNameWithoutExtension(
@@ -2529,7 +2643,6 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string memberName,
-        string memberSignature,
         string selectorKey,
         int metadataToken,
         string workspaceJson)
@@ -2624,20 +2737,15 @@ public static partial class BrowserInspectionEngine
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
-            var resolution = metadataToken != 0 && !string.IsNullOrWhiteSpace(selectorKey)
-                ? Analysis.CallGraphMemberResolver.Resolve(
+            var resolution = Analysis.CallGraphMemberResolver.Resolve(
                     type,
                     memberName,
                     selectorKey,
-                    metadataToken)
-                : null;
-            var member = resolution?.Member ?? type.Members.FirstOrDefault(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal)
-                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
-            int token = resolution?.BodyToken
-                ?? member.MetadataToken
-                ?? throw new InvalidOperationException("The selected member has no method body identity.");
+                    metadataToken == 0 ? null : metadataToken)
+                ?? throw new InvalidOperationException(
+                    $"Structured call-graph identity did not resolve '{memberName}' on '{typeId}'.");
+            var member = resolution.Member;
+            int token = resolution.BodyToken;
 
             // Abstract and interface methods declare no IL body, so there is nothing to graph.
             // Building the tree anyway yields a lone "<unsupported: method token …>" root; return
@@ -2727,9 +2835,9 @@ public static partial class BrowserInspectionEngine
             var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
             CallGraphProjection graph = CallGraphProjection.Create(callers, callees);
             var result = new BrowserCallGraph(
-                CallGraphMermaid.Render(
+                BrowserCallGraphMermaid.Render(
                     graph,
-                    new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
+                    new BrowserCallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
                 ToBrowserCallNode(callers),
                 ToBrowserCallNode(callees),
                 new BrowserCallGraphScope(
@@ -2755,7 +2863,8 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string memberName,
-        string memberSignature)
+        string stableSelector,
+        int metadataToken)
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
@@ -2774,10 +2883,11 @@ public static partial class BrowserInspectionEngine
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
-            var member = type.Members.FirstOrDefault(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal)
-                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            var member = ResolveBrowserMember(
+                type,
+                memberName,
+                stableSelector,
+                metadataToken == 0 ? null : metadataToken);
             if (member.MetadataToken is not int token)
                 throw new InvalidOperationException("The selected member has no method body identity.");
 
@@ -2951,60 +3061,46 @@ public static partial class BrowserInspectionEngine
                 ? RootDefinition(element)
                 : type;
 
-    static async Task<BrowserMemberSource?> TryGetAuthoredSourceAsync(
+    static async Task<(BrowserMemberSource? Source, string? Absence)> TryGetAuthoredSourceAsync(
         string assemblyPath,
         ApiType type,
         ApiMember member,
         int metadataToken)
     {
-        try
+        using var source = SourceLinkService.Open(assemblyPath);
+        if (!source.HasPdb)
+            return (null, "The implementation assembly has no portable PDB.");
+
+        var subject = new FindingSubject(
+            ApiMemberIdentity.GetMemberAnchor(type, member).StableSelector,
+            $"{type.FullName}.{member.Name}");
+        var authored = await AuthoredSourceAcquisition.AcquireMemberAsync(
+            source,
+            metadataToken,
+            member.Name,
+            subject,
+            new SourceFetcher(Http),
+            allowNetwork: false);
+        if (authored.Lines.Value is FindingInspection<string>.Failed failed)
         {
-            using var source = SourceLinkService.Open(assemblyPath);
-            if (!source.HasPdb)
-                return null;
+            throw new InvalidOperationException(
+                $"Authored source acquisition failed: {failed.Error.Reason}");
+        }
+        if (authored.Lines.Value is FindingInspection<string>.Absent absent)
+            return (null, absent.Detail);
+        if (authored.Text is not { Length: > 0 } text)
+        {
+            throw new InvalidOperationException(
+                "Authored source acquisition completed without member text.");
+        }
 
-            var sameName = type.Members
-                .Where(candidate => candidate.Name == member.Name && candidate.Kind == member.Kind)
-                .ToArray();
-            var overloadIndex = Array.IndexOf(sameName, member);
-            var mapping = source.ResolveMethodSource(type.FullName, member.Name, Math.Max(0, overloadIndex), publicOnly: false);
-            if (mapping?.SourceUrl is not { Length: > 0 } url)
-                return null;
-
-            var bytes = await Http.GetByteArrayAsync(url);
-            if (!ChecksumMatches(mapping.ChecksumAlgorithm, mapping.Checksum, bytes))
-                return null;
-
-            var text = BodySlicer.ExtractMethodBody(
-                Encoding.UTF8.GetString(bytes),
-                mapping.StartLine,
-                mapping.EndLine,
-                member.Name);
-            if (text is null)
-                return null;
-            return new BrowserMemberSource(
+        return (
+            new BrowserMemberSource(
                 "original",
                 text,
-                url,
-                $"Checksum-verified SourceLink source for metadata token 0x{metadataToken:x8}");
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    static bool ChecksumMatches(string? algorithm, byte[]? expected, byte[] content)
-    {
-        if (expected is not { Length: > 0 })
-            return false;
-        byte[] actual = algorithm?.ToUpperInvariant() switch
-        {
-            "SHA1" or "SHA-1" => SHA1.HashData(content),
-            "SHA256" or "SHA-256" => SHA256.HashData(content),
-            _ => []
-        };
-        return actual.Length > 0 && CryptographicOperations.FixedTimeEquals(actual, expected);
+                authored.Document?.ResolvedUrl,
+                $"Checksum-verified authored source for metadata token 0x{metadataToken:x8}"),
+            null);
     }
 
     // WASM PDB-acquisition policy: NuGet .snupkg only.
@@ -3021,7 +3117,7 @@ public static partial class BrowserInspectionEngine
     // header, so a browser fetch in cors mode aborts with "Failed to fetch" before
     // it ever reaches the blob (verified). MSDL-backed PDBs must instead be
     // precomputed at build/publish time and shipped as same-origin static assets.
-    static async Task TryAcquirePackagePdbAsync(
+    static async Task<string?> TryAcquirePackagePdbAsync(
         string symbolPackageUrl,
         string targetFramework,
         string assemblyName,
@@ -3029,10 +3125,16 @@ public static partial class BrowserInspectionEngine
     {
         try
         {
-            using var response = await Http.GetAsync(symbolPackageUrl);
+            using var response = await Http.GetAsync(
+                symbolPackageUrl,
+                HttpCompletionOption.ResponseHeadersRead);
             if (!response.IsSuccessStatusCode)
-                return;
-            var bytes = await response.Content.ReadAsByteArrayAsync();
+                return $"Symbol package returned HTTP {(int)response.StatusCode}.";
+            await using var responseStream = await response.Content.ReadAsStreamAsync();
+            var bytes = await ReadLimitedAsync(
+                responseStream,
+                MaxPackageBytes,
+                "Symbol package");
             using var stream = new MemoryStream(bytes, writable: false);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
             var pdbName = Path.ChangeExtension(assemblyName, ".pdb");
@@ -3040,19 +3142,30 @@ public static partial class BrowserInspectionEngine
                 candidate.FullName.Equals($"lib/{targetFramework}/{pdbName}", StringComparison.OrdinalIgnoreCase))
                 ?? archive.Entries.FirstOrDefault(candidate =>
                     candidate.Name.Equals(pdbName, StringComparison.OrdinalIgnoreCase));
-            if (entry is not null)
-                await WriteEntryAsync(entry, destination);
+            if (entry is null)
+                return $"Symbol package does not contain '{pdbName}'.";
+            await WriteEntryAsync(entry, destination);
+            return null;
         }
-        catch
+        catch (HttpRequestException exception)
         {
+            return $"Symbol package acquisition failed: {exception.Message}";
         }
     }
 
     static async Task WriteEntryAsync(ZipArchiveEntry entry, string path)
     {
+        if (entry.Length > MaxAssemblyBytes)
+        {
+            throw new InvalidDataException(
+                $"Archive entry '{entry.FullName}' exceeds the {MaxAssemblyBytes}-byte limit.");
+        }
         await using var input = entry.Open();
-        await using var output = File.Create(path);
-        await input.CopyToAsync(output);
+        var bytes = await ReadLimitedAsync(
+            input,
+            MaxAssemblyBytes,
+            $"Archive entry '{entry.FullName}'");
+        await File.WriteAllBytesAsync(path, bytes);
     }
 
     static SelectedPackageAssembly[] ReadSelectedPackageAssemblies(
@@ -3094,13 +3207,14 @@ public static partial class BrowserInspectionEngine
             }
 
             using (stream)
-            using (var buffer = new MemoryStream())
             {
-                stream.CopyTo(buffer);
                 assemblies.Add(
                     new SelectedPackageAssembly(
                         asset,
-                        buffer.ToArray()));
+                        ReadLimited(
+                            stream,
+                            MaxAssemblyBytes,
+                            $"Assembly '{asset.Path}'")));
             }
         }
 
@@ -3155,12 +3269,13 @@ public static partial class BrowserInspectionEngine
         }
 
         using (stream)
-        using (var buffer = new MemoryStream())
         {
-            stream.CopyTo(buffer);
             return new SelectedPackageAssembly(
                 asset,
-                buffer.ToArray());
+                ReadLimited(
+                    stream,
+                    MaxAssemblyBytes,
+                    $"Assembly '{asset.Path}'"));
         }
     }
 
@@ -3249,17 +3364,6 @@ public static partial class BrowserInspectionEngine
     // into a Microsoft.AspNetCore.* callee must fetch from this pack (same runtimes/ layout).
     const string AspNetCoreRuntimePackId = "microsoft.aspnetcore.app.runtime.linux-x64";
 
-    // Picks the runtime pack that carries a platform callee's implementation. The callee's
-    // TypeRef assembly (or, as a fallback, its namespace) distinguishes the ASP.NET Core
-    // shared framework from the base CoreCLR pack; everything else resolves against CoreCLR.
-    static string SelectRuntimePackId(string? assembly, string typeFullName) =>
-        (assembly?.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase) == true
-            || assembly?.StartsWith("Microsoft.Extensions", StringComparison.OrdinalIgnoreCase) == true
-            || typeFullName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)
-            || typeFullName.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal))
-            ? AspNetCoreRuntimePackId
-            : PlatformRuntimePackId;
-
     // Display id of the runtime pseudo-package the client adds to its workspace when the
     // user requests the platform pack from Spotlight. Its normalized form is the marker the
     // shared image resolver keys on to fetch from the runtime pack rather than a lib/ layout.
@@ -3273,7 +3377,10 @@ public static partial class BrowserInspectionEngine
 
     // Session cache of runtime-pack file bytes keyed by "version/fileName" so repeat
     // navigation into the pack does not re-range-fetch the same assembly.
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> RuntimeFileCache = new();
+    static readonly object RuntimeFileCacheLock = new();
+    static readonly Dictionary<string, RuntimeFileCacheEntry> RuntimeFileCache =
+        new(StringComparer.Ordinal);
+    static long _runtimeFileCacheClock;
 
     // Records which shared-framework runtime pack a resident pseudo-package assembly came
     // from (lower-cased file name -> pack id), populated by LoadRuntimePackAssembly. The
@@ -3285,12 +3392,16 @@ public static partial class BrowserInspectionEngine
     // miss). Anything unrecorded defaults to the CoreCLR pack.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> RuntimeAssemblyPack = new();
 
-    // Maps the client's platform-index pack token ("netcore.app" | "aspnetcore.app") to the
-    // concrete runtime pack id. Unknown tokens fall back to the CoreCLR pack.
-    static string RuntimePackIdForToken(string? pack) =>
-        pack is not null && pack.StartsWith("aspnetcore", StringComparison.OrdinalIgnoreCase)
-            ? AspNetCoreRuntimePackId
-            : PlatformRuntimePackId;
+    // Maps the platform index's structured pack provenance to a concrete runtime pack.
+    // Unknown provenance is rejected rather than guessed from assembly or namespace text.
+    static string RuntimePackIdForToken(string? pack) => pack switch
+    {
+        "netcore.app" or "netstandard" => PlatformRuntimePackId,
+        "aspnetcore.app" => AspNetCoreRuntimePackId,
+        _ => throw new ArgumentException(
+            $"'{pack}' is not a recognized platform pack token.",
+            nameof(pack)),
+    };
 
     // Eagerly loads the runtime pack's core assembly (System.Private.CoreLib) for the
     // workspace TFM and returns it as a package-shaped surface the client treats as a
@@ -3527,8 +3638,17 @@ public static partial class BrowserInspectionEngine
     static async Task<byte[]?> AcquireRuntimeFileAsync(string packId, string version, string fileName)
     {
         var cacheKey = $"{packId}/{version}/{fileName}";
-        if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
-            return cached;
+        lock (RuntimeFileCacheLock)
+        {
+            if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
+            {
+                RuntimeFileCache[cacheKey] = cached with
+                {
+                    LastAccess = ++_runtimeFileCacheClock,
+                };
+                return cached.Bytes;
+            }
+        }
 
         var nupkgUrl =
             $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/" +
@@ -3540,20 +3660,39 @@ public static partial class BrowserInspectionEngine
 
         byte[]? bytes = null;
         try { bytes = await RangeExtractEntryAsync(nupkgUrl, IsWanted); }
-        catch { bytes = null; }
+        catch (HttpRequestException) { bytes = null; }
         if (bytes is null)
         {
             var fullPack = await GetPackageBytesAsync(packId, version);
             bytes = ExtractEntryFromArchive(fullPack, IsWanted);
         }
         if (bytes is not null)
-            RuntimeFileCache[cacheKey] = bytes;
+        {
+            lock (RuntimeFileCacheLock)
+            {
+                while (RuntimeFileCache.Count >= MaxRuntimeCacheEntries
+                    || RuntimeFileCache.Values.Sum(entry => entry.Bytes.LongLength)
+                        + bytes.LongLength > MaxRuntimeCacheBytes)
+                {
+                    var oldestKey = RuntimeFileCache
+                        .OrderBy(entry => entry.Value.LastAccess)
+                        .Select(entry => entry.Key)
+                        .FirstOrDefault();
+                    if (oldestKey is null)
+                        break;
+                    RuntimeFileCache.Remove(oldestKey);
+                }
+                RuntimeFileCache[cacheKey] =
+                    new RuntimeFileCacheEntry(bytes, ++_runtimeFileCacheClock);
+            }
+        }
         return bytes;
     }
 
     [JSExport]
     public static async Task<string> ExpandPlatformCallGraph(
         string targetFramework,
+        string pack,
         string assembly,
         string typeFullName,
         string memberName,
@@ -3564,7 +3703,7 @@ public static partial class BrowserInspectionEngine
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
 
         var major = ParseTfmMajor(targetFramework);
-        var packId = SelectRuntimePackId(assembly, typeFullName);
+        var packId = RuntimePackIdForToken(pack);
         var version = await ResolveRuntimePackVersionAsync(packId, major);
         // TypeRef.Assembly canonicalizes the corelib facades (System.Private.CoreLib,
         // System.Runtime, mscorlib, netstandard) to "corelib"; those all implement in
@@ -3610,9 +3749,9 @@ public static partial class BrowserInspectionEngine
             var calleeNode = ToBrowserCallNode(callees);
             CallGraphProjection graph = CallGraphProjection.FromCallees(callees);
             var result = new BrowserCallGraph(
-                CallGraphMermaid.Render(
+                BrowserCallGraphMermaid.Render(
                     graph,
-                    new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
+                    new BrowserCallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
                 calleeNode with { Children = [] },
                 calleeNode,
                 new BrowserCallGraphScope(0, 1, 0, acquired.FileName),
@@ -3653,7 +3792,7 @@ public static partial class BrowserInspectionEngine
     static async Task<string> ResolveRuntimePackVersionAsync(string packId, int major)
     {
         var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/index.json";
-        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        var indexBytes = await GetBytesLimitedAsync(indexUrl, MaxIndexBytes, "Runtime-pack version index");
         using var document = JsonDocument.Parse(indexBytes);
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -3702,10 +3841,16 @@ public static partial class BrowserInspectionEngine
         var entry = archive.Entries.FirstOrDefault(candidate => match(candidate.FullName));
         if (entry is null)
             return null;
+        if (entry.Length > MaxAssemblyBytes)
+        {
+            throw new InvalidDataException(
+                $"Archive entry '{entry.FullName}' exceeds the {MaxAssemblyBytes}-byte limit.");
+        }
         using var entryStream = entry.Open();
-        using var output = new MemoryStream();
-        entryStream.CopyTo(output);
-        return output.ToArray();
+        return ReadLimited(
+            entryStream,
+            MaxAssemblyBytes,
+            $"Archive entry '{entry.FullName}'");
     }
 
     // Extracts one zip entry's bytes using HTTP range requests: a suffix range for the
@@ -3729,7 +3874,7 @@ public static partial class BrowserInspectionEngine
             return null;
         uint cdSize = BitConverter.ToUInt32(tail, eocd + 12);
         uint cdOffset = BitConverter.ToUInt32(tail, eocd + 16);
-        if (cdOffset == 0xFFFFFFFF || cdSize == 0xFFFFFFFF)
+        if (cdOffset == 0xFFFFFFFF || cdSize == 0xFFFFFFFF || cdSize > MaxIndexBytes)
             return null;
 
         var cd = await RangeGetAsync(url, from: cdOffset, length: cdSize);
@@ -3738,6 +3883,7 @@ public static partial class BrowserInspectionEngine
         {
             ushort method = BitConverter.ToUInt16(cd, p + 10);
             uint compressedSize = BitConverter.ToUInt32(cd, p + 20);
+            uint expandedSize = BitConverter.ToUInt32(cd, p + 24);
             ushort nameLength = BitConverter.ToUInt16(cd, p + 28);
             ushort extraLength = BitConverter.ToUInt16(cd, p + 30);
             ushort commentLength = BitConverter.ToUInt16(cd, p + 32);
@@ -3745,8 +3891,15 @@ public static partial class BrowserInspectionEngine
             string entryName = Encoding.UTF8.GetString(cd, p + 46, nameLength);
             if (match(entryName))
             {
-                if (compressedSize == 0xFFFFFFFF || localHeaderOffset == 0xFFFFFFFF)
+                if (compressedSize == 0xFFFFFFFF
+                    || expandedSize == 0xFFFFFFFF
+                    || localHeaderOffset == 0xFFFFFFFF)
                     return null;
+                if (compressedSize > MaxAssemblyBytes || expandedSize > MaxAssemblyBytes)
+                {
+                    throw new InvalidDataException(
+                        $"Archive entry '{entryName}' exceeds the {MaxAssemblyBytes}-byte limit.");
+                }
                 var localHeader = await RangeGetAsync(url, from: localHeaderOffset, length: 30);
                 ushort localNameLength = BitConverter.ToUInt16(localHeader, 26);
                 ushort localExtraLength = BitConverter.ToUInt16(localHeader, 28);
@@ -3758,9 +3911,10 @@ public static partial class BrowserInspectionEngine
                 {
                     using var input = new MemoryStream(data, writable: false);
                     using var inflate = new DeflateStream(input, CompressionMode.Decompress);
-                    using var output = new MemoryStream();
-                    await inflate.CopyToAsync(output);
-                    return output.ToArray();
+                    return await ReadLimitedAsync(
+                        inflate,
+                        MaxAssemblyBytes,
+                        $"Archive entry '{entryName}'");
                 }
                 return null;
             }
@@ -3775,9 +3929,21 @@ public static partial class BrowserInspectionEngine
         request.Headers.Range = suffix is { } tailLength
             ? new RangeHeaderValue(null, tailLength)
             : new RangeHeaderValue(from, from + length - 1);
-        using var response = await Http.SendAsync(request);
+        using var response = await Http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsByteArrayAsync();
+        var maximum = suffix ?? length ?? MaxIndexBytes;
+        if (maximum > MaxAssemblyBytes)
+        {
+            throw new InvalidDataException(
+                $"Requested HTTP range exceeds the {MaxAssemblyBytes}-byte limit.");
+        }
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        return await ReadLimitedAsync(
+            stream,
+            (int)maximum,
+            "HTTP range response");
     }
 
     // Returns the target assembly simple name when the requested type is an ECMA-335
@@ -3823,6 +3989,48 @@ public static partial class BrowserInspectionEngine
             : $"{type.Namespace}.{name}";
     }
 
+    static ApiMember ResolveBrowserMember(
+        ApiType type,
+        string memberName,
+        string stableSelector,
+        int? metadataToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(stableSelector);
+        var matches = type.Members
+            .Where(member =>
+                ApiMemberIdentity.GetMemberAnchor(type, member).StableSelector.Equals(
+                    stableSelector,
+                    StringComparison.Ordinal))
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"Structured selector '{stableSelector}' did not identify one member on "
+                + $"'{ApiTypeMetadataId(type)}'.");
+        }
+
+        var match = matches[0];
+        if (!match.Name.Equals(memberName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Structured selector '{stableSelector}' identifies '{match.Name}', not "
+                + $"'{memberName}'.");
+        }
+
+        if (metadataToken is { } token
+            && match.MetadataToken != token
+            && match.GetterToken != token
+            && match.SetterToken != token
+            && match.AdderToken != token
+            && match.RemoverToken != token)
+        {
+            throw new InvalidOperationException(
+                $"Metadata token 0x{token:X8} does not belong to '{stableSelector}'.");
+        }
+
+        return match;
+    }
+
 
     static async Task<byte[]> GetPackageBytesAsync(string normalizedId, string normalizedVersion)
     {
@@ -3840,14 +4048,14 @@ public static partial class BrowserInspectionEngine
             $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/" +
             $"{Uri.EscapeDataString(normalizedVersion)}/" +
             $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.nupkg";
-        var bytes = await Http.GetByteArrayAsync(packageUrl);
+        var bytes = await GetBytesLimitedAsync(
+            packageUrl,
+            MaxPackageBytes,
+            $"Package '{normalizedId} {normalizedVersion}'");
         lock (PackageCacheLock)
         {
             DownloadedPackages.Add(key);
         }
-        if (bytes.LongLength > MaxCachedPackageBytes)
-            return bytes;
-
         lock (PackageCacheLock)
         {
             while (PackageCache.Count >= MaxCachedPackages
@@ -3865,6 +4073,73 @@ public static partial class BrowserInspectionEngine
             PackageCache[key] = new PackageCacheEntry(bytes, ++_packageCacheClock);
         }
         return bytes;
+    }
+
+    static async Task<byte[]> GetBytesLimitedAsync(
+        string url,
+        int maximumBytes,
+        string description)
+    {
+        using var response = await Http.GetAsync(
+            url,
+            HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is { } length
+            && length > maximumBytes)
+        {
+            throw new InvalidDataException(
+                $"{description} declares {length} bytes, exceeding the "
+                + $"{maximumBytes}-byte limit.");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        return await ReadLimitedAsync(stream, maximumBytes, description);
+    }
+
+    static async Task<byte[]> ReadLimitedAsync(
+        Stream stream,
+        int maximumBytes,
+        string description)
+    {
+        using var output = new MemoryStream(Math.Min(maximumBytes, 64 * 1024));
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            int remaining = maximumBytes - checked((int)output.Length);
+            int read = await stream.ReadAsync(
+                buffer.AsMemory(0, Math.Min(buffer.Length, remaining + 1)));
+            if (read == 0)
+                return output.ToArray();
+            if (read > remaining)
+            {
+                throw new InvalidDataException(
+                    $"{description} exceeds the {maximumBytes}-byte limit.");
+            }
+
+            await output.WriteAsync(buffer.AsMemory(0, read));
+        }
+    }
+
+    static byte[] ReadLimited(
+        Stream stream,
+        int maximumBytes,
+        string description)
+    {
+        using var output = new MemoryStream(Math.Min(maximumBytes, 64 * 1024));
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            int remaining = maximumBytes - checked((int)output.Length);
+            int read = stream.Read(buffer, 0, Math.Min(buffer.Length, remaining + 1));
+            if (read == 0)
+                return output.ToArray();
+            if (read > remaining)
+            {
+                throw new InvalidDataException(
+                    $"{description} exceeds the {maximumBytes}-byte limit.");
+            }
+            output.Write(buffer, 0, read);
+        }
     }
 
     static BrowserTypeSurface ToBrowserType(ApiType type, string assembly)

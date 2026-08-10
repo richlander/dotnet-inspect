@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectResolveDependencyVersion, inspectSearchTypes, inspectSortPackageVersions, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -4522,24 +4522,6 @@ async function fetchSpotlightPackages(query) {
   }
 }
 
-// Compare two NuGet SemVer-ish versions descending (newest first). Falls back to string
-// comparison for non-numeric pre-release tails so the list stays deterministic.
-function compareVersionsDesc(a, b) {
-  const parse = v => String(v).split(/[.\-+]/).map(part => (/^\d+$/.test(part) ? Number(part) : part));
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i];
-    const y = pb[i];
-    if (x === y) continue;
-    if (x === undefined) return 1;   // shorter (release) sorts before its prerelease
-    if (y === undefined) return -1;
-    if (typeof x === "number" && typeof y === "number") return y - x;
-    return String(y).localeCompare(String(x));
-  }
-  return 0;
-}
-
 // Build the <option> list for the version selector. Always includes the currently loaded
 // version (even before the flatcontainer index has been fetched) so the control is never empty.
 function versionOptionsHtml(pkg) {
@@ -4549,7 +4531,7 @@ function versionOptionsHtml(pkg) {
   const versions = fetched.length ? fetched.slice() : [pkg.version];
   if (!versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
     versions.unshift(pkg.version);
-    versions.sort(compareVersionsDesc);
+    versions.splice(0, versions.length, ...inspectSortPackageVersions(versions));
   }
   return versions
     .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
@@ -4659,7 +4641,7 @@ async function ensurePackageVersions(pkg) {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
-    const versions = (payload.versions || []).slice().sort(compareVersionsDesc);
+    const versions = inspectSortPackageVersions(payload.versions || []);
     state.packageVersions[idLower] = versions;
     updateVersionSelect(idLower);
   } catch {
@@ -5573,7 +5555,8 @@ async function loadSelectedMemberSource() {
       assembly: type.assembly,
       type: type.queryId ?? type.id,
       member: overload.name,
-      signature: overload.signature,
+      stableSelector: overload.stableSelector,
+      metadataToken: overload.metadataToken,
       styleOptionsJson: JSON.stringify(state.taste)
     });
     if (memberRequestIsCurrent(signature)
@@ -5621,7 +5604,8 @@ async function loadSelectedMemberAnnotatedSource() {
       assembly: type.assembly,
       type: type.queryId ?? type.id,
       member: overload.name,
-      signature: overload.signature,
+      stableSelector: overload.stableSelector,
+      metadataToken: overload.metadataToken,
       styleOptionsJson: JSON.stringify(state.taste)
     });
     if (memberRequestIsCurrent(signature)
@@ -6066,22 +6050,22 @@ function switchToPackageForDependencies(packageId) {
   render();
 }
 
-// Extracts a concrete version to load from a NuGet dependency range. Ranges are usually a
-// bare minimum ("10.0.10", meaning >=), sometimes bracketed ("[10.0.0, )"); pull the first
-// version token and fall back to "latest" when it can't be parsed.
-function dependencyVersion(range) {
-  if (!range) return "latest";
-  const match = String(range).match(/\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?/);
-  return match ? match[0] : "latest";
-}
-
 async function openDependencyPackage(packageId, versionRange) {
   const existing = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
   if (existing) {
     switchToPackageForDependencies(existing.id);
     return;
   }
-  const model = await loadPackage(packageId, dependencyVersion(versionRange), "");
+  let version;
+  try {
+    version = await inspectResolveDependencyVersion(packageId, versionRange);
+  } catch (error) {
+    state.packageDependenciesError =
+      `Could not resolve ${packageId} ${versionRange || ""}: ${String(error?.message || error)}`;
+    render();
+    return;
+  }
+  const model = await loadPackage(packageId, version, "");
   if (!model) return;
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
@@ -6140,7 +6124,6 @@ async function loadSelectedMemberCallGraph() {
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
-    signature: overload.signature,
     selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
     metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken
   };
@@ -6563,8 +6546,20 @@ async function drillPlatformNode(node) {
   state.platformDrillError = "";
   render();
   try {
+    state.platformIndex ??= await loadPlatformIndex();
+    const indexedAssembly = node.assembly === "corelib"
+      ? "System.Private.CoreLib"
+      : node.assembly;
+    const pack = state.platformIndex?.lookup(
+      state.package.activeFramework,
+      indexedAssembly)?.pack;
+    if (!pack) {
+      throw new Error(
+        `Platform pack provenance is unavailable for ${node.assembly || node.typeFullName}.`);
+    }
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
+      pack,
       assembly: node.assembly,
       type: node.typeFullName,
       member: node.memberName,
@@ -7080,7 +7075,8 @@ async function loadSelectedMemberFacts() {
       assembly: type.assembly,
       type: type.queryId ?? type.id,
       member: overload.name,
-      signature: overload.signature
+      stableSelector: overload.stableSelector,
+      metadataToken: overload.metadataToken
     });
     if (memberRequestIsCurrent(signature)
       && state.memberFactsKey === signature) {

@@ -30,6 +30,8 @@ let searchTypes;
 let listStyleTiers;
 let listStyleOptions;
 let packageCacheStats;
+let sortPackageVersions;
+let resolveDependencyVersion;
 
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
@@ -66,6 +68,8 @@ export async function initializeEngine(onStatus = () => {}) {
   listStyleTiers = exports.BrowserInspectionEngine.ListStyleTiers;
   listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
   packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
+  sortPackageVersions = exports.BrowserInspectionEngine.SortPackageVersions;
+  resolveDependencyVersion = exports.BrowserInspectionEngine.ResolveDependencyVersion;
   await runtime.runMain();
   onStatus("Reading package assemblies…");
 }
@@ -91,7 +95,8 @@ export async function inspectMemberSource(request) {
     request.assembly,
     request.type,
     request.member,
-    request.signature,
+    request.stableSelector,
+    request.metadataToken ?? 0,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }
@@ -105,7 +110,8 @@ export async function inspectMemberAnnotatedSource(request) {
     request.assembly,
     request.type,
     request.member,
-    request.signature,
+    request.stableSelector,
+    request.metadataToken ?? 0,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }
@@ -300,7 +306,6 @@ export async function inspectMemberCallGraph(request) {
     request.assembly,
     request.type,
     request.member,
-    request.signature,
     request.selectorKey ?? "",
     request.metadataToken ?? 0,
     JSON.stringify(request.workspace ?? []));
@@ -311,6 +316,7 @@ export async function inspectExpandPlatformCallGraph(request) {
   if (!expandPlatformCallGraph) throw new Error("The browser inspection engine is not initialized.");
   const json = await expandPlatformCallGraph(
     request.framework,
+    request.pack,
     request.assembly ?? "",
     request.type,
     request.member,
@@ -351,8 +357,19 @@ export async function inspectMemberFacts(request) {
     request.assembly,
     request.type,
     request.member,
-    request.signature);
+    request.stableSelector,
+    request.metadataToken ?? 0);
   return JSON.parse(json);
+}
+
+export function inspectSortPackageVersions(versions) {
+  if (!sortPackageVersions) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(sortPackageVersions(JSON.stringify(versions ?? [])));
+}
+
+export async function inspectResolveDependencyVersion(packageId, versionRange) {
+  if (!resolveDependencyVersion) throw new Error("The browser inspection engine is not initialized.");
+  return await resolveDependencyVersion(packageId, versionRange ?? "");
 }
 
 export function isEngineReady() {

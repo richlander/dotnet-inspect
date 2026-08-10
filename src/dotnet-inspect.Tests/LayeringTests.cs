@@ -324,10 +324,78 @@ public sealed class LayeringTests
             "state.workspaceDependencies[key] = []",
             browserSource,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "assembly?.StartsWith(\"Microsoft.Extensions\"",
+        Assert.DoesNotContain(
+            "SelectRuntimePackId",
             engineSource,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "RuntimePackIdForToken(pack)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "state.platformIndex?.lookup(",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "pack,\n      assembly: node.assembly",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "compareVersionsDesc",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "dependencyVersion(",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "inspectResolveDependencyVersion(packageId, versionRange)",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            CountOccurrences(
+                engineSource,
+                "ResolveBrowserMember("));
+        Assert.DoesNotContain(
+            "candidate.Signature, memberSignature",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "publicTypeIds.Contains(type.Id)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "allowNetwork: false",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MaxCachedPackageBytes",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MaxRuntimeCacheBytes",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ReadLimitedAsync(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BrowserCallGraphMermaid.Render(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "ILInspector.CallGraph",
+            "CallGraphMermaid.cs")));
+        Assert.True(File.Exists(Path.Combine(
+            FindRepositoryRoot(),
+            "prototypes",
+            "inspect-web",
+            "engine",
+            "BrowserCallGraphMermaid.cs")));
         Assert.DoesNotContain(
             "resolveNodeLabel",
             browserSource,

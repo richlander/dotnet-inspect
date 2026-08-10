@@ -19,15 +19,19 @@ published engine assets and is no longer independently fixture-backed.
   and library.
 - Package, type, and member scopes expose their own product-backed lens strip.
 - Public member rows collapse overloads. Selecting a concrete overload and
-  opening Source immediately attempts checksum-verified SourceLink source,
-  then falls back to dotnet-inspect decompilation.
+  opening Source uses the product authored-source acquisition contract. The
+  browser accepts checksum-verified local source but does not fetch
+  artifact-supplied SourceLink URLs because browser Wasm cannot enforce the
+  product's DNS/IP SSRF boundary; that typed absence is disclosed before
+  falling back to dotnet-inspect decompilation.
 - Member Overview shows the product-owned stable selector, anchor digest, and
   canonical signature with copy actions.
 - The `demo` action loads `Microsoft.Extensions.DependencyInjection.Abstractions`
   and `Microsoft.Extensions.Options`, selects `AddSingleton:4`, and opens its
   workspace-wide Call graph.
 - Opening Call graph builds a bounded caller/callee graph and renders the
-  shared product-owned Mermaid projection in the browser. Caller discovery
+  product-owned, format-neutral projection through browser-host Mermaid
+  lowering. Caller discovery
   spans the implementation assemblies from every package currently loaded in
   the workspace; callee traversal currently remains within the target
   assembly.
@@ -55,7 +59,10 @@ as separate axes. Package and framework changes issue new engine queries while
 type filtering and selection remain local over the returned public surface.
 Downloaded package bytes are retained in a bounded session cache shared by API,
 documentation, source, call-graph, and Facts queries. The cache holds at most
-12 packages or 128 MB and evicts the least recently used entry.
+12 packages or 128 MB and evicts the least recently used entry; an individual
+package is rejected above 64 MB. Runtime-pack assemblies have a separate
+16-entry/128-MB least-recently-used cache, and range responses plus expanded
+archive entries are capped before retention.
 
 ## Run the .NET 11 browser-WASM prototype
 
@@ -111,9 +118,10 @@ does not independently rank frameworks or choose between `ref/` and `lib/`.
 `LayeringTests.BrowserDependencies_UsesProductQueriesAndCompileAssetSelection`
 enforces that product-query and product-selection wiring. The initial API
 surface carries only metadata-owned XML documentation identities; selecting an
-overload queries its documentation entry. Source resolution prefers SourceLink content
-authenticated by the portable-PDB checksum and falls back to decompiling the
-matching implementation asset. The Call graph member section scans
+overload queries its documentation entry. Source resolution uses the typed
+authored-source outcome, discloses the browser host's remote-fetch restriction,
+and falls back to decompiling the matching implementation asset. The Call graph
+member section scans
 implementation IL and lists direct in-assembly callers and callees, then
 projects them through `ILInspector.CallGraph` so graph identity, direction,
 cycles, boundaries, and escaping are not reimplemented in JavaScript. The Facts

@@ -9,6 +9,23 @@ namespace DotnetInspector.Services.Tests;
 public class DependencyResolutionServiceTests
 {
     [Theory]
+    [InlineData("(1.0.0,2.0.0]", "1.0.1")]
+    [InlineData("1.*", "1.9.0")]
+    [InlineData("[1.0.0,2.0.0)", "1.0.0")]
+    public void ResolveVersionFromRange_UsesNuGetBestMatch(
+        string range,
+        string expected)
+    {
+        string[] published = ["1.0.0", "1.0.1", "1.9.0", "2.0.0"];
+
+        string? actual = DependencyResolutionService.ResolveVersionFromRange(
+            range,
+            published);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
     [InlineData("net9.0", "net8.0")]
     [InlineData("net8.0", "netcoreapp3.1")]
     [InlineData("netcoreapp3.1", "netstandard2.1")]

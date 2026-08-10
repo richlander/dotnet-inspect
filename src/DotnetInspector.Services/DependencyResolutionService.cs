@@ -169,4 +169,30 @@ public static class DependencyResolutionService
         }
         return null;
     }
+
+    /// <summary>
+    /// Selects the published version NuGet considers the best match for a dependency range.
+    /// </summary>
+    public static string? ResolveVersionFromRange(
+        string versionRange,
+        IEnumerable<string> publishedVersions)
+    {
+        ArgumentNullException.ThrowIfNull(publishedVersions);
+        if (!NuGet.Versioning.VersionRange.TryParse(
+                versionRange,
+                allowFloating: true,
+                out var range))
+        {
+            return null;
+        }
+
+        var versions = publishedVersions
+            .Select(value => NuGet.Versioning.NuGetVersion.TryParse(value, out var version)
+                ? version
+                : throw new ArgumentException(
+                    $"'{value}' is not a valid NuGet version.",
+                    nameof(publishedVersions)))
+            .ToArray();
+        return range.FindBestMatch(versions)?.ToNormalizedString();
+    }
 }

@@ -42,7 +42,8 @@ public static class AuthoredSourceAcquisition
         FindingSubject subject,
         SourceFetcher fetcher,
         IReadOnlyList<string>? repositoryPaths = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowNetwork = true)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
@@ -122,6 +123,14 @@ public static class AuthoredSourceAcquisition
             return Absent(document.Storage == SourceDocumentStorage.Embedded
                 ? "Embedded authored-source retrieval is not available."
                 : "The selected source document has no fetchable SourceLink URL.");
+        }
+        if (!allowNetwork)
+        {
+            return Absent(
+                "Remote SourceLink retrieval is not authorized by this host.",
+                mapping,
+                document,
+                null);
         }
 
         var bytes = await fetcher.FetchValidatedSourceBytesAsync(
@@ -440,7 +449,7 @@ public static class AuthoredSourceAcquisition
         string detail,
         MemberSourceObservation mapping,
         SourceDocumentObservation document,
-        SourceChecksumVerification verification)
+        SourceChecksumVerification? verification)
         => new(
             new FindingInspection<string>.Absent(detail),
             Text: null,

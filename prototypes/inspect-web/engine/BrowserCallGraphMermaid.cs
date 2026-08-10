@@ -3,26 +3,12 @@ using System.Globalization;
 using System.Text;
 using ILInspector.Analysis;
 
-namespace ILInspector.CallGraph;
+using ILInspector.CallGraph;
 
 /// <summary>
-/// Projects the typed call-graph facts that <c>ILInspector.Analysis</c> produces
-/// (<see cref="CallTreeNode"/> caller and callee roots built by
-/// <c>LibraryBodyIndex.BuildCallerTree</c> / <c>BuildCallTree</c>) into a single
-/// deterministic Mermaid <c>flowchart</c> centered on one selected overload:
-/// <code>
-/// callers -&gt; selected overload -&gt; callees
-/// </code>
-/// This is a host-neutral product layer that sits <em>below</em> host applications
-/// so <c>dotnet-inspect</c> and the browser-Wasm prototype share one graph
-/// semantics and one Mermaid document. It owns the concerns a host must not
-/// re-invent: stable node identity, Mermaid escaping, duplicate/shared-node and
-/// cycle collapsing, depth-limited / truncated boundary marking, external-node
-/// styling, and loop-call edge annotations. It takes no dependency on Markout, the
-/// CLI, or inspected-assembly loading and stays SRM-only / NativeAOT / browser-Wasm
-/// friendly (see issue #3120).
+/// Browser-host Mermaid lowering over the format-neutral typed call-graph projection.
 /// </summary>
-public static class CallGraphMermaid
+public static class BrowserCallGraphMermaid
 {
     public sealed record Options(
         bool CompactLabels = false,

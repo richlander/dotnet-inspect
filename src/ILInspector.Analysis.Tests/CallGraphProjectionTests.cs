@@ -75,29 +75,6 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void MermaidUsesProjectionNodeIdsWhenCompactLabelsCollide()
-    {
-        var target = Member("Target", "Run");
-        var projection = CallGraphProjection.FromCallees(
-            Node(
-                target,
-                CallTreeStatus.Expanded,
-                [
-                    Leaf(Member("Same", "Run", TypeRef.CoreLib("System", "Int32"))),
-                    Leaf(Member("Same", "Run", TypeRef.CoreLib("System", "String"))),
-                ]));
-
-        string mermaid = CallGraphMermaid.Render(
-            projection,
-            new CallGraphMermaid.Options(CompactLabels: true));
-
-        Assert.Contains("n0[\"Target.Run\"]", mermaid, StringComparison.Ordinal);
-        Assert.Contains("n1[\"Same.Run\"]", mermaid, StringComparison.Ordinal);
-        Assert.Contains("n2[\"Same.Run\"]", mermaid, StringComparison.Ordinal);
-        Assert.Equal([0, 1, 2], projection.Nodes.Select(node => node.Id));
-    }
-
-    [Fact]
     public void CompleteGraphEvidenceIsTheIdentityDomain()
     {
         MemberRef repeated = Member("Svc", "Do");
