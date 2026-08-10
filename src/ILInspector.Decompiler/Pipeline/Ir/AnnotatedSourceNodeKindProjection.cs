@@ -105,7 +105,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(StackAllocate)] = "StackAllocationExpression",
             [typeof(StackAllocArray)] = "StackAllocationExpression",
             [typeof(TypeOf)] = "TypeOfExpression",
-            [typeof(SpanLiteral)] = "SpanCreationExpression",
+            [typeof(SpanLiteral)] = "ArrayCreationExpression",
             [typeof(CollectionExpression)] = "CollectionExpression",
             [typeof(CollectionSpreadElement)] = "SpreadElement",
             [typeof(ArrayLiteral)] = "ArrayCreationExpression",

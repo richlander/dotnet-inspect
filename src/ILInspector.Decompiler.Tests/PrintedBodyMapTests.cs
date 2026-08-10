@@ -125,6 +125,10 @@ public class PrintedBodyMapTests
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "-(a + b)", "UnaryExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "a + b", "BinaryExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.MoneyToInt), "(int)m", "ConversionExpression")]
+    [InlineData(typeof(GenericIsInstanceSpecimens<>), nameof(GenericIsInstanceSpecimens<object>.DirectIs), "value is T", "PatternExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.IsNotNullReference), "o is not null", "PatternExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.FloatUnordered), "!(a <= b)", "UnaryExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.ConstantUIntSpan), "new uint[] { 1, 10, 100, 1000, 10000 }", "ArrayCreationExpression")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdGet), "a[i, j]", "ElementAccessExpression")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdSet), "a[i, j] = v", "AssignmentStatement")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdNew), "new int[3, 4]", "ArrayCreationExpression")]
@@ -142,6 +146,43 @@ public class PrintedBodyMapTests
             map.Nodes,
             node => node.Kind is "InvocationExpression" or "ObjectCreationExpression"
                 && Text(map, node.Extent) == text);
+    }
+
+    [Fact]
+    public void ConditionalRenderedAsLogicalAndRecordsBinaryKind()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var diamond = new Conditional(
+            new LoadArgument(0, "exists", boolType),
+            new Constant(true, boolType),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, intType, diamond));
+        block.Add(new Return(new LoadLocal(0, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                intType,
+                [new Parameter("exists", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        Assert.True(ranges.TryGetRange(diamond, out var range));
+        Assert.Equal("exists && true", ranges.Output[range]);
+        Assert.True(ranges.TryGetNodeKind(diamond, out string? kind));
+        Assert.Equal("BinaryExpression", kind);
     }
 
     [Fact]

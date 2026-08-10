@@ -94,7 +94,6 @@ public static class AnnotatedSourceNodeKinds
             "ArrayCreationExpression",
             "StackAllocationExpression",
             "TypeOfExpression",
-            "SpanCreationExpression",
             "CollectionExpression",
             "SpreadElement",
             "ElementAccessExpression",

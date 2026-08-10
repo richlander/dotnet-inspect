@@ -1488,7 +1488,67 @@ public sealed partial class CSharpPrinter
             : null;
 
     string ComparisonText(Comparison comparison)
-        => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
+        => WithNodeKind(
+            comparison,
+            ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right),
+            ComparisonSurfaceKind(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right));
+
+    string ComparisonSurfaceKind(
+        ComparisonKind kind,
+        bool isUnsigned,
+        IrExpression left,
+        IrExpression right)
+    {
+        if (IsUnorderedFloatOrdering(kind, isUnsigned, left, right))
+            return "UnaryExpression";
+        if (IsNullEquality(kind, left, right))
+            return "PatternExpression";
+        if (TryGetUnsignedNullTest(kind, isUnsigned, left, right, out var operand, out _))
+        {
+            return operand.ResultType is { Kind: TypeRefKind.Pointer }
+                ? "BinaryExpression"
+                : "PatternExpression";
+        }
+        return "BinaryExpression";
+    }
+
+    static bool IsUnorderedFloatOrdering(
+        ComparisonKind kind,
+        bool isUnsigned,
+        IrExpression left,
+        IrExpression right)
+        => isUnsigned
+            && IsFloatComparison(left, right)
+            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual;
+
+    static bool IsNullEquality(ComparisonKind kind, IrExpression left, IrExpression right)
+        => kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            && (left is Constant { Value: null } || right is Constant { Value: null });
+
+    static bool TryGetUnsignedNullTest(
+        ComparisonKind kind,
+        bool isUnsigned,
+        IrExpression left,
+        IrExpression right,
+        out IrExpression operand,
+        out bool isNullTest)
+    {
+        if (isUnsigned
+            && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
+                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })
+                || (kind == ComparisonKind.LessThanOrEqual && right is Constant { Value: null })
+                || (kind == ComparisonKind.GreaterThanOrEqual && left is Constant { Value: null })))
+        {
+            isNullTest = kind is ComparisonKind.LessThanOrEqual or ComparisonKind.GreaterThanOrEqual;
+            operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
+            return true;
+        }
+
+        operand = left;
+        isNullTest = false;
+        return false;
+    }
 
     string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
     {
@@ -1496,17 +1556,14 @@ public sealed partial class CSharpPrinter
         // ordered — 'a >= b unordered' must print as !(a < b) or NaN inputs
         // execute the wrong path. Equality needs no special form: C#'s ==
         // is beq and != is bne.un already.
-        if (isUnsigned && IsFloatComparison(left, right)
-            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
-                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
+        if (IsUnorderedFloatOrdering(kind, isUnsigned, left, right))
         {
             return $"!({Operand(left)} {ComparisonOperator(Conditions.Inverse(kind))} {Operand(right)})";
         }
         // Null tests render the is-form (taste doc): it is always the
         // reference test the IL performs, where == could round-trip to an
         // op_Equality call under operator overloads.
-        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
-            && (left is Constant { Value: null } || right is Constant { Value: null }))
+        if (IsNullEquality(kind, left, right))
         {
             var operand = right is Constant { Value: null } ? left : right;
             if (IsInstanceNullTestText(operand, isNotNull: kind == ComparisonKind.NotEqual) is { } typeTest)
@@ -1537,22 +1594,16 @@ public sealed partial class CSharpPrinter
         // is-null ordering form; rendered literally `obj > null` or `obj <= null`
         // is CS0019. Pointers forbid the is-pattern (CS8521), so spell those with
         // equality.
-        if (isUnsigned
-            && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
-                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })
-                || (kind == ComparisonKind.LessThanOrEqual && right is Constant { Value: null })
-                || (kind == ComparisonKind.GreaterThanOrEqual && left is Constant { Value: null })))
+        if (TryGetUnsignedNullTest(kind, isUnsigned, left, right, out var nullOperand, out bool isNullTest))
         {
-            bool isNullTest = kind is ComparisonKind.LessThanOrEqual or ComparisonKind.GreaterThanOrEqual;
-            var operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
-            if (IsInstanceNullTestText(operand, isNotNull: !isNullTest) is { } typeTest)
+            if (IsInstanceNullTestText(nullOperand, isNotNull: !isNullTest) is { } typeTest)
                 return typeTest;
-            if (ValueTypeUnionValueReceiverText(operand) is { } unionReceiver)
+            if (ValueTypeUnionValueReceiverText(nullOperand) is { } unionReceiver)
                 return $"{unionReceiver} is {(isNullTest ? "" : "not ")}null";
 
-            return operand.ResultType is { Kind: TypeRefKind.Pointer }
-                ? $"{Operand(operand)} {(isNullTest ? "==" : "!=")} null"
-                : $"{Operand(operand)} is {(isNullTest ? "" : "not ")}null";
+            return nullOperand.ResultType is { Kind: TypeRefKind.Pointer }
+                ? $"{Operand(nullOperand)} {(isNullTest ? "==" : "!=")} null"
+                : $"{Operand(nullOperand)} is {(isNullTest ? "" : "not ")}null";
         }
         // A pointer compared to a native-int zero is a null check: csc lowers
         // `ptr == null` to `ldc.i4.0; conv.u; ceq`, so the zero arrives as an
@@ -2011,10 +2062,13 @@ public sealed partial class CSharpPrinter
     {
         if (SpellsAsLogicalAnd(conditional))
         {
-            return Condition(new LogicalBinary(
-                LogicalKind.And,
-                (IrExpression)conditional.Condition.Clone(),
-                (IrExpression)conditional.WhenTrue.Clone()));
+            return WithNodeKind(
+                conditional,
+                Condition(new LogicalBinary(
+                    LogicalKind.And,
+                    (IrExpression)conditional.Condition.Clone(),
+                    (IrExpression)conditional.WhenTrue.Clone())),
+                "BinaryExpression");
         }
 
         // `?:` is right-associative — the CONDITION is its hazard side

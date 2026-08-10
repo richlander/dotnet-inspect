@@ -330,6 +330,24 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    internal static DecompilerResult Print(
+        IrFunction function, out PrintedRangeMap printedRanges, PrinterOptions? options = null)
+    {
+        printedRanges = PrintedRangeMap.Empty;
+        try
+        {
+            var sink = new PrintedRangeMap();
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            string output = printer.PrintBody(function);
+            printedRanges = sink.Complete(output);
+            return printer.Result(output, function);
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     DecompilerResult Result(string output, IrFunction function)
         => new(output, function.Fidelity, [.. function.Diagnostics])
         {
@@ -3315,7 +3333,11 @@ public sealed partial class CSharpPrinter
                 IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
                 c.Left,
                 c.Right),
-            "BinaryExpression"),
+            ComparisonSurfaceKind(
+                Conditions.Inverse(c.Kind),
+                IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
+                c.Left,
+                c.Right)),
         LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } n when InvertedEqualityOperatorCallText(call) is { } invertedEquality
             => WithNodeKind(n, invertedEquality, "BinaryExpression"),
         LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } n when InvertedRelationalOperatorCallText(call) is { } invertedRelational
