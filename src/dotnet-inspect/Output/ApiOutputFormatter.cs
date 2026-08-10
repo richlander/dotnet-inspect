@@ -1647,18 +1647,23 @@ public static class ApiOutputFormatter
                 analysisInspection.BuildCallTree(graphToken));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
             memberCode.CallGraphRowCount = selectedRows.Count;
-            bool treeWindowIsEmpty =
+            bool loweringNeedsSelectedGraph =
                 options is { Tabular: false, Rows: not null }
+                && (options.PlainText
+                    || options.EmbeddedMermaid
+                    || options.MermaidOutput
+                    || options is MemberOptions { Tree: true });
+            bool graphWindowIsEmpty =
+                loweringNeedsSelectedGraph
                 && selectedRows.Count == 0;
             // A lone focus node with no edges is the empty state, not a graph.
-            if (projection.Edges.Length > 0 && !treeWindowIsEmpty)
+            if (projection.Edges.Length > 0 && !graphWindowIsEmpty)
             {
-                // Markout's graph formatters lower the same graph to a tree or an edge table.
-                // Table output already windows the rendered edge rows at its writer boundary;
-                // tree formats have no rows of their own, so give them the selected projection
-                // rows and let every lowering describe the same edge set.
+                // Edge-table output windows rows at the Markout table-writer boundary. Tree and
+                // Mermaid lowerings have no table rows, so give them the selected projection
+                // before rendering. Either route addresses the same stable edge rows exactly once.
                 IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
-                    options is { Tabular: false, Rows: not null } ? selectedRows : null;
+                    loweringNeedsSelectedGraph ? selectedRows : null;
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
@@ -1667,7 +1672,7 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)
-                || treeWindowIsEmpty)
+                || graphWindowIsEmpty)
             {
                 memberCode.CallGraph = new Markout.Graph([], []);
                 hasCode = true;
