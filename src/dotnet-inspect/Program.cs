@@ -128,8 +128,6 @@ try
     if (showInfo)
     {
         InfoTracker.Start();
-        // Suppress tips when --info is active (show info instead)
-        args = [.. args, "-T:q"];
     }
 
     #if DEBUG
@@ -321,6 +319,11 @@ try
     _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 
     return exitCode;
+}
+catch (PackageSourceMappingException ex)
+{
+    CommandError.Write(ex.Message);
+    return 1;
 }
 catch (NuGetFetch.UnsupportedSourceException ex)
 {

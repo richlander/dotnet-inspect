@@ -78,7 +78,9 @@ public class HttpClientFactoryTests : IDisposable
     public async Task CreateClient_CapturesOneOptionsSnapshot()
     {
         const string ClosedPort = "http://127.0.0.1:1/";
-        using var decoratorEntered = new ManualResetEventSlim();
+        var observeCreation = new AsyncLocal<bool>();
+        var decoratorEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var continueCreation = new ManualResetEventSlim();
 
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
@@ -88,7 +90,10 @@ public class HttpClientFactoryTests : IDisposable
         });
         DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(handler =>
         {
-            decoratorEntered.Set();
+            if (!observeCreation.Value)
+                return handler;
+
+            decoratorEntered.SetResult();
             if (!continueCreation.Wait(
                 TimeSpan.FromSeconds(10),
                 TestContext.Current.CancellationToken))
@@ -96,14 +101,23 @@ public class HttpClientFactoryTests : IDisposable
             return handler;
         });
 
-        Task<HttpClient> creation = Task.Run(
+        using HttpClient unrelated = await Task.Run(
             DotnetInspector.Core.HttpClientFactory.CreateClient,
+            TestContext.Current.CancellationToken);
+        Assert.False(decoratorEntered.Task.IsCompleted);
+
+        Task<HttpClient> creation = Task.Run(
+            () =>
+            {
+                observeCreation.Value = true;
+                return DotnetInspector.Core.HttpClientFactory.CreateClient();
+            },
             TestContext.Current.CancellationToken);
         try
         {
-            Assert.True(decoratorEntered.Wait(
+            await decoratorEntered.Task.WaitAsync(
                 TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
 
             DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
             {

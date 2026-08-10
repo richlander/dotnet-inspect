@@ -194,6 +194,20 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void RowsAreNumberedEdgesInDeterministicOrder()
+    {
+        var target = Member("Widget", "Build");
+        var callers = Node(target, CallTreeStatus.Expanded, [Leaf(Member("Program", "Main"))]);
+        var callees = Node(target, CallTreeStatus.Expanded, [Leaf(Member("Store", "Save"))]);
+
+        var projection = CallGraphProjection.Create(callers, callees);
+
+        Assert.Equal(2, projection.RowCount);
+        Assert.Equal([1, 2], projection.Rows.Select(row => row.Number));
+        Assert.Equal(projection.Edges, projection.Rows.Select(row => row.Edge));
+    }
+
+    [Fact]
     public void NodesAreOrderedFocusThenCallersThenCallees()
     {
         var target = Member("Widget", "Build");

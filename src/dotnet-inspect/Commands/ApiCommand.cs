@@ -45,7 +45,8 @@ public class ApiCommand
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
+            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
+            MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
@@ -673,7 +674,8 @@ public class ApiCommand
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
                 await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
             return context.PortablePdbPath;
         }
@@ -739,10 +741,10 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
             if (!TryReportEmptyProjection(markdown, options))
                 return 1;
-            markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
         else if (options.Tabular)
@@ -793,10 +795,14 @@ public class ApiCommand
             }
             else
             {
-                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+                var markdownWriter = new StringWriter { NewLine = "\n" };
+                MarkoutSerializer.Serialize(
+                    view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
+                var markdown = markdownWriter.ToString().TrimEnd();
                 if (!TryReportEmptyProjection(markdown, options))
                     return 1;
-                OutputFormatter.WriteLimitedMarkdown(Console.Out, markdown, options.Rows);
+                OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
 
@@ -936,7 +942,8 @@ public class ApiCommand
 
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,
                     pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
 
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local
@@ -1052,13 +1059,29 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (options is TypeOptions { ShapeOutput: true } && !options.Count)
+        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
+            CommandError.Write(
+                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+            return 1;
+        }
+
+        if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
+        {
+            ApiOutputFormatter.WriteShapeOutput(
+                type,
+                foundIn,
+                packageName,
+                packageVersion,
+                options.MemberFilter,
+                options.KindFilter,
+                options.Verbosity,
+                typeOptions.MemberLimit);
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
+        bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
@@ -1236,6 +1259,22 @@ public class ApiCommand
 
         }
 
+        if (sourceDocumentJson)
+        {
+            if (view.MemberCode?.AnnotatedSourceDocument is not { } sourceDocument)
+            {
+                CommandError.Write(AnnotatedSourceDocumentError(view.MemberCode));
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                sourceDocument,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                options.CompactJson);
+            return 0;
+        }
+
         // Whole-type decompilation (type command; member flows populate per
         // member above). Explicit-only: requires -S "Decompiled Source".
         // Sits OUTSIDE the member-sections region so enum types (which
@@ -1278,14 +1317,27 @@ public class ApiCommand
 
         if (options.Count)
         {
+            // A call graph declares edge rows in its projection. Count those rows directly
+            // rather than scanning the rendered tree, which has a different node-shaped
+            // lowering and therefore cannot answer the row question.
+            if (options.IncludeSections is { Count: 1 } sections
+                && sections.Contains(SectionNames.CallGraph)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                CountOutput.WriteCount(graphRows);
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
+            }
+
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
-            CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
+            CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -1344,6 +1396,18 @@ public class ApiCommand
             }
             else
             {
+                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
+                }
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    writerOptions.SectionOrder = pipeline.InfoSectionNames;
+                }
+
+                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
@@ -1351,17 +1415,7 @@ public class ApiCommand
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
-                }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
-                }
-                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, markdown);
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
@@ -2098,6 +2152,7 @@ public class ApiCommand
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
+
         else if (members != type.Members)
         {
             outputType = new ApiType
@@ -2137,11 +2192,45 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
 
+    private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+
+    private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && (sections.Count != 1
+               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+
+    private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
+        => options.Select is { Length: > 0 } selectors
+           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
+        => selector.Equals(
+            SectionNames.AnnotatedSourceDocument,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    internal static string AnnotatedSourceDocumentError(MemberCodeView? memberCode)
+        => memberCode?.AnnotatedSourceDocumentFailure is { } failure
+            ? string.Join(
+                "; ",
+                failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
+            : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

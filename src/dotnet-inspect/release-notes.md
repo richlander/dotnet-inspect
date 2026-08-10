@@ -49,6 +49,12 @@
   identifies an authorized producer. Discovered coordinates are restricted to
   feeds that reported the selected version; pinned coordinates may use any
   active eligible feed.
+- Honors layered NuGet `<packageSourceMapping>` configuration for package
+  acquisition, dependencies, version discovery, search results, routing,
+  redirects, metadata and symbol-package enrichment, RID companions, and
+  platform packs.
+  Configured-name aliases remain distinct through mapping and collapse to one
+  producer only after the package-specific names are selected.
 - Uses unambiguous, atomically published `versions-v5` candidate entries and
   rejects malformed latest entries and incomplete listing snapshots. Reporter
   restrictions apply to the selected coordinate only; pinned tool-wrapper

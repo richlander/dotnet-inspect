@@ -38,6 +38,10 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, or a tree (for example a call graph). Those are still
 "one section" — the Table rung — and they collapse to Scalars the same way.
+For a call graph, the declared row unit is a directed edge: `--count` counts
+relationships, and `--rows` selects the same ordered relationships whether the
+section is rendered as a tree or an edge table. Tree nodes are presentation
+context, not additional rows.
 
 ## Flag families
 
@@ -51,6 +55,18 @@ of the ladder families contributes in one of three ways:
   `--jsonl`, `--plaintext`, `--no-headers`, and section-supported `--tree`).
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
+
+`library --package ... --tfm all` selects multiple independent inspections. Its
+full output therefore requires a document format: Markdown or JSON.
+Single-table, stream, plain-text, tree, and unary projection output fail closed
+rather than selecting one inspection or emitting multiple unframed payloads.
+`--count` remains valid because it aggregates across the selected inspections.
+
+Shape cardinality is evaluated after both section and subject selection.
+`--table`, `--tsv`, and `--jsonl` require exactly one table shape; `--tree`
+requires exactly one tree shape. Selecting one section with `--tfm all` still
+produces one shape per inspection, so it does not satisfy either single-shape
+contract.
 
 ### Coordinate carriers sit before the ladder
 

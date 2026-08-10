@@ -42,6 +42,84 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
+    public async Task CollectTypesAsync_TrailingDirectorySeparatorDoesNotAbort()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "type-search-trailing-bin-test").FullName;
+        string copiedAssembly =
+            Path.Combine(directory, "CopiedSearchAssembly.dll");
+        File.Copy(
+            typeof(TypeSearchServiceTests).Assembly.Location,
+            copiedAssembly);
+
+        try
+        {
+            using var httpClient = new HttpClient();
+            List<TypeSearchResult> results =
+                await TypeSearchService.CollectTypesAsync(
+                    new FindOptions
+                    {
+                        Pattern = nameof(TypeSearchServiceTests),
+                        BinPaths =
+                        [
+                            directory + Path.DirectorySeparatorChar,
+                        ],
+                        IncludeAll = true,
+                    },
+                    nameof(TypeSearchServiceTests),
+                    new VerboseLogger(enabled: false),
+                    httpClient);
+
+            TypeSearchResult result = Assert.Single(
+                results,
+                candidate =>
+                    candidate.FullName
+                    == typeof(TypeSearchServiceTests).FullName);
+            Assert.Equal("", result.Source);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectTypesAsync_InvalidAssemblyWarnsWithoutVerbose()
+    {
+        string path = Path.GetTempFileName();
+        await File.WriteAllTextAsync(
+            path,
+            "not a managed assembly",
+            TestContext.Current.CancellationToken);
+        using var httpClient = new HttpClient();
+        try
+        {
+            var capture = await ConsoleCapture.RunAsync(async () =>
+            {
+                List<TypeSearchResult> results =
+                    await TypeSearchService.CollectTypesAsync(
+                        new FindOptions
+                        {
+                            Pattern = "NoSuchType",
+                            Assemblies = [path],
+                        },
+                        "NoSuchType",
+                        new VerboseLogger(enabled: false),
+                        httpClient);
+                Assert.Empty(results);
+                return 0;
+            });
+
+            Assert.Contains($"Could not read {path}", capture.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task CollectTypesAsync_PackageFallbackKeepsRuntimeAssembliesForFind()
     {
         var packageDir = Directory.CreateTempSubdirectory("type-search-runtime-package-test").FullName;

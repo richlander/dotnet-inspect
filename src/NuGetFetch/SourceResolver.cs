@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Xml;
 using System.Xml.Linq;
 using InertText;
 
@@ -194,23 +195,82 @@ public static class SourceResolver
         => Validated(BuildConfiguredSources(
             configPath,
             workingDirectory,
-            PackageSources.Empty));
+            PackageSources.Empty,
+            includeDisabled: false));
+
+    /// <summary>
+    /// Resolves every configured source alias, including aliases currently disabled for ambient
+    /// use.
+    /// </summary>
+    /// <remarks>
+    /// Explicit command-line source selection can reactivate a disabled endpoint. Callers use
+    /// this view only to retain its configured name and credentials; ordinary source resolution
+    /// continues to exclude disabled entries.
+    /// </remarks>
+    public static IReadOnlyList<PackageSource> ResolveConfiguredSourceAliases(
+        string? configPath = null,
+        string? workingDirectory = null)
+        => Validated(BuildConfiguredSources(
+            configPath,
+            workingDirectory,
+            configPath is null ? PackageSources.Default : PackageSources.Empty,
+            includeDisabled: true));
+
+    /// <summary>
+    /// Resolves package source mapping from the same configuration hierarchy as package sources.
+    /// </summary>
+    /// <remarks>
+    /// Mapping is independent of source replacement. Supplying <paramref name="configPath"/>
+    /// selects only that file; otherwise, configurations are merged most-distant first and a
+    /// nearer source key replaces the complete pattern list inherited for that key.
+    /// </remarks>
+    /// <exception cref="InvalidDataException">
+    /// A mapping source has no key or patterns, or a pattern is not an exact package id or a
+    /// prefix ending in <c>*</c>.
+    /// </exception>
+    public static PackageSourceMapping ResolvePackageSourceMapping(
+        string? configPath = null,
+        string? workingDirectory = null)
+    {
+        IReadOnlyList<string> configFiles = configPath is not null
+            ? [configPath]
+            : FindConfigFiles(workingDirectory);
+        return MergePackageSourceMappings(configFiles);
+    }
+
+    internal static PackageSourceMapping MergePackageSourceMappings(
+        IReadOnlyList<string> configFiles)
+    {
+        ArgumentNullException.ThrowIfNull(configFiles);
+
+        var mappings =
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = configFiles.Count - 1; i >= 0; i--)
+        {
+            MergePackageSourceMappingFile(configFiles[i], mappings);
+        }
+
+        return new PackageSourceMapping(mappings);
+    }
 
     private static IReadOnlyList<PackageSource> BuildConfiguredSources(
         string? configPath,
         string? workingDirectory,
-        IReadOnlyList<PackageSource> initialSources)
+        IReadOnlyList<PackageSource> initialSources,
+        bool includeDisabled = false)
     {
         IReadOnlyList<string> configFiles = configPath is not null
             ? [configPath]
             : FindConfigFiles(workingDirectory);
 
-        return MergeConfigFiles(configFiles, initialSources);
+        return MergeConfigFiles(configFiles, initialSources, includeDisabled);
     }
 
     internal static IReadOnlyList<PackageSource> MergeConfigFiles(
         IReadOnlyList<string> configFiles,
-        IReadOnlyList<PackageSource> initialSources)
+        IReadOnlyList<PackageSource> initialSources,
+        bool includeDisabled = false)
     {
         ArgumentNullException.ThrowIfNull(configFiles);
         ArgumentNullException.ThrowIfNull(initialSources);
@@ -255,7 +315,7 @@ public static class SourceResolver
         // Explicitly configured sources are consulted before surviving defaults.
         foreach (string name in configuredSources.Concat(inheritedSources))
         {
-            if (disabled.Contains(name))
+            if (!includeDisabled && disabled.Contains(name))
             {
                 continue;
             }
@@ -265,6 +325,94 @@ public static class SourceResolver
         }
 
         return sources.Count == 0 ? PackageSources.Empty : sources;
+    }
+
+    private static void MergePackageSourceMappingFile(
+        string configPath,
+        Dictionary<string, IReadOnlyList<string>> mappings)
+    {
+        if (!File.Exists(configPath))
+        {
+            return;
+        }
+
+        XDocument document;
+        try
+        {
+            document = XDocument.Load(configPath);
+        }
+        catch (Exception ex) when (ex is
+            XmlException
+            or IOException
+            or UnauthorizedAccessException
+            or NotSupportedException)
+        {
+            // Source parsing treats unreadable ambient configuration as absent.
+            return;
+        }
+
+        XElement? mapping = document.Root?.Element("packageSourceMapping");
+        if (mapping is null)
+        {
+            return;
+        }
+
+        foreach (XElement element in mapping.Elements())
+        {
+            if (element.Name == "clear")
+            {
+                mappings.Clear();
+                continue;
+            }
+
+            if (element.Name != "packageSource")
+            {
+                continue;
+            }
+
+            string? sourceName = element.Attribute("key")?.Value.Trim();
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                throw new InvalidDataException(
+                    $"Package source mapping in '{configPath}' contains a source without a key.");
+            }
+
+            List<string> patterns = [];
+            foreach (XElement package in element.Elements("package"))
+            {
+                string? pattern = package.Attribute("pattern")?.Value.Trim();
+                if (pattern is null)
+                {
+                    throw new InvalidDataException(
+                        $"Package source mapping for '{sourceName}' in '{configPath}' "
+                        + "contains a package without a pattern.");
+                }
+
+                patterns.Add(pattern);
+            }
+            if (patterns.Count == 0)
+            {
+                throw new InvalidDataException(
+                    $"Package source mapping for '{sourceName}' in '{configPath}' "
+                    + "must contain at least one package pattern.");
+            }
+
+            foreach (string pattern in patterns)
+            {
+                if (string.IsNullOrWhiteSpace(pattern)
+                    || (pattern.Contains('*')
+                        && (pattern[^1] != '*'
+                            || pattern[..^1].Contains('*'))))
+                {
+                    throw new InvalidDataException(
+                        $"Package source mapping pattern '{pattern}' for '{sourceName}' "
+                        + $"in '{configPath}' must be an exact package id or a prefix ending in '*'.");
+                }
+            }
+
+            mappings.Remove(sourceName);
+            mappings.Add(sourceName, patterns);
+        }
     }
 
     /// <summary>
@@ -316,7 +464,8 @@ public static class SourceResolver
         => Validated(BuildConfiguredSources(
             configPath,
             workingDirectory: null,
-            initialSources: PackageSources.Empty));
+            initialSources: PackageSources.Empty,
+            includeDisabled: false));
 
     /// <summary>
     /// Merges a single nuget.config file into the accumulated sources, disabled set, and credentials.

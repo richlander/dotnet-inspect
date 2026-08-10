@@ -1650,6 +1650,260 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffQueryRegistry_RegistrationMatchesDeclaration()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> closure =
+            catalog.QueryRegistry.ExpandRequired(catalog.Pipeline.DeclaredQueries);
+
+        Assert.Equal(
+            closure.OrderBy(query => query.Name, StringComparer.Ordinal),
+            catalog.QueryRegistry.RegisteredQueries.OrderBy(
+                query => query.Name,
+                StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
+            ],
+            catalog.Pipeline.DeclaredQueries);
+    }
+
+    [Fact]
+    public void DiffComparisonSections_DemandTheirProducerQueriesAndCosts()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var changes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.Changes.Name,
+        };
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+        var implementation = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.ImplementationDiff.Name,
+        };
+
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, changes));
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal));
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis));
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                implementation));
+        Assert.Equal(
+            SectionCost.NetworkFree,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.Changes.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.AnalysisDiff.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name
+                    == DiffSections.ImplementationDiff.Name).Cost);
+    }
+
+    [Fact]
+    public void DiffQueryRegistry_RunsOnlySelectedSectionDemand()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+        int analysisInputsCreated = 0;
+        var analysisContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> analysisExecuted = [];
+
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
+            analysisContext,
+            (query, _) => analysisExecuted.Add(query));
+
+        Assert.Equal([BodySignalComparisonQuery.Definition], analysisExecuted);
+        Assert.Equal(1, analysisInputsCreated);
+
+        var changesContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Analysis indexes."),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Implementation inputs."));
+        List<InspectionQueryDefinition> changesExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                }),
+            changesContext,
+            (query, _) => changesExecuted.Add(query));
+
+        Assert.Equal([ApiComparisonQuery.Definition], changesExecuted);
+
+        int implementationInputsCreated = 0;
+        var implementationContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            createImplementationComparisonInput: () =>
+            {
+                implementationInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> implementationExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            implementationContext,
+            (query, _) => implementationExecuted.Add(query));
+
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationExecuted);
+        Assert.Equal(1, implementationInputsCreated);
+
+        int analysisComposedInputsCreated = 0;
+        int implementationComposedInputsCreated = 0;
+        var composedContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisComposedInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            },
+            () =>
+            {
+                implementationComposedInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> composedExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                    DiffSections.AnalysisDiff.Name,
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            composedContext,
+            (query, _) => composedExecuted.Add(query));
+
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
+            ],
+            composedExecuted);
+        Assert.Equal(1, analysisComposedInputsCreated);
+        Assert.Equal(1, implementationComposedInputsCreated);
+    }
+
+    [Fact]
+    public void DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> singleSection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> composedDocument =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                        DiffSections.AnalysisDiff.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> implementationSelection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> implementationOnly =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
+
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            singleSection);
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            implementationSelection);
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationOnly);
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+            ],
+            composedDocument);
+    }
+
+    [Fact]
     public void PackageIntegrityExitCode_FailsOnlyForMismatches()
     {
         var clean = new InspectionResult

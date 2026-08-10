@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -342,9 +343,19 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal)
+        Verbosity verbosity = Verbosity.Minimal,
+        int? memberLimit = null)
     {
-        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter, verbosity);
+        bool filtersMatchedMembers = FilterShapeMembers(type, memberFilter, kindFilter).Any();
+        var view = BuildShapeView(
+            type,
+            foundIn,
+            packageName,
+            packageVersion,
+            memberFilter,
+            kindFilter,
+            verbosity,
+            memberLimit);
         if (view.Members is { Count: > 0 })
         {
             // Lead with a declaration-style header when the type carries modifiers
@@ -357,7 +368,8 @@ public static class ApiOutputFormatter
             var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
             writer.WriteTree([.. view.Members]);
         }
-        else if (kindFilter?.Count > 0 || memberFilter.Count > 0)
+        else if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
+                 && !filtersMatchedMembers)
         {
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
@@ -532,34 +544,57 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal)
+        Verbosity verbosity = Verbosity.Minimal,
+        int? memberLimit = null)
     {
         bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
         bool expandOverloads = verbosity >= Verbosity.Normal;
         List<TreeNode> nodes = [];
 
         // Group members by kind
-        bool hasMemberNodes = false;
+        bool filtersMatchedMembers = false;
         if (type.Members.Count > 0)
         {
-            var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
-
-            if (memberFilter.Count > 0)
+            var memberList = FilterShapeMembers(type, memberFilter, kindFilter).ToList();
+            filtersMatchedMembers = memberList.Count > 0;
+            if (memberLimit.HasValue)
             {
-                members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+                var displayEntries = memberList
+                    .GroupBy(m => m.Kind)
+                    .OrderBy(g => GetTreeKindOrder(g.Key))
+                    .SelectMany(group =>
+                        !IsOverloadGroupedKind(group.Key)
+                            ? group
+                                .OrderBy(m => m.Name, StringComparer.Ordinal)
+                                .Select(member => new List<ApiMember> { member })
+                            : expandOverloads
+                                ? group
+                                    .GroupBy(m => m.Name)
+                                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                    .SelectMany(overloads => overloads
+                                        .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                        .Select(member => new List<ApiMember> { member }))
+                            : group
+                                .GroupBy(m => m.Name)
+                                .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                .Select(overloads => overloads
+                                    .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                    .ToList()))
+                    .ToList();
+
+                if (memberLimit.Value < displayEntries.Count)
+                {
+                    memberList = displayEntries
+                        .Take(memberLimit.Value)
+                        .SelectMany(entry => entry)
+                        .ToList();
+                }
             }
 
-            if (kindFilter?.Count > 0)
-            {
-                members = members.Where(m => kindFilter.Contains(m.Kind));
-            }
-
-            var membersByKind = members
+            var membersByKind = memberList
                 .GroupBy(m => m.Kind)
                 .OrderBy(g => GetTreeKindOrder(g.Key))
                 .ToList();
-
-            hasMemberNodes = membersByKind.Count > 0;
 
             foreach (var group in membersByKind)
             {
@@ -661,7 +696,7 @@ public static class ApiOutputFormatter
         }
 
         // Structural nodes (suppress when a filter is active but matched nothing)
-        if (!hasFilter || hasMemberNodes)
+        if (!hasFilter || filtersMatchedMembers)
         {
             // Inheritance
             if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
@@ -714,6 +749,22 @@ public static class ApiOutputFormatter
             Version = packageVersion,
             Members = nodes
         };
+    }
+
+    private static IEnumerable<ApiMember> FilterShapeMembers(
+        ApiType type,
+        HashSet<string> memberFilter,
+        HashSet<string>? kindFilter)
+    {
+        var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+
+        if (memberFilter.Count > 0)
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+
+        if (kindFilter?.Count > 0)
+            members = members.Where(m => kindFilter.Contains(m.Kind));
+
+        return members;
     }
 
     // Renders a type parameter's constraint list for display, delegating C# spelling
@@ -1465,6 +1516,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
                 || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1593,16 +1645,29 @@ public static class ApiOutputFormatter
             var projection = ILInspector.CallGraph.CallGraphProjection.Create(
                 callerTree,
                 analysisInspection.BuildCallTree(graphToken));
+            var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
+            memberCode.CallGraphRowCount = selectedRows.Count;
+            bool treeWindowIsEmpty =
+                options is { Tabular: false, Rows: not null }
+                && selectedRows.Count == 0;
             // A lone focus node with no edges is the empty state, not a graph.
-            if (projection.Edges.Length > 0)
+            if (projection.Edges.Length > 0 && !treeWindowIsEmpty)
             {
+                // Markout's graph formatters lower the same graph to a tree or an edge table.
+                // Table output already windows the rendered edge rows at its writer boundary;
+                // tree formats have no rows of their own, so give them the selected projection
+                // rows and let every lowering describe the same edge set.
+                IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
+                    options is { Tabular: false, Rows: not null } ? selectedRows : null;
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options));
+                    GetRequestedCallGraphFields(options),
+                    renderedRows);
                 hasCode = true;
             }
-            else if (ExplicitlySelected(SectionNames.CallGraph))
+            else if (ExplicitlySelected(SectionNames.CallGraph)
+                || treeWindowIsEmpty)
             {
                 memberCode.CallGraph = new Markout.Graph([], []);
                 hasCode = true;
@@ -1698,7 +1763,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1740,6 +1805,11 @@ public static class ApiOutputFormatter
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }
+
+            hasCode |= PopulateAnnotatedSourceDocument(
+                memberCode,
+                code.SourceDocument,
+                code.SourceDocumentFailure);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1827,6 +1897,35 @@ public static class ApiOutputFormatter
         }
 
         return hasCode;
+    }
+
+    internal static bool PopulateAnnotatedSourceDocument(
+        MemberCodeView memberCode,
+        Decompiler.AnnotatedSourceDocument? sourceDocument,
+        Decompiler.DecompilerResult? failure)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (sourceDocument is not null)
+        {
+            memberCode.AnnotatedSourceDocument = sourceDocument;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    sourceDocument,
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+            return true;
+        }
+        if (failure is not null)
+        {
+            memberCode.AnnotatedSourceDocumentFailure = failure;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "text",
+                string.Join(
+                    "\n",
+                    failure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+            return true;
+        }
+        return false;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

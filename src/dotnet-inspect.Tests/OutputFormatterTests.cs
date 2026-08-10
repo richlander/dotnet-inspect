@@ -795,6 +795,77 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void BuildShapeView_MemberLimitCountsCollapsedOverloadGroups()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "method", Name = "Alpha", Signature = "void Alpha()" },
+                new() { Kind = "method", Name = "Alpha", Signature = "void Alpha(int value)" },
+                new() { Kind = "method", Name = "Beta", Signature = "void Beta()" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            memberLimit: 1);
+
+        var methods = Assert.Single(view.Members);
+        Assert.Equal("Methods (1 logical, 2 overloads)", methods.Text);
+        var child = Assert.Single(methods.Children!);
+        Assert.Equal("Alpha (2 overloads)", child.Text);
+
+        var expanded = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            verbosity: Verbosity.Normal,
+            memberLimit: 1);
+
+        var expandedMethods = Assert.Single(expanded.Members);
+        Assert.Equal("Methods (1)", expandedMethods.Text);
+        var expandedChild = Assert.Single(expandedMethods.Children!);
+        Assert.Equal("void Alpha()", expandedChild.Text);
+    }
+
+    [Fact]
+    public void BuildShapeView_ExpandedOperatorLimitUsesDisplayOrder()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "operator", Name = "op_Addition", Signature = "Widget op_Addition(Widget left, Widget right)" },
+                new() { Kind = "operator", Name = "op_Explicit", Signature = "Widget op_Explicit(int value)" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            verbosity: Verbosity.Normal,
+            memberLimit: 1);
+
+        var operators = Assert.Single(view.Members);
+        var child = Assert.Single(operators.Children!);
+        Assert.Equal("Widget op_Explicit(int value)", child.Text);
+    }
+
+    [Fact]
     public void GetMemberSignatureSortKey_StripsMethodGenericListOnly()
     {
         var member = new ApiMember
@@ -2730,5 +2801,73 @@ public class OutputFormatterTests
     {
         var (_, error) = await ConsoleCapture.RunAsync(action);
         return error;
+    }
+
+    /// <summary>
+    /// The aggregate <c>--all-libraries</c> sections declare a <see cref="MarkoutTable"/> rather
+    /// than appending Markdown, so their rows reach the writer and <c>--rows</c> applies at the
+    /// writer seam. This is the gate for that routing: a window set on the writer options must
+    /// drop rows from a runtime-column table it never saw at compile time.
+    /// </summary>
+    [Fact]
+    public void AggregatedSection_RowWindow_AppliesAtTheWriterSeam()
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections =
+            [
+                new AggregatedSectionView
+                {
+                    Name = "Switches",
+                    Body = new MarkoutTable(
+                        ["Kind", "Switch"],
+                        [["AppContext", "A"], ["AppContext", "B"], ["Feature Switch", "C"]])
+                }
+            ]
+        };
+
+        var all = MarkoutSerializer.Serialize(document, InspectionContext.Default);
+        var windowed = MarkoutSerializer.Serialize(
+            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(RowWindow.Head(2)));
+
+        Assert.Contains("## Switches", all, StringComparison.Ordinal);
+        Assert.Contains("| Feature Switch | C |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Feature Switch | C |", windowed, StringComparison.Ordinal);
+        Assert.Contains("| AppContext | B |", windowed, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Routing aggregate cells through markout's semantic code tag rather than literal backticks
+    /// corrects two escapes that a hand-written code span gets wrong, neither of which the
+    /// differential corpus exercises. This is the gate that keeps them fixed.
+    ///
+    /// A pipe must not become <c>&amp;#124;</c> inside a code span, where it would render as that
+    /// literal text; GFM unescapes <c>\|</c> while splitting table rows, before code spans are
+    /// parsed. A backtick must not be backslash-escaped, because backslash escapes do not apply
+    /// inside a code span; the delimiter has to be doubled instead.
+    /// </summary>
+    [Theory]
+    [InlineData("Foo.Bar(a|b)", "\\|")]
+    [InlineData("IEnumerable`1", "``")]
+    public void AggregatedSection_CodeCell_EscapesForACodeSpanRatherThanForPlainText(
+        string value, string expectedSpelling)
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections =
+            [
+                new AggregatedSectionView
+                {
+                    Name = "Switches",
+                    Body = new MarkoutTable(["API"], [[MarkoutInline.Code(value)]])
+                }
+            ]
+        };
+
+        var rendered = MarkoutSerializer.Serialize(document, InspectionContext.Default);
+
+        Assert.Contains(expectedSpelling, rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("&#124;", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\`", rendered, StringComparison.Ordinal);
     }
 }

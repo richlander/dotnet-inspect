@@ -107,7 +107,7 @@ public class LibraryBodyIndexTests
         using var peReader = new PEReader(stream);
         Assert.True(peReader.HasMetadata);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver);
+        using var builder = new LibraryBodyAnalysisBuilder(targetPath, reader, peReader, resolver);
 
         bool resolvedFrameworkType = false;
         foreach (var handle in reader.TypeReferences)
@@ -150,7 +150,7 @@ public class LibraryBodyIndexTests
         using var peReader = new PEReader(stream);
         Assert.True(peReader.HasMetadata);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(
+        using var builder = new LibraryBodyAnalysisBuilder(
             targetPath, reader, peReader, new FrameworkDirectoryResolver(frameworkDir));
 
         bool exercisedForwarder = false;
@@ -205,7 +205,7 @@ public class LibraryBodyIndexTests
         using var stream = File.OpenRead(targetPath);
         using var peReader = new PEReader(stream);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(
+        using var builder = new LibraryBodyAnalysisBuilder(
             targetPath, reader, peReader, new ConstantResolver(facade));
 
         var objectReference = FindExternalTypeReference(reader, "System", "Object");
@@ -223,7 +223,7 @@ public class LibraryBodyIndexTests
         Assert.True(peReader.HasMetadata);
         var reader = peReader.GetMetadataReader();
         var externalType = FirstExternalTypeReference(reader);
-        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver: null);
+        using var builder = new LibraryBodyAnalysisBuilder(targetPath, reader, peReader, resolver: null);
 
         Assert.Null(builder.TryResolveExternalTypeDefinition(externalType));
 
@@ -283,7 +283,7 @@ public class LibraryBodyIndexTests
         using var stream = File.OpenRead(targetPath);
         using var peReader = new PEReader(stream);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, recorder);
+        using var builder = new LibraryBodyAnalysisBuilder(targetPath, reader, peReader, recorder);
 
         var objectReference = FindExternalTypeReference(reader, "System", "Object");
         Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
@@ -368,7 +368,7 @@ public class LibraryBodyIndexTests
             using var stream = File.OpenRead(appPath);
             using var peReader = new PEReader(stream);
             var reader = peReader.GetMetadataReader();
-            using var builder = new LibraryBodyIndex.IndexBuilder(appPath, reader, peReader, recorder);
+            using var builder = new LibraryBodyAnalysisBuilder(appPath, reader, peReader, recorder);
 
             var widgetReference = FindExternalTypeReference(reader, "Sample", "Widget");
             Assert.False(widgetReference.IsNil);
@@ -1155,43 +1155,6 @@ public class LibraryBodyIndexTests
 
         var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
         Assert.Contains("UseEcho", callerNames);
-    }
-
-    [Fact]
-    public void MatchesResolvedCrossAssembly_MatchesConstructedGenericMemberSignature()
-    {
-        // Open target Box<T>.Store(T): declaring type is the open List`1-style definition, the
-        // parameter is the type parameter T.
-        var openBox = TypeRef.Definition("Lib", "N", "Box`1");
-        var pattern = MemberPattern.Method(openBox, "Store", [TypeRef.GenericParameter(0, "T")]);
-
-        // Constructed call site Box<int>.Store(int): declaring type is the instantiation, the
-        // parameter is the concrete int.
-        var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
-        var callSite = new MemberRef(constructedBox, "Store", [TypeRef.CoreLib("System", "Int32")], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
-
-        Assert.True(pattern.MatchesResolvedCrossAssembly(callSite));
-        // The exact same-assembly matcher cannot bridge the open/closed spelling gap.
-        Assert.False(pattern.Matches(callSite));
-    }
-
-    [Fact]
-    public void MatchesResolvedCrossAssembly_StillDiscriminatesGenericMembersByArity()
-    {
-        // A generic member is erased to arity, not dropped entirely: a one-parameter target must
-        // not absorb a two-parameter call site on the same generic type.
-        var openBox = TypeRef.Definition("Lib", "N", "Box`1");
-        var pattern = MemberPattern.Method(openBox, "Store", [TypeRef.GenericParameter(0, "T")]);
-
-        var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
-        var twoArg = new MemberRef(
-            constructedBox,
-            "Store",
-            [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")],
-            TypeRef.CoreLib("System", "Void"),
-            MemberKind.Method);
-
-        Assert.False(pattern.MatchesResolvedCrossAssembly(twoArg));
     }
 
     // #1741: two Ping overloads whose parameter types share the FQN Shared.Token but come

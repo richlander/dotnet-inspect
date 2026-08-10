@@ -17,8 +17,9 @@ dnx dotnet-inspect -y -- <command>
 Scope any of these commands the same way: `--project path/to.csproj` (restored
 project references), `--package Foo` (repeatable), `--library path.dll`,
 `--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
-Microsoft.* sets), `--package-prefix Azure.AI` (every package under a NuGet ID
-prefix), and `--tfm net9.0`.
+Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
+`--package-prefix Azure.AI` to search every package under a NuGet ID prefix;
+`depends` does not accept `--package-prefix`.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
@@ -60,6 +61,16 @@ remain caller scopes.
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S Calls
 dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
+```
+
+`Call Graph` is the bounded bidirectional view centered on one member: inbound
+callers toward entry points plus outbound calls. For a type-level dependency
+summary, `Called Types` groups direct calls by target type, assembly, members,
+and call kinds.
+
+```bash
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph"
+dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
 ## What does it integrate with? (ecosystem)

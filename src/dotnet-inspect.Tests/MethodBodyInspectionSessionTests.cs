@@ -84,25 +84,21 @@ public class MethodBodyInspectionSessionTests
     [Fact]
     public void CallerEdges_IncludeAndAttributeCallerScopeAssemblies()
     {
-        var target = MethodBodyInspectionSession.Open(ProductPath);
+        var target = MethodBodyInspectionSession.Open(
+            ProductPath,
+            ApiAnalysisInspection.CreateReferenceResolver(ProductPath));
         var openMethod = target.BodyIndex.Methods.Single(method =>
             method.DeclaringType.Name == nameof(MethodBodyInspectionSession)
             && method.Name == nameof(MethodBodyInspectionSession.Open)
             && method.ParameterTypes.Length > 0
             && method.ParameterTypes[0].Name == "String");
-        var scope = MethodBodyInspectionSession.Open(TestPath);
-        var plan = Analysis.CallerScopeReachabilityPlan.Create(
-            new ILInspector.Metadata.AssemblyReferenceBindingPolicy(
-                ApiAnalysisInspection.CreateReferenceResolver(ProductPath)),
-            target.Assembly,
-            Analysis.GenericMemberIdentity.OpenDeclaringType(
-                openMethod.DeclaringType),
-            [scope.Assembly]);
+        var scope = MethodBodyInspectionSession.Open(
+            TestPath,
+            ApiAnalysisInspection.CreateReferenceResolver(TestPath));
 
         var actual = target.CallerEdges(
             openMethod.MetadataToken,
-            [scope],
-            plan.Resolution);
+            [scope]);
 
         Assert.Contains(actual, edge => edge.Source == scope.SourceName);
     }
@@ -140,10 +136,10 @@ public class MethodBodyInspectionSessionTests
         Analysis.MethodIdentity method =
             target.BodyIndex.DeclaredMethods.Single(candidate =>
                 candidate.DeclaringType.Name
-                    == nameof(ProgressiveMemberCallGraph)
+                    == nameof(MethodBodyInspectionSession)
                 && candidate.Name
-                    == nameof(ProgressiveMemberCallGraph.Callees)
-                && candidate.ParameterTypes.Length == 0);
+                    == nameof(MethodBodyInspectionSession.CallerEdges)
+                && candidate.ParameterTypes.Length == 3);
 
         Analysis.CallTreeNode callerRoot =
             target.CallerTree(method.MetadataToken, [caller]);

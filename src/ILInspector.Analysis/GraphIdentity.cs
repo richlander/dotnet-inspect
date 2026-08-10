@@ -326,6 +326,8 @@ sealed class GraphStructuralMemberKey : IEquatable<GraphStructuralMemberKey>
 sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
 {
     const int MaxDepth = 256;
+    const byte CallingConventionMask = 0x0F;
+    const byte VarargCallingConvention = 0x05;
 
     GraphStructuralTypeShape(
         TypeRefKind kind,
@@ -335,6 +337,10 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         int rank,
         int genericParameterIndex,
         string unsupportedReason,
+        byte signatureHeader,
+        int genericArity,
+        int requiredParameterCount,
+        bool isRequiredModifier,
         GraphStructuralTypeShape? elementType,
         ImmutableArray<GraphStructuralTypeShape> components)
     {
@@ -345,6 +351,10 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         Rank = rank;
         GenericParameterIndex = genericParameterIndex;
         UnsupportedReason = unsupportedReason;
+        SignatureHeader = signatureHeader;
+        GenericArity = genericArity;
+        RequiredParameterCount = requiredParameterCount;
+        IsRequiredModifier = isRequiredModifier;
         ElementType = elementType;
         Components = components;
     }
@@ -356,6 +366,10 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
     int Rank { get; }
     int GenericParameterIndex { get; }
     string UnsupportedReason { get; }
+    byte SignatureHeader { get; }
+    int GenericArity { get; }
+    int RequiredParameterCount { get; }
+    bool IsRequiredModifier { get; }
     GraphStructuralTypeShape? ElementType { get; }
     ImmutableArray<GraphStructuralTypeShape> Components { get; }
 
@@ -374,13 +388,51 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
                 0,
                 -1,
                 "shape depth exceeded",
+                0,
+                0,
+                0,
+                false,
                 null,
                 []);
         }
 
-        GraphStructuralTypeShape? element = type.ElementType is { } elementType
-            ? Create(elementType, depth + 1)
-            : null;
+        GraphStructuralTypeShape? element;
+        ImmutableArray<GraphStructuralTypeShape> components;
+        byte signatureHeader = 0;
+        int genericArity = 0;
+        int requiredParameterCount = 0;
+        bool isRequiredModifier = false;
+        if (type.FunctionPointerSignature is { } signature)
+        {
+            element = Create(signature.ReturnType, depth + 1);
+            components = signature.ParameterTypes.IsDefault
+                ? []
+                : [.. signature.ParameterTypes.Select(
+                    parameter => Create(parameter, depth + 1))];
+            signatureHeader = signature.Header.RawValue;
+            genericArity = signature.GenericParameterCount;
+            requiredParameterCount =
+                (signature.Header.RawValue & CallingConventionMask)
+                    == VarargCallingConvention
+                        ? signature.RequiredParameterCount
+                        : signature.ParameterTypes.Length;
+        }
+        else if (type.ModifierType is not null
+            && type.UnmodifiedType is not null)
+        {
+            element = Create(type.UnmodifiedType, depth + 1);
+            components = [Create(type.ModifierType, depth + 1)];
+            isRequiredModifier = type.IsRequiredModifier;
+        }
+        else
+        {
+            element = type.ElementType is { } elementType
+                ? Create(elementType, depth + 1)
+                : null;
+            components = [.. type.TypeArguments.Select(
+                argument => Create(argument, depth + 1))];
+        }
+
         return new(
             type.Kind,
             type.Assembly,
@@ -389,9 +441,12 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
             type.Rank,
             type.GenericParameterIndex,
             type.UnsupportedReason,
+            signatureHeader,
+            genericArity,
+            requiredParameterCount,
+            isRequiredModifier,
             element,
-            [.. type.TypeArguments.Select(
-                argument => Create(argument, depth + 1))]);
+            components);
     }
 
     public bool Equals(GraphStructuralTypeShape? other)
@@ -407,6 +462,10 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
                 UnsupportedReason,
                 other.UnsupportedReason,
                 StringComparison.Ordinal)
+            || SignatureHeader != other.SignatureHeader
+            || GenericArity != other.GenericArity
+            || RequiredParameterCount != other.RequiredParameterCount
+            || IsRequiredModifier != other.IsRequiredModifier
             || ElementType != other.ElementType
             || Components.Length != other.Components.Length)
         {
@@ -435,6 +494,10 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         hash.Add(Rank);
         hash.Add(GenericParameterIndex);
         hash.Add(UnsupportedReason, StringComparer.Ordinal);
+        hash.Add(SignatureHeader);
+        hash.Add(GenericArity);
+        hash.Add(RequiredParameterCount);
+        hash.Add(IsRequiredModifier);
         hash.Add(ElementType);
         foreach (GraphStructuralTypeShape component in Components)
             hash.Add(component);
