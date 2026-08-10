@@ -210,13 +210,8 @@ public sealed class MethodBodyInspectionSession
     internal static Analysis.CatalogCallGraphScope CreateCallGraphScope(
         IReadOnlyList<MethodBodyInspectionSession> sessions)
     {
-        MethodBodyInspectionSession[] participants = sessions
-            .GroupBy(session => (
-                session.Assembly.Identity,
-                session.BodyIndex.DeclaredMethods.FirstOrDefault()
-                    ?.ModuleVersionId ?? Guid.Empty))
-            .Select(group => group.First())
-            .ToArray();
+        MethodBodyInspectionSession[] participants =
+            CanonicalParticipants(sessions);
         var policy = new SourceRelativeAssemblyGroupBindingPolicy(
             participants.Select(
                 session => (
@@ -231,6 +226,16 @@ public sealed class MethodBodyInspectionSession
                         session.Assembly)));
     }
 
+    static MethodBodyInspectionSession[] CanonicalParticipants(
+        IReadOnlyList<MethodBodyInspectionSession> sessions) =>
+        sessions
+            .GroupBy(session => (
+                session.Assembly.Identity,
+                session.BodyIndex.DeclaredMethods.FirstOrDefault()
+                    ?.ModuleVersionId ?? Guid.Empty))
+            .Select(group => group.First())
+            .ToArray();
+
     /// <summary>
     /// Inbound call edges targeting one method (<paramref name="targetToken"/>), each tagged with the
     /// <see cref="SourceName"/> of the assembly it originates in.
@@ -239,13 +244,14 @@ public sealed class MethodBodyInspectionSession
     /// built from the target's identity (the pattern adds MemberRef-form references, including
     /// abstract/interface members that have no body). When <paramref name="scopes"/> is non-empty and
     /// a pattern is available, each scope session is scanned for cross-assembly callers using
-    /// generic-normalized matching (operand tokens are assembly-local, so only the pattern applies).
+    /// complete catalog member correspondence (operand tokens are assembly-local, so only
+    /// generation-scoped definition currency can establish a cross-assembly match).
     /// Results are unsorted and undeduplicated; the caller owns presentation ordering.
     /// </summary>
     public ImmutableArray<CallerEdge> CallerEdges(
         int targetToken,
         IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
-        Analysis.CallerResolutionPlan? resolutionPlan = null)
+        Analysis.CallerResolutionPlan? declaringTypeResolution = null)
     {
         var selected = BodyIndex.DeclaredMethods.FirstOrDefault(
             method => method.MetadataToken == targetToken);
@@ -261,26 +267,48 @@ public sealed class MethodBodyInspectionSession
                 edges.Add(new CallerEdge(SourceName, call));
         }
 
-        if (pattern is not null
-            && resolutionPlan is not null
-            && scopes is { Count: > 0 })
+        if (pattern is not null && scopes is { Count: > 0 })
         {
-            foreach (var scope in scopes)
+            MethodBodyInspectionSession[] participants =
+                CanonicalParticipants([this, .. scopes]);
+            var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+                participants.Select(
+                    participant => (
+                        participant.Assembly,
+                        participant.BindingPolicy)));
+            var target = new Analysis.CatalogCallGraphParticipant(
+                participants[0].BodyIndex,
+                participants[0].Assembly);
+            var sources = participants
+                .Skip(1)
+                .Select(
+                    participant =>
+                        new Analysis.CatalogCallGraphParticipant(
+                            participant.BodyIndex,
+                            participant.Assembly))
+                .ToArray();
+            var sourceNames =
+                new Dictionary<Analysis.LibraryBodyIndex, string>(
+                    ReferenceEqualityComparer.Instance);
+            foreach (MethodBodyInspectionSession participant
+                in participants.Skip(1))
             {
-                foreach (var call in scope.BodyIndex.DirectCalls)
-                {
-                    Analysis.TypeRef declaringType =
-                        Analysis.GenericMemberIdentity.OpenDeclaringType(
-                            call.Callee.DeclaringType);
-                    if (resolutionPlan.GetRelation(
-                            scope.Assembly,
-                            declaringType)
-                            is Analysis.CandidateTypeRelation.SameDefinition
-                        && pattern.MatchesResolvedCrossAssembly(call.Callee))
-                    {
-                        edges.Add(new CallerEdge(scope.SourceName, call));
-                    }
-                }
+                sourceNames.Add(
+                    participant.BodyIndex,
+                    participant.SourceName);
+            }
+            foreach (Analysis.CatalogDirectCaller match
+                in Analysis.CatalogDirectCallerQuery.Find(
+                    policy,
+                    target,
+                    targetToken,
+                    sources,
+                    declaringTypeResolution))
+            {
+                edges.Add(
+                    new CallerEdge(
+                        sourceNames[match.Participant.Index],
+                        match.Call));
             }
         }
 

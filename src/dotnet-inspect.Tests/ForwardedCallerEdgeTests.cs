@@ -25,6 +25,9 @@ public class ForwardedCallerEdgeTests
         return reader.Read();
     }
 
+    internal static XmlReader WrapThroughFacade(XmlReader reader) =>
+        XmlReader.Create(reader, new XmlReaderSettings());
+
     static string? PrivateXmlPath()
     {
         string path = Path.Combine(
@@ -33,15 +36,24 @@ public class ForwardedCallerEdgeTests
         return File.Exists(path) ? path : null;
     }
 
+    static string? DataContractSerializationPath()
+    {
+        string path = Path.Combine(
+            FrameworkDirectory,
+            "System.Private.DataContractSerialization.dll");
+        return File.Exists(path) ? path : null;
+    }
+
     static int CreateToken(
         string targetPath,
-        string parameterType) =>
+        params string[] parameterTypes) =>
         ILInspector.Analysis.LibraryBodyIndex.Open(targetPath).Methods
             .First(method =>
                 method.DeclaringType.Name == "XmlReader"
                 && method.Name == "Create"
-                && method.ParameterTypes.Length == 1
-                && method.ParameterTypes[0].Name == parameterType)
+                && method.ParameterTypes
+                    .Select(parameter => parameter.Name)
+                    .SequenceEqual(parameterTypes))
             .MetadataToken;
 
     static ApiMemberAnalysisInspection CreateForCallers(
@@ -117,6 +129,71 @@ public class ForwardedCallerEdgeTests
         Assert.DoesNotContain(
             edges,
             edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+    }
+
+    [Fact]
+    public void CallerEdges_ResolveForwardedParameterTypes()
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(
+            target is null,
+            "System.Private.Xml not in the runtime directory.");
+
+        ImmutableArray<CallerEdge> edges =
+            CreateForCallers(target!).CallerEdges(
+                CreateToken(
+                    target!,
+                    "XmlReader",
+                    "XmlReaderSettings"));
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name == nameof(WrapThroughFacade));
+    }
+
+    [Fact]
+    public void CallerEdges_ForwardedParameterTypesRejectCloseOverload()
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(
+            target is null,
+            "System.Private.Xml not in the runtime directory.");
+
+        ImmutableArray<CallerEdge> edges =
+            CreateForCallers(target!).CallerEdges(
+                CreateToken(
+                    target!,
+                    "Stream",
+                    "XmlReaderSettings"));
+
+        Assert.DoesNotContain(
+            edges,
+            edge => edge.Call.Caller.Name == nameof(WrapThroughFacade));
+    }
+
+    [Fact]
+    public void CallerEdges_ReportPlatformFacadeCaller()
+    {
+        string? target = PrivateXmlPath();
+        string? caller = DataContractSerializationPath();
+        Assert.SkipWhen(
+            target is null || caller is null,
+            "Required XML framework assemblies are not in the runtime directory.");
+        var inspection = new ApiMemberAnalysisInspection(
+            target!,
+            [],
+            new HashSet<string> { SectionNames.Callers },
+            [caller!],
+            options: null);
+
+        ImmutableArray<CallerEdge> edges = inspection.CallerEdges(
+            CreateToken(target!, "TextReader"));
+
+        Assert.Contains(
+            edges,
+            edge => edge.Source
+                    == "System.Private.DataContractSerialization"
+                && edge.Call.Caller.Name == "ExportSurrogateData");
     }
 
     [Theory]

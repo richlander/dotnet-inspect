@@ -1595,16 +1595,29 @@ public static class ApiOutputFormatter
             var projection = ILInspector.CallGraph.CallGraphProjection.Create(
                 callerTree,
                 analysisInspection.BuildCallTree(graphToken));
+            var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
+            memberCode.CallGraphRowCount = selectedRows.Count;
+            bool treeWindowIsEmpty =
+                options is { Tabular: false, Rows: not null }
+                && selectedRows.Count == 0;
             // A lone focus node with no edges is the empty state, not a graph.
-            if (projection.Edges.Length > 0)
+            if (projection.Edges.Length > 0 && !treeWindowIsEmpty)
             {
+                // Markout's graph formatters lower the same graph to a tree or an edge table.
+                // Table output already windows the rendered edge rows at its writer boundary;
+                // tree formats have no rows of their own, so give them the selected projection
+                // rows and let every lowering describe the same edge set.
+                IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
+                    options is { Tabular: false, Rows: not null } ? selectedRows : null;
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options));
+                    GetRequestedCallGraphFields(options),
+                    renderedRows);
                 hasCode = true;
             }
-            else if (ExplicitlySelected(SectionNames.CallGraph))
+            else if (ExplicitlySelected(SectionNames.CallGraph)
+                || treeWindowIsEmpty)
             {
                 memberCode.CallGraph = new Markout.Graph([], []);
                 hasCode = true;
