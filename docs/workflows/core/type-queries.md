@@ -540,10 +540,6 @@ Aliases
 Arguments
 ```
 
-Known issue: [#3921](https://github.com/richlander/dotnet-inspect/issues/3921)
-causes the default type tree to ignore numeric `-m` limits, so the intended
-absence assertion currently fails.
-
 ## 12. Source files
 
 > Goal: View where source code for a type can be found.
