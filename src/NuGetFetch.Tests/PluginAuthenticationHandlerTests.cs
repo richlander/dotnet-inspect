@@ -279,17 +279,13 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
-    public async Task TwoFeedsSharingAHostRecoverFromTheAuthorityKeyedCacheRatherThanFailing()
+    public async Task AzureOrganizationsHaveIndependentCredentialSlots()
     {
-        // Every Azure DevOps organization lives on pkgs.dev.azure.com and differs only by path,
-        // so two orgs collide in a cache keyed by scheme/host/port. This pins what that collision
-        // actually costs: the stale token is offered, refused, and replaced, so the request still
-        // succeeds. It is wasted work, not a failure, and it never approaches the retry budget.
         var orgA = new Uri("https://pkgs.dev.azure.com/org-a/_packaging/feed/nuget/v3/index.json");
         var orgB = new Uri("https://pkgs.dev.azure.com/org-b/_packaging/feed/nuget/v3/index.json");
 
-        var source = new PerOrgCredentialSource();
-        var transport = new PerOrgTransport();
+        var source = new PerAzureOrganizationCredentialSource();
+        var transport = new PerAzureOrganizationTransport();
         using HttpClient client = Client(source, transport);
 
         var attemptsPerRequest = new List<int>();
@@ -301,20 +297,11 @@ public sealed class PluginAuthenticationHandlerTests
             attemptsPerRequest.Add(transport.Attempts - before);
         }
 
-        // The first request pays one 401 to learn its token. Each later request pays one more,
-        // because the previous org overwrote the shared slot: 4 requests, 4 challenges answered.
-        Assert.Equal(4, source.Calls);
-        Assert.Equal(8, transport.Attempts);
+        Assert.Equal(2, source.Calls);
+        Assert.Equal(6, transport.Attempts);
+        Assert.Equal([2, 2, 1, 1], attemptsPerRequest);
+        Assert.Null(transport.Log[2].Authorization);
 
-        // Crucially, every request settles in exactly two attempts -- one refusal, one success --
-        // so no request approaches MaxAuthRetries and none of them fails.
-        Assert.All(attemptsPerRequest, n => Assert.Equal(2, n));
-
-        // Control: without contention the cache does its job, so a repeat of the org that just
-        // ran costs one attempt and no acquisition. This is what makes the counts above evidence
-        // of a *collision* rather than of a handler that simply never caches -- one that
-        // reacquired unconditionally would also spend two attempts per request, but it would
-        // spend two here as well.
         int beforeRepeat = transport.Attempts;
         int callsBeforeRepeat = source.Calls;
 
@@ -326,11 +313,6 @@ public sealed class PluginAuthenticationHandlerTests
         Assert.Equal(1, transport.Attempts - beforeRepeat);
         Assert.Equal(callsBeforeRepeat, source.Calls);
 
-        // Second control, on the property the cache key is actually named for. A single global
-        // credential slot would satisfy every assertion above, so reach a *different* authority
-        // and require that nothing is offered to it on the first attempt: the token just cached
-        // for pkgs.dev.azure.com must not travel to another host. This is the same-origin
-        // guarantee, observed from the handler's side.
         var otherHost = new Uri("https://nuget.pkg.github.com/org-b/index.json");
         transport.Log.Clear();
 
@@ -343,8 +325,31 @@ public sealed class PluginAuthenticationHandlerTests
         Assert.NotNull(transport.Log[1].Authorization);
     }
 
-    /// <summary>Hands back a distinct credential per Azure DevOps organization, keyed on the URL path.</summary>
-    private sealed class PerOrgCredentialSource : ICredentialSource
+    [Fact]
+    public async Task AzureNameAndGuidEndpointAliasesReuseTheCredential()
+    {
+        var index = new Uri(
+            "https://pkgs.dev.azure.com/org/project-name/_packaging/feed-name/nuget/v3/index.json");
+        var package = new Uri(
+            "https://pkgs.dev.azure.com/org/11111111-1111-1111-1111-111111111111"
+            + "/_packaging/22222222-2222-2222-2222-222222222222/nuget/v3/flat2/markout/index.json");
+
+        var source = new PerAzureOrganizationCredentialSource();
+        var transport = new PerAzureOrganizationTransport();
+        using HttpClient client = Client(source, transport);
+
+        using (HttpResponseMessage first = await client.GetAsync(index, TestContext.Current.CancellationToken))
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        using (HttpResponseMessage second = await client.GetAsync(package, TestContext.Current.CancellationToken))
+            Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(3, transport.Attempts);
+        Assert.NotNull(transport.Log[2].Authorization);
+    }
+
+    /// <summary>Hands back a distinct credential per Azure DevOps organization.</summary>
+    private sealed class PerAzureOrganizationCredentialSource : ICredentialSource
     {
         private int _calls;
 
@@ -355,13 +360,15 @@ public sealed class PluginAuthenticationHandlerTests
         public Task<PackageSourceCredential?> GetCredentialsAsync(Uri uri, bool isRetry, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _calls);
-            string org = uri.Segments[1].Trim('/');
-            return Task.FromResult<PackageSourceCredential?>(new PackageSourceCredential("user", $"token-{org}"));
+            return Task.FromResult<PackageSourceCredential?>(
+                new PackageSourceCredential(
+                    "user",
+                    $"token-{AzureOrganization(uri)}"));
         }
     }
 
-    /// <summary>Accepts a request only when its credential matches the organization it addresses.</summary>
-    private sealed class PerOrgTransport : HttpMessageHandler
+    /// <summary>Accepts a request only when its credential matches the Azure organization it addresses.</summary>
+    private sealed class PerAzureOrganizationTransport : HttpMessageHandler
     {
         private int _attempts;
 
@@ -382,13 +389,20 @@ public sealed class PluginAuthenticationHandlerTests
                 Log.Add((uri, offered));
             }
 
-            string org = uri.Segments[1].Trim('/');
-            string expected = Convert.ToBase64String(Encoding.UTF8.GetBytes($"user:token-{org}"));
+            string expected = Convert.ToBase64String(
+                Encoding.UTF8.GetBytes(
+                    $"user:token-{AzureOrganization(uri)}"));
             bool ok = string.Equals(offered, expected, StringComparison.Ordinal);
 
             return Task.FromResult(new HttpResponseMessage(ok ? HttpStatusCode.OK : HttpStatusCode.Unauthorized));
         }
     }
+
+    private static string AzureOrganization(Uri uri)
+        => uri.Segments
+            .Select(segment => segment.Trim('/'))
+            .FirstOrDefault(segment => segment.Length > 0)
+            ?? "";
 
     private static HttpClient Client(ICredentialSource source, HttpMessageHandler transport) =>
         new(new PluginAuthenticationHandler(source, transport));
