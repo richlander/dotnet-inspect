@@ -34,6 +34,12 @@ internal static class TypeParameterKindClassifier
 
     internal sealed class ResolutionPlan
     {
+        internal enum RequestPurpose
+        {
+            Constraint,
+            BaseType,
+        }
+
         readonly MetadataReader reader;
         readonly ResolvedAssemblyReference source;
         readonly int _maxTypeResolutionRequests;
@@ -61,7 +67,8 @@ internal static class TypeParameterKindClassifier
             TypeResolutionManifestKey? Request,
             string Detail)>
             _resolutionFailureKeys = [];
-        readonly List<MetadataTypeNameFailure> _requestBudgetFailures = [];
+        readonly List<RequestBudgetFailureInfo>
+            _requestBudgetFailures = [];
         readonly HashSet<int> _requestBudgetFailureSubjects = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
@@ -89,8 +96,10 @@ internal static class TypeParameterKindClassifier
         internal int ProjectedReferenceCount =>
             _projectedRequests.Count;
         internal MetadataTypeNameFailure? RequestBudgetFailure =>
-            _requestBudgetFailures.FirstOrDefault();
-        internal IReadOnlyList<MetadataTypeNameFailure>
+            _requestBudgetFailures.Count == 0
+                ? null
+                : _requestBudgetFailures[0].Failure;
+        internal IReadOnlyList<RequestBudgetFailureInfo>
             RequestBudgetFailures => _requestBudgetFailures;
         internal IReadOnlyList<MetadataTypeNameFailure>
             ResolutionFailures => _resolutionFailures;
@@ -148,7 +157,8 @@ internal static class TypeParameterKindClassifier
                 i--)
             {
                 _requestBudgetFailureSubjects.Remove(
-                    _requestBudgetFailures[i].SubjectToken ?? 0);
+                    _requestBudgetFailures[i]
+                        .Failure.SubjectToken ?? 0);
             }
             _requestBudgetFailures.RemoveRange(
                 checkpoint.BudgetFailureCount,
@@ -163,6 +173,10 @@ internal static class TypeParameterKindClassifier
             int BudgetFailureCount,
             bool BudgetExhausted);
 
+        internal readonly record struct RequestBudgetFailureInfo(
+            MetadataTypeNameFailure Failure,
+            RequestPurpose Purpose);
+
         internal void Bind(TypeResolutionContext context)
         {
             ArgumentNullException.ThrowIfNull(context);
@@ -171,7 +185,8 @@ internal static class TypeParameterKindClassifier
 
         internal TypeResolutionRequest? Project(
             TypeReferenceHandle handle,
-            EntityHandle subject = default)
+            EntityHandle subject = default,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
             if (!_projectedRequests.TryGetValue(
                     handle,
@@ -179,7 +194,7 @@ internal static class TypeParameterKindClassifier
             {
                 if (_requestBudgetExhausted)
                 {
-                    RecordRequestBudgetFailure(subject);
+                    RecordRequestBudgetFailure(subject, purpose);
                     return null;
                 }
 
@@ -202,7 +217,7 @@ internal static class TypeParameterKindClassifier
                 else
                 {
                     _requestBudgetExhausted = true;
-                    RecordRequestBudgetFailure(subject);
+                    RecordRequestBudgetFailure(subject, purpose);
                     return null;
                 }
             }
@@ -418,7 +433,8 @@ internal static class TypeParameterKindClassifier
         internal TypeResolutionOutcome Resolve(
             TypeReferenceHandle handle,
             TypeResolutionRequest request,
-            EntityHandle subject = default)
+            EntityHandle subject = default,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
             if (_context is null)
             {
@@ -430,14 +446,16 @@ internal static class TypeParameterKindClassifier
             RecordResolutionOutcomeFailure(
                 request,
                 outcome,
-                subject.IsNil ? handle : subject);
+                subject.IsNil ? handle : subject,
+                purpose);
             return outcome;
         }
 
         void RecordResolutionOutcomeFailure(
             TypeResolutionRequest request,
             TypeResolutionOutcome outcome,
-            EntityHandle handle)
+            EntityHandle handle,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
             switch (outcome)
             {
@@ -447,7 +465,8 @@ internal static class TypeParameterKindClassifier
                             budget:
                     RecordAuthenticationBudgetFailure(
                         handle,
-                        budget.Budget);
+                        budget.Budget,
+                        purpose);
                     break;
                 case TypeResolutionOutcome.Rejected
                 {
@@ -505,24 +524,30 @@ internal static class TypeParameterKindClassifier
             }
         }
 
-        void RecordRequestBudgetFailure(EntityHandle handle) =>
+        void RecordRequestBudgetFailure(
+            EntityHandle handle,
+            RequestPurpose purpose = RequestPurpose.Constraint) =>
             RecordRequestBudgetFailure(
                 handle,
                 "Type-resolution request discovery exceeded "
                     + $"the configured budget of "
-                    + $"{_maxTypeResolutionRequests}.");
+                    + $"{_maxTypeResolutionRequests}.",
+                purpose);
 
         void RecordAuthenticationBudgetFailure(
             EntityHandle handle,
-            int budget) =>
+            int budget,
+            RequestPurpose purpose = RequestPurpose.Constraint) =>
             RecordRequestBudgetFailure(
                 handle,
                 "Type-resolution dependency authentication exceeded "
-                    + $"the configured budget of {budget}.");
+                    + $"the configured budget of {budget}.",
+                purpose);
 
         void RecordRequestBudgetFailure(
             EntityHandle handle,
-            string detail)
+            string detail,
+            RequestPurpose purpose)
         {
             int subjectToken = handle.IsNil
                 ? 0
@@ -530,11 +555,12 @@ internal static class TypeParameterKindClassifier
             if (!_requestBudgetFailureSubjects.Add(subjectToken))
                 return;
 
-            _requestBudgetFailures.Add(
+            _requestBudgetFailures.Add(new RequestBudgetFailureInfo(
                 MetadataTypeNameFailure.ForMechanism(
                     MetadataTypeNameFailureMechanism.Metadata,
                     handle,
-                    detail));
+                    detail),
+                purpose));
         }
 
         void RecordResolutionFailure(

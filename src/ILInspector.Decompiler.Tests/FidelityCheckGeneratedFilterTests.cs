@@ -3,6 +3,7 @@ using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
+using System.Runtime.InteropServices;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1713,7 +1714,8 @@ public class FidelityCheckGeneratedFilterTests
                 }
             }
             """,
-            OutputKind.NetModule);
+            OutputKind.NetModule,
+            ReferencePackReferences());
         try
         {
             var results = FidelityCheck.Evaluate(assemblyPath);
@@ -2046,16 +2048,16 @@ public class FidelityCheckGeneratedFilterTests
     static string CompileFixture(
         string source,
         OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary,
+        IEnumerable<MetadataReference>? references = null,
         bool allowUnsafe = false)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "fixture.dll");
-        var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         var compilation = CSharpCompilation.Create(
             Path.GetFileNameWithoutExtension(path),
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
-            references,
+            references ?? RoslynTestReferences.TrustedPlatform,
             new CSharpCompilationOptions(
                 outputKind,
                 allowUnsafe: allowUnsafe,
@@ -2065,6 +2067,42 @@ public class FidelityCheckGeneratedFilterTests
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
+    }
+
+    static IReadOnlyList<MetadataReference> ReferencePackReferences()
+    {
+        var runtimeDirectory = new DirectoryInfo(
+            RuntimeEnvironment.GetRuntimeDirectory());
+        DirectoryInfo dotnetRoot =
+            runtimeDirectory.Parent?.Parent?.Parent
+            ?? throw new DirectoryNotFoundException(
+                "The .NET installation root could not be located.");
+        string packRoot = Path.Combine(
+            dotnetRoot.FullName,
+            "packs",
+            "Microsoft.NETCore.App.Ref");
+        string tfm = $"net{Environment.Version.Major}.0";
+        string exact = Path.Combine(
+            packRoot,
+            runtimeDirectory.Name,
+            "ref",
+            tfm);
+        string referenceDirectory = Directory.Exists(exact)
+            ? exact
+            : Directory.EnumerateDirectories(packRoot)
+                .Select(directory =>
+                    Path.Combine(directory, "ref", tfm))
+                .Where(Directory.Exists)
+                .OrderByDescending(
+                    directory => directory,
+                    StringComparer.Ordinal)
+                .First();
+        return Directory.EnumerateFiles(
+                referenceDirectory,
+                "*.dll")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .ToArray();
     }
 
     static void DeleteFixture(string assemblyPath)

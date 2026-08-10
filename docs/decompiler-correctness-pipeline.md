@@ -493,14 +493,17 @@ starts each ID exactly once. The delayed-enumeration negative canary remains
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
 
-`SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
+`SkeletonEmitTests` now contributes its 24 cases to `pre-merge` (issues #3872
+and #3903).
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
-seconds locally. The serialized `pre-merge` preset completed in 729.56 seconds
-locally at that point. A supplied method filter that produces no processable row
-throws rather than returning a vacuous green result; selecting by name admits
-all overloads, while the overload ordinal can select one.
+seconds for its original eight cases locally. The resulting 111-case serialized
+`pre-merge` preset completes in 756.08 seconds locally and retains the same
+whole-module reconstruction boundary. A supplied method filter that produces no
+processable
+row throws rather than returning a vacuous green result; selecting by name
+admits all overloads, while the overload ordinal can select one.
 
 Method selection does **not** narrow reconstruction. Each selected body still
 compiles against the whole-module skeleton, preserving the class's declaration

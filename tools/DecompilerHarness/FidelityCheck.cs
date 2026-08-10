@@ -1214,7 +1214,8 @@ static class FidelityCheck
 
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
     sealed record Entry(
-        MethodDefinitionHandle Handle, string Name, int Overload, string Signature, TargetBody Target,
+        MethodDefinitionHandle Handle, string Name, int Overload,
+        string Signature, string CanonicalSignature, TargetBody Target,
         IReadOnlyList<(string Field, string Value)> FieldInits,
         string OrigText, IReadOnlyList<string> OrigOps, bool IsFull);
 
@@ -1312,7 +1313,9 @@ static class FidelityCheck
                 mh,
                 targeted: methodFilter is not null,
                 isPrimaryConstructor: primaryConstructor is not null);
-            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature),
+                ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method).CanonicalSignature,
+                new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
                 break;
@@ -1620,7 +1623,12 @@ static class FidelityCheck
         var disassembled = new List<CompileBackResult>(entries.Count);
         foreach (var e in entries)
         {
-            var rOps = FindAndDisassemble(recompiledPe, fullType, e.Name, e.Overload)
+            var rOps = FindAndDisassemble(
+                    recompiledPe,
+                    fullType,
+                    e.Name,
+                    e.Overload,
+                    e.CanonicalSignature)
                 ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             if (rOps is null)
                 return null;
@@ -1631,7 +1639,8 @@ static class FidelityCheck
                 recompiledPe,
                 fullType,
                 e.Name,
-                e.Overload);
+                e.Overload,
+                e.CanonicalSignature);
             disassembled.Add(Classify(
                 fullType,
                 e,
@@ -1694,8 +1703,8 @@ static class FidelityCheck
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var rOps = timings is null
-            ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
-            : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
+            ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
+            : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
         return rOps is null
             ? new(
                 fullType,
@@ -1711,7 +1720,15 @@ static class FidelityCheck
                 fullType,
                 e,
                 rOps,
-                CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload),
+                CompareCompileBackFidelity(
+                    pe,
+                    reader,
+                    e.Handle,
+                    rpe,
+                    fullType,
+                    e.Name,
+                    e.Overload,
+                    e.CanonicalSignature),
                 usedProductWholeMember);
     }
 
@@ -2074,8 +2091,8 @@ static class FidelityCheck
                 ms.Position = 0;
                 using var rpe = new PEReader(ms);
                 var rOps = timings is null
-                    ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
-                    : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
+                    ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
+                    : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
                 if (rOps is null)
                 {
                     captureDetail = "cluster-method-not-found";
@@ -2088,7 +2105,15 @@ static class FidelityCheck
                     fullType,
                     e,
                     rOps,
-                    CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload),
+                    CompareCompileBackFidelity(
+                        pe,
+                        reader,
+                        e.Handle,
+                        rpe,
+                        fullType,
+                        e.Name,
+                        e.Overload,
+                        e.CanonicalSignature),
                     usedProductWholeMember);
             }
 
@@ -3024,8 +3049,9 @@ static class FidelityCheck
     /// come from the local reader; a selected target's external base comes from
     /// the resolution-aware product surface, so overrides bind to the same API
     /// that Roslyn receives as a metadata reference. An unselected exception
-    /// support type can retain <see cref="Exception"/> only when that same
-    /// evidence resolves through the platform reference scope. Other
+    /// support type can retain <see cref="Exception"/> only when its platform
+    /// reference resolves through Metadata to the defining assembly, including
+    /// any facade forwarder. Other
     /// unselected external-base siblings remain omitted because the skeleton
     /// cannot prove their full inheritance contract.
     /// </summary>
@@ -3080,19 +3106,70 @@ static class FidelityCheck
                 && baseReference.ResolutionScope.Kind
                     == HandleKind.AssemblyReference)
             {
-                string? alias = resolver.ResolveAlias(
+                AssemblyReferenceIdentity reference =
                     AssemblyReferenceIdentity.From(
                         reader,
                         (AssemblyReferenceHandle)
-                            baseReference.ResolutionScope),
-                    AssemblyResolutionScope.Platform);
-                return AliasedBaseClause(
-                    "System.Exception",
-                    alias);
+                            baseReference.ResolutionScope);
+                if (ResolvePlatformDefinitionAssembly(
+                        reference,
+                        MetadataTypeDefinitionName.Create(
+                            "System",
+                            ["Exception"])
+                        is MetadataTypeDefinitionNameResult.Valid valid
+                            ? valid.Name
+                            : null,
+                        resolver)
+                    is { } definitionAssembly)
+                {
+                    return AliasedBaseClause(
+                        "System.Exception",
+                        resolver.ResolveAlias(
+                            definitionAssembly,
+                            AssemblyResolutionScope.Any));
+                }
             }
         }
 
         return ""; // external bases need exact, accessible, constructible resolution evidence
+    }
+
+    static AssemblyReferenceIdentity?
+        ResolvePlatformDefinitionAssembly(
+            AssemblyReferenceIdentity reference,
+            MetadataTypeDefinitionName? type,
+            CompilerReferenceResolver resolver)
+    {
+        if (type is null
+            || resolver.Resolve(
+                    reference,
+                    AssemblyResolutionScope.Platform)
+                is not { } start)
+        {
+            return null;
+        }
+
+        var request = TypeResolutionRequest.FromAssembly(
+            start,
+            AssemblyResolutionScope.Platform,
+            type);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new AssemblyReferenceBindingPolicy(resolver),
+            [start],
+            [request]);
+        return context.Resolve(request)
+            is TypeResolutionOutcome.Resolved
+            {
+                Definition:
+                {
+                    Kind: MetadataTypeDefinitionKind.Class,
+                    IsPubliclyAccessible: true,
+                    HasAccessibleParameterlessConstructor: true
+                } definition
+            }
+                ? definition.Assembly.Assembly.Identity
+                : null;
     }
 
     static string AliasedBaseClause(
@@ -3136,21 +3213,53 @@ static class FidelityCheck
            || (type.ElementType is { } element && ContainsUnsupportedType(element))
            || type.TypeArguments.Any(ContainsUnsupportedType);
 
-    static string InterfaceClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind, SignatureSpellability accessibility)
+    static string InterfaceClause(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        TypeKind kind,
+        SignatureSpellability accessibility,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets)
     {
         if (kind != TypeKind.Class)
             return "";
 
         var interfaces = new List<string>();
+        var explicitTargetInterfaces = targets.Keys
+            .Select(handle =>
+                reader.GetString(
+                    reader.GetMethodDefinition(handle).Name))
+            .Where(name => name.Contains('.'))
+            .Select(name => name[..name.LastIndexOf('.')])
+            .ToHashSet(StringComparer.Ordinal);
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);
-            if (SameAssemblyNonGenericInterfaceName(reader, implementation.Interface) is { } name
-                && IsSafeClassInterfaceName(name)
-                && InterfaceMembersSatisfied(reader, typeDef, implementation.Interface, accessibility))
+            string? implementedName = ImplementedInterfaceName(
+                reader,
+                implementation.Interface);
+            if (implementedName is not null
+                && explicitTargetInterfaces.Contains(implementedName))
             {
-                interfaces.Add(Clean(name));
+                interfaces.Add(
+                    EscapeMetadataTypeName(Clean(implementedName)));
                 continue;
+            }
+            if (SameAssemblyNonGenericInterfaceName(
+                    reader,
+                    implementation.Interface)
+                is { } name)
+            {
+                if (explicitTargetInterfaces.Contains(name)
+                    || IsSafeClassInterfaceName(name)
+                        && InterfaceMembersSatisfied(
+                            reader,
+                            typeDef,
+                            implementation.Interface,
+                            accessibility))
+                {
+                    interfaces.Add(Clean(name));
+                    continue;
+                }
             }
 
             if (ProtobufSelfMessageInterfaceName(reader, typeDef, implementation.Interface) is { } protobufName)
@@ -3158,6 +3267,43 @@ static class FidelityCheck
         }
 
         return interfaces.Count == 0 ? "" : string.Join(", ", interfaces.Distinct(StringComparer.Ordinal));
+    }
+
+    static string? ImplementedInterfaceName(
+        MetadataReader reader,
+        EntityHandle handle)
+    {
+        try
+        {
+            return handle.Kind switch
+            {
+                HandleKind.TypeDefinition =>
+                    FullName(
+                        reader,
+                        reader.GetTypeDefinition(
+                            (TypeDefinitionHandle)handle)),
+                HandleKind.TypeReference =>
+                    FullName(
+                        reader,
+                        reader.GetTypeReference(
+                            (TypeReferenceHandle)handle)),
+                HandleKind.TypeSpecification =>
+                    FullyQualifiedTypeName(
+                        TypeRefDecoder.Instance.GetTypeFromSpecification(
+                            reader,
+                            GenericScope.Empty,
+                            (TypeSpecificationHandle)handle,
+                            0)),
+                _ => null,
+            };
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return null;
+        }
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -3182,7 +3328,6 @@ static class FidelityCheck
             return null;
         var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
         if ((definition.Attributes & TypeAttributes.Interface) == 0
-            || definition.GetDeclaringType().IsNil == false
             || definition.GetGenericParameters().Count != 0)
         {
             return null;
@@ -3410,14 +3555,18 @@ static class FidelityCheck
         bool requiresAbstractClass =
             kind == TypeKind.Class
             && !IsStaticClass(typeDef)
-            && ((typeDef.Attributes & TypeAttributes.Abstract) != 0
-                || externalAbstractBase);
+            && (typeDef.Attributes & TypeAttributes.Abstract) != 0;
         string keyword = kind == TypeKind.Struct
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
             : IsStaticClass(typeDef)
                 ? "static class"
                 : requiresAbstractClass ? "abstract class" : "class";
-        string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
+        string interfaceClause = InterfaceClause(
+            reader,
+            typeDef,
+            kind,
+            accessibility,
+            targets);
         string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
         bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
         bool implementsKubernetesStaticMetadata = interfaceClause.Contains("Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata", StringComparison.Ordinal);
@@ -3462,10 +3611,18 @@ static class FidelityCheck
         if (kind is TypeKind.Class or TypeKind.Struct)
             EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors,
                 orderedTargetProperties, sb, pad + "    ",
-                omitExternalAbstractOverrides: externalAbstractBase,
+                preserveExternalOverrides: externalAbstractBase,
                 requireAutoProperty: kind == TypeKind.Struct);
         var orderedTargetEvents = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
         IndexTargetEvents(reader, typeDef, targets, orderedTargetEvents);
+        if (kind is TypeKind.Class or TypeKind.Struct)
+        {
+            EmitExplicitInterfaceEvents(
+                reader,
+                typeDef,
+                targets,
+                orderedTargetEvents);
+        }
 
         foreach (var mh in typeDef.GetMethods())
         {
@@ -3481,6 +3638,16 @@ static class FidelityCheck
                         EmitPrerenderedMember(wholeEvent, sb, pad + "    ");
                         foreach (var targetAccessor in targetAccessors)
                             productWholeMembers.Add(targetAccessor);
+                    }
+                    else
+                    {
+                        EmitTargetEvent(
+                            reader,
+                            typeDef,
+                            targetEvent,
+                            targets,
+                            sb,
+                            pad + "    ");
                     }
                 }
                 continue; // emitted once, at its first accessor's metadata position
@@ -3514,15 +3681,6 @@ static class FidelityCheck
             if (mh == primaryConstructorTarget.Key)
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
-            MethodDefinition method = reader.GetMethodDefinition(mh);
-            if (externalAbstractBase
-                && !hasTarget
-                && !method.Attributes.HasFlag(MethodAttributes.Static)
-                && method.Attributes.HasFlag(MethodAttributes.Virtual)
-                && !method.Attributes.HasFlag(MethodAttributes.NewSlot))
-            {
-                continue;
-            }
             if (hasTarget && target.WholeMember is { } wholeMember)
             {
                 string methodName = reader.GetString(reader.GetMethodDefinition(mh).Name);
@@ -3535,10 +3693,14 @@ static class FidelityCheck
                 }
             }
 
-            EmitMethod(reader, typeHandle, mh,
+            EmitMethod(
+                reader,
+                typeHandle,
+                mh,
                 hasTarget ? target.Body : null,
                 hasTarget ? target.Chain : null,
                 hasTarget && target.RequiresAsync,
+                externalAbstractBase,
                 accessibility,
                 sb, pad + "    ");
         }
@@ -3624,7 +3786,7 @@ static class FidelityCheck
     }
 
     /// <summary>
-    /// A sibling interface, reconstructed with its method and property signatures
+    /// A sibling interface, reconstructed with its method, property, and event signatures
     /// (and nested types) so member access through it binds. Members are emitted
     /// without bodies or accessibility, as the interface form requires.
     /// </summary>
@@ -3660,6 +3822,40 @@ static class FidelityCheck
                 sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(pname)} {{{body} }}");
             }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        }
+
+        foreach (EventDefinitionHandle handle in typeDef.GetEvents())
+        {
+            EventDefinition eventDefinition =
+                reader.GetEventDefinition(handle);
+            EventAccessors eventAccessors =
+                eventDefinition.GetAccessors();
+            if (!eventAccessors.Adder.IsNil)
+            {
+                accessors.Add(
+                    reader.GetString(
+                        reader.GetMethodDefinition(
+                            eventAccessors.Adder).Name));
+            }
+            if (!eventAccessors.Remover.IsNil)
+            {
+                accessors.Add(
+                    reader.GetString(
+                        reader.GetMethodDefinition(
+                            eventAccessors.Remover).Name));
+            }
+            string eventName = reader.GetString(eventDefinition.Name);
+            string? eventType = EventTypeName(
+                reader,
+                typeDef,
+                eventDefinition.Type);
+            if (!eventName.Contains('.')
+                && eventType is not null)
+            {
+                sb.AppendLine(
+                    $"{inner}event {eventType} "
+                        + $"{Identifier(eventName)};");
+            }
         }
 
         foreach (var mh in typeDef.GetMethods())
@@ -3728,10 +3924,10 @@ static class FidelityCheck
     /// namespace inclusion and ctor stubs land, because the method loop otherwise
     /// emits a property's <c>get_X</c>/<c>set_X</c> as plain methods that a
     /// property access cannot resolve to. Scoped to pure-stub properties: a
-    /// property whose getter or setter is a target is normally skipped (left to
-    /// the method loop), unless the metadata has a compiler auto-property backing
-    /// field: in that case, emitting the auto-property lets the generated accessor
-    /// and constructor assignment round-trip through normal C# syntax. The replaced
+    /// property whose getter or setter is a target is emitted once as property
+    /// syntax, unless an async accessor requires the legacy method fallback. A
+    /// compiler auto-property backing field lets the generated accessor and
+    /// constructor assignment round-trip through normal C# syntax. The replaced
     /// accessor method names are added to <paramref name="skipAccessors"/> so the
     /// caller does not also emit them as methods. Stub accessors throw;
     /// over-permissive accessibility on a stub is safe because the body never runs
@@ -3743,7 +3939,7 @@ static class FidelityCheck
         HashSet<MethodDefinitionHandle> skipAccessors,
         Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle> orderedTargetProperties,
         StringBuilder sb, string pad,
-        bool omitExternalAbstractOverrides,
+        bool preserveExternalOverrides,
         bool requireAutoProperty = false)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
@@ -3752,8 +3948,13 @@ static class FidelityCheck
             var prop = reader.GetPropertyDefinition(ph);
             var pa = prop.GetAccessors();
             string pname = reader.GetString(prop.Name);
-            if (pname.Contains('<') || pname.Contains('.'))
-                continue; // compiler-generated / explicit interface impl
+            bool accessorIsTarget =
+                (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
+                || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
+            if (pname.Contains('<'))
+                continue; // compiler-generated
+            if (pname.Contains('.') && !accessorIsTarget)
+                continue; // unselected explicit interface implementation
             if (!requireAutoProperty
                 && TryGetProductWholeProperty(pa, targets, out _, out _))
             {
@@ -3775,32 +3976,34 @@ static class FidelityCheck
                 bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
                 if (!hasGet && !hasSet)
                     continue;
-                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
-                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
-                if (omitExternalAbstractOverrides
-                    && !accessorIsTarget
-                    && (AccessorOverridesBase(pa.Getter)
-                        || AccessorOverridesBase(pa.Setter)))
-                {
-                    AddAccessor(pa.Getter);
-                    AddAccessor(pa.Setter);
-                    continue;
-                }
                 var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
                 bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
+                bool isExplicit = pname.Contains('.');
                 // Preserve the accessor's call kind at a `?.X` site (receiver known
                 // non-null): a non-virtual *or final* virtual getter compiles to
-                // `call`, a non-final virtual getter to `callvirt`. Emit `virtual`
-                // only for a non-final virtual accessor so the stub keeps the same
-                // call kind; a non-virtual stub of a virtual property would
-                // otherwise change the target's opcodes. `virtual` (not `override`)
-                // is enough because the comparison is by opcode, not token, and the
-                // hiding warning is suppressed.
+                // `call`, a non-final virtual getter to `callvirt`. Preserve a
+                // proven external abstract-base override so the reconstructed
+                // concrete type still satisfies the inherited slot; otherwise
+                // `virtual` is enough to preserve the target's call kind.
                 bool emitVirtual = accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
                     && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
-                string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
+                bool emitOverride = preserveExternalOverrides
+                    && !isStatic
+                    && accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
+                    && !accessorMethod.Attributes.HasFlag(MethodAttributes.NewSlot);
+                string modifier = isExplicit
+                    ? ""
+                    : isStatic
+                        ? "static "
+                        : emitOverride
+                            ? accessorMethod.Attributes.HasFlag(
+                                MethodAttributes.Final)
+                                ? "sealed override "
+                                : "override "
+                            : emitVirtual ? "virtual " : "";
                 string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
                 bool isAutoProperty = hasGet
+                    && !isExplicit
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
                 if (isAutoProperty
@@ -3837,27 +4040,18 @@ static class FidelityCheck
                     continue;
                 }
                 string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
-                sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
+                string accessibilityPrefix = isExplicit
+                    ? ""
+                    : emitOverride
+                        ? MethodAccessibility(accessorMethod.Attributes)
+                        : "public ";
+                string emittedName = isExplicit
+                    ? EscapeMetadataTypeName(pname)
+                    : Identifier(pname);
+                sb.AppendLine($"{pad}{accessibilityPrefix}{modifier}{unsafeMod}{ret} {emittedName} {{{body} }}");
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
 
-                bool AccessorOverridesBase(
-                    MethodDefinitionHandle handle)
-                {
-                    if (handle.IsNil)
-                        return false;
-                    MethodAttributes attributes =
-                        reader.GetMethodDefinition(handle).Attributes;
-                    return (attributes & MethodAttributes.Static) == 0
-                        && (attributes & MethodAttributes.Virtual) != 0
-                        && (attributes & MethodAttributes.NewSlot) == 0;
-                }
-
-                void AddAccessor(MethodDefinitionHandle handle)
-                {
-                    if (!handle.IsNil)
-                        skipAccessors.Add(handle);
-                }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
         }
@@ -3969,6 +4163,8 @@ static class FidelityCheck
             ? "static "
             : emitOverride ? "override " : emitVirtual ? "virtual " : "";
         string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
+        string propertyName = reader.GetString(prop.Name);
+        bool isExplicit = propertyName.Contains('.');
         bool hasGet = !pa.Getter.IsNil && CanEmitAccessor(reader, typeDef, pa.Getter, accessibility);
         bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
         string getterBody = !pa.Getter.IsNil && targets.TryGetValue(pa.Getter, out var getterTarget)
@@ -3977,7 +4173,117 @@ static class FidelityCheck
         string setterBody = !pa.Setter.IsNil && targets.TryGetValue(pa.Setter, out var setterTarget)
             ? $" set {{\n{setterTarget.Body}\n{pad}}}"
             : (hasSet ? " set => throw null;" : "");
-        sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(reader.GetString(prop.Name))} {{{getterBody}{setterBody} }}");
+        string accessibilityPrefix = isExplicit
+            ? ""
+            : emitOverride
+                ? MethodAccessibility(accessorMethod.Attributes)
+                : "public ";
+        string emittedModifier = isExplicit ? "" : modifier;
+        string emittedName = isExplicit
+            ? EscapeMetadataTypeName(propertyName)
+            : Identifier(propertyName);
+        sb.AppendLine($"{pad}{accessibilityPrefix}{emittedModifier}{unsafeMod}{ret} {emittedName} {{{getterBody}{setterBody} }}");
+    }
+
+    static void EmitExplicitInterfaceEvents(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        Dictionary<MethodDefinitionHandle, EventDefinitionHandle>
+            orderedTargetEvents)
+    {
+        foreach (EventDefinitionHandle handle in typeDef.GetEvents())
+        {
+            EventDefinition eventDefinition =
+                reader.GetEventDefinition(handle);
+            string name = reader.GetString(eventDefinition.Name);
+            if (!name.Contains('.'))
+                continue;
+
+            EventAccessors accessors = eventDefinition.GetAccessors();
+            if (accessors.Adder.IsNil || accessors.Remover.IsNil)
+                continue;
+            bool accessorIsTarget =
+                targets.ContainsKey(accessors.Adder)
+                || targets.ContainsKey(accessors.Remover);
+            if (!accessorIsTarget)
+                continue;
+
+            orderedTargetEvents[accessors.Adder] = handle;
+            orderedTargetEvents[accessors.Remover] = handle;
+        }
+    }
+
+    static void EmitTargetEvent(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        EventDefinitionHandle handle,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        StringBuilder sb,
+        string pad)
+    {
+        EventDefinition eventDefinition =
+            reader.GetEventDefinition(handle);
+        EventAccessors accessors = eventDefinition.GetAccessors();
+        if (accessors.Adder.IsNil || accessors.Remover.IsNil)
+            return;
+        string? eventType = EventTypeName(
+            reader,
+            typeDef,
+            eventDefinition.Type);
+        if (eventType is null)
+            return;
+
+        string addBody =
+            targets.TryGetValue(accessors.Adder, out TargetBody addTarget)
+                ? $" add {{\n{addTarget.Body}\n{pad}}}"
+                : " add { throw null; }";
+        string removeBody =
+            targets.TryGetValue(
+                accessors.Remover,
+                out TargetBody removeTarget)
+                ? $" remove {{\n{removeTarget.Body}\n{pad}}}"
+                : " remove { throw null; }";
+        sb.AppendLine(
+            $"{pad}event {eventType} "
+                + $"{EscapeMetadataTypeName(reader.GetString(eventDefinition.Name))} "
+                + $"{{{addBody}{removeBody} }}");
+    }
+
+    static string? EventTypeName(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        EntityHandle handle)
+    {
+        try
+        {
+            string? type = handle.Kind switch
+            {
+                HandleKind.TypeDefinition =>
+                    reader.GetFullTypeName(
+                        reader.GetTypeDefinition(
+                            (TypeDefinitionHandle)handle)),
+                HandleKind.TypeReference =>
+                    reader.GetFullTypeName(
+                        reader.GetTypeReference(
+                            (TypeReferenceHandle)handle)),
+                HandleKind.TypeSpecification =>
+                    reader.GetTypeSpecification(
+                        (TypeSpecificationHandle)handle)
+                        .DecodeSignature(
+                            SignatureDecoder.Instance,
+                            GenericContext.ForType(reader, typeDef)),
+                _ => null,
+            };
+            return type is null ? null : Clean(type);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return null;
+        }
     }
 
     static bool HasAutoPropertyBackingField(
@@ -4330,7 +4636,14 @@ static class FidelityCheck
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
         if (isPrimaryConstructor
-            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "property" or "event"))
+            || entry.Member.Kind is not (
+                "method"
+                or "operator"
+                or "constructor"
+                or "finalizer"
+                or "property"
+                or "event"
+                or "explicit-interface-implementation"))
             return null;
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
@@ -4503,6 +4816,7 @@ static class FidelityCheck
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync,
+        bool preserveOverride,
         SignatureSpellability accessibility, StringBuilder sb, string pad)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -4510,13 +4824,11 @@ static class FidelityCheck
         string name = reader.GetString(method.Name);
         if (name.Contains('<') && name is not ".ctor" and not ".cctor")
             return; // compiler-generated
-        // An explicit interface implementation carries the dotted interface-
-        // qualified IL name (e.g. `System.IDisposable.Dispose`); a reconstructed
-        // stub spelled `public Iface.Member(...)` is invalid C# (CS0106) and
-        // poisons the whole-module compile. It is never invoked by name (only
-        // through the interface), so the target never needs the stub to bind —
-        // drop sibling explicit impls. The target itself (realBody set) is still
-        // emitted so a changed explicit impl is not silently lost.
+        // An explicit interface implementation carries a dotted IL name.
+        // Unselected siblings are never invoked by name, so drop them instead of
+        // emitting invalid `public Iface.Member(...)` syntax. Selected methods
+        // normally arrive as product-rendered whole members; selected accessors
+        // are emitted by the property/event paths above.
         if (realBody is null && name.Contains('.') && name is not ".ctor" and not ".cctor")
             return;
         var context = GenericContext.ForMethod(reader, typeDef, method);
@@ -4574,13 +4886,21 @@ static class FidelityCheck
             name,
             returnType,
             sig.ParameterTypes.Length);
+        bool emitOverride = preserveOverride
+            && !isStatic
+            && method.Attributes.HasFlag(MethodAttributes.Virtual)
+            && !method.Attributes.HasFlag(MethodAttributes.NewSlot);
         // A same-type call to a source-declarable new-slot virtual method binds as
         // callvirt only when the reconstructed sibling keeps that declaration.
         // Override-shaped methods need an override declaration to preserve their
         // symbolic target, so exclude them rather than inventing a new slot.
         bool emitClassVirtual = ShapeOf(reader, typeDef) == TypeKind.Class
             && IsSourceDeclarableClassVirtual(method);
-        string instanceModifier = slotModifier.Length != 0
+        string instanceModifier = emitOverride
+            ? method.Attributes.HasFlag(MethodAttributes.Final)
+                ? "sealed override "
+                : "override "
+            : slotModifier.Length != 0
             ? slotModifier
             : (isAbstractStub || emitClassVirtual ? "virtual " : "");
         if (!IsStaticClass(typeDef)
@@ -4590,7 +4910,10 @@ static class FidelityCheck
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
             return;
         }
-        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
+        string accessibilityModifier = emitOverride
+            ? MethodAccessibility(method.Attributes)
+            : "public ";
+        sb.AppendLine($"{pad}{accessibilityModifier}{unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
     }
 
     static bool IsSourceDeclarableClassVirtual(MethodDefinition method)
@@ -4993,6 +5316,14 @@ static class FidelityCheck
         || SyntaxFacts.GetContextualKeywordKind(name) != SyntaxKind.None
         ? "@" + name : name;
 
+    static string MethodAccessibility(MethodAttributes attributes) =>
+        (attributes & MethodAttributes.MemberAccessMask) switch
+        {
+            MethodAttributes.Family => "protected ",
+            MethodAttributes.FamORAssem => "protected internal ",
+            _ => "public ",
+        };
+
     /// <summary>
     /// The <c>[InlineArray(N)]</c> attribute text for an inline-array struct, or
     /// null when the type does not carry it. The attribute has a single int32
@@ -5215,9 +5546,20 @@ static class FidelityCheck
 
     static string Invariant(double d) => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
 
-    static List<ILInstructionText>? FindAndDisassemble(PEReader pe, string fullType, string name, int overload)
+    static List<ILInstructionText>? FindAndDisassemble(
+        PEReader pe,
+        string fullType,
+        string name,
+        int overload,
+        string canonicalSignature)
     {
-        if (FindMethodDefinition(pe, fullType, name, overload) is not { } found)
+        if (FindMethodDefinition(
+                pe,
+                fullType,
+                name,
+                overload,
+                canonicalSignature)
+            is not { } found)
             return null;
         return MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method);
     }
@@ -5226,7 +5568,8 @@ static class FidelityCheck
         PEReader pe,
         string fullType,
         string name,
-        int overload)
+        int overload,
+        string? canonicalSignature = null)
     {
         var reader = pe.GetMetadataReader();
         int seen = 0;
@@ -5247,6 +5590,17 @@ static class FidelityCheck
                 string mn = reader.GetString(m.Name);
                 if (mn != match)
                     continue;
+                if (canonicalSignature is not null)
+                {
+                    string candidate =
+                        ApiMemberIdentity.CreateMethodAnchor(
+                            reader,
+                            tdh,
+                            m).CanonicalSignature;
+                    if (candidate == canonicalSignature)
+                        return (reader, mh, m);
+                    continue;
+                }
                 if (seen++ == overload)
                     return (reader, mh, m);
             }
@@ -5261,9 +5615,16 @@ static class FidelityCheck
         PEReader recompiledPe,
         string fullType,
         string methodName,
-        int overload)
+        int overload,
+        string canonicalSignature)
     {
-        if (FindMethodDefinition(recompiledPe, fullType, methodName, overload) is not { } recompiled)
+        if (FindMethodDefinition(
+                recompiledPe,
+                fullType,
+                methodName,
+                overload,
+                canonicalSignature)
+            is not { } recompiled)
             return IlBodyDiffResult.NewBodyMissing("recompiled method not found");
 
         return IlAssemblyDiff.CompareMembers(

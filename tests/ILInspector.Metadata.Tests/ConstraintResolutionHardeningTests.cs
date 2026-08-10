@@ -907,6 +907,9 @@ public class ConstraintResolutionHardeningTests
                 .TypeKind);
         ApiSurfaceInspectionFailure failure =
             Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve generic parameter constraints",
+            failure.Operation);
         Assert.Contains(
             "dependency authentication",
             failure.Detail,
@@ -1383,6 +1386,9 @@ public class ConstraintResolutionHardeningTests
             Assert.Single(surface.Types).BaseTypeResolution);
         ApiSurfaceInspectionFailure failure =
             Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
         Assert.Contains(
             "dependency authentication",
             failure.Detail,

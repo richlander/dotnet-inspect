@@ -30,3 +30,29 @@ public class SkeletonEmitFixture : IDisposable
 
     public int Sum(int a, int b) => a + b;
 }
+
+public interface ISkeletonExplicitProperty
+{
+    int Value { get; }
+}
+
+public sealed class SkeletonExplicitPropertyFixture
+    : ISkeletonExplicitProperty
+{
+    int ISkeletonExplicitProperty.Value => 42;
+}
+
+public interface ISkeletonExplicitEvent
+{
+    event EventHandler Changed;
+}
+
+public sealed class SkeletonExplicitEventFixture
+    : ISkeletonExplicitEvent
+{
+    event EventHandler ISkeletonExplicitEvent.Changed
+    {
+        add { }
+        remove { }
+    }
+}

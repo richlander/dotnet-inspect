@@ -171,6 +171,30 @@ public class SkeletonEmitTests
             result.Status);
     }
 
+    [Theory]
+    [InlineData(
+        "ILInspector.Decompiler.Tests.SkeletonExplicitPropertyFixture",
+        "ILInspector.Decompiler.Tests.ISkeletonExplicitProperty.get_Value")]
+    [InlineData(
+        "ILInspector.Decompiler.Tests.SkeletonExplicitEventFixture",
+        "ILInspector.Decompiler.Tests.ISkeletonExplicitEvent.add_Changed")]
+    [InlineData(
+        "ILInspector.Decompiler.Tests.SkeletonEmitFixture",
+        "System.IDisposable.Dispose")]
+    public void SkeletonEmitsExplicitInterfaceTargets(
+        string typeName,
+        string methodName)
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonEmitFixture).Assembly.Location,
+            type => type == typeName,
+            method => method.Method == methodName));
+
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.Exact,
+            result.Status);
+    }
+
     [Fact]
     public void SkeletonKeepsExtensionMethodOnItsDeclaringType()
     {
@@ -416,21 +440,128 @@ public class SkeletonEmitTests
                 {
                     public override int Required => 42;
                     public int Plain() => Required;
+                    public static Derived Create() => new();
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var results = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "AbstractCase.Derived",
+                method => method.Method is "Plain" or "Create");
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-concrete-abstract-base-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "ConcreteAbstractDependency.dll");
+        string targetPath =
+            Path.Combine(root, "ConcreteAbstractTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "ConcreteAbstractDependency",
+                """
+                namespace ConcreteAbstractCase;
+                public abstract class Base
+                {
+                    public virtual int Shared() => 1;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "ConcreteAbstractTarget",
+                """
+                namespace ConcreteAbstractCase;
+                public sealed class Derived : Base
+                {
+                    public static Derived Create() => new();
                 }
                 """,
                 [MetadataReference.CreateFromFile(dependencyPath)]);
 
             var result = Assert.Single(FidelityCheck.Evaluate(
                 targetPath,
-                type => type == "AbstractCase.Derived",
-                method => method.Method == "Plain"));
+                type => type == "ConcreteAbstractCase.Derived",
+                method => method.Method == "Create"));
 
-            Assert.False(
-                result.Status is
-                    FidelityCheck.CompileBackStatus.RecompileFail
-                    or FidelityCheck.CompileBackStatus.ContextFail,
-                $"Abstract external base erased compile-back signal: "
-                    + $"{result.Status} / {result.Detail}");
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-override-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "OverloadDependency.dll");
+        string targetPath =
+            Path.Combine(root, "OverloadTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "OverloadDependency",
+                """
+                namespace OverloadCase;
+                public abstract class Base
+                {
+                    public abstract void Write(char value);
+                    public abstract void Write(string value);
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "OverloadTarget",
+                """
+                namespace OverloadCase;
+                public sealed class Derived : Base
+                {
+                    public override void Write(char value) { }
+                    public override void Write(string value)
+                        => System.GC.KeepAlive(value);
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "OverloadCase.Derived",
+                method => method.Method == "Write"
+                    && method.Overload == 1));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
         }
         finally
         {

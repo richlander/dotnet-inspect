@@ -394,24 +394,28 @@ visibility.
 Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
 same-named type from another assembly. The compile-back reference resolver matches the
 case-insensitive assembly name plus culture and public-key token exactly (normalizing only neutral
-culture). Ordinary dependencies also
-require an exact version; a trusted-platform reference may unify only to the same or a newer
+culture). Ordinary dependencies also require an exact version; a trusted-platform reference may
+unify only to the same or a newer
 platform version so an older-TFM target can compile against the running platform without
 authorizing a downgrade or a different identity. Authenticated external bases are spelled through
 generated reference aliases so a target-local type with the same structured name cannot shadow
 the resolved definition; metadata identifiers that are C# keywords are escaped after the alias.
-Selected targets may consume that evidence directly. An authenticated abstract external base
-makes the generated support type abstract; non-target reuse-slot virtual members are inherited
-rather than emitted as accidental concrete implementations, while selected overrides remain
-product-rendered targets. This preserves compile-back signal without claiming that every
-metadata reuse-slot method has an overridable base member.
+Selected targets may consume that evidence directly. An authenticated abstract external base does
+not change the target type's own abstract/concrete kind. Concrete target types retain their
+reuse-slot methods and properties as override stubs with metadata accessibility, so inherited
+abstract slots remain implemented and target bodies may still construct their own declaring type.
+Recompiled targets are found by canonical member signature rather than their original same-name
+ordinal, so scaffold changes cannot shift a target onto a sibling overload.
 Unselected `System.Exception` support types additionally require the referenced assembly to bind
-through the platform scope before retaining their base clause; manifest-less modules authenticate
-that platform reference directly from the base `TypeRef` while retaining the legacy target index.
+through the platform scope before retaining their base clause. Manifest-less modules begin from
+the base `TypeRef`'s platform reference, then use the Metadata resolution catalog to follow
+forwarders and alias the defining assembly rather than a facade.
 Method names that merely start with `get_`, `set_`, `add_`, or `remove_` remain ordinary methods
 unless property or event MethodSemantics identify them as accessors. Explicit-interface accessors
 remain explicit-interface-implementation members because their private property or event rows do
-not independently represent the public interface contract. Event raiser and other semantic
+not independently represent the public interface contract. When selected for compile-back,
+explicit-interface methods, properties, and events retain their interface clause and valid C#
+declaration shape. Event raiser and other semantic
 methods remain method members because `ApiMember` has no event-token slots through which their
 bodies could otherwise remain addressable.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
@@ -425,7 +429,11 @@ exception support paths, while
 spelling, `SkeletonEscapesAliasQualifiedKeywordBase` gates keyword escaping,
 `CompilerReferenceResolver_DoesNotWildcardMissingIdentityFields` gates ordinary exact-version
 matching and trusted-platform upgrade-only unification,
-`SkeletonRetainsSignalForAbstractExternalBase` gates abstract-base scaffolding,
+`SkeletonRetainsSignalForAbstractExternalBase` and
+`SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers` gate concrete abstract-base
+scaffolding, `SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding` gates target
+identity after scaffold changes, `SkeletonEmitsExplicitInterfaceTargets` gates selected explicit
+methods and accessors,
 `SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
 consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
@@ -442,7 +450,8 @@ through `ApiSurface.InspectionFailures` rather than silently returning a partial
 (`DiscoveryBudgetExhaustionIsVisibleOnApiSurface`), authentication exhaustion is reported
 after the frozen context is applied
 (`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), base-authentication exhaustion is
-reported through the same failure surface
+reported through the same failure surface under the distinct `resolve external base type`
+operation
 (`BaseAuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
 non-cacheable rejection across catalog generations
 (`BudgetExhaustionIsNotPromotedAcrossGenerations`). A selected dependency that cannot be

@@ -291,7 +291,7 @@ public static class ApiSurfaceExtractor
             resolution);
         if (resolution.Requests.Count == 0)
         {
-            AddConstraintResolutionFailure(
+            AddResolutionFailure(
                 surface,
                 resolution,
                 source.Identity);
@@ -304,25 +304,40 @@ public static class ApiSurfaceExtractor
                 [source],
                 resolution.Requests);
         resolution.Apply(context);
-        AddConstraintResolutionFailure(
+        AddResolutionFailure(
             surface,
             resolution,
             source.Identity);
         return surface;
     }
 
-    static void AddConstraintResolutionFailure(
+    static void AddResolutionFailure(
         ApiSurface surface,
         ApiSurfaceResolution resolution,
         AssemblyReferenceIdentity subjectAssembly)
     {
-        foreach (MetadataTypeNameFailure budgetFailure
+        foreach (TypeParameterKindClassifier.ResolutionPlan
+            .RequestBudgetFailureInfo budgetFailure
             in resolution.Plan.RequestBudgetFailures)
         {
-            TrackConstraintResolutionFailure(
-                surface,
-                budgetFailure,
-                subjectAssembly);
+            if (budgetFailure.Purpose
+                == TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.BaseType)
+            {
+                AddInspectionFailure(
+                    surface,
+                    "resolve external base type",
+                    default,
+                    budgetFailure.Failure,
+                    subjectAssembly);
+            }
+            else
+            {
+                TrackConstraintResolutionFailure(
+                    surface,
+                    budgetFailure.Failure,
+                    subjectAssembly);
+            }
         }
 
         foreach (TypeParameterKindClassifier.ResolutionPlan
@@ -3279,7 +3294,12 @@ public static class ApiSurfaceExtractor
         {
             if (!_resolveBaseTypes)
                 return;
-            if (Plan.Project(handle, subject) is { } request)
+            if (Plan.Project(
+                    handle,
+                    subject,
+                    TypeParameterKindClassifier.ResolutionPlan
+                        .RequestPurpose.BaseType)
+                is { } request)
                 _baseTypes.Add((type, handle, request, subject));
         }
 
@@ -3316,7 +3336,12 @@ public static class ApiSurfaceExtractor
 
             foreach (var (type, handle, request, subject) in _baseTypes)
             {
-                if (Plan.Resolve(handle, request, subject)
+                if (Plan.Resolve(
+                        handle,
+                        request,
+                        subject,
+                        TypeParameterKindClassifier.ResolutionPlan
+                            .RequestPurpose.BaseType)
                     is TypeResolutionOutcome.Resolved
                     {
                         Definition:
