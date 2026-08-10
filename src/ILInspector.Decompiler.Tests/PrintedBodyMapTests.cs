@@ -242,6 +242,7 @@ public class PrintedBodyMapTests
         var stringType = TypeRef.CoreLib("System", "String");
         var uintType = TypeRef.CoreLib("System", "UInt32");
         var pointerType = TypeRef.Pointer(intType);
+        var holderType = TypeRef.Definition("synthetic", "", "Holder");
         var enumType = TypeRef.Definition("synthetic", "", "Mode");
         var nullableIntType = TypeRef.GenericInstance(
             TypeRef.CoreLib("System", "Nullable`1"),
@@ -314,6 +315,36 @@ public class PrintedBodyMapTests
             isUnsigned: false,
             new LoadLocal(11, enumType),
             namedEnumOperand);
+        var increment = new StoreLocal(
+            1,
+            intType,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadLocal(1, intType),
+                new Constant(1, intType)));
+        var checkedIncrement = new StoreLocal(
+            1,
+            intType,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: true,
+                isUnsigned: false,
+                new LoadLocal(1, intType),
+                new Constant(1, intType)));
+        var fieldLoad = new LoadField(
+            new FieldRef(holderType, "Count", intType),
+            new LoadArgument(0, "this", holderType));
+        var fieldAddressRead = new LoadIndirect(
+            intType,
+            new LoadFieldAddress(
+                new FieldRef(holderType, "Count", intType),
+                new LoadArgument(0, "this", holderType)));
+        var propertyLoad = new LoadProperty(
+            new MethodRef(holderType, "get_Total", intType, [], HasThis: true),
+            new LoadArgument(0, "this", holderType),
+            []);
         var pattern = new IsPattern(
             new LoadArgument(4, "subject", objectType),
             stringType,
@@ -352,12 +383,17 @@ public class PrintedBodyMapTests
         block.Add(new StoreLocal(11, enumType, enumConstant));
         block.Add(new StoreLocal(12, enumType, namedEnumSink));
         block.Add(new StoreLocal(13, boolType, enumComparison));
+        block.Add(increment);
+        block.Add(checkedIncrement);
+        block.Add(new StoreLocal(14, intType, fieldLoad));
+        block.Add(new StoreLocal(15, intType, propertyLoad));
+        block.Add(new StoreLocal(16, intType, fieldAddressRead));
         block.Add(new Return(managedRead));
         var container = new BlockContainer();
         container.Add(block);
         var function = new IrFunction(
             "M",
-            TypeRef.Definition("synthetic", "", "Holder"),
+            holderType,
             new MethodSignature(
                 intType,
                 [
@@ -386,6 +422,9 @@ public class PrintedBodyMapTests
                 enumType,
                 enumType,
                 boolType,
+                intType,
+                intType,
+                intType,
             ],
             container)
         {
@@ -423,6 +462,11 @@ public class PrintedBodyMapTests
         AssertSurfaceKind(ranges, enumConstant, "(Mode)3", "ConversionExpression");
         AssertSurfaceKind(ranges, namedEnumSink, "Mode.Enabled", "MemberAccessExpression");
         AssertSurfaceKind(ranges, namedEnumOperand, "Mode.Enabled", "MemberAccessExpression");
+        AssertSurfaceKind(ranges, increment, "V_1++;\n", "IncrementOrDecrementExpression");
+        AssertSurfaceKind(ranges, checkedIncrement, "checked { V_1++; }\n", "CheckedStatement");
+        AssertSurfaceKind(ranges, fieldLoad, "Count", "NameExpression");
+        AssertSurfaceKind(ranges, propertyLoad, "Total", "NameExpression");
+        AssertSurfaceKind(ranges, fieldAddressRead, "Count", "NameExpression");
     }
 
     [Fact]
@@ -485,6 +529,11 @@ public class PrintedBodyMapTests
         Assert.True(ranges.TryGetRange(allocation, out var allocationRange));
         Assert.Equal("stackalloc byte[16]", ranges.Output[allocationRange]);
         Assert.True(SlotOf(ranges, allocation) < SlotOf(ranges, store));
+        Assert.True(ranges.TryGetLine(allocation, out int allocationLine));
+        Assert.True(ranges.TryGetLine(store, out int storeAnchorLine));
+        Assert.True(ranges.TryGetLineColumn(store, out int storeSyntaxLine, out _, out _));
+        Assert.Equal(allocationLine, storeAnchorLine);
+        Assert.NotEqual(storeAnchorLine, storeSyntaxLine);
 
         using var source = MetadataSource.Open(typeof(UnsafeSampleClass).Assembly.Location);
         var imported = IrImporter.Import(
@@ -501,6 +550,11 @@ public class PrintedBodyMapTests
         Assert.True(importedRanges.TryGetRange(slotStore, out var slotRange));
         Assert.Equal("byte* S_256 = __stackalloc;\n", importedRanges.Output[slotRange]);
         Assert.True(SlotOf(importedRanges, slotAllocation) < SlotOf(importedRanges, slotStore));
+        Assert.True(importedRanges.TryGetLine(slotAllocation, out int slotAllocationLine));
+        Assert.True(importedRanges.TryGetLine(slotStore, out int slotAnchorLine));
+        Assert.True(importedRanges.TryGetLineColumn(slotStore, out int slotSyntaxLine, out _, out _));
+        Assert.Equal(slotAllocationLine, slotAnchorLine);
+        Assert.NotEqual(slotAnchorLine, slotSyntaxLine);
 
         using var returnSource = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
         var returnFunction = IrImporter.Import(
@@ -517,6 +571,11 @@ public class PrintedBodyMapTests
         Assert.True(returnRanges.TryGetRange(returnStatement, out var returnRange));
         Assert.Equal("return (int*)__stackalloc;\n", returnRanges.Output[returnRange]);
         Assert.True(SlotOf(returnRanges, returnAllocation) < SlotOf(returnRanges, returnStatement));
+        Assert.True(returnRanges.TryGetLine(returnAllocation, out int returnAllocationLine));
+        Assert.True(returnRanges.TryGetLine(returnStatement, out int returnAnchorLine));
+        Assert.True(returnRanges.TryGetLineColumn(returnStatement, out int returnSyntaxLine, out _, out _));
+        Assert.Equal(returnAllocationLine, returnAnchorLine);
+        Assert.NotEqual(returnAnchorLine, returnSyntaxLine);
     }
 
     [Fact]

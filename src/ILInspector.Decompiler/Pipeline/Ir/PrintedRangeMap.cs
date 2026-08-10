@@ -135,6 +135,7 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     readonly List<BoundPrintedRegion> _printedRegions = [];
     readonly Dictionary<IrNode, int> _index = [];
     readonly Dictionary<IrNode, int> _insertionPoints = [];
+    readonly Dictionary<IrNode, int> _lineAnchors = [];
     readonly Dictionary<IrNode, string> _nodeKinds = [];
     int[]? _lineStarts;
 
@@ -168,10 +169,10 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     }
 
     /// <summary>
-    /// The 0-based output line <paramref name="node"/> starts on — a projection
-    /// of its recorded range, not separately stored. The line index table is
-    /// built once on first use and reused, so this is a binary search per query
-    /// rather than a scan of the whole text per node.
+    /// The 0-based output line that owns <paramref name="node"/>. This normally
+    /// projects the recorded range start. A statement expanded into generated
+    /// setup plus its own syntax may retain the full emission start as a
+    /// separate line anchor while exposing only its own syntax as its range.
     /// </summary>
     public bool TryGetLine(IrNode node, out int line)
     {
@@ -180,7 +181,10 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
             line = 0;
             return false;
         }
-        line = LineAt(range.Start.GetOffset(Output.Length));
+        int position = _lineAnchors.GetValueOrDefault(
+            node,
+            range.Start.GetOffset(Output.Length));
+        line = LineAt(position);
         return true;
     }
 
@@ -231,6 +235,13 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
         _index[node] = _ranges.Count;
         _ranges.Add(new PrintedRange(node, start..end));
     }
+
+    /// <summary>
+    /// Retains the line where a statement's full emission begins when its
+    /// rendered-syntax range intentionally excludes generated setup text.
+    /// </summary>
+    internal void SetLineAnchor(IrNode node, int position)
+        => _lineAnchors.TryAdd(node, position);
 
     /// <summary>
     /// Records the stable kind chosen by the rendering branch for

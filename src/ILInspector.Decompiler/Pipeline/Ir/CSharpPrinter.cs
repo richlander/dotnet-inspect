@@ -1806,6 +1806,8 @@ public sealed partial class CSharpPrinter
         int start = sb.Length;
         AppendStatementCore(sb, node, indent, out int? statementStartOverride);
         RecordExpressionRanges(sb, node, start);
+        if (statementStartOverride is not null)
+            _printedRanges.SetLineAnchor(node, start);
         _printedRanges.Record(node, statementStartOverride ?? start, sb.Length);
         if (HasNamedRegions(node))
             _printedRanges.RecordRegion(PrintedRegionRole.Construct, start, sb.Length);
@@ -2930,13 +2932,13 @@ public sealed partial class CSharpPrinter
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type, SpellVarForApparentType(s.Type, s.Value) ? null : s.Type)};"
-            : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
-        StoreArgument s => AssignmentText(CSharpNaming.ContainedIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
+        StoreArgument s => AssignmentText(s, CSharpNaming.ContainedIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
@@ -2944,8 +2946,9 @@ public sealed partial class CSharpPrinter
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s), SpellVarForApparentType(StackSlotTargetType(s)!, s.Value) ? null : StackSlotTargetType(s))};"
-            : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
+            : AssignmentText(s, StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
+            s,
             FieldTarget(s.Field, s.Instance), s.Value,
             left => left is LoadField load
                 && load.Field.Name == s.Field.Name
@@ -2953,6 +2956,7 @@ public sealed partial class CSharpPrinter
                 && SamePlace(load.Instance, s.Instance),
             s.Field.Type),
         StoreProperty s => AssignmentText(
+            s,
             PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
             s.Value,
             left => left is LoadProperty load
@@ -2965,6 +2969,7 @@ public sealed partial class CSharpPrinter
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s))};",
         StoreIndirect s => AssignmentText(
+            s,
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
             left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
@@ -3304,6 +3309,20 @@ public sealed partial class CSharpPrinter
         return text;
     }
 
+    string MemberTargetText(IrExpression node, string text, bool isElementAccess = false)
+        => WithNodeKind(
+            node,
+            text,
+            isElementAccess
+                ? "ElementAccessExpression"
+                : IsBareMemberTarget(text)
+                    ? "NameExpression"
+                    : "MemberAccessExpression");
+
+    static bool IsBareMemberTarget(string text)
+        => !text.Contains('.', StringComparison.Ordinal)
+            && !text.Contains("->", StringComparison.Ordinal);
+
     string WithNodeKind(IrExpression node, string text, string kind)
     {
         _printedRanges?.SetNodeKind(node, kind);
@@ -3332,7 +3351,7 @@ public sealed partial class CSharpPrinter
         Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
             => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
         Constant c => ConstantText(c),
-        LoadField f => FieldTarget(f.Field, f.Instance),
+        LoadField f => MemberTargetText(f, FieldTarget(f.Field, f.Instance)),
         Binary b => BinaryText(b),
         Comparison c => ComparisonText(c),
         // A LogicalNot in value position (a folded `brfalse x; ldc.0/ldc.1` select,
@@ -3396,7 +3415,10 @@ public sealed partial class CSharpPrinter
         LocalFunctionInvocation inv => $"{CSharpNaming.ContainedIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
-        LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
+        LoadProperty p => MemberTargetText(
+            p,
+            PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
+            p.IndexArguments.Count > 0),
         DynamicGetMember d => DynamicGetMemberText(d),
         NewObject n when MultiDimArrayCreationText(n) is { } text
             => WithNodeKind(n, text, "ArrayCreationExpression"),
@@ -3446,7 +3468,7 @@ public sealed partial class CSharpPrinter
         FixedBufferElementAddress f => $"ref {FixedBufferElementText(f)}",
         LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
-        LoadIndirect l => WithNodeKind(l, DerefLoad(l), DerefLoadSurfaceKind(l)),
+        LoadIndirect l => DerefLoadText(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         DefaultValue d => $"default({TypeText(d.Type)})",
         TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
@@ -4122,7 +4144,13 @@ public sealed partial class CSharpPrinter
             rendered.Kind);
     }
 
-    string DerefLoadSurfaceKind(LoadIndirect load)
+    string DerefLoadText(LoadIndirect load)
+    {
+        string text = DerefLoad(load);
+        return WithNodeKind(load, text, DerefLoadSurfaceKind(load, text));
+    }
+
+    string DerefLoadSurfaceKind(LoadIndirect load, string text)
     {
         if (PointerElementAccessText(load) is not null)
             return "ElementAccessExpression";
@@ -4140,7 +4168,7 @@ public sealed partial class CSharpPrinter
         {
             LoadArgument { Index: 0, Name: "this" } => "NameExpression",
             LoadLocalAddress or LoadArgumentAddress => "NameExpression",
-            LoadFieldAddress => "MemberAccessExpression",
+            LoadFieldAddress => IsBareMemberTarget(text) ? "NameExpression" : "MemberAccessExpression",
             FixedBufferElementAddress or LoadElementAddress => "ElementAccessExpression",
             Unbox => "InvocationExpression",
             { ResultType.Kind: TypeRefKind.Pointer } => "IndirectAccessExpression",
@@ -4871,14 +4899,26 @@ public sealed partial class CSharpPrinter
     /// an unchecked binary whose left operand reads the assignment target,
     /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
     /// </summary>
-    string AssignmentText(string target, IrExpression value, Func<IrExpression, bool> readsTarget, TypeRef? targetType = null)
+    string AssignmentText(
+        IrNode owner,
+        string target,
+        IrExpression value,
+        Func<IrExpression, bool> readsTarget,
+        TypeRef? targetType = null)
     {
         if (value is Binary binary && readsTarget(binary.Left))
         {
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
-            string statement = CompoundStatement(target, binary, targetType);
+            string statement = CompoundStatement(target, binary, targetType, out bool isIncrement);
+            _printedRanges?.SetNodeKind(
+                owner,
+                binary.IsChecked
+                    ? "CheckedStatement"
+                    : isIncrement
+                        ? "IncrementOrDecrementExpression"
+                        : "AssignmentStatement");
             // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
             // statement-level `checked(x += v)` (CS0201), so the overflow context
             // is restored with a single-statement checked block. Only the
@@ -4894,21 +4934,32 @@ public sealed partial class CSharpPrinter
     /// the compiler's implicit width mask; strip it exactly as the expression form
     /// does so <c>x &lt;&lt;= n</c> does not re-mask on recompile (see ShiftCount).
     /// </summary>
-    string CompoundStatement(string target, Binary binary, TypeRef? targetType = null)
+    string CompoundStatement(
+        string target,
+        Binary binary,
+        TypeRef? targetType,
+        out bool isIncrement)
     {
+        isIncrement = false;
         if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
             && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
         {
             if (TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
             {
                 if (pointerIndex is Constant { Value: 1 })
+                {
+                    isIncrement = true;
                     return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+                }
                 return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
             }
             return $"{target} = {CoerceText(binary, targetType)};";
         }
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
+        {
+            isIncrement = true;
             return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+        }
         // The compound runs in the lvalue's type. Prefer the resolved store type
         // (`targetType`) over `binary.Left.ResultType`: an indirect store reads its
         // target through `ldind.i`, which the importer types as the signed native

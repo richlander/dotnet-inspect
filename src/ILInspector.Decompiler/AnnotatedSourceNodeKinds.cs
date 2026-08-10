@@ -58,6 +58,7 @@ public static class AnnotatedSourceNodeKinds
             "UnaryExpression",
             "AwaitExpression",
             "IncrementOrDecrementExpression",
+            "CheckedStatement",
             "ConversionExpression",
             "ExpressionStatement",
             "NameExpression",
