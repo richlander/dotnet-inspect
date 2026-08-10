@@ -16400,6 +16400,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Bare_PreservesColumnProjection()
+    {
+        const string id = "Test.Project.Bare.Columns";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(id, "1.0.0", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Package Docs",
+                "--package", id,
+                "--bare",
+                "--columns", "Package",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument row = JsonDocument.Parse(output);
+            Assert.Equal(
+                [id],
+                row.RootElement.EnumerateObject()
+                    .Select(property => property.Value.GetString()));
+            Assert.Equal(
+                ["package"],
+                row.RootElement.EnumerateObject()
+                    .Select(property => property.Name));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Bare_MultiSectionCount_DoesNotRequirePrintableSection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Bare.MultiCount",
+                "1.0.0",
+                "README.md",
+                "readme",
+                AgentsText: "# guidance",
+                Skills: [new ProjectSkillDoc("skills/one/SKILL.md", "one")]));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "-S", "Agent Guidance",
+                "--bare",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Skills", output);
+            Assert.Contains("Agent Guidance", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_SkillsBare_MultipleDocuments_PrintsFirstPrintableDocument()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16704,6 +16771,41 @@ public partial class CommandExecutionTests
         Assert.Contains("No columns matched projection: Bogus", error);
     }
 
+    [Theory]
+    [InlineData("--columns")]
+    [InlineData("--fields")]
+    public async Task Project_Discover_ProjectsDiscoveryPayload(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Package Docs",
+            "--tsv",
+            option, "Name");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] lines = output.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("name", lines[0]);
+        Assert.All(lines, line => Assert.DoesNotContain('\t', line));
+        Assert.Contains("Package", lines);
+    }
+
+    [Fact]
+    public async Task Project_Discover_RejectsProjectionAgainstEmptyIntersection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Package Docs",
+            "-S", "Skills",
+            "--columns", "Bogus");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection: Bogus", error);
+        Assert.DoesNotContain("Project not found", error);
+    }
+
     [Fact]
     public async Task Project_Discover_RejectsPackageOutsidePackageDocsBeforeResolution()
     {
@@ -16718,6 +16820,77 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "--package requires -S \"Package Docs\" or --readme",
             error);
+    }
+
+    [Fact]
+    public async Task Project_Discover_RejectsPackageWithoutExplicitPackageDocsSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "--package", "Test.Project.Other");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--package requires -S \"Package Docs\" or --readme",
+            error);
+        Assert.DoesNotContain("Project not found", error);
+    }
+
+    [Fact]
+    public async Task Project_Discover_RejectsJsonArray()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "--json-array");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--json-array is not available with -D/--discover",
+            error);
+        Assert.DoesNotContain("Project not found", error);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--rows", "1" }, "1\n")]
+    [InlineData(new[] { "--rows", "2", "--tail" }, "2\n")]
+    [InlineData(new[] { "--rows", "2..3" }, "2\n")]
+    public async Task Project_Discover_CountAppliesRowWindow(
+        string[] rowArguments,
+        string expected)
+    {
+        var arguments = new List<string>
+        {
+            "project",
+            "missing-project",
+            "-D",
+        };
+        arguments.AddRange(rowArguments);
+        arguments.Add("--count");
+
+        var (exit, output, error) = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected, output);
+    }
+
+    [Fact]
+    public async Task Project_Discover_FlatOutputAppliesRowWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "--rows", "1",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Fact]
@@ -16777,6 +16950,51 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_RejectsUnknownSelectorBeforeResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Bogus",
+            "--effective");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Bogus' not found", error);
+        Assert.DoesNotContain("Project not found", error);
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_UnboundedOnlySkipsResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Package Docs",
+            "--effective");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Package", output);
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_DisjointSelectionSkipsResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Package Docs",
+            "--effective",
+            "-S", "Skills",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Package Docs' has no data for this query",
+            error);
+        Assert.DoesNotContain("Project not found", error);
     }
 
     [Fact]

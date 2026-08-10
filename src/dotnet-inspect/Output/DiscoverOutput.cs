@@ -24,9 +24,14 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IProjectionOptions? projection = null)
+        IProjectionOptions? projection = null,
+        string[]? columns = null,
+        string[]? fields = null,
+        RowWindow? rows = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
+
+        List<DiscoveryRow>? discoveryRows = null;
 
         // Discovery renders its own listing and returns, so the section pipeline's projection
         // dispatch never runs for it. Answer the projection here instead of dropping it. This
@@ -34,16 +39,20 @@ public static class DiscoverOutput
         // not the shape they would have been rendered in.
         if (LensProjection.IsRequested(projection))
         {
-            var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
-            if (projectedRows == null)
+            discoveryRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+            if (discoveryRows == null)
                 return 1;
-            return LensProjection.TryProject(projection, "-D/--discover", projectedRows.Count, out var projectionExitCode)
+            int rowCount = RowWindow.Apply(rows, discoveryRows).Count;
+            return LensProjection.TryProject(projection, "-D/--discover", rowCount, out var projectionExitCode)
                 ? projectionExitCode
                 : 0;
         }
 
+        bool hasTabularProjection =
+            columns is { Length: > 0 } || fields is { Length: > 0 };
+
         // Auto-promote to tree when discovering items from multiple sections
-        if (!tree
+        if (!tree && !hasTabularProjection && rows is null
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
                 value, sectionCategories, schema.SectionNames, out _, out _))
@@ -51,35 +60,49 @@ public static class DiscoverOutput
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
-        if (!tree && discover is null or { Length: 0 } && verbosity >= 3)
+        if (!tree && !hasTabularProjection && rows is null
+            && discover is null or { Length: 0 } && verbosity >= 3)
             tree = true;
 
         if (tree)
             return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
 
-        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
-        if (rows == null)
+        discoveryRows ??= GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+        if (discoveryRows == null)
             return 1;
 
-        var view = new DiscoveryListView { Items = rows };
-        var context = new DiscoveryContext();
+        discoveryRows = RowWindow.Apply(rows, discoveryRows).ToList();
+        var view = new DiscoveryListView { Items = discoveryRows };
+        string[]? projectedColumns = MergeProjectionNames(columns, fields);
 
         if (json)
         {
-            Console.WriteLine(JsonSerializer.Serialize(rows, DiscoveryJsonContext.Default.ListDiscoveryRow));
+            Console.WriteLine(JsonSerializer.Serialize(discoveryRows, DiscoveryJsonContext.Default.ListDiscoveryRow));
         }
         else if (markdown)
         {
-            context.Serialize(view, Console.Out, new MarkdownFormatter());
+            MarkoutSerializer.Serialize(
+                view,
+                Console.Out,
+                new MarkdownFormatter(),
+                DiscoveryContext.Default,
+                OutputFormatter.CreateProjectedWriterOptions(projectedColumns));
         }
         else
         {
-            OutputFormatter.WriteTable(Console.Out, showHeader: tsv,
-                (writer, formatter) => context.Serialize(
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                showHeader: tsv,
+                tsv,
+                jsonl,
+                projectedColumns,
+                fields: null,
+                (writer, formatter, writerOptions) => MarkoutSerializer.Serialize(
                     view,
                     writer,
                     formatter,
-                    OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
+                    DiscoveryContext.Default,
+                    writerOptions));
         }
 
         return 0;
@@ -95,7 +118,10 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IProjectionOptions? projection = null)
+        IProjectionOptions? projection = null,
+        string[]? columns = null,
+        string[]? fields = null,
+        RowWindow? rows = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -130,7 +156,51 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
+        return Execute(
+            discover,
+            filtered,
+            tree,
+            markdown,
+            json,
+            tsv,
+            jsonl,
+            verbosity,
+            rootLabel,
+            sectionCostAnnotations,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            projection,
+            columns,
+            fields,
+            rows);
+    }
+
+    /// <summary>
+    /// Validates projections against the rows discovery actually renders.
+    /// </summary>
+    public static bool ValidateProjection(string[]? fields, string[]? columns)
+    {
+        if (fields is not { Length: > 0 } && columns is not { Length: > 0 })
+            return true;
+
+        var schema = new DocumentSchema();
+        schema.Add("Discovery", "column", "Name", "Kind");
+        return ProjectionDiagnostics.ValidateProjection(
+            schema,
+            "Discovery",
+            fields,
+            columns,
+            " Discovery output has Name and Kind columns.");
+    }
+
+    private static string[]? MergeProjectionNames(string[]? columns, string[]? fields)
+    {
+        if (columns is not { Length: > 0 } && fields is not { Length: > 0 })
+            return null;
+
+        return [.. (columns ?? []).Concat(fields ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>

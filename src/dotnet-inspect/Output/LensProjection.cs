@@ -40,6 +40,25 @@ public static class LensProjection
         && (options.Count || options.Print || options.Value || options.Urls || options.Paths);
 
     /// <summary>
+    /// Validates a lens projection before the lens resolves its input.
+    /// </summary>
+    public static bool Validate(IProjectionOptions? options, string lens)
+    {
+        if (!IsRequested(options) || options!.Count)
+            return true;
+
+        var flag = options.Print ? "--print"
+            : options.Value ? "--value"
+            : options.Urls ? "--urls"
+            : "--paths";
+
+        CommandError.Write(
+            $"{flag} is not available with {lens}, which renders its own payload rather " +
+            "than a section. Use --count to count that payload.");
+        return false;
+    }
+
+    /// <summary>
     /// Answers a projection request against a lens payload of <paramref name="rowCount"/> rows.
     /// </summary>
     /// <param name="options">The requesting command's options, or null when the caller has none.</param>
@@ -61,21 +80,17 @@ public static class LensProjection
         if (!IsRequested(options))
             return false;
 
+        if (!Validate(options, lens))
+        {
+            exitCode = 1;
+            return true;
+        }
+
         if (options!.Count)
         {
             CountOutput.WriteCount(rowCount, options.OutputPath);
             return true;
         }
-
-        var flag = options.Print ? "--print"
-            : options.Value ? "--value"
-            : options.Urls ? "--urls"
-            : "--paths";
-
-        CommandError.Write(
-            $"{flag} is not available with {lens}, which renders its own payload rather " +
-            "than a section. Use --count to count that payload.");
-        exitCode = 1;
-        return true;
+        return false;
     }
 }

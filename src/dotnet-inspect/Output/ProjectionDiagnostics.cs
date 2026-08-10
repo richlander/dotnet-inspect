@@ -15,7 +15,7 @@ public static class ProjectionDiagnostics
     /// Returns false when a projection has no matches and the caller should stop before rendering.
     /// </summary>
     public static bool ValidateProjection(DocumentSchema schema, string? sectionName,
-        string[]? fields, string[]? columns)
+        string[]? fields, string[]? columns, string? projectionHint = null)
     {
         if (string.IsNullOrEmpty(sectionName))
             return true;
@@ -23,10 +23,12 @@ public static class ProjectionDiagnostics
         bool allValid = true;
 
         if (fields is { Length: > 0 })
-            allValid &= ValidateNames(schema, sectionName, fields, "field");
+            allValid &= ValidateNames(
+                schema, sectionName, fields, "field", projectionHint);
 
         if (columns is { Length: > 0 })
-            allValid &= ValidateNames(schema, sectionName, columns, "column");
+            allValid &= ValidateNames(
+                schema, sectionName, columns, "column", projectionHint);
 
         return allValid;
     }
@@ -115,7 +117,7 @@ public static class ProjectionDiagnostics
     }
 
     private static bool ValidateNames(DocumentSchema schema, string sectionName,
-        string[] names, string kind)
+        string[] names, string kind, string? projectionHint)
     {
         var validation = schema.ValidateProjection(sectionName, names);
         if (validation.IsValid)
@@ -126,7 +128,8 @@ public static class ProjectionDiagnostics
             var msg = $"{kind} '{name}' not found in section '{sectionName}'";
             if (validation.Suggestions.TryGetValue(name, out var suggestions))
                 msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
-            msg += $" Run -D \"{sectionName}\" to list available {kind}s.";
+            msg += projectionHint
+                ?? $" Run -D \"{sectionName}\" to list available {kind}s.";
             CommandError.WriteWarning(msg);
         }
 

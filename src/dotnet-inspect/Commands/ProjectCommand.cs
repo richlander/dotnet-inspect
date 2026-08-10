@@ -60,20 +60,35 @@ public class ProjectCommand
             return 1;
         }
 
-        HashSet<string> candidateSections = ResolveCandidateSections(
-            options,
-            pipeline,
-            selectedSections);
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                candidateSections,
-                options.Fields,
-                options.Columns))
+        if (!TryResolveCandidateSections(
+                options,
+                pipeline,
+                selectedSections,
+                out HashSet<string> candidateSections))
         {
             return 1;
         }
-        if (!ValidateShapeAndFormatOptions(options, candidateSections))
+        bool validProjection = options.Discover is not null
+            ? DiscoverOutput.ValidateProjection(options.Fields, options.Columns)
+            : ProjectionDiagnostics.ValidateProjection(
+                schema,
+                candidateSections,
+                options.Fields,
+                options.Columns);
+        if (!validProjection)
             return 1;
+        if (!ValidateShapeAndFormatOptions(
+                options,
+                candidateSections,
+                selectedSections))
+        {
+            return 1;
+        }
+        if (options.Discover is not null
+            && !LensProjection.Validate(options, "-D/--discover"))
+        {
+            return 1;
+        }
         string? selectedValueField = null;
         if (options.Discover is null
             && !TryResolveValueField(
@@ -87,32 +102,24 @@ public class ProjectCommand
 
         bool structuralDiscovery = options.Discover is not null
             && !options.Effective;
-        if (structuralDiscovery)
+        HashSet<InspectionQueryDefinition> requestedQueries =
+            candidateSections.Count == 0
+                ? []
+                : pipeline.GetRequiredQueries(
+                    options.Verbosity,
+                    candidateSections,
+                    excludeUnbounded: options.Discover is not null);
+        if (structuralDiscovery
+            || (options.Discover is not null && requestedQueries.Count == 0))
         {
-            List<string> discoverableSections =
-                candidateSections.Count == 0
-                    ? []
-                    : pipeline.GetDiscoverableSections(
-                        new ProjectInspection(),
-                        candidateSections);
-            return DiscoverOutput.ExecuteEffective(
-                options.Discover!,
-                discoverableSections,
+            return WriteDiscovery(
+                options,
+                userVerbosity,
+                pipeline,
                 schema,
-                projection: options,
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput,
-                verbosity: (int)userVerbosity,
-                fullSchema: schema,
-                sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap(),
-                catalogHiddenSections: options.Schema
-                    ? null
-                    : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                candidateSections,
+                new ProjectInspection(),
+                structuralDiscovery);
         }
 
         var commandContext = new CommandContext(options.Verbose);
@@ -149,13 +156,6 @@ public class ProjectCommand
                 options,
                 commandContext,
                 token));
-        HashSet<InspectionQueryDefinition> requestedQueries =
-            candidateSections.Count == 0
-                ? []
-                : pipeline.GetRequiredQueries(
-                    options.Verbosity,
-                    candidateSections,
-                    excludeUnbounded: options.Discover is not null);
         InspectionQueryResults queryResults = await catalog.QueryRegistry.RunAsync(
             requestedQueries,
             queryContext,
@@ -167,28 +167,14 @@ public class ProjectCommand
 
         if (options.Discover is not null)
         {
-            List<string> effectiveSections =
-                candidateSections.Count == 0
-                    ? []
-                    : pipeline.GetDiscoverableSections(
-                        inspection,
-                        candidateSections);
-            int discoverExitCode = DiscoverOutput.ExecuteEffective(
-                options.Discover,
-                effectiveSections,
+            int discoverExitCode = WriteDiscovery(
+                options,
+                userVerbosity,
+                pipeline,
                 schema,
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput,
-                verbosity: (int)userVerbosity,
-                fullSchema: schema,
-                sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap(),
-                catalogHiddenSections: pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                projection: options);
+                candidateSections,
+                inspection,
+                structural: false);
             return discoverExitCode == 0 && failures.Length > 0
                 ? 1
                 : discoverExitCode;
@@ -228,7 +214,7 @@ public class ProjectCommand
                 options.OutputPath);
             outputExitCode = 0;
         }
-        else if (options.Print || options.Bare)
+        else if (options.Print || ShouldPrintBareDocument(options))
         {
             outputExitCode = PrintDocument(inspection, options, renderedSections);
         }
@@ -361,10 +347,11 @@ public class ProjectCommand
         return true;
     }
 
-    static HashSet<string> ResolveCandidateSections(
+    static bool TryResolveCandidateSections(
         ProjectOptions options,
         SectionPipeline<ProjectInspection> pipeline,
-        HashSet<string>? selectedSections)
+        HashSet<string>? selectedSections,
+        out HashSet<string> candidateSections)
     {
         if (options.Discover is { Length: > 0 })
         {
@@ -374,11 +361,18 @@ public class ProjectCommand
                 pipeline.InfoSectionNames,
                 pipeline.GetCategoryMap(),
                 selectDefault: false);
+            if (SelectOutput.WriteUnresolved(discoverSelection))
+            {
+                candidateSections = [];
+                return false;
+            }
+
             HashSet<string> discoveredSections = discoverSelection.Sections ?? [];
             if (!options.Schema
                 && selectedSections is { Count: > 0 })
                 discoveredSections.IntersectWith(selectedSections);
-            return discoveredSections;
+            candidateSections = discoveredSections;
+            return true;
         }
 
         if (options.Discover is not null)
@@ -387,20 +381,23 @@ public class ProjectCommand
             if (!options.Schema
                 && selectedSections is { Count: > 0 })
                 discoveredSections.IntersectWith(selectedSections);
-            return discoveredSections;
+            candidateSections = discoveredSections;
+            return true;
         }
 
-        return pipeline.GetCandidateSections(
+        candidateSections = pipeline.GetCandidateSections(
             options.Verbosity,
             selectedSections);
+        return true;
     }
 
     static bool ValidateShapeAndFormatOptions(
         ProjectOptions options,
-        HashSet<string> candidateSections)
+        HashSet<string> candidateSections,
+        HashSet<string>? selectedSections)
     {
         if (options.PackageFilter is not null
-            && !candidateSections.Contains(ProjectSectionNames.PackageDocs))
+            && selectedSections?.Contains(ProjectSectionNames.PackageDocs) != true)
         {
             CommandError.Write(
                 "--package requires -S \"Package Docs\" or --readme.");
@@ -408,7 +405,33 @@ public class ProjectCommand
         }
 
         if (options.Discover is not null)
+        {
+            if (options.JsonArray)
+            {
+                CommandError.Write(
+                    "--json-array is not available with -D/--discover.");
+                return false;
+            }
+            if (options.JsonOutput
+                && (options.Columns is { Length: > 0 }
+                    || options.Fields is { Length: > 0 }))
+            {
+                CommandError.Write(
+                    "--fields/--columns cannot be combined with --json discovery; "
+                    + "use --table, --tsv, or --jsonl.");
+                return false;
+            }
+            if (options.Tree
+                && (options.Columns is { Length: > 0 }
+                    || options.Fields is { Length: > 0 }
+                    || options.Rows is not null))
+            {
+                CommandError.Write(
+                    "--tree cannot be combined with --fields, --columns, or --rows.");
+                return false;
+            }
             return true;
+        }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
                 options.Tabular && !options.Print,
@@ -470,7 +493,8 @@ public class ProjectCommand
             return false;
         }
 
-        if ((options.Print || options.Bare) && candidateSections.Count != 1)
+        if ((options.Print || ShouldPrintBareDocument(options))
+            && candidateSections.Count != 1)
         {
             CommandError.Write(
                 "--print requires -S/--select to match exactly one printable section.");
@@ -489,6 +513,54 @@ public class ProjectCommand
         }
 
         return true;
+    }
+
+    static bool ShouldPrintBareDocument(ProjectOptions options) =>
+        options.Bare
+        && !options.Count
+        && !options.Value
+        && !options.Urls
+        && !options.Paths
+        && options.Rows is null
+        && options.Columns is not { Length: > 0 }
+        && options.Fields is not { Length: > 0 };
+
+    static int WriteDiscovery(
+        ProjectOptions options,
+        Verbosity userVerbosity,
+        SectionPipeline<ProjectInspection> pipeline,
+        DocumentSchema schema,
+        HashSet<string> candidateSections,
+        ProjectInspection inspection,
+        bool structural)
+    {
+        List<string> discoverableSections =
+            candidateSections.Count == 0
+                ? []
+                : pipeline.GetDiscoverableSections(
+                    inspection,
+                    candidateSections);
+        return DiscoverOutput.ExecuteEffective(
+            options.Discover!,
+            discoverableSections,
+            schema,
+            tree: options.Tree,
+            json: options.JsonOutput,
+            tsv: options.Tsv,
+            jsonl: options.Jsonl,
+            markdown: !options.Tabular && !options.JsonOutput,
+            verbosity: (int)userVerbosity,
+            fullSchema: schema,
+            sectionCostAnnotations: pipeline.GetCostAnnotations(),
+            sectionCategories: pipeline.GetCategoryMap(),
+            catalogHiddenSections: structural && options.Schema
+                ? null
+                : pipeline.GetCatalogHiddenSections(),
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            projection: options,
+            columns: options.Columns,
+            fields: options.Fields,
+            rows: options.Rows);
     }
 
     static bool TryResolveValueField(
