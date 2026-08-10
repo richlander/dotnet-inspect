@@ -58,10 +58,6 @@ wc -l | tr -d ' '
 4
 ```
 
-Known issue: [#3920](https://github.com/richlander/dotnet-inspect/issues/3920)
-currently emits one extra blank line, so this intended four-line assertion
-fails with five lines.
-
 ### 1b. Using `-N` shorthand
 
 ```bash
@@ -84,10 +80,6 @@ wc -l | tr -d ' '
 ```expect
 6
 ```
-
-Known issue: [#3920](https://github.com/richlander/dotnet-inspect/issues/3920)
-also affects shorthand line limits; this intended six-line assertion currently
-fails with seven lines.
 
 ## 2. Limit table rows
 
