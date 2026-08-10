@@ -336,12 +336,12 @@ Package `--all-libraries` constructs one
 and passes that shared policy snapshot to every participant in that group.
 `--tfm all` therefore creates separate groups for distinct framework, asset-kind,
 and runtime directories rather than mixing binding universes. The host executes
-the group query only for explicit Integrations demand, including demand introduced
-by scanner prerequisites, correlates entries by acquisition registration, and
-projects them into the existing per-library
-Finding model. Query production and the asynchronous library pipeline consume
-one participant's retained snapshot before the group releases it and advances,
-so the group keeps its complete binding universe without retaining the package's
+the group query only for explicit Integrations demand, including demand
+introduced by scanner prerequisites, correlates entries by acquisition
+registration, and projects them into the existing per-library Finding model.
+Query production and the asynchronous library pipeline consume one
+participant's retained snapshot before the group releases it and advances, so
+the group keeps its complete binding universe without retaining the package's
 cumulative image bytes. The legacy Integrations scanner recognizes populated
 Findings and does not rescan. The dependent integration-opportunity scanner
 consumes available findings unchanged and emits no gap rows when its

@@ -171,8 +171,9 @@ trimmed, valid nuspec coordinate when available and otherwise carries
 local-archive provenance.
 
 `Integration: Opportunities` remains a CLI composition scanner. It consumes
-query-produced evidence and emits no gaps when its prerequisite failed;
-opportunity production has not moved into the L1 group query. Ecosystem and
+query-produced evidence and emits no gaps when its prerequisite failed or a
+compatibility-skipped participant has no grouped evidence; opportunity
+production has not moved into the L1 group query. Ecosystem and
 OpenTelemetry evidence form one grouped query outcome, so malformed participant
 metadata fails that grouped unit. Grouped failures leave successful rows
 renderable, emit one warning per affected library and reason, and make the
