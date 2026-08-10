@@ -69,6 +69,19 @@ namespace Target
         }
     }
 
+    public static unsafe class FunctionPointerApi
+    {
+        public static void Store(
+            delegate* unmanaged[Cdecl]<int, int> value)
+        {
+        }
+
+        public static void Store(
+            delegate* unmanaged[Stdcall]<int, int> value)
+        {
+        }
+    }
+
     public sealed class InstanceRecursionApi
     {
         public bool Recurse(int depth) =>
