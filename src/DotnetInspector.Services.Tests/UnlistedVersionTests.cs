@@ -239,6 +239,7 @@ public class UnlistedVersionTests : IDisposable
                 includePrerelease: true));
 
         Assert.Equal("UnlistedPkg", error.PackageId);
+        Assert.True(error.HasIncompleteMetadata);
     }
 
     [Fact]

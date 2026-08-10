@@ -313,9 +313,10 @@ a source and a package that had nothing to do with the failure.
 
 Two further rules keep the message honest:
 
-- **404 is never recorded.** It is the one status that genuinely means the package is absent,
-  so a real miss still reports *not found*. A recorder that captured every non-success status
-  would destroy that message, which is why the test suite pins the 404 case as a control.
+- **404 is never recorded as a source failure.** A 404 from package/version enumeration means the
+  package is absent, so a real miss still reports *not found*. A 404 from ancillary listing
+  metadata is instead carried by that operation's typed incomplete-metadata result; range
+  resolution fails closed without falsely declaring the package absent.
 - **A recorded failure is advisory, not fatal.** The collector is only consulted when the
   overall lookup produced nothing, so if one source 401s and another answers, the successful
   result stands. That is this codebase's answer to the third open design question in #3417.

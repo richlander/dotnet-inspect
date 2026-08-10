@@ -287,6 +287,7 @@ public class PackageCommand
                     WriteVersionLookupFailure(
                         range!.PackageId,
                         ex is PackageVersionsUnavailableException
+                            { HasIncompleteMetadata: false }
                             ? $"Package '{range.PackageId}' not found."
                             : ex.Message);
                     return 1;
@@ -348,7 +349,10 @@ public class PackageCommand
                     return 0;
                 }
 
-                if (FeedFailureTelemetry.Current?.HasFailures == true)
+                if (FeedFailureTelemetry.Current?.Failures.Any(
+                        failure => failure.Phase is
+                            NetworkTrafficKind.PackageSourceDiscovery
+                            or NetworkTrafficKind.PackageVersionList) == true)
                     WriteVersionLookupFailure(
                         normalizedName,
                         $"Version '{versionQueryPinned}' of package '{normalizedName}' not found.");

@@ -625,6 +625,91 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task MissingPinnedVersion_RemainsAbsentWhenOnlyListingStatusFails()
+    {
+        string packageName = $"RegistrationFailure{Guid.NewGuid():N}";
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            innerHandler => new NuGetOrgRegistrationFailureHandler(
+                packageName,
+                ["2.0.0"],
+                innerHandler));
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                [
+                    "package",
+                    $"{packageName}@3.0.0",
+                    "--version",
+                    "--source",
+                    "https://api.nuget.org/v3/index.json",
+                ]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Version '3.0.0' of package '{packageName.ToLowerInvariant()}' not found.",
+                error);
+            Assert.DoesNotContain("source did not answer", error);
+            Assert.DoesNotContain("Supply credentials", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+                null);
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageRange_DoesNotDeclareAbsenceWhenListingStatusIsUnavailable()
+    {
+        string packageName = $"RangeRegistrationFailure{Guid.NewGuid():N}";
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            innerHandler => new NuGetOrgRegistrationFailureHandler(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                innerHandler,
+                HttpStatusCode.NotFound));
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                [
+                    "package",
+                    $"{packageName}@1.0.0..2.0.0",
+                    "--versions",
+                    "--source",
+                    "https://api.nuget.org/v3/index.json",
+                ]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Could not retrieve versions for package '{packageName}'.",
+                error);
+            Assert.DoesNotContain(
+                "not found",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+                null);
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
     public async Task Router_PlatformPrefixProbeUsesSourceScopedCandidateMetadataOffline()
     {
         const string PackageName = "System.Text";
@@ -899,6 +984,56 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 Content = new StringContent(body ?? ""),
                 RequestMessage = request,
             });
+        }
+    }
+
+    private sealed class NuGetOrgRegistrationFailureHandler(
+        string packageName,
+        string[] versions,
+        HttpMessageHandler innerHandler,
+        HttpStatusCode registrationStatus = HttpStatusCode.Forbidden)
+        : DelegatingHandler(innerHandler)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.GetLeftPart(UriPartial.Path);
+            string flatContainer =
+                $"https://api.nuget.org/v3-flatcontainer/{packageName.ToLowerInvariant()}/index.json";
+            string registration =
+                $"https://api.nuget.org/v3/registration5-gz-semver2/{packageName.ToLowerInvariant()}/index.json";
+
+            HttpResponseMessage response;
+            if (url.Equals(flatContainer, StringComparison.OrdinalIgnoreCase))
+            {
+                string body = "{\"versions\":["
+                    + string.Join(",", versions.Select(version => $"\"{version}\""))
+                    + "]}";
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body),
+                };
+            }
+            else if (url.Equals(
+                registration,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                response = new HttpResponseMessage(registrationStatus)
+                {
+                    Content = new StringContent(""),
+                };
+            }
+            else
+            {
+                response = new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(""),
+                };
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(response);
         }
     }
 
