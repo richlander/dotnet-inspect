@@ -54,7 +54,7 @@ dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 
 ## Who calls it? (reverse edges)
 
-`member Type Method:1 -S Calls` lists what a method calls; `-S Callers` lists
+`member Type -m Method:1 -S Calls` lists what a method calls; `-S Callers` lists
 the call sites that reach it. With an explicit source, widen the caller search
 with `--bin`, `--project`, or `--caller-package`. With no explicit source, the
 first `--project` is the source context; repeated `--project` values after it
@@ -62,7 +62,7 @@ remain caller scopes.
 
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls
-dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
+dnx dotnet-inspect -y -- member string -m IndexOf~147d84bbd7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
 `Call Graph` is the bounded bidirectional view centered on one member: inbound
@@ -71,8 +71,9 @@ an edge table. Select `--tree` for a standalone path-oriented view,
 `--mermaid` for a standalone diagram, or `--markdown --mermaid` for a diagram
 inside the Markdown document. For scripts, `--tsv` and `--jsonl` expose the
 same ordered edges. Machine fields `from` and `to` are always present;
-`from_group`, `to_group`, and `label` appear only when the graph uses them.
-`--count` and `--rows` address edge rows consistently across these views.
+`from_group`, `to_group`, and `label` appear only when the whole graph uses
+them. A row window does not change that schema. `--count` and `--rows` address
+edge rows consistently across these views.
 
 For a type-level dependency summary, `Called Types` groups direct calls by
 target type, assembly, members, and call kinds.

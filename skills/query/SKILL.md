@@ -51,8 +51,10 @@ Use the Markdown table when edge evidence belongs in a document, `--tree` when
 call paths are the natural reading order, Mermaid for a diagram, and
 `--tsv`/`--jsonl` for one machine-readable edge row per relationship.
 `from` and `to` are always present; `from_group`, `to_group`, and `label`
-appear only when the graph uses them. `--tree` and standalone `--mermaid` do
-not mix with another explicitly selected output format.
+appear only when the whole graph uses them. A row window can therefore retain
+an optional field even when its selected values are empty. `--tree` and
+standalone `--mermaid` do not mix with another explicitly selected output
+format.
 
 ## Discover and select sections
 
