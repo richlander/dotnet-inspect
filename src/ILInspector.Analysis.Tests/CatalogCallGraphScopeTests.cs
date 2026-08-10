@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
@@ -211,6 +212,141 @@ public class CatalogCallGraphScopeTests
         Assert.Equal(
             "UseGenericStore",
             Assert.Single(generic.Children).Member.Name);
+    }
+
+    [Fact]
+    public void FunctionPointerPayloadKeepsOverloadsAndTheirCallersSeparate()
+    {
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        using CatalogCallGraphScope scope =
+            CatalogCallGraphTestExtensions.CreateScope(
+                target,
+                [caller]);
+        MethodIdentity[] overloads = target.DeclaredMethods
+            .Where(method =>
+                method.DeclaringType.Name == "FunctionPointerApi"
+                && method.Name == "Store")
+            .ToArray();
+
+        Assert.Equal(2, overloads.Length);
+        MethodIdentity cdecl = Assert.Single(overloads, method =>
+            method.ParameterTypes[0]
+                .FunctionPointerSignature?.Header.CallingConvention
+                == SignatureCallingConvention.CDecl);
+        MethodIdentity stdcall = Assert.Single(overloads, method =>
+            method.ParameterTypes[0]
+                .FunctionPointerSignature?.Header.CallingConvention
+                == SignatureCallingConvention.StdCall);
+
+        CallTreeNode cdeclCallers = scope.BuildCallerTree(
+            target,
+            cdecl.MetadataToken);
+        CallTreeNode stdcallCallers = scope.BuildCallerTree(
+            target,
+            stdcall.MetadataToken);
+
+        Assert.Equal(
+            "UseCdeclStore",
+            Assert.Single(cdeclCallers.Children).Member.Name);
+        Assert.Equal(
+            "UseStdcallStore",
+            Assert.Single(stdcallCallers.Children).Member.Name);
+        Assert.NotEqual(
+            cdeclCallers.GraphEvidence?.Identity,
+            stdcallCallers.GraphEvidence?.Identity);
+    }
+
+    [Fact]
+    public void PlanCacheIdentityPreservesRecursiveFunctionPointerPayload()
+    {
+        TypeRef owner = TypeRef.Definition("Owner", "", "Api");
+        TypeRef modifier = TypeRef.Definition(
+            "System.Runtime",
+            "System.Runtime.CompilerServices",
+            "CallConvCdecl");
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef text = TypeRef.CoreLib("System", "String");
+        TypeRef voidType = TypeRef.CoreLib("System", "Void");
+
+        GraphNodeIdentity Identity(
+            SignatureCallingConvention convention,
+            TypeRef returnType,
+            TypeRef parameter) =>
+            GraphNodeIdentity.FromMember(
+                new MemberRef(
+                    owner,
+                    "Store",
+                    [
+                        TypeRef.UnsupportedFunctionPointer(
+                            new MethodSignature<TypeRef>(
+                                new SignatureHeader(
+                                    SignatureKind.Method,
+                                    convention,
+                                    SignatureAttributes.None),
+                                returnType,
+                                requiredParameterCount: 1,
+                                genericParameterCount: 0,
+                                [parameter])),
+                    ],
+                    voidType,
+                    MemberKind.Method));
+
+        GraphNodeIdentity baseline = Identity(
+            SignatureCallingConvention.CDecl,
+            integer,
+            integer);
+
+        Assert.NotEqual(
+            baseline,
+            Identity(
+                SignatureCallingConvention.StdCall,
+                integer,
+                integer));
+        Assert.NotEqual(
+            baseline,
+            Identity(
+                SignatureCallingConvention.CDecl,
+                text,
+                integer));
+        Assert.NotEqual(
+            baseline,
+            Identity(
+                SignatureCallingConvention.CDecl,
+                integer,
+                text));
+        Assert.NotEqual(
+            Identity(
+                SignatureCallingConvention.Unmanaged,
+                TypeRef.UnsupportedModified(
+                    modifier,
+                    integer,
+                    isRequired: true),
+                integer),
+            Identity(
+                SignatureCallingConvention.Unmanaged,
+                TypeRef.UnsupportedModified(
+                    modifier,
+                    integer,
+                    isRequired: false),
+                integer));
+        Assert.NotEqual(
+            Identity(
+                SignatureCallingConvention.Unmanaged,
+                TypeRef.UnsupportedModified(
+                    modifier,
+                    integer,
+                    isRequired: true),
+                integer),
+            Identity(
+                SignatureCallingConvention.Unmanaged,
+                TypeRef.UnsupportedModified(
+                    modifier,
+                    text,
+                    isRequired: true),
+                integer));
     }
 
     [Fact]
