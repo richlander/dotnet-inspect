@@ -51,12 +51,18 @@ the ownership boundaries below, not the project count.
 
 ## Implementation status
 
-`DotnetInspector.Queries` now implements metadata-image, direct-reference,
-extension-method, custom-attribute, SourceLink audit, assembly-context
-Integrations, and progressive member call-graph slices. The call-graph seam
-composes Analysis indexes and one catalog generation over workspace-owned
-immutable snapshots; it returns typed roots and diagnostics without choosing a
-renderer or graph format.
+`DotnetInspector.Queries` and the optional
+`DotnetInspector.ResearchQueries` companion now implement metadata-image,
+direct-reference, extension-method, custom-attribute, SourceLink audit,
+API-comparison, Analysis body-signal comparison, assembly-context Integrations,
+and progressive member call-graph slices. The API-comparison seam retains
+Metadata-owned Finding correspondence and compatibility classification over
+two host-resolved surfaces. The body-signal seam consumes already-acquired
+Analysis indexes and retains `ResearchComparison`; keeping that query in the
+companion assembly avoids imposing Research and Decompiler dependencies on
+core query consumers. The call-graph seam composes Analysis indexes and one
+catalog generation over workspace-owned immutable snapshots. These queries
+return typed results without choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference, and
 extension-method and custom-attribute queries through a typed, content-shaped
 registry over a host-owned `AssemblyInspectionSession`. The `References`,
@@ -71,6 +77,11 @@ query across every participant in one binding-consistent assembly context
 group. The command projects per-participant evidence or failure into
 compatibility models and continues each library inspection over the same
 retained immutable image.
+The diff CLI binds Changes and Analysis Diff to their concrete query
+definitions. Its transitional Analysis adapter resolves member targets and
+opens `LibraryBodyIndex` values lazily inside selected query execution; the L1
+query itself receives content-derived indexes rather than paths, and the CLI
+continues to own ranking and rendering.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
@@ -230,8 +241,9 @@ consumer's convenience.
 
 ## Current migration state
 
-Metadata-image, direct-reference, extension-method, custom-attribute, and
-SourceLink inspection are the first vertical L1 canaries:
+Metadata-image, direct-reference, extension-method, custom-attribute,
+SourceLink, API-comparison, and Analysis body-signal comparison inspection are
+the first vertical L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -252,12 +264,21 @@ SourceLink inspection are the first vertical L1 canaries:
 - `SourceAvailabilityQuery` and `SourceIntegrityQuery` consume that prerequisite
   and return explicit `Available`, `Absent`, or `Failed` outcomes. Availability
   and Missing Files share one query result.
+- `ApiComparisonQuery` consumes two already-resolved API surfaces and retains
+  both their Finding correspondence and Metadata-owned compatibility
+  classification. The `diff` command keeps endpoint acquisition and member
+  filtering host-owned.
+- `BodySignalComparisonQuery` consumes old/new `LibraryBodyIndex` collections
+  and returns the Research-owned `ResearchComparison`. The diff adapter builds
+  those indexes only under selected Analysis query demand; path acquisition
+  remains an explicit host-owned migration boundary.
 - Library and package sections bind to the same SourceLink query definitions.
   Package owns compatible/highest-TFM asset selection and aggregation, not a
   parallel audit implementation.
-- Metadata sections, `References`, `Library Info`, `Extension Methods`, and
-  `Custom Attributes` bind to query definitions by object identity. A section
-  may bind multiple definitions; diagnostic names are never lookup keys.
+- Metadata sections, `References`, `Library Info`, `Extension Methods`,
+  `Custom Attributes`, and the diff `Changes` and `Analysis Diff` sections bind
+  to query definitions by object identity. A section may bind multiple
+  definitions; diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
@@ -282,7 +303,10 @@ These are canaries, not the completed split. The remaining boundaries are
 intentional and visible:
 
 - Other library facets still use `ScannerRegistry`, string keys, and shared
-  `LibraryInspection` mutation.
+  `LibraryInspection` mutation. Diff Analysis, Implementation, and Finding
+  Transition production still runs directly from the command while their
+  presentation-shaped residual result contracts are separated from reusable
+  query results.
 - L2 currently registers assembly queries through a `ScannerContext` adapter so
   typed queries and legacy scanners can borrow one metadata session. SourceLink
   queries instead receive their narrower host-neutral context.
@@ -313,8 +337,8 @@ still neither typed nor demand-driven:
   queries without materializing `LibraryInspection`.
 - The binding to residual collection is a **nullable string key** for the
   remaining scanner-backed sections. Metadata, `References`, `Library Info`,
-  `Extension Methods`, `Custom Attributes`, and SourceLink sections use checked
-  query-definition bindings.
+  `Extension Methods`, `Custom Attributes`, SourceLink, and diff `Changes`
+  sections use checked query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.

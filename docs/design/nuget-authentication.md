@@ -430,6 +430,13 @@ second reason NuGet put the loop in a handler: no call site can forget to partic
 a fix for the `nuget.config` path, which still depends on the caller threading a credential
 through.
 
+Acquired credentials are normally cached by origin so the service index and discovered package
+endpoints share one challenge response. Azure Artifacts needs a narrower identity: every
+organization uses `pkgs.dev.azure.com`. For that host the cache key includes the first path
+segment, which is the organization. Organizations therefore acquire independently, while one
+organization's configured service-index URL and Azure's project/feed-GUID endpoint aliases reuse
+the same credential.
+
 ## Tests
 
 Two tiers, in `src/NuGetFetch.Tests`:
@@ -441,7 +448,8 @@ Two tiers, in `src/NuGetFetch.Tests`:
   - `PluginDiscoveryTests` pins all three discovery routes and their precedence, over a temporary
     directory tree and `PATH`.
   - `PluginAuthenticationHandlerTests` pins the 401 loop: retry bound, `IsRetry` progression,
-    per-authority scoping, 403 opt-in, and that an existing credential is not overwritten.
+    origin scoping for ordinary hosts, organization scoping and GUID-alias reuse for Azure
+    Artifacts, 403 opt-in, and that an existing credential is not overwritten.
   - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
     the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
     and shutdown are exercised end to end rather than mocked.

@@ -48,8 +48,9 @@ Then use `dotnet-inspect` normally:
 dotnet-inspect package MyCompany.Widgets
 ```
 
-On a desktop machine the first run signs you in interactively and caches the token; later runs
-reuse it. On a headless machine, supply a token through the environment as shown under
+dotnet-inspect requests credentials noninteractively, matching `dotnet restore` without
+`--interactive`: it can reuse a warm provider cache or an environment-supplied token, but it never
+opens a sign-in prompt. Authenticate the provider separately or supply a token as shown under
 [Unattended and CI](#unattended-and-ci).
 
 ## Unattended and CI

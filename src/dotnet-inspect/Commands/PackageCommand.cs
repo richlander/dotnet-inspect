@@ -249,7 +249,7 @@ public class PackageCommand
                         {
                             WriteVersionLookupFailure(
                                 range.PackageId,
-                                $"Package '{range.PackageId}' not found.");
+                                $"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -377,7 +377,7 @@ public class PackageCommand
                 {
                     WriteVersionLookupFailure(
                         normalizedName,
-                        $"Package '{packageArgs[0]}' not found.");
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -414,7 +414,7 @@ public class PackageCommand
                 {
                     WriteVersionLookupFailure(
                         normalizedName,
-                        $"Package '{packageArgs[0]}' not found.");
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -465,7 +465,7 @@ public class PackageCommand
                 {
                     WriteVersionLookupFailure(
                         normalizedName,
-                        $"Package '{packageArgs[0]}' not found.");
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -480,7 +480,7 @@ public class PackageCommand
             {
                 WriteVersionLookupFailure(
                     normalizedName,
-                    $"Package '{packageArgs[0]}' not found.");
+                    $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -827,7 +827,7 @@ public class PackageCommand
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            CommandError.Write($"Package '{packageName}' version '{version}' not found.");
+            CommandError.Write($"Package '{packageName}' version '{version}' not found on eligible configured sources.");
             CommandError.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
             return 1;
         }

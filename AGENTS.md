@@ -99,10 +99,11 @@ choosing one.
 
 When adding a focused skill, register it in `SkillCommand.Skills` **and** add an
 `EmbeddedResource` line for it in `src/dotnet-inspect/dotnet-inspect.csproj`;
-the embeds are enumerated per skill, and no test compares them against the
-`skills/` directory, so a skill missing from either list ships as nothing with a
-green suite. Its YAML frontmatter `description:` is the single source of truth
-for the generated skill listing.
+the embeds are enumerated per skill.
+`FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
+directories, runtime registry, and embedded resources equal. Its YAML
+frontmatter `description:` is the single source of truth for the generated
+skill listing.
 
 ## Repository-wide engineering constraints
 
