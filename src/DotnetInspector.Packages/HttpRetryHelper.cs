@@ -136,11 +136,12 @@ public static class HttpRetryHelper
                 try
                 {
                     request = requestFactory();
+                    CaptureEffectiveRequestUri(
+                        ResolveInitialRequestUri(client, request.RequestUri));
                     Task<HttpResponseMessage> sendTask =
                         completionOption == HttpCompletionOption.ResponseContentRead
                             ? client.SendAsync(request, cancellationToken)
                             : client.SendAsync(request, completionOption, cancellationToken);
-                    CaptureEffectiveRequestUri(request.RequestUri);
                     var response = await sendTask.ConfigureAwait(false);
                     CaptureEffectiveRequestUri(response.RequestMessage?.RequestUri ?? request.RequestUri);
 
@@ -178,8 +179,6 @@ public static class HttpRetryHelper
                 }
                 catch (HttpRequestException ex)
                 {
-                    if (effectiveRequestUri is null)
-                        CaptureEffectiveRequestUri(request?.RequestUri);
                     var (isRetryable, socketError) = GetSocketError(ex);
 
                     if (!isRetryable)
@@ -214,8 +213,6 @@ public static class HttpRetryHelper
                 }
                 catch (TaskCanceledException)
                 {
-                    if (effectiveRequestUri is null)
-                        CaptureEffectiveRequestUri(request?.RequestUri);
                     // Timeout - treat as retryable
                     log?.Invoke($"{methodName} request timeout (retryable): {RedactedUrl()}");
                 }
@@ -238,6 +235,16 @@ public static class HttpRetryHelper
             log?.Invoke($"Retry #{attempts} after {delay.TotalMilliseconds:F0}ms");
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static Uri? ResolveInitialRequestUri(HttpClient client, Uri? requestUri)
+    {
+        if (requestUri is null || requestUri.IsAbsoluteUri || client.BaseAddress is null)
+            return requestUri;
+
+        return Uri.TryCreate(client.BaseAddress, requestUri, out Uri? resolved)
+            ? resolved
+            : requestUri;
     }
 
     /// <summary>
