@@ -353,8 +353,16 @@ one that was here, and it had gone stale by two.
 - `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
   `..%5c` survive canonicalization, so a "canonicalize, then prefix-check" step
   passes while a server that percent-decodes before resolving dot segments still
-  traverses out. Encoded separators and encoded dot segments are rejected rather
-  than assumed resolved.
+  traverses out. Encoded separators are rejected rather than assumed resolved.
+  Encoded dots are different: `System.Uri` decodes them, removes encoded parent
+  segments from the path before the origin is read, and sends that canonical
+  path. Provenance therefore follows the final origin exactly as it does for
+  literal `..`; an encoded dot in a file name is not treated as traversal.
+  Measured against `dotnet/runtime` commit `9904b934...`, GitHub serves
+  `README%2Emd` as the same 4800 bytes and SHA-256 as `README.md`. Gated by
+  `SourceLinkProvenanceTests.AnEncodedDotOutsideAParentSegment_RemainsAttributable`,
+  `...AnEncodedParentSegment_ReportsWhereContentIsReallyServedFrom`, and
+  `...AnEncodedDotInAnAzureContentPath_RemainsAttributable`.
 - `https://raw.githubusercontent.com@evil.example/...` parses with host
   `evil.example` and user info `raw.githubusercontent.com`. The host allow list
   rejects it, since `Uri` takes the authority after the last `@`; user info is

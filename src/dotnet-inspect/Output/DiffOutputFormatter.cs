@@ -128,9 +128,9 @@ public static class DiffOutputFormatter
             FindingTransitions = findingTransitions?.Rows
         };
 
-    public static string RenderDocumentView(DiffDocumentView view)
+    public static string RenderDocumentView(DiffDocumentView view, MarkoutWriterOptions? options = null)
     {
-        var writer = new MarkoutWriter(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         writer.WriteHeading(1, view.Title);
         writer.WriteParagraph($"**Versions:** {view.Versions}");
 
@@ -242,9 +242,9 @@ public static class DiffOutputFormatter
             Rows = rows.Count > 0 ? rows.ToList() : null
         };
 
-    public static string RenderFindingTransitionsView(FindingTransitionsView view)
+    public static string RenderFindingTransitionsView(FindingTransitionsView view, MarkoutWriterOptions? options = null)
     {
-        var writer = new MarkoutWriter(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
@@ -280,10 +280,10 @@ public static class DiffOutputFormatter
         return view;
     }
 
-    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion, MarkoutWriterOptions? options = null)
     {
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
-        var writer = new MarkoutWriter(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
@@ -316,9 +316,9 @@ public static class DiffOutputFormatter
     /// <summary>
     /// Renders an Analysis Diff view to markdown.
     /// </summary>
-    public static string RenderAnalysisDiffView(AnalysisDiffView view)
+    public static string RenderAnalysisDiffView(AnalysisDiffView view, MarkoutWriterOptions? options = null)
     {
-        var writer = new MarkoutWriter(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
@@ -443,9 +443,9 @@ public static class DiffOutputFormatter
         return $"old: {oldState}; new: {newState}";
     }
 
-    public static string RenderImplementationDiffView(ImplementationDiffView view)
+    public static string RenderImplementationDiffView(ImplementationDiffView view, MarkoutWriterOptions? options = null)
     {
-        var writer = new MarkoutWriter(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }

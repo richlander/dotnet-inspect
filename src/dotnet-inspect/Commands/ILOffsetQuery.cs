@@ -84,7 +84,8 @@ internal static class ILOffsetQuery
                 packageName,
                 packageVersion,
                 isPlatformAssembly,
-                logger.Log);
+                logger.Log,
+                sourceOptions: options.SourceOptions);
 
             if (service.HasPdb && !service.HasSourceLink)
                 logger.LogWarning("No SourceLink information found. URLs will not be available.");

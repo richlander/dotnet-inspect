@@ -134,11 +134,27 @@ public static class OutputFormatter
         RowWindow? maxRows = null) =>
         output.Write(LimitRenderedTableRows(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize), maxRows, showHeader));
 
-    public static string ApplyRowLimit(string markdown, RowWindow? rows) =>
-        MarkdownTableRowLimiter.Apply(markdown.TrimEnd(), rows);
+    /// <summary>
+    /// Serializes a view with <c>--rows</c> applied at the writer seam and writes the result.
+    /// </summary>
+    /// <remarks>
+    /// markout windows rows as it emits them, so the window is applied to table rows the writer
+    /// knows about rather than re-derived by parsing rendered Markdown back into tables. That
+    /// removes the need to tell a table row from a prose line or a fenced code line after the
+    /// fact. The two remaining rendered-text windowing sites are the ones whose content the
+    /// writer never sees: the <c>@Metadata</c> lens (#3619) and the package all-libraries
+    /// aggregates (#3624).
+    /// </remarks>
+    public static void WriteWindowedMarkdown(TextWriter output, RowWindow? rows,
+        Func<MarkoutWriterOptions, string> serialize) =>
+        output.WriteLine(serialize(CreateWindowedOptions(rows)).TrimEnd());
 
-    public static void WriteLimitedMarkdown(TextWriter output, string markdown, RowWindow? rows) =>
-        output.WriteLine(ApplyRowLimit(markdown, rows));
+    /// <summary>
+    /// Creates writer options carrying only a <c>--rows</c> window, for callers that serialize
+    /// directly rather than through <see cref="WriteWindowedMarkdown"/>.
+    /// </summary>
+    public static MarkoutWriterOptions CreateWindowedOptions(RowWindow? rows) =>
+        new() { RowWindow = RowWindow.ToMarkout(rows) };
 
     /// <summary>
     /// Writes <paramref name="payload"/> followed by a single LF, for payloads whose interior is
@@ -150,11 +166,9 @@ public static class OutputFormatter
     /// yields a document that is LF throughout except for its last line, which is the mixed-ending
     /// shape this method exists to avoid.
     ///
-    /// This is deliberately *not* the terminator used by <see cref="WriteLimitedMarkdown"/>: those
-    /// callers still receive CRLF interiors from the string-returning <c>MarkoutSerializer</c>
-    /// overloads, so switching only their terminator would introduce the very mixing described
-    /// above. Interior and terminator have to move together; that coherent platform-native
-    /// terminal path is outside this artifact-framing helper's contract.
+    /// Callers pair this terminator with payloads serialized through an LF-configured writer.
+    /// Switching only the terminator for a platform-native payload would introduce the very
+    /// mixed-ending shape described above; interior and terminator have to move together.
     /// </remarks>
     public static void WriteLfLine(TextWriter output, string payload)
     {
@@ -276,12 +290,12 @@ public static class OutputFormatter
         bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var view = new InspectionResultView(result, includeTitleVersion: false);
         var writerOptions = BuildWriterOptions(result, options, pipeline);
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (selectAll)
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
+            writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
         else if (selectInfo)
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
-        markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+            writerOptions.SectionOrder = pipeline.InfoSectionNames;
+        writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (!options.Count)
             return markdown;
 
@@ -360,8 +374,8 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+            var markdown = SerializeLibraryMarkdown(
+                auditView, inspection, writerOpts, pipeline, options.Rows);
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             if (ordered != null)
             {
@@ -388,39 +402,64 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
-            // would otherwise terminate lines whose interiors this branch already emits as LF —
-            // the appended metadata is LF on every platform. Buffering matches the Markdown
-            // sibling below, which composes its document before writing for the same reason.
-            var plain = new StringWriter { NewLine = "\n" };
-            MarkoutSerializer.Serialize(auditView, plain, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
-            var plainText = plain.ToString().TrimEnd();
-            if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
-            {
-                var trimmedMetadata = plainMetadata.TrimEnd();
-                // A single separator, not a blank line: the streamed original ended its last body
-                // line and wrote the metadata on the next one. The Markdown sibling below joins
-                // with a blank line because Markdown sections require one; plain text does not.
-                plainText = plainText.Length == 0 ? trimmedMetadata : plainText + "\n" + trimmedMetadata;
-            }
-            WriteLfLine(Console.Out, plainText);
+            WriteLfLine(Console.Out, SerializeLibraryPlainText(
+                auditView, inspection, writerOpts, options.Rows));
         }
         else if (options.VerbosityEnabled)
         {
-            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            WriteLfLine(Console.Out, ApplyRowLimit(markdown, options.Rows));
+            var markdown = SerializeLibraryMarkdown(
+                auditView, inspection, writerOpts, pipeline, options.Rows);
+            WriteLfLine(Console.Out, markdown);
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
-            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            WriteLfLine(Console.Out, ApplyRowLimit(markdown, options.Rows));
+            var markdown = SerializeLibraryMarkdown(
+                auditView, inspection, writerOpts, pipeline, options.Rows);
+            WriteLfLine(Console.Out, markdown);
         }
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
             WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
+    }
+
+    private static string SerializeLibraryPlainText(
+        LibraryInspectionView auditView,
+        LibraryInspection inspection,
+        MarkoutWriterOptions writerOpts,
+        RowWindow? rows)
+    {
+        var includesMetadata = MetadataLensRenderer.IsSelected(writerOpts.IncludeSections);
+        if (!includesMetadata)
+            writerOpts.RowWindow = RowWindow.ToMarkout(rows);
+
+        // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
+        // would otherwise terminate lines whose interiors this branch already emits as LF —
+        // the appended metadata is LF on every platform. Buffering matches the Markdown
+        // sibling below, which composes its document before writing for the same reason.
+        var plain = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            auditView, plain, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+        var plainText = plain.ToString().TrimEnd();
+        if (MetadataLensRenderer.RenderMarkdown(
+            inspection,
+            writerOpts.IncludeSections,
+            writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
+        {
+            var trimmedMetadata = plainMetadata.TrimEnd();
+            // A single separator, not a blank line: the streamed original ended its last body
+            // line and wrote the metadata on the next one. The Markdown sibling below joins
+            // with a blank line because Markdown sections require one; plain text does not.
+            plainText = plainText.Length == 0
+                ? trimmedMetadata
+                : plainText + "\n" + trimmedMetadata;
+        }
+
+        return includesMetadata
+            ? MarkdownTableRowLimiter.Apply(plainText, rows)
+            : plainText;
     }
 
     private static void WriteReferenceTree(LibraryInspection inspection)
@@ -436,19 +475,35 @@ public static class OutputFormatter
 
     /// <summary>
     /// Serializes the library view and, when the <c>@Metadata</c> lens is selected, composes its
-    /// sections into the same Markdown document before ordering.
+    /// sections into the same Markdown document before ordering and row windowing.
     ///
-    /// Metadata sections cannot be attributed view properties (their columns differ per table), so
-    /// they are rendered separately and appended. Ordering runs *after* the append, which is what
-    /// places them among the other sections rather than in a block at the end; every downstream
-    /// step — <c>--rows</c> windowing, <c>--count</c> — then treats them as ordinary sections.
+    /// Metadata sections are rendered as Markdown text and appended, so ordering and row
+    /// windowing have to run *after* the append. Without metadata, both operations run directly
+    /// at the writer seam.
+    ///
+    /// This is the last caller of <see cref="MarkdownSectionOrderer"/> and the reason it and
+    /// <see cref="MarkdownTableRowLimiter"/> still exist. Every other section producer applies
+    /// ordering and row windowing at the writer seam via <see cref="MarkoutWriterOptions"/>.
+    /// The stated reason for hand-writing — metadata columns differ per table, so they cannot be
+    /// attributed view properties — no longer holds: markout's <c>MarkoutTable</c> models a table
+    /// whose columns are runtime data. What still blocks the migration is the lens's caveat
+    /// *prose*, which has no serializer-model expression. See #3619 (the migration) and #3620
+    /// (the prose gap, which blocks it).
     /// </summary>
     private static string SerializeLibraryMarkdown(
         LibraryInspectionView auditView,
         LibraryInspection inspection,
         MarkoutWriterOptions writerOpts,
-        SectionPipeline<LibraryInspection> pipeline)
+        SectionPipeline<LibraryInspection> pipeline,
+        RowWindow? rows)
     {
+        var includesMetadata = MetadataLensRenderer.IsSelected(writerOpts.IncludeSections);
+        if (!includesMetadata)
+        {
+            writerOpts.SectionOrder = pipeline.AlphabeticalSectionOrder;
+            writerOpts.RowWindow = RowWindow.ToMarkout(rows);
+        }
+
         // Serialize through an LF writer rather than the string-returning overload, which inherits
         // Environment.NewLine. The metadata half appended below is LF on every platform, and
         // MarkdownSectionOrderer rejoins on whichever ending it detects — so a CRLF shell here
@@ -467,7 +522,11 @@ public static class OutputFormatter
             markdown = body.Length == 0 ? metadata : body + "\n" + "\n" + metadata;
         }
 
-        return MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+        if (!includesMetadata)
+            return markdown;
+
+        markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+        return MarkdownTableRowLimiter.Apply(markdown, rows);
     }
 
     /// <summary>
@@ -522,31 +581,39 @@ public static class OutputFormatter
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
-        var report = new LibraryInspectionReport
-        {
-            Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
-            Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
-        };
-        var writerOptions = new MarkoutWriterOptions
+
+        MarkoutWriterOptions WriterOptions(LibraryInspection inspection) => new()
         {
             IncludeSections = pipeline.ComputeIncludeSections(
-                inspections[0], options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
+                inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
         if (options.Count)
         {
-            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
-            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+            var markdownDocuments = inspections.Select(inspection =>
+            {
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                var markdown = SerializeLibraryMarkdown(
+                    auditView, inspection, WriterOptions(inspection), pipeline, options.Rows);
+                return markdown;
+            }).ToList();
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             if (ordered != null)
             {
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
+                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var markdown in markdownDocuments)
+                {
+                    foreach (var (section, count) in CountOutput.CountMarkdownTableRowsBySection(markdown))
+                        counts[section] = counts.GetValueOrDefault(section) + count;
+                }
+                CountOutput.WriteCountMap(counts, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
+                CountOutput.WriteCount(
+                    markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
+                    options.OutputPath);
             }
             return;
         }
@@ -557,28 +624,122 @@ public static class OutputFormatter
             return;
         }
 
-        if (options.VerbosityEnabled)
+        if (options.Format == OutputFormat.PlainText)
         {
-            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            var documents = new List<string>
+            {
+                LibraryViewText.Contain(Path.GetFileNameWithoutExtension(inspections[0].FileName))
+                    ?? string.Empty,
+                "Libraries"
+            };
+            documents.AddRange(inspections.Select(inspection =>
+            {
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                var writerOpts = WriterOptions(inspection);
+                var title = LibraryViewText.DocumentTitle(inspection);
+                var body = RemovePlainTextDocumentTitle(
+                    SerializeLibraryPlainText(
+                        auditView, inspection, writerOpts, options.Rows),
+                    LibraryViewText.DocumentTitle(auditView));
+                return body.Length == 0 ? title : title + "\n\n" + body;
+            }));
+            WriteLfLine(Console.Out, string.Join("\n\n", documents));
+        }
+        else if (options.VerbosityEnabled)
+        {
+            var documents = new List<string>
+            {
+                RenderMarkdownHeading(1, LibraryViewText.Contain(
+                    Path.GetFileNameWithoutExtension(inspections[0].FileName)) ?? string.Empty),
+                RenderMarkdownHeading(2, "Libraries")
+            };
+            documents.AddRange(inspections.Select(inspection =>
+            {
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                var title = LibraryViewText.DocumentTitle(inspection);
+                var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
+                    auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
+                body = ShiftMarkdownHeadingLevels(body, 2);
+                var heading = RenderMarkdownHeading(3, title);
+                return body.Length == 0
+                    ? heading
+                    : heading + "\n\n" + body;
+            }));
+            var markdown = string.Join("\n\n", documents);
+            WriteLfLine(Console.Out, markdown);
         }
         else
         {
             foreach (var inspection in inspections)
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var includeSections = pipeline.ComputeIncludeSections(
-                    inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
-                var writerOpts = new MarkoutWriterOptions
-                {
-                    IncludeSections = includeSections,
-                    Projection = BuildProjection(options.Columns, options.Fields),
-                };
+                var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                 WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
         }
+    }
+
+    private static string RenderMarkdownHeading(int level, string title)
+    {
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
+        writer.WriteHeading(level, title);
+        writer.Flush();
+        return output.ToString().TrimEnd();
+    }
+
+    private static string RemoveMarkdownDocumentTitle(string markdown)
+    {
+        if (!markdown.StartsWith("# ", StringComparison.Ordinal))
+            return markdown;
+
+        var lineEnd = markdown.IndexOf('\n');
+        return lineEnd < 0 ? string.Empty : markdown[(lineEnd + 1)..].TrimStart('\n');
+    }
+
+    private static string RemovePlainTextDocumentTitle(string plainText, string title)
+    {
+        if (plainText.Equals(title, StringComparison.Ordinal))
+            return string.Empty;
+
+        var prefix = title + "\n";
+        return plainText.StartsWith(prefix, StringComparison.Ordinal)
+            ? plainText[prefix.Length..].TrimStart('\n')
+            : plainText;
+    }
+
+    internal static string ShiftMarkdownHeadingLevels(string markdown, int offset)
+    {
+        if (offset == 0 || markdown.Length == 0)
+            return markdown;
+
+        var newline = MarkdownScan.DetectNewline(markdown);
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
+        var inCodeFence = false;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (MarkdownScan.IsCodeFence(lines[i]))
+            {
+                inCodeFence = !inCodeFence;
+                continue;
+            }
+
+            if (inCodeFence)
+                continue;
+
+            var level = 0;
+            while (level < lines[i].Length && level < 6 && lines[i][level] == '#')
+                level++;
+
+            if (level == 0 || level >= lines[i].Length || lines[i][level] != ' ')
+                continue;
+
+            var shiftedLevel = Math.Clamp(level + offset, 1, 6);
+            lines[i] = new string('#', shiftedLevel) + lines[i][level..];
+        }
+
+        return string.Join(newline, lines);
     }
 
     /// <summary>

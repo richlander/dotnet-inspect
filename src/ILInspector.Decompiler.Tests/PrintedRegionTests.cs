@@ -263,7 +263,7 @@ public class PrintedRegionTests
         // neither contains the other.
         var exception = Assert.Throws<ArgumentException>(() => new PrintedBodyMap(
             ["abcdefghij"],
-            [new PrintedNodeSpan("Outer", new PrintedExtent(0, 0, 0, 6))],
+            [new PrintedNodeSpan(0, "Outer", new PrintedExtent(0, 0, 0, 6))],
             [new PrintedRegion(
                 PrintedRegionRole.Body,
                 new PrintedExtent(0, 4, 0, 8))],
@@ -278,7 +278,7 @@ public class PrintedRegionTests
         var outer = new PrintedExtent(0, 0, 0, 10);
         var map = new PrintedBodyMap(
             ["abcdefghij"],
-            [new PrintedNodeSpan("IfStatement", outer)],
+            [new PrintedNodeSpan(0, "IfStatement", outer)],
             [
                 new PrintedRegion(PrintedRegionRole.Construct, outer),
                 new PrintedRegion(PrintedRegionRole.Header, new PrintedExtent(0, 0, 0, 4)),
@@ -295,7 +295,7 @@ public class PrintedRegionTests
         var lines = new List<string> { "abc" };
         var nodes = new List<PrintedNodeSpan>
         {
-            new("LoadLocal", new PrintedExtent(0, 0, 0, 3)),
+            new(0, "LoadLocal", new PrintedExtent(0, 0, 0, 3)),
         };
         var regions = new List<PrintedRegion>();
         var annotations = new List<PrintedAnnotationSpan>();

@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using CSharpText;
 using DotnetInspector.Core;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -548,7 +549,8 @@ public static class PlatformResolver
         Action<string>? log = null,
         string? frameworkSpec = null,
         bool useRuntimeAssemblies = false,
-        string? platformVersion = null)
+        string? platformVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         // Try resolving from already-installed packs first (SDK + app cache, no network)
         var local = ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies, platformVersion: platformVersion);
@@ -569,7 +571,11 @@ public static class PlatformResolver
                 explicitVersion = frameworkSpec[(frameworkSpec.LastIndexOf('@') + 1)..];
 
             var requests = PlatformPackService.BuildPackRequests(assemblyName, explicitVersion);
-            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log).ConfigureAwait(false))
+            await foreach (var _ in PlatformPackService.EnsurePacksAsync(
+                requests,
+                httpClient,
+                log,
+                sourceOptions: sourceOptions).ConfigureAwait(false))
             {
             }
 

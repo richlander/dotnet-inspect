@@ -712,7 +712,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
-[MarkoutContext(typeof(LibraryInspectionReport))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(ExtensionMethodRow))]
 [MarkoutContext(typeof(ClassifiedMethodRow))]
@@ -748,6 +747,7 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]
+[MarkoutContext(typeof(AggregatedSectionDocument))]
 public partial class InspectionContext : MarkoutSerializerContext
 {
 }
