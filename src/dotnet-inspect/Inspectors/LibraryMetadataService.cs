@@ -299,7 +299,8 @@ internal static class LibraryMetadataService
 
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
-            if (collectReferenceTree && inspection.AssemblyInfo?.References is { } references)
+            if (collectReferenceTree
+                && inspection.AssemblyReferenceIdentities is { } referenceIdentities)
             {
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(
@@ -307,7 +308,7 @@ internal static class LibraryMetadataService
                     ?? Path.GetFileNameWithoutExtension(path));
 
                 inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    references,
+                    referenceIdentities,
                     path,
                     visited,
                     logger,
@@ -614,7 +615,7 @@ internal static class LibraryMetadataService
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
-        List<AssemblyReference> references,
+        IReadOnlyList<AssemblyReferenceIdentity> references,
         string assemblyPath,
         HashSet<string> visited,
         VerboseLogger logger,
@@ -670,7 +671,7 @@ internal static class LibraryMetadataService
     }
 
     private static List<AssemblyReferenceNode> BuildTransitiveReferences(
-        List<AssemblyReference> references,
+        IReadOnlyList<AssemblyReferenceIdentity> references,
         IAssemblyBindingPolicy bindingPolicy,
         Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
         HashSet<string> visited,
@@ -693,7 +694,7 @@ internal static class LibraryMetadataService
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
-                Version = reference.Version,
+                Version = reference.Version?.ToString() ?? "",
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = depth
             };
@@ -715,17 +716,16 @@ internal static class LibraryMetadataService
 
             visited.Add(reference.Name);
 
-            AssemblyReferenceIdentity identity = AssemblyReferenceIdentity.From(reference);
             AssemblyBindingSelection selection = bindingPolicy.Select(
                 new AssemblyBindingRequest(
-                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingTarget.Reference(reference),
                     AssemblyBindingOrigin.Global(),
                     AssemblyResolutionScope.Any));
             if (selection is AssemblyBindingSelection.Missing)
             {
                 selection = bindingPolicy.Select(
                     new AssemblyBindingRequest(
-                        AssemblyBindingTarget.Reference(identity),
+                        AssemblyBindingTarget.Reference(reference),
                         AssemblyBindingOrigin.Global(),
                         AssemblyResolutionScope.Platform));
             }
@@ -755,7 +755,7 @@ internal static class LibraryMetadataService
                 try
                 {
                     var (childRefs, company) =
-                        AssemblyInspector.ExtractReferencesAndCompany(resolved);
+                        AssemblyInspector.ExtractReferenceIdentitiesAndCompany(resolved);
                     node.Company = company;
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
@@ -1923,6 +1923,7 @@ internal static class LibraryMetadataService
         switch (result)
         {
             case AssemblyReferencesResult.Available available:
+                inspection.AssemblyReferenceIdentities = available.Identities;
                 if (inspection.AssemblyInfo is not null)
                 {
                     inspection.AssemblyInfo.References = available.References.IsEmpty

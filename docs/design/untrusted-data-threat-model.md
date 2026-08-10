@@ -254,11 +254,13 @@ components. Reference-tree traversal resolves `AssemblyReferenceIdentity`
 through the shared resolver's enumerated candidate catalog. Its tree-specific
 policy preserves sibling-first, version-tolerant selection relative to each
 resolved parent before falling back to installed platform assets; supplied
-culture and public-key-token constraints still bind. It excludes the inspecting
+culture and public-key-token constraints still bind, while omitted constraints
+remain wildcards because typed identity travels through the inspection model
+rather than being reconstructed from display text. It excludes the inspecting
 process's own trusted platform assembly closure. Platform lookup matches
 requested names against enumerated file names. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
-and the sibling/platform/failure-state tests in that class,
+and the sibling/platform/culture/failure-state tests in that class,
 `AssemblyDependencyResolverTests.Select_CaseDistinctCandidatesAreMatchedBeforeDeduplication`,
 plus
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`

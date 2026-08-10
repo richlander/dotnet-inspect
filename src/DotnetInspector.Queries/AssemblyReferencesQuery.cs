@@ -10,9 +10,13 @@ public abstract record AssemblyReferencesResult
     {
     }
 
-    /// <summary>The direct assembly-reference rows, which may be empty.</summary>
+    /// <summary>The direct assembly-reference identities, which may be empty.</summary>
     public sealed record Available(
-        ImmutableArray<AssemblyReference> References) : AssemblyReferencesResult;
+        ImmutableArray<AssemblyReferenceIdentity> Identities) : AssemblyReferencesResult
+    {
+        public ImmutableArray<AssemblyReference> References
+            => Identities.Select(static identity => identity.ToReference()).ToImmutableArray();
+    }
 
     /// <summary>The query failed while reading the assembly-reference table.</summary>
     public sealed record Failed(Exception Error) : AssemblyReferencesResult;
@@ -31,7 +35,7 @@ public static class AssemblyReferencesQuery
         try
         {
             return new AssemblyReferencesResult.Available(
-                session.AssemblyReferences().ToImmutableArray());
+                session.AssemblyReferenceIdentities().ToImmutableArray());
         }
         catch (Exception ex)
         {

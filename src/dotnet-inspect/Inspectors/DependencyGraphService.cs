@@ -101,7 +101,8 @@ internal static class DependencyGraphService
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
             }
 
-            var (refs, _) = AssemblyInspector.ExtractReferencesAndCompany(assemblyPath);
+            var (refs, _) =
+                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(assemblyPath);
             var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
             if (refs.Count == 0)

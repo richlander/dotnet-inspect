@@ -3,10 +3,10 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
-using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 
 namespace DotnetInspector.Tests;
 
@@ -31,8 +31,8 @@ public class AssemblyReferenceTreeResolutionTests
             File.WriteAllBytes(siblingPath, BuildAssembly("Sibling"));
             File.WriteAllBytes(payloadPath, BuildAssembly("../payload"));
 
-            List<AssemblyReference> references =
-                AssemblyInspector.ExtractReferences(ownerPath);
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
             List<AssemblyReferenceNode> nodes =
                 LibraryMetadataService.BuildTransitiveReferences(
                     references,
@@ -85,6 +85,58 @@ public class AssemblyReferenceTreeResolutionTests
 
             AssemblyReferenceNode sibling = Assert.Single(
                 BuildTree(ownerPath),
+                node => node.Name == "Sibling");
+
+            Assert.Equal(siblingPath, sibling.Path);
+            Assert.Equal("local", sibling.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task OmittedCultureReference_UsesCulturedSiblingThroughInspectionModel()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            string siblingPath = Path.Combine(root, "Sibling.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Sibling",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                siblingPath,
+                BuildAssembly(
+                    "Sibling",
+                    new Version(1, 0, 0, 0),
+                    assemblyCulture: "fr"));
+
+            using var httpClient = new HttpClient();
+            var inspection = await LibraryMetadataService.InspectAsync(
+                ownerPath,
+                new LibraryOptions
+                {
+                    CollectReferenceTree = true,
+                    ReferenceTreeDepth = 1,
+                },
+                new VerboseLogger(enabled: false),
+                packageName: null,
+                packageVersion: null,
+                httpClient);
+            AssemblyReferenceNode sibling = Assert.Single(
+                Assert.IsType<List<AssemblyReferenceNode>>(
+                    inspection?.AssemblyInfo?.TransitiveReferences),
                 node => node.Name == "Sibling");
 
             Assert.Equal(siblingPath, sibling.Path);
@@ -315,7 +367,7 @@ public class AssemblyReferenceTreeResolutionTests
 
     private static (
         string ParentPath,
-        AssemblyReference ChildReference,
+        AssemblyReferenceIdentity ChildReference,
         string ChildPath) FindPlatformParentWithColocatedReference()
     {
         foreach (string parentName in new[]
@@ -338,8 +390,8 @@ public class AssemblyReferenceTreeResolutionTests
                 .ToDictionary(
                     path => Path.GetFileNameWithoutExtension(path)!,
                     StringComparer.OrdinalIgnoreCase);
-            AssemblyReference? childReference =
-                AssemblyInspector.ExtractReferences(parentPath)
+            AssemblyReferenceIdentity? childReference =
+                AssemblyInspector.ExtractReferenceIdentities(parentPath)
                     .FirstOrDefault(reference =>
                         filesByName.ContainsKey(reference.Name));
             if (childReference is not null)
@@ -362,8 +414,8 @@ public class AssemblyReferenceTreeResolutionTests
         string ownerPath,
         int maxDepth)
     {
-        List<AssemblyReference> references =
-            AssemblyInspector.ExtractReferences(ownerPath);
+        List<AssemblyReferenceIdentity> references =
+            AssemblyInspector.ExtractReferenceIdentities(ownerPath);
         return LibraryMetadataService.BuildTransitiveReferences(
             references,
             ownerPath,
@@ -401,6 +453,17 @@ public class AssemblyReferenceTreeResolutionTests
         string assemblyName,
         Version assemblyVersion,
         params AssemblyReferenceIdentity[] references)
+        => BuildAssembly(
+            assemblyName,
+            assemblyVersion,
+            assemblyCulture: null,
+            references);
+
+    private static byte[] BuildAssembly(
+        string assemblyName,
+        Version assemblyVersion,
+        string? assemblyCulture,
+        params AssemblyReferenceIdentity[] references)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -412,7 +475,9 @@ public class AssemblyReferenceTreeResolutionTests
         metadata.AddAssembly(
             metadata.GetOrAddString(assemblyName),
             assemblyVersion,
-            culture: default,
+            culture: assemblyCulture is null
+                ? default
+                : metadata.GetOrAddString(assemblyCulture),
             publicKey: default,
             flags: default,
             hashAlgorithm: default);
