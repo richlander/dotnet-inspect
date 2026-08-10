@@ -23,6 +23,94 @@ public enum TypeShape { Unknown, Reference, ValueType, Enum }
 /// </summary>
 public enum TypeShapeKind { Unknown, Class, Struct, Enum, Interface, Delegate }
 
+/// <summary>Shared type facts for raised switch governing expressions.</summary>
+internal static class SwitchTypeFacts
+{
+    /// <summary>
+    /// Returns the enum type carried by a switch value, including an enum loaded
+    /// indirectly or from an array through its primitive storage opcode, and an
+    /// unresolved external enum whose non-primitive definition is proven by
+    /// type-safe switch IL.
+    /// </summary>
+    public static TypeRef? EnumType(IrFunction function, IrExpression value)
+    {
+        var type = value switch
+        {
+            LoadIndirect
+            {
+                Address.ResultType:
+                {
+                    Kind: TypeRefKind.ByRef or TypeRefKind.Pointer,
+                    ElementType: { } pointee,
+                },
+            } => pointee,
+            LoadElement
+            {
+                Array.ResultType:
+                {
+                    Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                    ElementType: { } element,
+                },
+            } => element,
+            _ => value.ResultType,
+        };
+        if (type is null)
+            return null;
+        if (function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+            return type;
+        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
+            && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
+            && !TypeFamilies.IsNumericPrimitive(type)
+            ? type
+            : null;
+    }
+
+    /// <summary>
+    /// True when a storage-typed load preserves the enum backing's width and
+    /// signedness. Direct enum values carry no separate storage opcode.
+    /// </summary>
+    public static bool StorageMatchesBacking(
+        IrFunction function,
+        IrExpression value,
+        TypeRef enumType,
+        TypeRef underlying)
+    {
+        if (!StorageNodeMatches(value, enumType, underlying))
+            return false;
+        foreach (var node in value.Descendants
+            .OfType<IrExpression>()
+            .Where(node => node is LoadElement or LoadIndirect))
+        {
+            if (EnumType(function, node) is not { } contributingEnum)
+                continue;
+            if (!contributingEnum.Equals(enumType)
+                || !StorageNodeMatches(node, enumType, underlying))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool StorageNodeMatches(IrExpression value, TypeRef enumType, TypeRef underlying)
+    {
+        var storageType = value switch
+        {
+            LoadElement load => load.ElementType,
+            LoadIndirect load => load.Type,
+            _ => enumType,
+        };
+        if (storageType is null)
+            return false;
+        if (storageType.Equals(enumType))
+            return true;
+        var expectedStorage = underlying.Name == "Char"
+            ? TypeRef.CoreLib("System", "UInt16")
+            : underlying;
+        return storageType.Equals(expectedStorage);
+    }
+}
+
 /// <summary>
 /// The single home for type-family classification (review consolidation:
 /// this knowledge previously lived in the importer's slot merging, the

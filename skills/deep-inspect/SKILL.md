@@ -17,7 +17,9 @@ lane also runs during publish before packages are built.
 | `test` | Blocking proof before publish or risky merges | Full decompiler tests, full analysis tests, vendored ILAssembler restore, full IL round-trip sweep. |
 | `census` | Observational broad signal and triage | Real-world corpus sensor, validity predicate scan, uncapped validity sweep, assertion scan, analysis corpus sensor, paydirt recall. |
 | `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
-| `all` | Release-candidate deep read | The `test` and `census` lanes. |
+| `authored-corpus` | Regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
+| `nightly` | Opt-in next-SDK/compiler validation | Builds with the .NET daily SDK and checks opt-in compiler lowering drift; intentionally excluded from `all`. |
+| `all` | Release-candidate deep read | The `test`, decompiler-corpus, `census`, and `authored-corpus` lanes. |
 
 Run manually:
 
@@ -25,6 +27,8 @@ Run manually:
 gh workflow run deep-inspect.yml -f lane=test
 gh workflow run deep-inspect.yml -f lane=census
 gh workflow run deep-inspect.yml -f lane=package-sweep
+gh workflow run deep-inspect.yml -f lane=authored-corpus
+gh workflow run deep-inspect.yml -f lane=nightly
 gh workflow run deep-inspect.yml -f lane=all
 ```
 
@@ -41,19 +45,19 @@ gh run download <run-id> -D /tmp/deep-inspect-<run-id>
 For the test lane:
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project src/dotnet-inspect.Tests -c Release
+source eng/activate-iltools.sh
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 dotnet run --project src/ILInspector.Analysis.Tests -c Release
 bash eng/restore-ilassembler.sh
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 ```
 
-For the fast PR subsets:
-
-```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
-dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
-dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
-```
+The corpus command runs as a separate workflow job and can take hours. Omit it
+only when intentionally reproducing the non-corpus `test` job rather than the
+complete dispatched `test` lane.
 
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the
