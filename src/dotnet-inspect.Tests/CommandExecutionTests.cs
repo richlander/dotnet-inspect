@@ -14533,12 +14533,44 @@ public partial class CommandExecutionTests
             Assert.Contains($"| Package Info | {packageInfoCount} |\n", markdownOutput);
             Assert.Contains($"| Target Frameworks | {targetFrameworksCount} |\n", markdownOutput);
 
+            var (projectedExit, projectedOutput, projectedError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info", "--fields", "Version", "--count", "--json");
+            var (projectedRowsExit, projectedRowsOutput, projectedRowsError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info", "--fields", "Version", "--tsv");
+            var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info", "--fields", "V*", "--count");
+            Assert.Equal(0, projectedExit);
+            Assert.Empty(projectedError);
+            Assert.Equal("2\n", projectedOutput.ReplaceLineEndings("\n"));
+            Assert.Equal(0, projectedRowsExit);
+            Assert.Empty(projectedRowsError);
+            Assert.Equal(
+                "package\tfield\tvalue\n"
+                + "Test.Layout\tVersion\t1.0.0\n"
+                + "Test.Layout\tVersion\t1.0.0\n",
+                projectedRowsOutput.ReplaceLineEndings("\n"));
+            Assert.Equal(0, wildcardExit);
+            Assert.Empty(wildcardError);
+            Assert.Equal("2\n", wildcardOutput.ReplaceLineEndings("\n"));
+
             var (windowedExit, windowedOutput, windowedError) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info", "--count", "--tsv", "--rows", "1");
             Assert.Equal(0, windowedExit);
             Assert.Empty(windowedError);
             Assert.Equal("1\n", windowedOutput.ReplaceLineEndings("\n"));
+
+            var (projectedWindowExit, projectedWindowOutput, projectedWindowError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info", "--fields", "Version",
+                    "--count", "--json", "--rows", "3..3");
+            Assert.Equal(0, projectedWindowExit);
+            Assert.Empty(projectedWindowError);
+            Assert.Equal("0\n", projectedWindowOutput.ReplaceLineEndings("\n"));
         }
         finally
         {

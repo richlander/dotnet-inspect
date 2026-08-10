@@ -977,7 +977,9 @@ public class PackageCommand
         {
             projection.RecordRows(
                 PackageSections.PackageInfo,
-                WindowedCount(BuildMultiPackagePackageInfoRows(results).Length, options.Rows));
+                WindowedCount(
+                    BuildMultiPackagePackageInfoRows(results, options.Fields).Length,
+                    options.Rows));
         }
 
         foreach (var section in selectedSections.Where(IsPackageFileSection))
@@ -2433,7 +2435,7 @@ public class PackageCommand
 
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
-        var rows = BuildMultiPackagePackageInfoRows(results);
+        var rows = BuildMultiPackagePackageInfoRows(results, options.Fields);
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
@@ -2448,9 +2450,24 @@ public class PackageCommand
     }
 
     private static string[][] BuildMultiPackagePackageInfoRows(
-        IReadOnlyList<InspectionResult> results)
-        => results
+        IReadOnlyList<InspectionResult> results,
+        string[]? fields)
+    {
+        HashSet<string>? includedFields = null;
+        if (fields is { Length: > 0 })
+        {
+            includedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var field in fields)
+            {
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    field, PackageInfoFieldNames);
+                includedFields.UnionWith(matches);
+            }
+        }
+
+        return results
             .SelectMany(result => new InspectionResultView(result).Metadata
+                .Where(field => includedFields is null || includedFields.Contains(field.Key))
                 .Select(field => new[]
                 {
                     result.PackageName,
@@ -2458,6 +2475,7 @@ public class PackageCommand
                     field.Value?.ToString() ?? "",
                 }))
             .ToArray();
+    }
 
     private static int WindowedCount(int count, RowWindow? rows)
     {
