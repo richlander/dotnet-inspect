@@ -100,6 +100,16 @@ test("semantic target invariants reject impossible joins", () => {
   assert.throws(() => validateDocument(unknownConditionality), /known conditionality and origin/);
 });
 
+test("instruction and fact offsets stay within the signed 32-bit contract", () => {
+  const oversizedInstruction = structuredClone(sampleDocument);
+  oversizedInstruction.nodes[3].il_offset = 2_147_483_648;
+  assert.throws(() => validateDocument(oversizedInstruction), /non-negative 32-bit integer/);
+
+  const oversizedFact = structuredClone(sampleDocument);
+  oversizedFact.facts[0].source_offset = 2_147_483_648;
+  assert.throws(() => validateDocument(oversizedFact), /non-negative 32-bit integer/);
+});
+
 test("mixed-medium lines classify and segment each substring independently", () => {
   const mixed = {
     text: "ab",

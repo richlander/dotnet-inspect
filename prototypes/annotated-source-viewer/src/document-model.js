@@ -2,6 +2,7 @@ const media = new Set(["CSharp", "Il"]);
 const conditionalities = new Set(["Always", "CachedOnce", "PerIteration"]);
 const origins = new Set(["Body", "MemberHeader"]);
 const regionRoles = new Set(["Construct", "Header", "Body", "Else", "Catch", "Finally", "Case"]);
+const maxInt32 = 2_147_483_647;
 
 export function parseDocument(json) {
   const document = JSON.parse(json);
@@ -36,8 +37,11 @@ export function validateDocument(document) {
     validateSpans(node.spans, document.text.length, `nodes[${index}].spans`);
 
     const hasIlOffset = node.il_offset != null;
-    if (hasIlOffset && (!Number.isInteger(node.il_offset) || node.il_offset < 0)) {
-      throw new TypeError(`Node ${index} IL offset must be a non-negative integer or null.`);
+    if (
+      hasIlOffset
+      && (!Number.isInteger(node.il_offset) || node.il_offset < 0 || node.il_offset > maxInt32)
+    ) {
+      throw new TypeError(`Node ${index} IL offset must be a non-negative 32-bit integer or null.`);
     }
     const instruction = node.kind === "Instruction";
     if (instruction !== (node.medium === "Il" && hasIlOffset)) {
@@ -76,8 +80,14 @@ export function validateDocument(document) {
       }
       validateUtf16(fact.detail, `facts[${index}].detail`);
     }
-    if (!Number.isInteger(fact.source_offset) || fact.source_offset < -1) {
-      throw new TypeError(`Fact ${index} source offset must be -1 or a non-negative integer.`);
+    if (
+      !Number.isInteger(fact.source_offset)
+      || fact.source_offset < -1
+      || fact.source_offset > maxInt32
+    ) {
+      throw new TypeError(
+        `Fact ${index} source offset must be -1 or a non-negative 32-bit integer.`,
+      );
     }
     if (fact.origin === "MemberHeader" && fact.source_offset !== -1) {
       throw new TypeError(`Member-header fact ${index} must have source offset -1.`);
