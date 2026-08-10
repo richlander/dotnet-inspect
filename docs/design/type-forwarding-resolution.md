@@ -2692,6 +2692,9 @@ gates the compile-back harness's structured forwarder wiring.
 `ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and
 `ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
 gate candidate consistency when resolution tightens a signed forwarder hop.
+`ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure`
+gates the sibling-first model's fallback to the platform closure, including
+version roll-forward for contracts older than the running inspector.
 `CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling` and
 `CompileBackTargets_DeclinesDirectSignedInterfaceSpoof` apply the same check to
 the target assembly's initial platform-signed `AssemblyRef`; unsigned

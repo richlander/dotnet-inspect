@@ -1563,6 +1563,43 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure()
+    {
+        string assemblyPath = CompileFixture("public sealed class Fixture { }");
+        string runtimePath = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Single(path => Path.GetFileName(path).Equals("System.Runtime.dll", StringComparison.OrdinalIgnoreCase));
+        try
+        {
+            using var stream = File.OpenRead(runtimePath);
+            using var pe = new PEReader(stream);
+            AssemblyReferenceIdentity runtimeIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
+            Assert.NotNull(runtimeIdentity.Version);
+            Assert.True(runtimeIdentity.Version.Major > 0);
+            AssemblyReferenceIdentity priorRuntimeIdentity = runtimeIdentity with
+            {
+                Version = new Version(runtimeIdentity.Version.Major - 1, 0, 0, 0),
+            };
+            ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
+
+            var resolved = CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                closure.TargetAssembly,
+                priorRuntimeIdentity,
+                "System.IConvertible",
+                closure.Resolver);
+
+            Assert.NotNull(resolved);
+            Assert.Equal("System.Private.CoreLib", resolved.Value.Assembly.Identity.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");

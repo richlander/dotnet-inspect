@@ -2208,13 +2208,20 @@ public static class CompileBackSourceComposer
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            resolver.Select(
+        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        {
+            AssemblyBindingSelection siblingSelection = resolver.Select(
                 new AssemblyBindingRequest(
                     request.Target,
                     request.Origin,
                     AssemblyResolutionScope.Any));
+            // Roslyn prefers a sibling reference, but a missing sibling falls
+            // through to the platform closure rather than ending the bind.
+            return siblingSelection is AssemblyBindingSelection.Missing
+                && request.Scope == AssemblyResolutionScope.Platform
+                    ? resolver.Select(request)
+                    : siblingSelection;
+        }
     }
 
     static bool TryCollectRequiredInterfaceMethods(
