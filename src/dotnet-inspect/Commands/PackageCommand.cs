@@ -258,7 +258,7 @@ public class PackageCommand
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
-                            CommandError.Write($"Package '{range.PackageId}' not found on nuget.org");
+                            CommandError.Write($"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -374,7 +374,7 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -410,7 +410,7 @@ public class PackageCommand
                 if (singleVersions is null)
                 {
                     CommandError.Write(
-                        $"Package '{packageArgs[0]}' not found on nuget.org");
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -457,7 +457,7 @@ public class PackageCommand
                     includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -470,7 +470,7 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -817,7 +817,7 @@ public class PackageCommand
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            CommandError.Write($"Package '{packageName}' version '{version}' not found on nuget.org.");
+            CommandError.Write($"Package '{packageName}' version '{version}' not found on eligible configured sources.");
             CommandError.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
             return 1;
         }
