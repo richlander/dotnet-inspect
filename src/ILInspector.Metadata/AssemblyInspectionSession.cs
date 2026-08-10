@@ -141,6 +141,26 @@ public sealed class AssemblyInspectionSession : IDisposable
     public IEnumerable<ExtensionMethodInfo> ExtensionMethods(bool includeAll = false)
         => ExtensionMethodScanner.FindAllExtensions(_image.PEReader, includeAll);
 
+    /// <summary>Image-local type addresses for lazy extension reachability.</summary>
+    public IReadOnlyList<ExtensionReachabilityType> ExtensionReachabilityTypes()
+        => ExtensionMethodScanner.IndexReachableTypes(_image.PEReader);
+
+    /// <summary>Reachable public-member edges for one image-local type address.</summary>
+    public IReadOnlyList<ExtensionReachabilityEdge> ExtensionReachabilityEdges(
+        int metadataToken)
+        => ExtensionMethodScanner.FindReachableEdges(
+            _image.PEReader,
+            metadataToken);
+
+    /// <summary>Types that directly implement or extend the requested type.</summary>
+    public IEnumerable<TypeRelationship> Implementers(
+        string targetType,
+        bool includeHidden = false)
+        => TypeHierarchyScanner.FindImplementers(
+            _image.PEReader,
+            targetType,
+            includeHidden);
+
     /// <summary>Assembly-level custom attributes.</summary>
     public List<AssemblyAttributeInfo> CustomAttributes()
         => AssemblyDetailScanner.ScanCustomAttributes(_image.PEReader);
