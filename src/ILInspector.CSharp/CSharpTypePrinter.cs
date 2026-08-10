@@ -78,16 +78,17 @@ public sealed class CSharpTypePrinter
         {
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             bool useBlockScopedNamespace = containingNamespace is not null && !useFileScopedNamespace;
-            int typeIndent = useBlockScopedNamespace ? 1 : 0;
             var rendered = Join(
-                group.Select(type => RenderType(type, typeIndent, options, contextualUsings, diagnostics)),
+                group.Select(type => RenderType(type, indent: 0, options, contextualUsings, diagnostics)),
                 "\n\n");
             if (containingNamespace is not null)
             {
                 string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
                 rendered = useFileScopedNamespace
                     ? rendered.Wrap($"namespace {renderedNamespace};\n\n", "")
-                    : rendered.Wrap($"namespace {renderedNamespace}\n{{\n", "\n}");
+                    : rendered
+                        .Indent(1)
+                        .Wrap($"namespace {renderedNamespace}\n{{\n", "\n}");
             }
 
             units.Add(new CSharpTypeSourceUnit(containingNamespace, rendered.Source));
@@ -941,6 +942,26 @@ public sealed class CSharpTypePrinter
         CSharpSourceRange? ReplaceableBodyRange = null,
         string? ReplaceableBodyIndent = null)
     {
+        internal RenderedFragment Indent(int depth)
+        {
+            string pad = new(' ', depth * 4);
+            string IndentSource(string source)
+                => string.Join(
+                    '\n',
+                    source.Split('\n').Select(line => line.Length == 0 ? line : pad + line));
+
+            if (ReplaceableBodyRange is not { } range)
+                return new RenderedFragment(IndentSource(Source));
+
+            string prefix = IndentSource(Source[..range.Start]);
+            string body = IndentSource(Source.Substring(range.Start, range.Length));
+            string suffix = IndentSource(Source[range.End..]);
+            return new RenderedFragment(
+                prefix + body + suffix,
+                new CSharpSourceRange(prefix.Length, body.Length),
+                pad + ReplaceableBodyIndent);
+        }
+
         internal RenderedFragment Wrap(string prefix, string suffix)
             => new(
                 prefix + Source + suffix,

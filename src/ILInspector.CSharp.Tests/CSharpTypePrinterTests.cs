@@ -2061,6 +2061,55 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("namespace Other\n{\n", result.Source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BlockScopedBatchPreservesNamespaceIndentationForMultilineInitializers()
+    {
+        var field = new ApiMember
+        {
+            Name = "Values",
+            Kind = "field",
+            ReturnType = "int[]"
+        };
+        var type = CreateEmptyType("Samples", "First");
+        type.Members.Add(field);
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        field,
+                        CSharpBodyPolicy.Full,
+                        new CSharpFieldInitializer(
+                            """
+                            [
+                                1,
+                                2
+                            ]
+                            """))
+                ]),
+            new CSharpTypePrintRequest(CreateEmptyType("Other", "Second"))
+        ]);
+
+        Assert.Contains(
+            """
+            namespace Samples
+            {
+                public class First
+                {
+                    public int[] Values = [
+                    1,
+                    2
+                ];
+                }
+            }
+            """,
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
     static ApiType CreateEmptyType(string? @namespace, string name)
         => new()
         {
