@@ -1,6 +1,9 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -38,6 +41,43 @@ public sealed class ImplementationComparisonQueryTests
             member.Changes,
             change => change.Mechanism
                 == ResearchChangeMechanism.IlBody);
+        Assert.False(Assert.Single(
+            result.Research.RetainedComparisons
+                .Get<CSharpCanonicalLine>(
+                    CSharpFindings.LineDescriptor),
+            comparison => comparison.Subject.MemberName
+                == "ConstantValue").IsExact);
+        Assert.False(Assert.Single(
+            result.Research.RetainedComparisons
+                .Get<CanonicalIlOperation>(
+                    IlFindings.OperationDescriptor),
+            comparison => comparison.Subject.MemberName
+                == "ConstantValue").IsExact);
+    }
+
+    [Fact]
+    public void Execute_RejectsBodyIndexFromDifferentAssemblyImage()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        ImplementationAssemblyInput oldContent =
+            StreamBackedInput(oldPath, "old.dll");
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            ImplementationComparisonQuery.Execute(
+                new ImplementationComparisonInput(
+                    [
+                        oldContent with
+                        {
+                            BodyIndex = LibraryBodyIndex.Open(newPath),
+                        },
+                    ],
+                    [StreamBackedInput(newPath, "new.dll")])));
+
+        Assert.Contains(
+            "does not match assembly content",
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

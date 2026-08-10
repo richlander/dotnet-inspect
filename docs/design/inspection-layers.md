@@ -85,9 +85,9 @@ selected query execution. The L1 queries receive content-derived inputs rather
 than paths, and the CLI continues to own ranking and rendering. Implementation
 comparison opens descriptor-backed metadata sources once for the offline C#
 and IL producers; authored-source acquisition remains a separate explicit
-enrichment. `ImplementationComparisonQueryTests.
-Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence` gates the
-stream-backed target-content path.
+enrichment.
+`ImplementationComparisonQueryTests.Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence`
+gates the stream-backed target-content path.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
