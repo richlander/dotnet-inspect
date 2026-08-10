@@ -263,7 +263,7 @@ public static class OutputFormatter
     /// rendered set - is what the map describes, so a requested section with no rows reports zero
     /// rather than disappearing, matching how a category renders.
     /// </remarks>
-    private static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
+    internal static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
         SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
     {
         var requested = includeSections is { Count: > 0 }

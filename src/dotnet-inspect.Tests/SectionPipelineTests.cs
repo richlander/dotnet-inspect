@@ -5,6 +5,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -2017,6 +2018,139 @@ public class SectionPipelineTests
 
             Assert.Equal(0, exitCode);
             Assert.Equal("10", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_AppliesRowWindowToCombinedPackageInfoRows()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-info-count-{Guid.NewGuid():N}.txt");
+        var options = new InspectionOptions
+        {
+            Count = true,
+            OutputPath = outputPath,
+            Rows = RowWindow.Head(1),
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.PackageInfo,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult { PackageName = "First" },
+                    new InspectionResult { PackageName = "Second" },
+                ],
+                PackageSections.PackageInfo,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("1", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_JsonFileSelectionUsesCombinedRowShape()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-file-count-{Guid.NewGuid():N}.txt");
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            OutputPath = outputPath,
+            Rows = RowWindow.Head(1),
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.FilesReadme,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult { PackageName = "First" },
+                    new InspectionResult { PackageName = "Second" },
+                ],
+                null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("1", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_AggregatesMultipleSelectedSections()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-section-counts-{Guid.NewGuid():N}.txt");
+        var signature = new SignatureVerificationResult
+        {
+            AuthorVerified = true,
+            Publisher = "Publisher",
+            Repository = "nuget.org",
+            RepositoryVerified = true,
+        };
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            OutputPath = outputPath,
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.PackageInfo,
+                PackageSections.Signature,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult
+                    {
+                        PackageName = "First",
+                        SignatureResult = signature,
+                    },
+                    new InspectionResult
+                    {
+                        PackageName = "Second",
+                        SignatureResult = signature,
+                    },
+                ],
+                null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            string output = File.ReadAllText(outputPath);
+            Assert.Contains("| Package Info |", output);
+            Assert.Contains("| Signature | 10 |", output);
         }
         finally
         {

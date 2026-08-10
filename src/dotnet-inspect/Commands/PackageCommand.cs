@@ -815,8 +815,7 @@ public class PackageCommand
             return 1;
         }
         catch (InvalidOperationException ex) when (
-            options.Columns is { Length: > 0 }
-            && ex.Message.StartsWith("No columns matched projection:", StringComparison.Ordinal))
+            IsUnmatchedColumnProjection(options, ex))
         {
             CommandError.Write(ex.Message);
             return 1;
@@ -938,14 +937,21 @@ public class PackageCommand
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
-        CountOutput.WriteCount(
-            CountMultiPackageRows(
+        try
+        {
+            WriteMultiPackageCountResult(
                 results,
                 rowSection,
                 options,
-                pipeline),
-            options.OutputPath);
-        return PackageIntegrityExitCode([.. results]);
+                pipeline);
+            return PackageIntegrityExitCode([.. results]);
+        }
+        catch (InvalidOperationException ex) when (
+            IsUnmatchedColumnProjection(options, ex))
+        {
+            CommandError.Write(ex.Message);
+            return 1;
+        }
     }
 
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
@@ -2180,38 +2186,115 @@ public class PackageCommand
         return builder.ToString();
     }
 
-    private static int CountMultiPackageRows(
+    private static void WriteMultiPackageCountResult(
         IReadOnlyList<InspectionResult> results,
-        string? section,
+        string? rowSection,
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
-        if (IsPackageFileSection(section))
+        string? selectedSection = rowSection;
+        if (selectedSection == null
+            && options.IncludeSections is { Count: 1 } includeSections)
         {
-            return results.Sum(
+            selectedSection = includeSections.Single();
+        }
+
+        if (IsPackageFileSection(selectedSection))
+        {
+            int count = results.Sum(
                 result =>
                     options.SkipEmpty
-                        ? GetPackageFileRows(result, section!).Count
+                        ? GetPackageFileRows(result, selectedSection!).Count
                         : Math.Max(
                             1,
-                            GetPackageFileRows(result, section!).Count));
+                            GetPackageFileRows(result, selectedSection!).Count));
+            CountOutput.WriteCount(
+                ApplyRowWindow(count, options.Rows),
+                options.OutputPath);
+            return;
         }
 
-        if (options.IncludeSections is { Count: 1 })
+        bool hasProjection = options.Fields is { Length: > 0 }
+            || options.Columns is { Length: > 0 };
+        bool countPackageInfoRows =
+            !hasProjection
+            && (string.Equals(
+                    selectedSection,
+                    PackageSections.PackageInfo,
+                    StringComparison.OrdinalIgnoreCase)
+                || (selectedSection == null
+                    && options.IncludeSections is not { Count: > 0 }
+                    && !options.FixedOverview));
+        if (countPackageInfoRows)
         {
-            return results.Sum(
-                result => int.Parse(
-                    OutputFormatter.FormatResult(
-                        result,
-                        options,
-                        pipeline),
-                    CultureInfo.InvariantCulture));
+            int count = results.Sum(
+                result =>
+                    new InspectionResultView(result).Metadata.Count);
+            CountOutput.WriteCount(
+                ApplyRowWindow(count, options.Rows),
+                options.OutputPath);
+            return;
         }
 
-        return results.Sum(
-            result =>
-                new InspectionResultView(result).Metadata.Count);
+        var renderOptions = options with
+        {
+            Count = false,
+            JsonOutput = false,
+            OutputPath = null,
+        };
+        var markdownDocuments = results
+            .Select(
+                result => OutputFormatter.FormatResult(
+                    result,
+                    renderOptions,
+                    pipeline))
+            .ToList();
+        var orderedSections = OutputFormatter.ResolveCountMapSections(
+            pipeline,
+            options.IncludeSections,
+            options.FixedOverview);
+        if (orderedSections != null)
+        {
+            var counts = new Dictionary<string, int>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var markdown in markdownDocuments)
+            {
+                foreach (var (section, count) in
+                    CountOutput.CountMarkdownTableRowsBySection(markdown))
+                {
+                    counts[section] =
+                        counts.GetValueOrDefault(section) + count;
+                }
+            }
+
+            CountOutput.WriteCountMap(
+                counts,
+                orderedSections,
+                options.OutputPath);
+            return;
+        }
+
+        CountOutput.WriteCount(
+            markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
+            options.OutputPath);
     }
+
+    private static int ApplyRowWindow(int count, RowWindow? rows)
+    {
+        if (rows == null)
+            return count;
+
+        var (keepStart, keepEnd) = rows.Value.Resolve(count);
+        return keepEnd - keepStart;
+    }
+
+    private static bool IsUnmatchedColumnProjection(
+        InspectionOptions options,
+        InvalidOperationException exception)
+        => options.Columns is { Length: > 0 }
+            && exception.Message.StartsWith(
+                "No columns matched projection:",
+                StringComparison.Ordinal);
 
     private static async Task PopulatePackageSignatureAsync(
         InspectionResult result,

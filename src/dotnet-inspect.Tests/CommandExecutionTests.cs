@@ -16577,6 +16577,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_CountProjectionMissReportsCleanError()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Projection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Projection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count",
+                "--columns",
+                "Publisher");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "No columns matched projection: Publisher",
+                error);
+            Assert.DoesNotContain(
+                "System.InvalidOperationException",
+                error);
+            Assert.DoesNotContain(
+                "MarkoutWriter.ThrowIfProjectionMatchedNothing",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");
