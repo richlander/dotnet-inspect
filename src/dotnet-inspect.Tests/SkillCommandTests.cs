@@ -171,4 +171,50 @@ public class SkillCommandTests
             Assert.Equal(0, exitCode);
         }
     }
+
+    [Fact]
+    public void FocusedSkillFilesRegistryAndEmbeddedResourcesAgree()
+    {
+        string root = FindRepositoryRoot();
+        string skillsRoot = Path.Combine(root, "skills");
+
+        string[] files = Directory
+            .EnumerateDirectories(skillsRoot)
+            .Where(path => !Path.GetFileName(path).Equals("dotnet-inspect", StringComparison.Ordinal))
+            .Where(path => File.Exists(Path.Combine(path, "SKILL.md")))
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)
+            .ToArray()!;
+
+        string[] registry = SkillCommand.Skills
+            .Select(skill => skill.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        const string prefix = "dotnet-inspect.skills.";
+        const string suffix = ".md";
+        string[] resources = typeof(SkillCommand).Assembly
+            .GetManifestResourceNames()
+            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal)
+                && name.EndsWith(suffix, StringComparison.Ordinal))
+            .Select(name => name[prefix.Length..^suffix.Length])
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(files, registry);
+        Assert.Equal(files, resources);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+                return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate the repository root.");
+    }
 }
