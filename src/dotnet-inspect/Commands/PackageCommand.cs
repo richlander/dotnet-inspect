@@ -2607,7 +2607,9 @@ public class PackageCommand
         if (libraryOptions.Count)
             CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
-            Console.WriteLine(markdown);
+            // Write rather than WriteLine: the document is LF throughout, and WriteLine would
+            // terminate it with Environment.NewLine.
+            Console.Out.Write(markdown + "\n");
         return 0;
     }
 
@@ -2945,8 +2947,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.AppendLine($"# {title}");
-        sb.AppendLine();
+        AppendBlock(sb, $"# {title}");
 
         foreach (var section in sections)
         {
@@ -2960,6 +2961,26 @@ public class PackageCommand
     }
 
     /// <summary>
+    /// Appends one rendered block, separated from whatever precedes it by exactly one blank line.
+    /// </summary>
+    /// <remarks>
+    /// Endings are LF rather than <see cref="Environment.NewLine"/>, because every other part of
+    /// this path assumes LF: <see cref="RenderLibrarySection"/> splits and rejoins on <c>'\n'</c>,
+    /// and the blank-line test below compares against <c>'\n'</c>. Under CRLF both quietly
+    /// misbehave -- a CRLF tail ends with <c>"\r\n"</c> and so never matches, which added a second
+    /// blank line before every section on Windows.
+    /// </remarks>
+    private static void AppendBlock(StringBuilder sb, string rendered)
+    {
+        // Testing the last two characters rather than sb.ToString(): the string form allocated the
+        // whole document once per section purely to look at its tail.
+        if (sb.Length > 0 && !(sb.Length >= 2 && sb[^1] == '\n' && sb[^2] == '\n'))
+            sb.Append('\n');
+
+        sb.Append(rendered).Append('\n').Append('\n');
+    }
+
+    /// <summary>
     /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
     /// the writer, which is what applies <c>--rows</c>.
     /// </summary>
@@ -2969,15 +2990,16 @@ public class PackageCommand
         {
             Sections = [new AggregatedSectionView { Name = section, Body = table }]
         };
-        var rendered = MarkoutSerializer.Serialize(
-            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows)).Trim();
+        // Serialized through an LF writer rather than the string-returning overload, which
+        // constructs its own StringWriter and so inherits Environment.NewLine (markout#198).
+        var shell = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            document, shell, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
+        var rendered = shell.ToString().Trim();
         if (rendered.Length == 0)
             return;
 
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine(rendered);
-        sb.AppendLine();
+        AppendBlock(sb, rendered);
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3097,10 +3119,7 @@ public class PackageCommand
             if (rendered.Length == 0)
                 continue;
 
-            if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.AppendLine();
-            sb.AppendLine(rendered);
-            sb.AppendLine();
+            AppendBlock(sb, rendered);
         }
     }
 
@@ -3115,7 +3134,13 @@ public class PackageCommand
             // the only text this path edits, and it does not touch rows.
             RowWindow = RowWindow.ToMarkout(options.Rows)
         };
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        // Serialized through an LF writer rather than the string-returning overload, which
+        // constructs its own StringWriter and so inherits Environment.NewLine (markout#198). The
+        // heading rewrite below splits and rejoins on '\n', so a CRLF document would lose the '\r'
+        // from the one line it replaces and mix endings within the section.
+        var shell = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(view, shell, InspectionContext.Default, writerOptions);
+        var markdown = shell.ToString().Trim();
         if (markdown.Length == 0)
             return "";
 

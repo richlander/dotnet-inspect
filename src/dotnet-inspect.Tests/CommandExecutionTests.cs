@@ -11141,6 +11141,46 @@ public partial class CommandExecutionTests
         Assert.Equal(2, DataRows(windowed));
     }
 
+    /// <summary>
+    /// The <c>--all-libraries</c> document is assembled by hand from several serialized sections,
+    /// and every part of that assembly assumes LF: sections are split and rejoined on <c>'\n'</c>
+    /// to rewrite their headings, and blocks are separated by testing for a <c>'\n''\n'</c> tail.
+    /// Under <see cref="Environment.NewLine"/> both broke on Windows only (#3963) -- the rewritten
+    /// heading lost its <c>'\r'</c> while its siblings kept theirs, and the tail test never matched
+    /// a CRLF ending, so every section gained a second blank line.
+    /// <para>
+    /// Both invocations are checked because they were separately affected: until #3951 the
+    /// windowed one was accidentally repaired by <c>MarkdownTableRowLimiter</c>, which normalized
+    /// endings on its way past, while the unwindowed one returned early and was never normalized.
+    /// </para>
+    /// <para>
+    /// The <c>'\r'</c> half of this gate has teeth on the <c>test-windows</c> CI leg, where
+    /// <see cref="Environment.NewLine"/> is CRLF; on Linux it asserts only that nothing introduces
+    /// a carriage return. The blank-line and trailing-newline halves have teeth everywhere.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    {
+        var (exit, all, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
+        var (windowedExit, windowed, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches", "--rows", "2");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, windowedExit);
+
+        foreach (var (label, output) in new[] { ("unwindowed", all), ("windowed", windowed) })
+        {
+            Assert.True(output.Contains('\n'), $"{label}: expected a multi-line document");
+            Assert.False(output.Contains('\r'), $"{label}: expected LF throughout, found a carriage return");
+            Assert.False(
+                output.Contains("\n\n\n", StringComparison.Ordinal),
+                $"{label}: expected sections separated by exactly one blank line");
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
     {
