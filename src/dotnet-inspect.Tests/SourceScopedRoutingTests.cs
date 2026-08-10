@@ -15,8 +15,11 @@ namespace DotnetInspector.Tests;
 public sealed class SourceScopedRoutingTests : IDisposable
 {
     private const string ExcludedSource = "https://excluded.invalid/v3/index.json";
+    private const string RefusedSource = "https://refused.invalid/v3/index.json";
     private const string SecondSource =
         "https://second.invalid/v3/index.json";
+    private const string SecondFlatContainer =
+        "https://second.invalid/v3/flat2/";
 
     private readonly string _testRoot = Path.Combine(
         Path.GetTempPath(),
@@ -486,6 +489,141 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("pinned")]
+    [InlineData("latest")]
+    [InlineData("all")]
+    [InlineData("range")]
+    public async Task PackageVersionQueries_ReportARefusingSource(
+        string query)
+    {
+        string packageName = $"RefusedVersion{Guid.NewGuid():N}";
+        string[] queryArgs = query switch
+        {
+            "pinned" => [$"{packageName}@2.0.0", "--version"],
+            "latest" => [packageName, "--latest-version"],
+            "range" => [$"{packageName}@1.0.0..2.0.0", "--versions"],
+            _ => [packageName, "--versions"],
+        };
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    .. queryArgs,
+                    "--source",
+                    RefusedSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains("HTTP 401", error);
+        Assert.Contains(RefusedSource, error);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageVersionQuery_PreservesNotFoundForA404(
+        bool range)
+    {
+        string packageName = $"MissingVersion{Guid.NewGuid():N}";
+        string packageQuery = range
+            ? $"{packageName}@1.0.0..2.0.0"
+            : packageName;
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageQuery,
+                    "--versions",
+                    "--source",
+                    ExcludedSource,
+                ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("requires credentials", error);
+        Assert.DoesNotContain("Could not retrieve versions", error);
+    }
+
+    [Fact]
+    public async Task PackageVersionQuery_UsesAReadableSourceAfterA401()
+    {
+        string packageName = $"PartialVersion{Guid.NewGuid():N}";
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--latest-version",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Empty(error);
+        Assert.Contains(
+            requests,
+            url => url.Equals(
+                RefusedSource,
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            requests,
+            url => url.Equals(
+                $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task MissingPinnedVersion_IsNotDeclaredAbsentWhenAnotherSourceRefuses()
+    {
+        string packageName = $"PartialPinned{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    $"{packageName}@3.0.0",
+                    "--version",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains("HTTP 401", error);
+        Assert.DoesNotContain(
+            "Version '3.0.0'",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Router_PlatformPrefixProbeUsesSourceScopedCandidateMetadataOffline()
     {
@@ -657,7 +795,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
         ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
             string packageName,
             string version,
-            string[] args)
+            string[] args,
+            HttpStatusCode? refusedStatus = null)
     {
         var requests = new ConcurrentQueue<string>();
         DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
@@ -665,6 +804,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 SecondSource,
                 packageName,
                 version,
+                refusedStatus,
                 requests,
                 innerHandler));
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
@@ -708,19 +848,29 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string sourceUrl,
         string packageName,
         string version,
+        HttpStatusCode? refusedStatus,
         ConcurrentQueue<string> requests,
         HttpMessageHandler innerHandler)
         : DelegatingHandler(innerHandler)
     {
-        private const string FlatContainer =
-            "https://second.invalid/v3/flat2/";
-
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.GetLeftPart(UriPartial.Path);
             requests.Enqueue(url);
+            if (refusedStatus is { } status
+                && url.StartsWith(
+                    new Uri(RefusedSource).GetLeftPart(UriPartial.Authority),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new HttpResponseMessage(status)
+                {
+                    Content = new StringContent(""),
+                    RequestMessage = request,
+                });
+            }
+
             string? body = url switch
             {
                 _ when url.Equals(
@@ -729,12 +879,12 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     {
                       "version": "3.0.0",
                       "resources": [
-                        { "@id": "{{FlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                        { "@id": "{{SecondFlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
                       ]
                     }
                     """,
                 _ when url.Equals(
-                    $"{FlatContainer}{packageName.ToLowerInvariant()}/index.json",
+                    $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
                     StringComparison.OrdinalIgnoreCase) => $$"""
                     {"versions":["{{version}}"]}
                     """,

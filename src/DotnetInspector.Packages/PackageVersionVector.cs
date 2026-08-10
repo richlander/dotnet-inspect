@@ -5,6 +5,17 @@ using NuGet.Versioning;
 namespace DotnetInspector.Packages;
 
 /// <summary>
+/// Indicates that no configured package source supplied version metadata for a package.
+/// </summary>
+public sealed class PackageVersionsUnavailableException(string packageId)
+    : InvalidOperationException(
+        $"Could not retrieve versions for package '{packageId}'.")
+{
+    /// <summary>The package whose version metadata was unavailable.</summary>
+    public string PackageId { get; } = packageId;
+}
+
+/// <summary>
 /// An inclusive package-version range supplied in the familiar <c>Package@A..B</c> form.
 /// </summary>
 public sealed record PackageVersionRange
@@ -138,7 +149,7 @@ public sealed class PackageVersionVector
             sourceOptions);
 
         if (candidates is null)
-            throw new InvalidOperationException($"Could not retrieve versions for package '{range.PackageId}'.");
+            throw new PackageVersionsUnavailableException(range.PackageId);
 
         PackageVersionVector vector = Create(
             range,
