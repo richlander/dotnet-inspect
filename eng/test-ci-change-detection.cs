@@ -83,6 +83,18 @@ foreach (string launcher in new[] { "eng/dotnet.ps1", "eng/dotnet.sh" })
     }
 }
 
+Dictionary<string, string> skill = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "skills/new-skill/SKILL.md",
+    outputs);
+if (skill["code"] != "true" || skill["docs"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Skill canary did not select code and docs: {FormatValues(skill)}");
+}
+
 Dictionary<string, string> pushedSource = RunDetection(
     repository,
     body,
