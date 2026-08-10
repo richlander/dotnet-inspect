@@ -1,6 +1,7 @@
 using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -67,7 +68,8 @@ internal static class SourceFileCollector
         HttpClient httpClient,
         bool includeAll = false,
         bool browsableUrls = false,
-        string? typeFilter = null)
+        string? typeFilter = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         using var service = SourceLinkService.Open(assemblyPath, logger.Log);
         await SourceEnricher.AcquirePdbAsync(
@@ -76,7 +78,8 @@ internal static class SourceFileCollector
             packageName,
             packageVersion,
             isPlatformAssembly,
-            logger.Log);
+            logger.Log,
+            sourceOptions: sourceOptions);
         return await CollectAsync(
             service,
             assemblyPath,

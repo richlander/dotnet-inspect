@@ -94,11 +94,6 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
-        catch (ProjectionValidationException ex)
-        {
-            CommandError.Write(ex);
-            return 1;
-        }
         catch (DotnetInspector.CommandLine.PrefixResolutionException ex)
         {
             // --package-prefix expansion needs the network, so unlike the row window it
@@ -108,6 +103,11 @@ public static class CommandLineBuilder
             return 1;
         }
         catch (DotnetInspector.Services.NuspecParseException ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+        catch (PackageSourceMappingException ex)
         {
             CommandError.Write(ex);
             return 1;

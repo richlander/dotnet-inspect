@@ -53,14 +53,20 @@ public static class PlatformPackService
         string frameworkShortName,
         string version,
         HttpClient client,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         if (!PlatformResolver.FrameworkMappings.TryGetValue(frameworkShortName, out var packName))
         {
             return null;
         }
 
-        return await EnsurePackAsync(packName, version, client, log).ConfigureAwait(false);
+        return await EnsurePackAsync(
+            packName,
+            version,
+            client,
+            log,
+            sourceOptions).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -150,14 +156,21 @@ public static class PlatformPackService
         IEnumerable<PackRequest> requests,
         HttpClient client,
         Action<string>? log = null,
-        bool forceLatest = false)
+        bool forceLatest = false,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var downloader = new Downloader<PackResult>();
         foreach (var req in requests)
         {
             var packName = req.PackName;
             var version = req.Version;
-            downloader.Add(() => ResolveAndDownloadAsync(packName, version, client, log, forceLatest));
+            downloader.Add(() => ResolveAndDownloadAsync(
+                packName,
+                version,
+                client,
+                log,
+                forceLatest,
+                sourceOptions));
         }
         return downloader;
     }
@@ -194,7 +207,8 @@ public static class PlatformPackService
         string? version,
         HttpClient client,
         Action<string>? log,
-        bool forceLatest = false)
+        bool forceLatest,
+        NuGetSourceOptions? sourceOptions)
     {
         if (version == null)
         {
@@ -210,11 +224,20 @@ public static class PlatformPackService
             }
 
             // No cached pack (or @latest forced) — resolve from network
-            version = await GetLatestPackVersionAsync(packName, client, log).ConfigureAwait(false);
+            version = await GetLatestPackVersionAsync(
+                packName,
+                client,
+                log,
+                sourceOptions).ConfigureAwait(false);
         }
         if (version == null) return null;
 
-        var packDir = await EnsurePackAsync(packName, version, client, log).ConfigureAwait(false);
+        var packDir = await EnsurePackAsync(
+            packName,
+            version,
+            client,
+            log,
+            sourceOptions).ConfigureAwait(false);
         return packDir != null ? new PackResult(packName, version, packDir) : null;
     }
 
@@ -240,9 +263,12 @@ public static class PlatformPackService
     public static async Task<string?> GetLatestPackVersionAsync(
         string packName,
         HttpClient client,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
-        var sources = NuGetSourceResolver.ResolveSources(null);
+        var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+            sourceOptions,
+            packName);
         return await PackageExtractor.GetLatestVersionAsync(client, packName, sources, log).ConfigureAwait(false);
     }
 
@@ -255,7 +281,8 @@ public static class PlatformPackService
         string packName,
         string version,
         HttpClient client,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var cachePath = GetPacksCachePath();
         if (cachePath == null)
@@ -277,7 +304,8 @@ public static class PlatformPackService
             client,
             $"{packName}@{version}",
             log,
-            tempDirPrefix: "inspect-pack").ConfigureAwait(false);
+            tempDirPrefix: "inspect-pack",
+            sourceOptions: sourceOptions).ConfigureAwait(false);
 
         if (!outcome.IsSuccess)
         {

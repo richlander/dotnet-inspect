@@ -1819,6 +1819,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_MarkdownUsesLfThroughout()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:n", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains('\n', output);
+        Assert.DoesNotContain('\r', output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -5941,10 +5953,10 @@ public partial class CommandExecutionTests
     public async Task Find_RowWindowUnderProjectedJson_MatchesTheTableFormats(string window)
     {
         // #3494: --rows is a Shape decision, so it has to survive the change of Format. It is
-        // applied to the buffered rows through RowWindow.Resolve rather than by the line-oriented
-        // LimitRenderedTableRows the table formats use -- counting lines is only safe when one row
-        // is one line, which a pretty-printed JSON document violates. Every window kind is covered
-        // because Resolve, not the caller, decides what head/range/start+count mean.
+        // applied by Markout before rows reach any formatter rather than by a line-oriented
+        // post-processor -- counting lines is only safe when one row is one line, which a
+        // pretty-printed JSON document violates. Every window kind is covered because Markout,
+        // not the caller, decides what head/range/start+count mean.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
             "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
@@ -6130,27 +6142,32 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Type,*", "--json")]
-    [InlineData("Type,*", "--jsonl")]
-    [InlineData("Type,*", "--tsv")]
-    [InlineData("Type,*", "--table")]
-    [InlineData("T*,*e", "--json")]
-    [InlineData("T*,*e", "--jsonl")]
-    [InlineData("T*,*e", "--tsv")]
-    [InlineData("T*,*e", "--table")]
-    public async Task Find_OverlappingColumnPatterns_FailClosedInEveryFormat(string columns, string format)
+    [InlineData("Type,*", "*", "--json")]
+    [InlineData("Type,*", "*", "--jsonl")]
+    [InlineData("Type,*", "*", "--tsv")]
+    [InlineData("Type,*", "*", "--table")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--tsv")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
+    public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
+        string columns,
+        string deduplicatedColumns,
+        string format)
     {
-        // Distinct request spellings can still resolve to the same source column. Validate the
-        // resolved headers at the shared formatter boundary so keyed formats cannot emit duplicate
-        // properties and every format agrees that the projection is invalid.
-        var (exit, output, error) = await RunAppAsync(
+        // Markout resolves overlapping patterns to each source column once. Comparing with the
+        // explicit deduplicated spelling pins both key uniqueness and format-invariant ordering.
+        var actual = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", columns, format);
+        var expected = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", deduplicatedColumns, format);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(ProjectionHeaderValidation.DuplicateResolvedColumnMessage, error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
+        Assert.Equal(0, actual.Exit);
+        Assert.Equal(0, expected.Exit);
+        Assert.Empty(actual.Error);
+        Assert.Empty(expected.Error);
+        Assert.Equal(expected.Output, actual.Output);
     }
 
     [Fact]
@@ -11182,6 +11199,40 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tip:", error);
     }
 
+    /// <summary>
+    /// The aggregate <c>--all-libraries</c> sections pool rows across libraries and pick their
+    /// columns from the pooled data, so they are declared as a runtime-column
+    /// <c>MarkoutTable</c> rather than appended as Markdown text. This is the gate for that
+    /// routing on the real command path: <c>--rows</c> must window the aggregate table even
+    /// though nothing post-processes the rendered document any more.
+    ///
+    /// The separator assertion is the observable signature of the routing. markout sizes a
+    /// separator to its header text; the hand-built table this replaced always emitted a fixed
+    /// <c>---</c>, so a revert to string building would restore <c>| --- | --- | --- |</c> and
+    /// fail here.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedSection_WindowsRowsAtTheWriterSeam()
+    {
+        var (exit, all, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
+        var (windowedExit, windowed, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches", "--rows", "2");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, windowedExit);
+        Assert.Contains("## Switches", all, StringComparison.Ordinal);
+        Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
+        Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+
+        static int DataRows(string output) =>
+            output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
+            - 2; // header and separator
+
+        Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
+        Assert.Equal(2, DataRows(windowed));
+    }
+
     [Fact]
     public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
     {
@@ -12454,24 +12505,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_OverlappingColumnPatterns_UseGlobalErrorContract()
+    public async Task Package_OverlappingColumnPatterns_AreDeduplicated()
     {
-        // PackageCommand has no catch-all, so this pins the top-level typed exception handler rather
-        // than succeeding through find's local error handling.
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.OverlappingColumns",
             "README.md",
             "# Test package");
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var actual = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+            var expected = await RunAppAsync(
+                "package", packagePath, "--columns", "Field,Value", "--table", "--tips", "q");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(ProjectionHeaderValidation.DuplicateResolvedColumnMessage, error, StringComparison.Ordinal);
-            Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
-            Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
+            Assert.Equal(0, actual.Exit);
+            Assert.Equal(0, expected.Exit);
+            Assert.Contains("1 field has no data: *", actual.Error, StringComparison.Ordinal);
+            Assert.Empty(expected.Error);
+            Assert.Equal(expected.Output, actual.Output);
         }
         finally
         {
@@ -12502,28 +12553,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiSectionPartialMatchReportsCleanRenderError()
+    public async Task Package_MultiSectionProjectionMatchesAcrossTheDocument()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            // Markout applies the projection to each table independently, so a column that
-            // matches one section can still abort on an earlier heterogeneous section.
+            // A projection is a document-wide allow list. Tables that do not expose a requested
+            // column contribute nothing; the request succeeds when another selected table does.
             var (normalExit, normalOutput, normalError) = await RunAppAsync(
                 "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
 
-            Assert.Equal(1, normalExit);
-            Assert.Empty(normalOutput);
-            Assert.Contains("No columns matched projection: TFM", normalError);
-            Assert.DoesNotContain("System.InvalidOperationException", normalError);
+            Assert.Equal(0, normalExit);
+            Assert.Empty(normalError);
+            Assert.Contains("| TFM |", normalOutput);
+            Assert.Contains("net8.0", normalOutput);
 
             var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
                 "package", packagePath, "-S", "--columns", "Path", "--tips", "q");
 
-            Assert.Equal(1, overviewExit);
-            Assert.Empty(overviewOutput);
-            Assert.Contains("No columns matched projection: Path", overviewError);
-            Assert.DoesNotContain("System.InvalidOperationException", overviewError);
+            Assert.Equal(0, overviewExit);
+            Assert.Empty(overviewError);
+            Assert.Contains("| Path |", overviewOutput);
+            Assert.Contains("README.md", overviewOutput);
         }
         finally
         {
@@ -12863,7 +12914,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_TfmAll_ProjectionFailure_DoesNotLeakEarlierAssemblyRows()
+    public async Task LibraryCommand_TfmAll_OverlappingProjectionIsDeduplicated()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"projection-multitfm-{Guid.NewGuid():N}");
         try
@@ -12878,17 +12929,20 @@ public partial class CommandExecutionTests
             var packagePath = Path.Combine(tempDir, "Projection.MultiTfm.1.0.0.nupkg");
             ZipFile.CreateFromDirectory(content, packagePath);
 
-            var (exit, output, error) = await RunAppAsync(
+            var actual = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
                 "-S", "Top Leverage", "--columns", "Member,Generated,G*",
                 "--jsonl", "--rows", "1", "--tips", "q");
+            var expected = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Top Leverage", "--columns", "Member,Generated",
+                "--jsonl", "--rows", "1", "--tips", "q");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                ProjectionHeaderValidation.DuplicateResolvedColumnMessage,
-                error,
-                StringComparison.Ordinal);
+            Assert.Equal(0, actual.Exit);
+            Assert.Equal(0, expected.Exit);
+            Assert.Empty(actual.Error);
+            Assert.Empty(expected.Error);
+            Assert.Equal(expected.Output, actual.Output);
         }
         finally
         {

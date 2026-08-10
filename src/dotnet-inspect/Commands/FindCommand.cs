@@ -206,8 +206,8 @@ public class FindCommand
         }
         else
         {
-            OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                MarkoutSerializer.Serialize(view, SearchViewContext.Default), options.Rows);
+            OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
         }
     }
 
@@ -237,8 +237,8 @@ public class FindCommand
         }
         else
         {
-            OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                MarkoutSerializer.Serialize(view, SearchViewContext.Default), options.Rows);
+            OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
         }
     }
 

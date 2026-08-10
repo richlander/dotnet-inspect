@@ -133,26 +133,19 @@ internal sealed class JsonSectionFormatter :
     private Section? _current;
     private Section? _streamingTable;
     private int _sectionLevel = 2;
-    private RowWindow? _rows;
 
     /// <summary>
     /// Resets heading tracking for a new document. <paramref name="options"/> supplies the same
     /// heading-level offset Markout applies, so the section level is recognized even when a caller
     /// nests the view under another document.
     /// </summary>
-    /// <param name="rows">
-    /// The <c>--rows</c> window to apply to table sections, or null for every row. The window is
-    /// applied to buffered data rows rather than to rendered text: a row window is a Shape
-    /// decision, and a line-oriented limiter would cut a pretty-printed document mid-object.
-    /// </param>
-    internal void BeginDocument(MarkoutWriterOptions options, RowWindow? rows = null)
+    internal void BeginDocument(MarkoutWriterOptions options)
     {
         _rootFields.Clear();
         _sections.Clear();
         _current = null;
         _streamingTable = null;
         _sectionLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
-        _rows = rows;
     }
 
     /// <summary>
@@ -200,9 +193,6 @@ internal sealed class JsonSectionFormatter :
         int skippedRows,
         MarkoutWriterOptions options)
     {
-        if (options.Projection?.IncludeColumns is { Count: > 0 })
-            ProjectionHeaderValidation.RejectDuplicateResolvedColumns(headers);
-
         var section = RequireSection(SectionKind.Table);
         section.SetHeaders(headers);
         foreach (var row in rows)
@@ -211,9 +201,6 @@ internal sealed class JsonSectionFormatter :
 
     public void BeginTable(TextWriter writer, ReadOnlySpan<string> headers, MarkoutWriterOptions options)
     {
-        if (options.Projection?.IncludeColumns is { Count: > 0 })
-            ProjectionHeaderValidation.RejectDuplicateResolvedColumns(headers);
-
         var section = RequireSection(SectionKind.Table);
         section.SetHeaders(headers);
         _streamingTable = section;
@@ -272,7 +259,7 @@ internal sealed class JsonSectionFormatter :
                 json.WriteString(RequireUniqueKey(emitted, field.Key), field.Value);
 
             foreach (var section in _sections)
-                WriteSection(json, section, RequireUniqueKey(emitted, section.Name), _rows);
+                WriteSection(json, section, RequireUniqueKey(emitted, section.Name));
 
             json.WriteEndObject();
         }
@@ -313,21 +300,15 @@ internal sealed class JsonSectionFormatter :
     private static string MachineKey(string display) =>
         JsonNamingPolicy.SnakeCaseLower.ConvertName(display);
 
-    private static void WriteSection(Utf8JsonWriter json, Section section, string key, RowWindow? rows)
+    private static void WriteSection(Utf8JsonWriter json, Section section, string key)
     {
         switch (section.Kind)
         {
             case SectionKind.Table:
                 json.WriteStartArray(key);
-                // Resolve the --rows window over the buffered rows. RowWindow.Resolve is the single
-                // place head/tail/range semantics are interpreted, so JSON keeps the same window the
-                // table formats get instead of reinterpreting the flag.
-                var (start, end) = rows is { IsUnlimited: false } window
-                    ? window.Resolve(section.Rows.Count)
-                    : (0, section.Rows.Count);
-                for (var r = start; r < end; r++)
+                // Markout applies its row window before handing visible rows to the formatter.
+                foreach (var row in section.Rows)
                 {
-                    var row = section.Rows[r];
                     json.WriteStartObject();
                     // A row shorter than the header set is a Markout padding artifact, not data;
                     // stopping at the shorter of the two avoids inventing keys with null values.

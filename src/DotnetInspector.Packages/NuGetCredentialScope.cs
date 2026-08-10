@@ -67,10 +67,9 @@ public static class NuGetCredentialScope
     ///
     /// Trailing-slash tolerance is a candidacy test, not an authorization decision. It can make a
     /// URL match more than one configured entry, and entries that differ only by a trailing slash
-    /// may carry different credentials, so callers that adopt credentials from a match must
-    /// require the match to be unambiguous. <see cref="NuGetSourceResolver"/> does that by
-    /// preferring an exact spelling and accepting a slash-tolerant match only when exactly one
-    /// configured source matches.
+    /// may carry different credentials. <see cref="NuGetSourceResolver"/> therefore retains every
+    /// matching alias until package source mapping selects eligible names, then rejects conflicting
+    /// credentials instead of choosing one.
     /// </remarks>
     public static bool IsSameEndpoint(string? a, string? b)
     {

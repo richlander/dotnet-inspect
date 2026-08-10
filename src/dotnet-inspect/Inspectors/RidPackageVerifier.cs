@@ -47,6 +47,10 @@ public static class RidPackageVerifier
                     string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
                     logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
                 }
+                catch (PackageSourceMappingException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     ridPkg.Exists = false;
