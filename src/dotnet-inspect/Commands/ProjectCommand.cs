@@ -57,9 +57,7 @@ public class ProjectCommand
         }
 
         bool structuralDiscovery = options.Discover is not null
-            && (options.Schema
-                || (!options.Effective
-                    && (!options.ProjectPathExplicit || options.Discover.Length > 0)));
+            && !options.Effective;
         if (structuralDiscovery)
         {
             return DiscoverOutput.Execute(
@@ -84,6 +82,15 @@ public class ProjectCommand
             options,
             pipeline,
             selectedSections);
+        if (options.Discover is null
+            && !ProjectionDiagnostics.ValidateProjection(
+                ProjectSections.CreateSchema(),
+                candidateSections,
+                options.Fields,
+                options.Columns))
+        {
+            return 1;
+        }
         if (!ValidateShapeAndFormatOptions(options, candidateSections))
             return 1;
 
@@ -122,7 +129,10 @@ public class ProjectCommand
                 commandContext,
                 token));
         HashSet<InspectionQueryDefinition> requestedQueries =
-            pipeline.GetRequiredQueries(options.Verbosity, candidateSections);
+            pipeline.GetRequiredQueries(
+                options.Verbosity,
+                candidateSections,
+                excludeUnbounded: options.Discover is not null);
         InspectionQueryResults queryResults = await catalog.QueryRegistry.RunAsync(
             requestedQueries,
             queryContext,
@@ -135,7 +145,7 @@ public class ProjectCommand
         if (options.Discover is not null)
         {
             List<string> effectiveSections =
-                pipeline.GetAvailableSections(inspection, candidateSections);
+                pipeline.GetDiscoverableSections(inspection, candidateSections);
             int discoverExitCode = DiscoverOutput.ExecuteEffective(
                 options.Discover,
                 effectiveSections,
@@ -358,6 +368,11 @@ public class ProjectCommand
             options.Value,
             options.Urls,
             options.Paths);
+        if (options.Count && options.Print)
+        {
+            CommandError.Write("--count cannot be combined with --print.");
+            return false;
+        }
         if (shapeCount > 1)
         {
             CommandError.Write("specify only one of --value, --urls, or --paths.");
@@ -767,7 +782,7 @@ public class ProjectCommand
             documents,
             new PrintProjectionOptions(
                 options.Bare && !options.Print
-                    ? RowSelector.FromIndex(1)
+                    ? RowSelector.First
                     : options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,

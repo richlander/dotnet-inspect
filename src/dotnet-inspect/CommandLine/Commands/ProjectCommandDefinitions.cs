@@ -80,7 +80,6 @@ public static class ProjectCommandDefinitions
             var options = new ProjectOptions
             {
                 ProjectPath = parseResult.GetValue(pathArg) ?? ".",
-                ProjectPathExplicit = parseResult.GetResult(pathArg)?.Tokens.Count > 0,
                 AgentsIndex = parseResult.GetValue(agentsIndexOption),
                 ReadmePackageId = parseResult.GetValue(readmeOption),
                 PackageFilter = parseResult.GetValue(packageOption),

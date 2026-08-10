@@ -7,8 +7,6 @@ public record ProjectOptions : IProjectionOptions
 {
     public string ProjectPath { get; init; } = ".";
 
-    public bool ProjectPathExplicit { get; init; }
-
     public bool AgentsIndex { get; init; }
 
     public string? ReadmePackageId { get; init; }

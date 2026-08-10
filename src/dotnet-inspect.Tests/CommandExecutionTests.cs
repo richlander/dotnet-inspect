@@ -16248,6 +16248,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_AgentGuidanceBare_PrintsFirstAvailableDocument()
+    {
+        const string agents = """
+            ---
+            name: selected
+            ---
+            selected guidance
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.NoGuidance",
+                "1.0.0",
+                "README.md",
+                "readme"),
+            new ProjectDocPackage(
+                "B.Project.HasGuidance",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Agent Guidance", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("selected guidance", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_Columns_ProjectsSelectedColumns()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16264,6 +16301,47 @@ public partial class CommandExecutionTests
             Assert.Contains("Package", output);
             Assert.Contains("Test.Project.Columns", output);
             Assert.DoesNotContain("skills/selected/SKILL.md", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Columns_ReportsUnknownColumnsBeforeRendering()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Columns.Invalid",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    new ProjectSkillDoc(
+                        "skills/selected/SKILL.md",
+                        "---\nname: selected\n---\nselected")
+                ]));
+
+        try
+        {
+            var partial = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--columns", "Package,Bogus");
+            Assert.Equal(0, partial.Exit);
+            Assert.Contains("Test.Project.Columns.Invalid", partial.Output);
+            Assert.Contains("column 'Bogus' not found", partial.Error);
+
+            var unmatched = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--columns", "Bogus");
+            Assert.Equal(1, unmatched.Exit);
+            Assert.Empty(unmatched.Output);
+            Assert.Contains("No columns matched projection: Bogus", unmatched.Error);
+            Assert.DoesNotContain("InvalidOperationException", unmatched.Error);
         }
         finally
         {
@@ -16343,6 +16421,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Discover_WithPathListsCanonicalSectionsStructurally()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project", "-D");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Skills", output);
+        Assert.Contains("Agent Guidance", output);
+        Assert.Contains("Package Docs", output);
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_DoesNotAcquireUnboundedPackageDocs()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.NoDocument",
+                "1.0.0",
+                "README.md",
+                "",
+                OmitReadme: true));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "--offline",
+                "project", projectPath,
+                "-D", "--effective");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Package Docs", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_PackageFocus_RejectsNonDirectDependency()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16388,6 +16507,29 @@ public partial class CommandExecutionTests
             Assert.Contains("# README body", output);
             Assert.DoesNotContain("# Agent guidance", output);
             Assert.DoesNotContain("# PROJECT body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_RejectsCountWithoutPrintingDocument()
+    {
+        const string id = "Test.Project.Readme.Count";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(id, "1.0.0", "README.md", "# must not print"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", id, "--count");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--count cannot be combined with --print", error);
+            Assert.DoesNotContain("This is a bug in dotnet-inspect", error);
         }
         finally
         {
