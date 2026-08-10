@@ -168,6 +168,32 @@ public partial class CommandExecutionTests
         assemblyBuilder.Save(path);
     }
 
+    private static void WriteApiDiffQueryAssembly(string path, bool includeAddedMethod)
+    {
+        var assemblyName = new AssemblyName("ApiDiffQueryFixture");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Sample.Widget",
+            TypeAttributes.Public | TypeAttributes.Class);
+        typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+
+        if (includeAddedMethod)
+        {
+            var method = typeBuilder.DefineMethod(
+                "Added",
+                MethodAttributes.Public,
+                typeof(void),
+                Type.EmptyTypes);
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteResourceAssembly(
         string path,
         params (string Name, byte[] Content)[] resources)
@@ -2583,6 +2609,46 @@ public partial class CommandExecutionTests
         Assert.Contains("5 additive", output);
         Assert.Contains("JsonKnownReferenceHandler", output);
         Assert.DoesNotContain("JsonSerializer |", output);
+    }
+
+    [Fact]
+    public async Task Diff_Changes_LocalPair_RendersTypedApiComparisonInMarkdownAndJson()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-query-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var oldPath = Path.Combine(tempDir, "old.dll");
+            var newPath = Path.Combine(tempDir, "new.dll");
+            WriteApiDiffQueryAssembly(oldPath, includeAddedMethod: false);
+            WriteApiDiffQueryAssembly(newPath, includeAddedMethod: true);
+            var range = $"{oldPath}..{newPath}";
+
+            var markdown = await RunAppAsync(
+                "diff", "--library", range,
+                "-S", DiffSections.Changes.Name,
+                "--tips", "q");
+            var json = await RunAppAsync(
+                "diff", "--library", range,
+                "-S", DiffSections.Changes.Name,
+                "--json", "--tips", "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Empty(markdown.Error);
+            Assert.Contains("### Widget", markdown.Output);
+            Assert.Contains("Added", markdown.Output);
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            Assert.Contains("\"changes\"", json.Output);
+            Assert.Contains("\"type\": \"Widget\"", json.Output);
+            Assert.Contains("Added", json.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
