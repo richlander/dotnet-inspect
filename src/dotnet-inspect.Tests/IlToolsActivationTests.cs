@@ -656,7 +656,13 @@ public class IlToolsActivationTests
             1,
             job.Split('\n')
                 .Count(line => line.Trim() == "id: iltools"));
-        Assert.Contains("continue-on-error: true", installStep);
+        Assert.Equal(
+            ["continue-on-error: true"],
+            installStep.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith(
+                    "continue-on-error:",
+                    StringComparison.Ordinal)));
         Assert.Contains(
             "run: eng/restore-iltools.sh --rid linux-x64 >> \"$GITHUB_PATH\"",
             installStep.Split('\n').Select(line => line.Trim()));
