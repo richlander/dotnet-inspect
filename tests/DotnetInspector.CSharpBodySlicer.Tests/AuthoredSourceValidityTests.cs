@@ -569,6 +569,20 @@ public class AuthoredSourceValidityTests
     }
 
     [Fact]
+    public void ConditionalExtensionHeader_RealPdbRangeReportsAbsent()
+    {
+        var slice = Assert.Single(
+            SliceCorpus(),
+            s => Path.GetFileName(s.File) == "ConditionalExtensionCorpusFixture.cs"
+                && s.Member.Contains(
+                    "ReviewedConditionalExtensionProperty",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(SliceOutcome.NotSliceable, slice.Outcome);
+        Assert.Empty(slice.Text);
+    }
+
+    [Fact]
     public void SameLineSiblings_RealPdbRangesReportAbsent()
     {
         var slices = SliceCorpus()

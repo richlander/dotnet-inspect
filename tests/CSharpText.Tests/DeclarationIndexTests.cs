@@ -107,6 +107,24 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void ManyDeclarators_DoNotRescanTheirSharedHeader()
+    {
+        var source = new StringBuilder("class C { int f0");
+        for (int i = 1; i < 16_000; i++)
+            source.Append(", f").Append(i);
+        source.Append("; void M() { } }");
+
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+
+        Assert.Equal(16_002, index.Declarations.Length);
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"indexing one declaration with 16,000 declarators took {timer.Elapsed}");
+    }
+
+    [Fact]
     public void TheBodySlicerCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
@@ -863,6 +881,46 @@ public class DeclarationIndexTests
         Assert.Equal(5, method.SignatureStartLine);
         Assert.Equal(5, method.EndLine);
         Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AnUnknownExtensionHeader_DoesNotVouchForDeclarationsInsideItsBraces()
+    {
+        var conditional = DeclarationIndex.Build("""
+            static class C
+            {
+            #if EXT
+                extension(C receiver)
+            #else
+                int P
+            #endif
+                {
+                    get { return 1; }
+                }
+            }
+            """);
+        var malformed = DeclarationIndex.Build("""
+            static class C
+            {
+                extension([)] )
+                {
+                    public static void M()
+                    {
+                    }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            conditional.Declarations,
+            declaration => !declaration.IsType
+                && declaration.SpanKnown
+                && declaration.Contains(9));
+        Assert.DoesNotContain(
+            malformed.Declarations,
+            declaration => !declaration.IsType
+                && declaration.SpanKnown
+                && declaration.Contains(5));
     }
 
     [Fact]

@@ -59,7 +59,7 @@ internal static class DeclarationIndexBuilder
         var rows = new List<Row>();
         var transparentScopeRows = ImmutableArray.CreateBuilder<TransparentScopeSpan>();
         var transparentScopeStarts =
-            new Dictionary<int, (int StartLine, int BodyStartLine)>();
+            new Dictionary<int, (int StartLine, int BodyStartLine, int FirstRowIndex)>();
         bool depthLost = false;
 
         // -1 marks an anonymous scope: a method body, a lambda, a property's accessor block, a
@@ -73,7 +73,14 @@ internal static class DeclarationIndexBuilder
         // scanner can see one in a conditional branch nested under a block namespace even though
         // that branch cannot compile. Its entry must not steal the block namespace's physical
         // closing brace in the configurations that drop the branch.
-        var scopes = new List<(int RowIndex, bool OwnsRow, bool ClosesWithBrace)>();
+        // MembersKnown is meaningful only for transparent extension scopes. Their header has no
+        // row to carry SpanKnown, so the scope carries that evidence to every member inside it.
+        var scopes = new List<(
+            int RowIndex,
+            bool OwnsRow,
+            bool ClosesWithBrace,
+            bool MembersKnown)>();
+        int unknownTransparentScopes = 0;
         var pending = new List<ScanToken>();
         int triviaStart = -1;
 
@@ -320,7 +327,7 @@ internal static class DeclarationIndexBuilder
         // Emits a declaration that has no scope of its own: a field, an enum member, an abstract
         // or interface member, an extern member, a positional record, an expression-bodied member,
         // or a file-scoped namespace.
-        void EmitBodiless(
+        Row EmitBodiless(
             ScanToken terminator,
             DeclarationKind kind,
             string name,
@@ -329,7 +336,7 @@ internal static class DeclarationIndexBuilder
         {
             int sigStart = pending.Count > 0 ? pending[0].Line + 1 : terminator.Line + 1;
             int sigColumn = pending.Count > 0 ? pending[0].Column : terminator.Column;
-            rows.Add(new Row
+            var row = new Row
             {
                 Kind = kind,
                 Name = name,
@@ -344,12 +351,40 @@ internal static class DeclarationIndexBuilder
                 AttributeLists = [.. attributeLists],
                 SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown
                     && attachedAttributesKnown && headerDelimitersKnown
+                    && unknownTransparentScopes == 0
                     && pending.All(t => t.DepthKnown),
                 IsStatic = HasTopLevelKeyword(
                     Truncate(pending, Text).Header,
                     "static",
                     Text),
                 HasInitializer = hasInitializer,
+            };
+            rows.Add(row);
+            return row;
+        }
+
+        // Every declarator in one field or event declaration shares these facts. Copy the measured
+        // row instead of rescanning the complete header once per comma-separated name.
+        void EmitAdditionalBodiless(Row sharedDeclaration, string name)
+        {
+            rows.Add(new Row
+            {
+                Kind = sharedDeclaration.Kind,
+                Name = name,
+                TriviaStartLine = sharedDeclaration.TriviaStartLine,
+                SignatureStartLine = sharedDeclaration.SignatureStartLine,
+                SignatureStartColumn = sharedDeclaration.SignatureStartColumn,
+                FirstCodeColumn = sharedDeclaration.FirstCodeColumn,
+                SignatureEndLine = sharedDeclaration.SignatureEndLine,
+                BodyStartLine = sharedDeclaration.BodyStartLine,
+                BodyEndLine = sharedDeclaration.BodyEndLine,
+                EndLine = sharedDeclaration.EndLine,
+                ParentIndex = sharedDeclaration.ParentIndex,
+                AttributeLists = sharedDeclaration.AttributeLists,
+                SpanKnown = sharedDeclaration.SpanKnown,
+                IsStatic = sharedDeclaration.IsStatic,
+                HasInitializer = sharedDeclaration.HasInitializer,
+                ClosesAtEndOfFile = sharedDeclaration.ClosesAtEndOfFile,
             });
         }
 
@@ -705,7 +740,7 @@ internal static class DeclarationIndexBuilder
                     || openHeaderDelimiterCount > 0)
                 {
                     nestedBraceDepth++;
-                    scopes.Add((-1, false, true));
+                    scopes.Add((-1, false, true, true));
                     AppendPending(tok, text);
                     continue;
                 }
@@ -717,8 +752,14 @@ internal static class DeclarationIndexBuilder
                 if (DeclaresAnExtensionBlock(pending, Text))
                 {
                     int startLine = triviaStart >= 0 ? triviaStart : pending[0].Line + 1;
-                    transparentScopeStarts[scopes.Count] = (startLine, tok.Line + 1);
-                    scopes.Add((EnclosingIndex(), false, true));
+                    bool membersKnown = tok.DepthKnown && triviaKnown && headerKnown
+                        && attachedAttributesKnown && headerDelimitersKnown
+                        && pending.All(t => t.DepthKnown);
+                    transparentScopeStarts[scopes.Count] =
+                        (startLine, tok.Line + 1, rows.Count);
+                    scopes.Add((EnclosingIndex(), false, true, membersKnown));
+                    if (!membersKnown)
+                        unknownTransparentScopes++;
                     EndDeclaration(tok);
                     lastClosed = -1;
                     continue;
@@ -743,17 +784,18 @@ internal static class DeclarationIndexBuilder
                         AttributeLists = [.. attributeLists],
                         SpanKnown = tok.DepthKnown && triviaKnown && headerKnown
                             && attachedAttributesKnown && headerDelimitersKnown
+                            && unknownTransparentScopes == 0
                             && pending.All(t => t.DepthKnown),
                         IsStatic = HasTopLevelKeyword(
                             Truncate(pending, Text).Header,
                             "static",
                             Text),
                     });
-                    scopes.Add((rows.Count - 1, true, true));
+                    scopes.Add((rows.Count - 1, true, true, true));
                 }
                 else
                 {
-                    scopes.Add((-1, false, true));
+                    scopes.Add((-1, false, true, true));
                 }
                 EndDeclaration(tok);
                 lastClosed = -1;
@@ -830,10 +872,19 @@ internal static class DeclarationIndexBuilder
                             transparentStart.StartLine,
                             transparentStart.BodyStartLine,
                             tok.Line + 1));
+                        // A branch-dependent close makes ownership just as uncertain as an
+                        // uncertain opener, including for rows emitted before the close was seen.
+                        if (!tok.DepthKnown || !scopes[^1].MembersKnown)
+                        {
+                            for (int i = transparentStart.FirstRowIndex; i < rows.Count; i++)
+                                rows[i].SpanKnown = false;
+                        }
                     }
 
-                    var (idx, ownsRow, _) = scopes[^1];
+                    var (idx, ownsRow, _, membersKnown) = scopes[^1];
                     scopes.RemoveAt(scopes.Count - 1);
+                    if (!membersKnown)
+                        unknownTransparentScopes--;
                     if (idx >= 0 && ownsRow)
                     {
                         rows[idx].BodyEndLine = tok.Line + 1;
@@ -1107,7 +1158,8 @@ internal static class DeclarationIndexBuilder
                             ? ExtraDeclaratorNames(pending, Text)
                             : null;
 
-                        EmitBodiless(tok, k, name, arrow, hasInitializer);
+                        var sharedDeclaration =
+                            EmitBodiless(tok, k, name, arrow, hasInitializer);
 
                         // A file-scoped namespace has no braces, but it encloses every declaration
                         // below it exactly as a block namespace encloses the ones inside it. Open a
@@ -1117,7 +1169,7 @@ internal static class DeclarationIndexBuilder
                             var ns = rows[^1];
                             ns.EndLine = -1;
                             ns.ClosesAtEndOfFile = true;
-                            scopes.Add((rows.Count - 1, true, false));
+                            scopes.Add((rows.Count - 1, true, false, true));
 
                             // A file-scoped namespace is the one scope opener in C# that uses no
                             // brace, so neither the balance rule nor the opening-depth floor can
@@ -1134,7 +1186,7 @@ internal static class DeclarationIndexBuilder
 
                         if (extra is not null)
                             foreach (var more in extra)
-                                EmitBodiless(tok, k, more, bodyStart: -1, hasInitializer);
+                                EmitAdditionalBodiless(sharedDeclaration, more);
                     }
                 }
                 EndDeclaration(tok);
@@ -1225,6 +1277,10 @@ internal static class DeclarationIndexBuilder
 
         foreach (var start in transparentScopeStarts.Values)
         {
+            // Unlike a declaration-owning scope, a transparent scope has no open row for the EOF
+            // recovery above to invalidate. Its unclosed members still cannot be vouched for.
+            for (int i = start.FirstRowIndex; i < rows.Count; i++)
+                rows[i].SpanKnown = false;
             transparentScopeRows.Add(new TransparentScopeSpan(
                 start.StartLine,
                 start.BodyStartLine,

@@ -1643,6 +1643,42 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ConditionalExtensionHeader_DoesNotVouchForTheInactivePropertyBranch()
+    {
+        var source = Lines(
+            "static class C",                 // 1
+            "{",                              // 2
+            "#if EXT",                        // 3
+            "    extension(C receiver)",      // 4
+            "#else",                          // 5
+            "    int P",                      // 6
+            "#endif",                         // 7
+            "    {",                          // 8
+            "        get { return 1; }",      // 9
+            "    }",                          // 10
+            "}");                             // 11
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 9, "get_P"));
+    }
+
+    [Fact]
+    public void MalformedExtensionHeader_DoesNotVouchForANestedMethod()
+    {
+        var source = Lines(
+            "static class C",                 // 1
+            "{",                              // 2
+            "    extension([)] )",            // 3
+            "    {",                          // 4
+            "        public static void M()", // 5
+            "        {",                      // 6
+            "        }",                      // 7
+            "    }",                          // 8
+            "}");                             // 9
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 7, "M"));
+    }
+
+    [Fact]
     public void ExtensionBlockHeaderSharingThePreviousMembersBoundary_ReportsAbsent()
     {
         var source = Lines(
