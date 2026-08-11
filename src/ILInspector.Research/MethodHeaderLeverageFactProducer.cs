@@ -14,6 +14,9 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
     public string Name => "method-header-leverage";
     public IReadOnlyList<string> Produces { get; } = ["cost.method"];
     public IReadOnlyList<string> DependsOn { get; } = [];
+    public ResearchFactRequirements Requirements { get; } =
+        ResearchFactRequirements.ForAssembly(
+            ILInspector.Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
 
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [];
 
