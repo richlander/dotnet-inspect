@@ -325,7 +325,7 @@ public static class SourceLinkFindings
                 var builder = ImmutableArray.CreateBuilder<PairFinding<T>>(pairs.Length);
                 foreach (var pair in pairs)
                 {
-                    if (pair is PairFinding<T>.Present present
+                    if (pair.Value is PairFinding<T>.Present present
                         && !payloadsEqual(present.Old.Payload, present.New.Payload))
                     {
                         builder.Add(new PairFinding<T>.Changed(

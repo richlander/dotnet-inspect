@@ -393,14 +393,16 @@ counting newlines rather than stored. `text` is well-formed UTF-16 — an unpair
 surrogate is rejected, never repaired, because JSON would replace it with U+FFFD
 and shift every later span; malformed IL operand and fact text arrives already
 contained as a visible `\uXXXX` spelling. `nodes` name text structure (C# syntax
-kinds, plus one `Instruction` node per rendered IL line carrying its `il_offset`),
+kinds from a stable rendered-syntax catalog, plus one `Instruction` node per
+rendered IL line carrying its `il_offset`),
 `regions` name construct parts, `facts` are the semantic observations stated once
 each, and `targets` is the only join between them — fact to node, then node spans
 to text. A node carries several spans when interleaved IL splits its construct,
 and the C# line breaks it printed stay inside those spans, so concatenating them
 reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
 carry an `il_offset`, and a fact with no target is explicitly unanchored rather
-than missing.
+than missing. Producers never expose decompiler CLR type names as kinds;
+consumers tolerate unfamiliar kinds so the catalog can grow additively.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
