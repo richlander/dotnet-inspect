@@ -9,7 +9,9 @@ public class FidelityCheckVirtualMethodTests
     static readonly string s_assembly = typeof(VirtualMethodCallFixture).Assembly.Location;
 
     [Theory]
-    [InlineData(nameof(VirtualMethodCallFixture.CallVirtual))]
+    [InlineData(nameof(VirtualMethodCallFixture.CallProtectedVirtual))]
+    [InlineData(nameof(VirtualMethodCallFixture.CallInternalVirtual))]
+    [InlineData(nameof(VirtualMethodCallFixture.CallPrivateProtectedVirtual))]
     [InlineData(nameof(VirtualMethodCallFixture.CallNonVirtual))]
     public void SameTypeMethodCall_PreservesDeclaredDispatchKind(string method)
     {
@@ -35,11 +37,23 @@ public class FidelityCheckVirtualMethodTests
 
 public class VirtualMethodCallFixture
 {
-    public void CallVirtual() => VirtualTarget();
+    public void CallProtectedVirtual() => ProtectedVirtualTarget();
+
+    public void CallInternalVirtual() => InternalVirtualTarget();
+
+    public void CallPrivateProtectedVirtual() => PrivateProtectedVirtualTarget();
 
     public void CallNonVirtual() => NonVirtualTarget();
 
-    protected virtual void VirtualTarget()
+    protected virtual void ProtectedVirtualTarget()
+    {
+    }
+
+    internal virtual void InternalVirtualTarget()
+    {
+    }
+
+    private protected virtual void PrivateProtectedVirtualTarget()
     {
     }
 

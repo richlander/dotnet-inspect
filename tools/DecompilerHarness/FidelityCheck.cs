@@ -3888,10 +3888,9 @@ static class FidelityCheck
         // A same-type call to a source-declarable new-slot virtual method binds as
         // callvirt only when the reconstructed sibling keeps that declaration.
         // Override-shaped methods need an override declaration to preserve their
-        // symbolic target, so the shared metadata classifier deliberately excludes
-        // them rather than inventing a new slot.
+        // symbolic target, so exclude them rather than inventing a new slot.
         bool emitClassVirtual = ShapeOf(reader, typeDef) == TypeKind.Class
-            && MetadataDeclarationQuery.IsVirtualMethod(method);
+            && IsSourceDeclarableClassVirtual(method);
         string instanceModifier = slotModifier.Length != 0
             ? slotModifier
             : (isAbstractStub || emitClassVirtual ? "virtual " : "");
@@ -3903,6 +3902,23 @@ static class FidelityCheck
             return;
         }
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
+    }
+
+    static bool IsSourceDeclarableClassVirtual(MethodDefinition method)
+    {
+        var attributes = method.Attributes;
+        var access = attributes & MethodAttributes.MemberAccessMask;
+        bool sourceDeclarableAccess = access is
+            MethodAttributes.Public
+            or MethodAttributes.Family
+            or MethodAttributes.Assembly
+            or MethodAttributes.FamANDAssem
+            or MethodAttributes.FamORAssem;
+        return sourceDeclarableAccess
+            && attributes.HasFlag(MethodAttributes.Virtual)
+            && !attributes.HasFlag(MethodAttributes.Abstract)
+            && !attributes.HasFlag(MethodAttributes.Final)
+            && attributes.HasFlag(MethodAttributes.NewSlot);
     }
 
     static string StructObjectOverrideModifier(
