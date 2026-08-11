@@ -12,7 +12,8 @@ public sealed class SourceLinkResolver
     readonly SLF.SourceLinkResolver _map;
     IReadOnlyList<string>? _documentPaths;
     Dictionary<string, List<string>>? _docsByFirstSegment;
-    Dictionary<string, PdbDocumentInfo>? _documentsByPath;
+    Dictionary<int, PdbDocumentInfo>? _documentsByRowId;
+    Dictionary<string, PdbDocumentInfo>? _uniqueDocumentsByPath;
     Dictionary<string, PdbTypeDocumentInfo>? _typesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesBySimpleName;
 
@@ -83,8 +84,17 @@ public sealed class SourceLinkResolver
         Dictionary<string, PartialSourceFile> files =
             new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string path in type.FilePaths)
-            files.TryAdd(path, Decorate(path));
+        foreach (var documents in type.Documents.GroupBy(
+            static document => document.FilePath,
+            StringComparer.Ordinal))
+        {
+            var candidates = documents.Take(2).ToArray();
+            files.TryAdd(
+                documents.Key,
+                candidates.Length == 1
+                    ? Decorate(candidates[0])
+                    : Decorate(documents.Key));
+        }
 
         foreach (string path in FindDocumentsMatchingTypeName(simpleName))
             files.TryAdd(path, Decorate(path));
@@ -201,8 +211,8 @@ public sealed class SourceLinkResolver
     PartialSourceFile Decorate(string filePath)
     {
         string? url = _map.ResolveUrl(filePath);
-        EnsureDocumentIndex();
-        _documentsByPath!.TryGetValue(filePath, out PdbDocumentInfo? document);
+        EnsureDocumentIndexes();
+        _uniqueDocumentsByPath!.TryGetValue(filePath, out PdbDocumentInfo? document);
         return new PartialSourceFile(
             filePath,
             url,
@@ -211,14 +221,60 @@ public sealed class SourceLinkResolver
             document?.ChecksumAlgorithm);
     }
 
-    void EnsureDocumentIndex()
+    PartialSourceFile Decorate(PdbDocumentReference reference)
     {
-        if (_documentsByPath is not null)
+        string? url = _map.ResolveUrl(reference.FilePath);
+        EnsureDocumentIndexes();
+        _documentsByRowId!.TryGetValue(reference.DocumentRowId, out PdbDocumentInfo? document);
+        if (document is not null
+            && !string.Equals(document.FilePath, reference.FilePath, StringComparison.Ordinal))
+        {
+            document = null;
+        }
+
+        return new PartialSourceFile(
+            reference.FilePath,
+            url,
+            SLF.SourceLinkProvenance.BrowseUrl(url),
+            document?.Checksum,
+            document?.ChecksumAlgorithm);
+    }
+
+    void EnsureDocumentIndexes()
+    {
+        if (_documentsByRowId is not null)
             return;
 
-        _documentsByPath = new Dictionary<string, PdbDocumentInfo>(StringComparer.Ordinal);
-        foreach (PdbDocumentInfo document in _context.EnumeratePdbDocuments())
-            _documentsByPath.TryAdd(document.FilePath, document);
+        var (byRowId, uniqueByPath) = BuildDocumentIndexes(
+            _context.EnumeratePdbDocuments());
+        _documentsByRowId = byRowId;
+        _uniqueDocumentsByPath = uniqueByPath;
+    }
+
+    internal static (
+        Dictionary<int, PdbDocumentInfo> ByRowId,
+        Dictionary<string, PdbDocumentInfo> UniqueByPath)
+        BuildDocumentIndexes(IEnumerable<PdbDocumentInfo> documents)
+    {
+        Dictionary<int, PdbDocumentInfo> byRowId = [];
+        Dictionary<string, PdbDocumentInfo> uniqueByPath =
+            new(StringComparer.Ordinal);
+        HashSet<string> ambiguousPaths = new(StringComparer.Ordinal);
+
+        foreach (PdbDocumentInfo document in documents)
+        {
+            byRowId.TryAdd(document.DocumentRowId, document);
+            if (ambiguousPaths.Contains(document.FilePath))
+                continue;
+
+            if (!uniqueByPath.TryAdd(document.FilePath, document))
+            {
+                uniqueByPath.Remove(document.FilePath);
+                ambiguousPaths.Add(document.FilePath);
+            }
+        }
+
+        return (byRowId, uniqueByPath);
     }
 
     static PartialSourceFile SelectPrimarySourceFile(

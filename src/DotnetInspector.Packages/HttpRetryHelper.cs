@@ -200,6 +200,7 @@ public static class HttpRetryHelper
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <param name="auth">Optional authentication header for authenticated feeds</param>
+    /// <param name="completionOption">When the operation completes relative to reading the response body</param>
     /// <returns>Response if successful, null if failed or not found</returns>
     public static async Task<HttpResponseMessage?> GetWithRetryAsync(
         HttpClient client,
@@ -208,9 +209,18 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
     {
-        var result = await GetWithRetryResultAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
+        var result = await GetWithRetryResultAsync(
+            client,
+            url,
+            retryCount,
+            log,
+            cancellationToken,
+            auth,
+            trafficKind,
+            completionOption).ConfigureAwait(false);
         return result.Response;
     }
 
@@ -224,7 +234,8 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
     {
         return ExecuteWithRetryAsync(
             ct =>
@@ -232,7 +243,7 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
-                return client.SendAsync(request, ct);
+                return client.SendAsync(request, completionOption, ct);
             },
             url,
             "GET",

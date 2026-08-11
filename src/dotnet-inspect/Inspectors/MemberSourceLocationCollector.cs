@@ -52,9 +52,9 @@ internal static class MemberSourceLocationCollector
             // resolves wins, so a later accessor is consulted only when a preferred one carries
             // no sequence points. Shared across both paths below so ordering cannot regress it.
             var appliedRank = new Dictionary<ApiMember, int>(ReferenceEqualityComparer.Instance);
-            var documentsByPath = new Dictionary<string, SourceDocument>(StringComparer.Ordinal);
+            var documentsByRowId = new Dictionary<int, SourceDocument>();
             foreach (SourceDocument document in service.GetTrackedFiles())
-                documentsByPath.TryAdd(document.FilePath, document);
+                documentsByRowId.TryAdd(document.DocumentRowId, document);
 
             var sourceInspection = SourceLinkFindings.InspectMemberSources(
                 service,
@@ -65,7 +65,7 @@ internal static class MemberSourceLocationCollector
                 ApplySourceLocations(
                     membersByToken,
                     complete,
-                    documentsByPath,
+                    documentsByRowId,
                     appliedRank);
                 return pdbPath;
             }
@@ -95,7 +95,7 @@ internal static class MemberSourceLocationCollector
                 ApplySourceLocations(
                     new Dictionary<int, (ApiMember Member, int Rank)[]> { [token] = members },
                     tokenComplete,
-                    documentsByPath,
+                    documentsByRowId,
                     appliedRank);
             }
 
@@ -111,7 +111,7 @@ internal static class MemberSourceLocationCollector
     private static void ApplySourceLocations(
         IReadOnlyDictionary<int, (ApiMember Member, int Rank)[]> membersByToken,
         FindingInspection<MemberSourceObservation>.Complete inspection,
-        IReadOnlyDictionary<string, SourceDocument> documentsByPath,
+        IReadOnlyDictionary<int, SourceDocument> documentsByRowId,
         Dictionary<ApiMember, int> appliedRank)
     {
         foreach (var mappings in inspection.Findings
@@ -136,9 +136,13 @@ internal static class MemberSourceLocationCollector
                 member.SourceUrl = mapping.ResolvedUrl;
                 member.SourceLineNumber = mapping.StartLine;
                 member.SourceEndLineNumber = mapping.EndLine;
-                if (documentsByPath.TryGetValue(
-                    mapping.OriginalPath,
-                    out SourceDocument? document))
+                if (documentsByRowId.TryGetValue(
+                    mapping.DocumentRowId,
+                    out SourceDocument? document)
+                    && string.Equals(
+                        document.FilePath,
+                        mapping.OriginalPath,
+                        StringComparison.Ordinal))
                 {
                     member.SourceChecksum = document.Checksum;
                     member.SourceChecksumAlgorithm = document.ChecksumAlgorithm;

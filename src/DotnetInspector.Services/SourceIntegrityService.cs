@@ -63,13 +63,6 @@ public static class SourceIntegrityService
         if (verifiable.Count > 0)
         {
             log?.Invoke($"Verifying integrity of {verifiable.Count} source files...");
-            foreach (string? host in verifiable
-                .Select(document => SafeHost(document.ResolvedUrl!))
-                .Where(static host => host != null)
-                .Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                log?.Invoke($"Source integrity fetch host: {host}");
-            }
 
             await Parallel.ForEachAsync(
                 verifiable,
@@ -112,9 +105,10 @@ public static class SourceIntegrityService
                         using var response = await HttpRetryHelper.GetWithRetryAsync(
                             httpClient,
                             document.ResolvedUrl!,
-                            log: log,
+                            log: null,
                             cancellationToken: ct,
-                            trafficKind: NetworkTrafficKind.SourceIntegrity).ConfigureAwait(false);
+                            trafficKind: NetworkTrafficKind.SourceIntegrity,
+                            completionOption: HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
                         string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
                         if (response is null)
                         {
@@ -144,8 +138,7 @@ public static class SourceIntegrityService
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        log?.Invoke(
-                            $"Integrity fetch failed: {document.ResolvedUrl} ({ex.Message})");
+                        log?.Invoke("Source integrity fetch failed.");
                         body = null;
                     }
 
@@ -174,8 +167,7 @@ public static class SourceIntegrityService
                     {
                         Interlocked.Increment(ref mismatched);
                         mismatches.Add(document.OriginalPath);
-                        log?.Invoke(
-                            $"Integrity MISMATCH: {document.OriginalPath} ({document.ResolvedUrl})");
+                        log?.Invoke("Source integrity checksum mismatch.");
                     }
                     else
                     {
@@ -191,7 +183,4 @@ public static class SourceIntegrityService
             unverifiable,
             [.. mismatches.Order(StringComparer.Ordinal)]);
     }
-
-    private static string? SafeHost(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ? uri.Host : null;
 }

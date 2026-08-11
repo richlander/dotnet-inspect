@@ -110,7 +110,7 @@ public static class SourceAvailabilityService
                     var result = await HttpRetryHelper.HeadWithRetryResultAsync(
                         httpClient,
                         document.ResolvedUrl!,
-                        log: log,
+                        log: null,
                         cancellationToken: ct,
                         trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
                     using var response = result.Response;
@@ -145,7 +145,8 @@ public static class SourceAvailabilityService
                                 "miss");
                         }
 
-                        log?.Invoke($"Source not accessible: {document.ResolvedUrl}");
+                        if (response is null)
+                            log?.Invoke("Source not accessible.");
                         missingFiles.Add(document.OriginalPath);
                     }
                 }).ConfigureAwait(false);

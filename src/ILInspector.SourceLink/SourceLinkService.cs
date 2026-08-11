@@ -238,10 +238,12 @@ public sealed class SourceLinkService : IDisposable
 
         string? sourceUrl = _map?.ResolveUrl(location.FilePath);
         SourceDocument? document = GetTrackedFiles()
-            .FirstOrDefault(candidate => string.Equals(
-                candidate.FilePath,
-                location.FilePath,
-                StringComparison.Ordinal));
+            .FirstOrDefault(candidate =>
+                candidate.DocumentRowId == location.DocumentRowId
+                && string.Equals(
+                    candidate.FilePath,
+                    location.FilePath,
+                    StringComparison.Ordinal));
         return new SourceLinkResolver.ILOffsetSourceInfo(
             location.MethodName,
             location.FilePath,

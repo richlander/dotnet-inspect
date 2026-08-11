@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Net;
 
 using DotnetInspector.Core;
 
@@ -160,8 +161,9 @@ public class AuthoredSourceAcquisitionTests
             $"dotnet-inspect-source-cache-{Guid.NewGuid():N}");
         CoreCache.Initialize("dotnet-inspect-test", cachePath);
         byte[] source = Encoding.UTF8.GetBytes(Source);
+        var content = new TrackingContent(source);
         var handler = new RedirectHandler(
-            source,
+            content,
             "https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com");
         using var client = new HttpClient(handler);
         var fetcher = new SourceFetcher(client);
@@ -179,6 +181,7 @@ public class AuthoredSourceAcquisitionTests
 
             Assert.Null(result);
             Assert.Equal(1, handler.RequestCount);
+            Assert.Equal(0, content.ReadCount);
         }
         finally
         {
@@ -354,7 +357,7 @@ public class AuthoredSourceAcquisitionTests
         }
     }
 
-    sealed class RedirectHandler(byte[] response, string finalUrl) : HttpMessageHandler
+    sealed class RedirectHandler(HttpContent response, string finalUrl) : HttpMessageHandler
     {
         int _requestCount;
 
@@ -367,9 +370,30 @@ public class AuthoredSourceAcquisitionTests
             Interlocked.Increment(ref _requestCount);
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
             {
-                Content = new ByteArrayContent(response),
+                Content = response,
                 RequestMessage = new HttpRequestMessage(HttpMethod.Get, finalUrl),
             });
+        }
+    }
+
+    sealed class TrackingContent(byte[] content) : HttpContent
+    {
+        int _readCount;
+
+        public int ReadCount => Volatile.Read(ref _readCount);
+
+        protected override async Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+        {
+            Interlocked.Increment(ref _readCount);
+            await stream.WriteAsync(content);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = content.Length;
+            return true;
         }
     }
 }

@@ -101,7 +101,8 @@ public class SourceFetcher(HttpClient httpClient)
                 _httpClient,
                 url,
                 cancellationToken: cancellationToken,
-                trafficKind: NetworkTrafficKind.SourceFetch).ConfigureAwait(false);
+                trafficKind: NetworkTrafficKind.SourceFetch,
+                completionOption: HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
             if (response is null)
                 return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
 
