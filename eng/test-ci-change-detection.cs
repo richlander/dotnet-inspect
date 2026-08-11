@@ -2,6 +2,8 @@
 #:package YamlDotNet@18.1.0
 
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using YamlDotNet.RepresentationModel;
 
 string repository = Environment.CurrentDirectory;
@@ -73,6 +75,15 @@ AssertAll(
         "README.md",
         outputs,
         objectShapedFilePage: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        nulFileRecord: true),
     "true");
 
 Dictionary<string, string> readme =
@@ -279,6 +290,10 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     YamlMappingNode checkoutStep = RequireMapping(
         steps.Children[0],
         "jobs.changes checkout step");
+    RequireExactKeys(
+        checkoutStep,
+        ["uses", "with"],
+        "jobs.changes checkout step");
     RequireScalarValue(
         checkoutStep,
         "uses",
@@ -326,14 +341,32 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     YamlMappingNode setupStep = RequireMapping(
         steps.Children[1],
         "jobs.changes .NET setup step");
+    RequireExactKeys(
+        setupStep,
+        ["uses", "with"],
+        "jobs.changes .NET setup step");
     RequireScalarValue(
         setupStep,
         "uses",
         "actions/setup-dotnet@v5",
         "jobs.changes .NET setup step");
+    RequireExactScalarValues(
+        GetRequiredMapping(
+            setupStep,
+            "with",
+            "jobs.changes .NET setup step"),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["dotnet-version"] = "11.0.x",
+        },
+        "jobs.changes .NET setup step.with");
 
     YamlMappingNode provenanceStep = RequireMapping(
         steps.Children[2],
+        "jobs.changes EVIL provenance step");
+    RequireExactKeys(
+        provenanceStep,
+        ["name", "shell", "run"],
         "jobs.changes EVIL provenance step");
     RequireScalarValue(
         provenanceStep,
@@ -344,6 +377,11 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         provenanceStep,
         "shell",
         "bash",
+        "jobs.changes EVIL provenance step");
+    RequireScalarSha256(
+        provenanceStep,
+        "run",
+        "F11C4A162CF21AC57E0BAAE405672EB0AA305896A34F293BE1C27248721B9B77",
         "jobs.changes EVIL provenance step");
     RequireAbsent(
         provenanceStep,
@@ -559,6 +597,37 @@ static void RequireExactScalarValues(
     }
 }
 
+static void RequireExactKeys(
+    YamlMappingNode mapping,
+    IReadOnlyCollection<string> expected,
+    string context)
+{
+    var actual = mapping.Children.Keys
+        .Select(key => ((YamlScalarNode)key).Value ?? "")
+        .ToHashSet(StringComparer.Ordinal);
+    if (!actual.SetEquals(expected))
+    {
+        throw new InvalidOperationException(
+            $"{context} must declare exactly: {string.Join(", ", expected)}.");
+    }
+}
+
+static void RequireScalarSha256(
+    YamlMappingNode mapping,
+    string key,
+    string expected,
+    string context)
+{
+    string actual = GetRequiredScalar(mapping, key, context);
+    string hash = Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(actual)));
+    if (hash != expected)
+    {
+        throw new InvalidOperationException(
+            $"{context}.{key} SHA-256 must be {expected}, got {hash}.");
+    }
+}
+
 static void RequireAbsent(
     YamlMappingNode mapping,
     string key,
@@ -581,6 +650,7 @@ static Dictionary<string, string> RunDetection(
     bool resolutionSucceeds = true,
     bool malformedFileRecord = false,
     bool objectShapedFilePage = false,
+    bool nulFileRecord = false,
     string fileStatus = "modified")
 {
     const string Before = "1111111111111111111111111111111111111111";
@@ -622,6 +692,8 @@ static Dictionary<string, string> RunDetection(
               printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
               elif [ "$MALFORMED_FILE_RECORD" = "true" ]; then
               printf '8\n'
+              elif [ "$NUL_FILE_RECORD" = "true" ]; then
+              printf '1\n'
               elif [ -n "$PREVIOUS_FILES" ]; then
               printf '1\n'
               elif [ -z "$CHANGED_FILES" ]; then
@@ -655,6 +727,9 @@ static Dictionary<string, string> RunDetection(
                     {"status":"renamed","filename":"src/missing-previous.cs"},
                     {"status":"renamed","previous_filename":"","filename":"src/empty-previous.cs"}
                   ]'
+                elif [ "$NUL_FILE_RECORD" = "true" ]; then
+                  printf '%s\n' \
+                    '[{"status":"modified","filename":"s\u0000rc/Program.cs"}]'
                 elif [ -n "$PREVIOUS_FILES" ]; then
                   jq -cn \
                     --arg previous "$PREVIOUS_FILES" \
@@ -735,6 +810,8 @@ static Dictionary<string, string> RunDetection(
             malformedFileRecord.ToString().ToLowerInvariant();
         startInfo.Environment["OBJECT_SHAPED_FILE_PAGE"] =
             objectShapedFilePage.ToString().ToLowerInvariant();
+        startInfo.Environment["NUL_FILE_RECORD"] =
+            nulFileRecord.ToString().ToLowerInvariant();
         startInfo.Environment["PATH"] =
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
         startInfo.Environment["PREVIOUS_FILES"] = previousFiles;

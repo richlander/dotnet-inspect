@@ -231,6 +231,7 @@ jobs:
                         type == "object"
                         and (.filename | type) == "string"
                         and (.filename | length) > 0
+                        and (.filename | index("\u0000")) == null
                         and (
                           .status == "added"
                           or .status == "removed"
@@ -242,6 +243,7 @@ jobs:
                             .status == "renamed"
                             and (.previous_filename | type) == "string"
                             and (.previous_filename | length) > 0
+                            and (.previous_filename | index("\u0000")) == null
                           )
                         );
                       if type != "array" then
