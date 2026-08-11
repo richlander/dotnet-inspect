@@ -183,18 +183,30 @@ Field semantics:
   `memberSignature` (a canonical signature), never by overload index.
   Lens and section values are **registry identities, not display labels or
   CLI spellings**: stable ids from a product-owned registry of view facets,
-  in the pattern #3486 (style-tier registry) and #3865 (accessibility
-  facets) establish — the producer owns identity, labels, ordering, and
-  defaults; consumers render descriptors and submit ids. CLI commands and
-  browser lenses are projections that abstract these ids and may rename
-  their own surfaces freely. This is load-bearing because definitions
-  persist: a bundled demo must resolve years after a flag or chip label
-  changed, which makes every id in this schema a compatibility surface
-  like the anchor digest below, with an unknown id a typed outcome. Bare
-  ids suffice in the canonical form because the field and object they sit
-  in scope them; qualified spellings (the packet's `pkg:dependencies`)
-  belong to flat projections, where no structure does that job.
-  Qualification-in-names is the projection's tool, never the schema's.
+  in the pattern #3486 implements (the style-tier registry: stable
+  never-localized id, title, summary, explicit order) and #3865 asks for
+  (accessibility facets) — the producer owns identity, labels, and
+  ordering; consumers render descriptors and submit ids. Two of #3865's
+  properties deliberately do not transfer: its ids are opaque and its
+  descriptors result-scoped, while workspace ids are hand-authored offline
+  and so must be human-writable and documented — the borrowed pattern
+  supplies producer ownership, not the spelling rule, which stays open
+  below. CLI commands and browser lenses are projections that abstract
+  these ids and may rename their own surfaces freely. This is load-bearing
+  because definitions persist: a bundled demo must resolve years after a
+  flag or chip label changed, which makes every id in this schema a
+  compatibility surface like the anchor digest below, with an unknown id a
+  typed outcome (the view-facet gate below). The example spellings in this
+  note (`api`, `call-graph`) are illustrative pending the registry
+  decision — today they are precisely a CLI spelling and a display-label
+  slug, the two things the binding must replace or freeze. Bare ids
+  suffice in the canonical form only once each field's value space is
+  single-scope — which the registry-binding question must deliver, since
+  today the `lens` field alone spans two colliding token spaces — and the
+  pinned view shape is modulo that question, which may add a scope field.
+  Qualified spellings (the packet's `pkg:dependencies`) belong to flat
+  projections, where no structure does that job. Qualification-in-names is
+  the projection's tool, never the schema's.
 
 ### The implicit platform context
 
@@ -505,17 +517,35 @@ answer; each needs a decision before or during implementation.
   own versions (override, constraint, or error) is unresolved.
 - **View facet registry binding.** Package-root lenses, type lenses, and
   member sections are three presentation token spaces today, and they
-  collide across scopes (`overview`, `source`) — precisely because they are
-  consumer vocabularies, not contract ones. The direction is settled (view
-  preset values are product-owned registry ids that CLI commands and
-  browser lenses abstract; see the `scenarios` field semantics), but the
-  binding is not: whether the registry reuses the section/schema model's
-  existing identities (section descriptor names and schema coordinates,
-  which are per-scope and cannot collide by construction) or fronts them
-  with a view-facet descriptor registry in the #3486/#3865 mold; how ids
-  are spelled; and the registry-stability gate preserved definitions need
-  (ids are append-only compatibility surfaces, like the anchor digest) are
-  all unresolved.
+  collide across scopes (`overview`, `source`, `metadata`) — precisely
+  because they are consumer vocabularies, not contract ones. The direction
+  is settled (view preset values are product-owned registry ids that CLI
+  commands and browser lenses abstract; see the `scenarios` field
+  semantics), but the binding is not, and the seemingly obvious candidate
+  is disqualified unless frozen: section descriptor names are *declared
+  display names* (`ISectionDescriptor.Name` documents itself as "Section
+  display name"), are simultaneously the CLI's `-S` token space, are
+  unique per *pipeline* only by convention (thirteen `SectionNames`
+  constants are declared by two descriptor classes; two distinct `IL`
+  descriptors live in different member pipelines selected by CLI option
+  shape, so a persisted `"section": "IL"` does not resolve to one
+  descriptor), and have been renamed wholesale (#3229 renamed twelve in
+  one commit). Binding preserved definitions to that space as-is would
+  contradict this note's own rule, so the realistic shape is a minted
+  view-facet id space in the #3486 mold that fronts the existing
+  sections and lenses, carrying today's names as presentation metadata —
+  unless the section-name space is instead frozen, which its own interface
+  documents as a repurposing. Also unresolved: how ids are spelled
+  (author-facing, so human-writable and documented); and how the `lens`
+  field distinguishes package-root from type scope — today scope is
+  inferred from `type`-presence, the inference pattern the `kind`
+  discriminator eliminated for documents, so the registry decision must
+  either mint scope-unique ids or add an explicit scope field to the view
+  preset. The stability disciplines also differ by mechanism and need
+  different gates: minted ids are additive — never reused, never renamed —
+  while the anchor digest is derived, guarded by fixed derivation; both
+  are compatibility surfaces, but "append-only" applies only to the
+  former.
 - **Anonymous transposed scenarios.** The URL projection emits one unnamed
   scenario while `scenarios` are otherwise named; whether `name` is
   optional-for-single or the transposition synthesizes a reserved name is a
@@ -546,7 +576,11 @@ Unverified, all of it. Implementation must add, at minimum:
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
-  fails a test instead of shipping silently; and
+  fails a test instead of shipping silently;
+- a view-facet registry gate: unknown lens, section, or library ids are
+  typed outcomes validated against the product-owned registry, and shipped
+  registry ids are additive — never reused or renamed. Its concrete form
+  tracks the registry-binding open question; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload.
 
