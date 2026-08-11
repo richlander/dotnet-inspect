@@ -279,8 +279,19 @@ file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
 cache entries use SHA-256-derived keys through `CoreCache`.
 
-Archive containment does not itself bound expanded bytes, entry count, or disk
-consumption. Resource budgets remain an open requirement below.
+The Browser-Wasm package path is filesystem-free and applies host-owned byte
+budgets before content reaches its cache or inspection workspace: 1 MB for a
+version-index response, 128 MB for a downloaded nupkg, 64 MB for one expanded
+assembly entry, and 16 MB for one expanded Markdown or XML entry.
+`InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
+the caller's limit before allocating that length, then verifies the observed
+expansion against the declaration. `InMemoryPackageContentTests` gates the
+pre-expansion rejection and bounded declared/unknown-length stream reads.
+
+Those controls are specific to the Browser-Wasm acquisition host. Archive
+containment in the broader product does not itself bound expanded bytes, entry
+count, or disk consumption, and symbol-package expansion has its own path.
+Product-wide resource budgets remain an open requirement below.
 
 ### Untrusted JSON rejects duplicate properties
 
@@ -942,7 +953,7 @@ only ordinary compiler output.
 | Surface | Required evidence |
 | --- | --- |
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
-| Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
+| Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; product-wide expanded-size and entry-count policy tests once those budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
 | SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
@@ -957,8 +968,10 @@ only ordinary compiler output.
    source-generated feed contexts, and `runfaster` trace parsing. Add a gate
    asserting no product JSON entry point parses outside the guard, so the set
    cannot silently regrow.
-2. Define package, symbol, source-download, and decompressed-archive byte and
-   entry-count budgets.
+2. Define product-wide package, symbol, source-download, and
+   decompressed-archive byte and entry-count budgets. The Browser-Wasm package
+   host now has byte limits, but that host-specific policy does not settle the
+   extraction, symbol, or entry-count contracts for other consumers.
 3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
 4. Continue auditing Markdown, plain-text, and stderr rendering for terminal

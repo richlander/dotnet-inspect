@@ -97,6 +97,12 @@ internal sealed class BrowserInspectionScope : IDisposable
     public ImmutableArray<BrowserWorkspaceParticipant> ImplementationParticipants =>
         _implementation?.Participants ?? [];
 
+    public ImmutableArray<BrowserWorkspaceParticipant> ReferenceOnlySurfaceParticipants =>
+    [
+        .. SurfaceParticipants.Where(participant =>
+            participant.Coordinate.Selection.FindImplementationAsset(participant.Asset) is null),
+    ];
+
     /// <summary>
     /// Hands the compile-asset group to a public product query. Reference assemblies remain the
     /// authoritative API surface when the package ships them.

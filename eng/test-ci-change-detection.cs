@@ -61,10 +61,34 @@ Dictionary<string, string> source = RunDetection(
     "pull_request",
     "src/dotnet-inspect/Program.cs",
     outputs);
-if (source["code"] != "true")
+if (source["code"] != "true" || source["web"] != "false")
 {
     throw new InvalidOperationException(
-        $"Source canary did not select code: {FormatValues(source)}");
+        $"CLI source canary did not select only code: {FormatValues(source)}");
+}
+
+Dictionary<string, string> webDependency = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+    outputs);
+if (webDependency["code"] != "true" || webDependency["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Web dependency canary did not select code and web: {FormatValues(webDependency)}");
+}
+
+Dictionary<string, string> web = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "prototypes/inspect-web/engine/BrowserInspectionEngine.cs",
+    outputs);
+if (web["code"] != "false" || web["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Web canary did not select only web: {FormatValues(web)}");
 }
 
 Dictionary<string, string> skill = RunDetection(

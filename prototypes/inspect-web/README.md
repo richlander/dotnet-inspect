@@ -45,8 +45,9 @@ package surface, a type projection, an annotated member, Integrations, and a
 composite call-graph workspace over several packages all reach the same open
 group rather than reacquiring every image. `BrowserPackageWorkspace` keeps at
 most four scopes and disposes the least recently used one on eviction, which is
-what returns its retained image bytes; each group carries a 64 MB retained-image
-budget, and exhausting it surfaces as a typed `ResourceBudget` rejection beside
+what returns its retained image bytes. A scope carries a 64 MB aggregate
+retained-image budget; split compile/implementation roles receive 32 MB each.
+Exhausting a group budget surfaces as a typed `ResourceBudget` rejection beside
 the results rather than as a silently shorter list.
 
 Because a scope is reused, nothing here runs
@@ -84,6 +85,15 @@ single-threaded, and both caches are written for that host: at most 12 packages
 or 128 MB of package content, and at most four open workspaces, each evicting the
 least recently used entry.
 
+Acquisition is bounded before content enters either cache or workspace. A
+version-index response may contain at most 1 MB, one downloaded nupkg at most
+128 MB, one expanded assembly entry at most 64 MB, and one expanded Markdown or
+XML entry at most 16 MB. `InMemoryPackageContent` checks a ZIP entry's declared
+expanded length before allocation and verifies the observed expansion against
+that declaration. `InMemoryPackageContentTests` gates both the pre-expansion
+rejection and bounded stream reading. These are Browser-Wasm host limits, not a
+product-wide archive-budget policy.
+
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
@@ -113,7 +123,10 @@ label. Member identity is likewise product-owned: the stable selector, digest,
 and canonical signature come from `ApiMemberIdentity`, and the call-graph
 selector and accessor body selectors from `CallGraphMemberResolver`. A
 participant the workspace could not project is named in `inspectionError` beside
-the results rather than dropped, and the site folds that into its query notice.
+the results rather than dropped. Inspection failures from an otherwise available
+partial API surface are summarized there too, so healthy rows remain usable
+without presenting an incomplete surface as complete. The site folds that field
+into its query notice.
 
 `QueryTypeProjection` and `QueryMemberAnnotatedSource` run over one group
 participant. The Research queries own the `MetadataSource` and the whole-assembly
@@ -147,7 +160,11 @@ Three exports touch **no artifact at all** and say so in place: `SearchTypes`
 `EcosystemIntegrationSignalInfo` values by the integration name the scanner
 assigned. That is presentation grouping; no signal, category, or count is
 composed here, and a participant the group could not acquire is reported beside
-the results rather than dropped.
+the results rather than dropped. Packages with a partial `ref/`/`lib/` pairing
+scan implementation participants first, then scan each reference-only surface
+participant through the non-terminal participant query. The reusable group
+remains intact; `ExecuteParticipant_DoesNotReleaseTheReusableGroup` gates that
+lifetime contract.
 
 `QueryMemberCallGraph` projects `MemberCallGraphView` through
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
@@ -260,6 +277,13 @@ the paths this engine depends on:
 `BrowserEngineLayeringTests` in `src/dotnet-inspect.Tests` gates the layering
 rule described above.
 
+Pull requests that change the browser prototype, its shared annotated-source
+viewer, product dependencies, or repository build inputs run the `inspect-web`
+CI job. That job compiles the platform-index generator, publishes the Release
+Wasm bundle, and runs both JavaScript suites.
+`eng/test-ci-change-detection.cs` gates the path classification, and
+`ci-required` includes the job's result.
+
 ## Interaction model
 
 Package tabs and the framework selector are workspace identity, not display
@@ -279,8 +303,9 @@ not answer report the engine's failure rather than fixture results.
 
 `.github/workflows/deploy-inspect-web.yml` publishes the browser-Wasm project and
 uploads the prebuilt `wwwroot` to an Azure Static Web App with Azure's own app
-build disabled. It runs on every push to `main` and on `workflow_dispatch`, and
-its deployment credential is the
+build disabled. It runs on every push to `main`; `workflow_dispatch` remains
+available, but the deploy job itself requires `refs/heads/main`, so a manual run
+cannot publish another ref. Its deployment credential is the
 `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` GitHub Actions secret.
 
 Two prerequisites live outside this repository and are **not** verified by

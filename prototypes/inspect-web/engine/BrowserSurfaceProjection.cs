@@ -128,11 +128,28 @@ internal static class BrowserSurfaceProjection
         _ => null,
     };
 
-    internal static string? Failures<TValue>(
-        ImmutableArray<AssemblyContextEntry<TValue>> entries)
+    /// <summary>
+    /// Participant failures plus partial API extraction from otherwise available participants.
+    /// The latter is summarized without echoing artifact-authored metadata into the notice.
+    /// </summary>
+    internal static string? ApiSurfaceFailures(
+        ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries)
     {
-        string[] failures = [.. entries.Select(Failure).OfType<string>()];
-        return failures.Length == 0 ? null : string.Join("; ", failures);
+        var failures = new List<string>();
+        foreach (AssemblyContextEntry<AssemblyApiSurface> entry in entries)
+        {
+            if (Failure(entry) is { } failure)
+                failures.Add(failure);
+            if (entry is AssemblyContextEntry<AssemblyApiSurface>.Available available
+                && available.Value.InspectionFailures.Length > 0)
+            {
+                failures.Add(
+                    $"{available.Subject.Identity.Name}: API surface omitted "
+                    + $"{available.Value.InspectionFailures.Length} metadata row(s).");
+            }
+        }
+
+        return failures.Count == 0 ? null : string.Join("; ", failures);
     }
 
     /// <summary>

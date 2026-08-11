@@ -43,30 +43,61 @@ public sealed class InMemoryPackageContent : IPackageContent
 
     /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
+        => TryOpenEntry(relativePath, Array.MaxLength, out stream);
+
+    /// <summary>
+    /// Opens one expanded entry only when its declared and observed lengths fit within
+    /// <paramref name="maxExpandedBytes"/>.
+    /// </summary>
+    public bool TryOpenEntry(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
     {
         ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
 
         using var archive = OpenArchive();
-        // Zip entries are stored with '/' separators; match by full name.
-        // Prefer an exact match, then fall back to a case-insensitive one so a
-        // WASM host mirrors the case-insensitive filesystem lookup on Windows
-        // and macOS rather than the strict-ordinal ZipArchive.GetEntry default.
-        var entry = archive.GetEntry(relativePath)
-            ?? archive.Entries.FirstOrDefault(e =>
-                string.Equals(e.FullName, relativePath, StringComparison.OrdinalIgnoreCase));
+        ZipArchiveEntry? entry = FindEntry(archive, relativePath);
         if (entry is null)
         {
             stream = null;
             return false;
         }
 
-        // Copy into memory so the returned stream outlives the archive.
+        if (entry.Length > maxExpandedBytes || entry.Length > Array.MaxLength)
+            throw new InvalidDataException("Package entry exceeds the configured byte limit.");
+
+        byte[] bytes = GC.AllocateUninitializedArray<byte>((int)entry.Length);
         using var entryStream = entry.Open();
-        var buffer = new MemoryStream();
-        entryStream.CopyTo(buffer);
-        buffer.Position = 0;
-        stream = buffer;
+        int offset = 0;
+        while (offset < bytes.Length)
+        {
+            int read = entryStream.Read(bytes, offset, bytes.Length - offset);
+            if (read == 0)
+                throw new InvalidDataException("Package entry ended before its declared length.");
+            offset += read;
+        }
+        if (entryStream.ReadByte() != -1)
+            throw new InvalidDataException("Package entry exceeds its declared length.");
+
+        stream = new MemoryStream(
+            bytes,
+            index: 0,
+            count: bytes.Length,
+            writable: false,
+            publiclyVisible: true);
         return true;
+    }
+
+    /// <summary>Gets an entry's declared expanded length without expanding its body.</summary>
+    public bool TryGetEntryLength(string relativePath, out long length)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        using var archive = OpenArchive();
+        ZipArchiveEntry? entry = FindEntry(archive, relativePath);
+        length = entry?.Length ?? 0;
+        return entry is not null;
     }
 
     /// <inheritdoc />
@@ -83,4 +114,14 @@ public sealed class InMemoryPackageContent : IPackageContent
 
     private ZipArchive OpenArchive()
         => new(new MemoryStream(_nupkgBytes, writable: false), ZipArchiveMode.Read);
+
+    static ZipArchiveEntry? FindEntry(ZipArchive archive, string relativePath)
+        // Zip entries are stored with '/' separators. Prefer an exact match, then mirror the
+        // case-insensitive filesystem lookup on Windows and macOS.
+        => archive.GetEntry(relativePath)
+            ?? archive.Entries.FirstOrDefault(entry =>
+                string.Equals(
+                    entry.FullName,
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
 }

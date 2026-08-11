@@ -173,6 +173,7 @@ const state = {
   docViewerError: "",
   docViewerHtml: "",
   docViewerMeta: null,
+  docViewerSeq: 0,
   graphSourceTitle: "",
   graphSourceRequest: null,
   graphSourceSeq: 0,
@@ -6874,6 +6875,7 @@ async function openPackageDocument(path) {
   const pkg = state.package;
   const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
   if (!pkg || !doc) return;
+  const seq = ++state.docViewerSeq;
   state.docViewerOpen = true;
   state.docViewer = doc;
   state.docViewerHtml = "";
@@ -6883,24 +6885,35 @@ async function openPackageDocument(path) {
   render();
   try {
     const content = await inspectPackageDocument({ packageId: pkg.id, version: pkg.version, path });
+    if (seq !== state.docViewerSeq) return;
     const { meta, body } = splitFrontmatter(content.text);
-    state.docViewerHtml = await renderMarkdown(body);
-    state.docViewerMeta = meta && (meta.name || meta.description)
+    const html = await renderMarkdown(body);
+    if (seq !== state.docViewerSeq) return;
+    const descriptionHtml = meta?.description
+      ? await renderMarkdownInline(meta.description)
+      : "";
+    if (seq !== state.docViewerSeq) return;
+    const projectedMeta = meta && (meta.name || meta.description)
       ? {
           name: meta.name || doc.name,
           version: meta.version || "",
-          descriptionHtml: meta.description ? await renderMarkdownInline(meta.description) : ""
+          descriptionHtml
         }
       : null;
+    state.docViewerHtml = html;
+    state.docViewerMeta = projectedMeta;
   } catch (error) {
+    if (seq !== state.docViewerSeq) return;
     state.docViewerError = String(error?.message || error);
   } finally {
+    if (seq !== state.docViewerSeq) return;
     state.docViewerLoading = false;
     render();
   }
 }
 
 function closeDocViewer() {
+  state.docViewerSeq++;
   state.docViewerOpen = false;
   state.docViewer = null;
   state.docViewerHtml = "";

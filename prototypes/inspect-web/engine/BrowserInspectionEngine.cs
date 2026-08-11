@@ -123,7 +123,7 @@ public static partial class BrowserInspectionEngine
             throw new InvalidOperationException(
                 $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
                 + $"{coordinate.Framework} produced an API surface. "
-                + (BrowserSurfaceProjection.Failures(surfaces.Assemblies.Assemblies)
+                + (BrowserSurfaceProjection.ApiSurfaceFailures(surfaces.Assemblies.Assemblies)
                     ?? "The workspace reported no failure."));
         }
 
@@ -164,7 +164,7 @@ public static partial class BrowserInspectionEngine
                     .Where(type => IsDefaultBucket(surfaces, type))
                     .Sum(type => type.Members),
                 [.. coordinate.Package.Documents()],
-                BrowserSurfaceProjection.Failures(surfaces.Assemblies.Assemblies)),
+                BrowserSurfaceProjection.ApiSurfaceFailures(surfaces.Assemblies.Assemblies)),
             BrowserJsonContext.Default.BrowserPackageSurface);
     }
 
@@ -352,6 +352,18 @@ public static partial class BrowserInspectionEngine
         // participant, which would leave the reused group unable to answer a later query.
         AssemblyContextIntegrationsResult result =
             scope.UseImplementationOrSurface(AssemblyContextIntegrationsQuery.Execute);
+        if (scope.ImplementationParticipants.Length > 0
+            && scope.ReferenceOnlySurfaceParticipants.Length > 0)
+        {
+            result = new AssemblyContextIntegrationsResult(
+            [
+                .. result.Assemblies,
+                .. scope.ReferenceOnlySurfaceParticipants.Select(participant =>
+                    scope.UseSurfaceParticipant(
+                        participant,
+                        AssemblyContextIntegrationsQuery.ExecuteParticipant)),
+            ]);
+        }
 
         var failures = new List<string>();
         var signals = new List<EcosystemIntegrationSignalInfo>();
@@ -431,20 +443,21 @@ public static partial class BrowserInspectionEngine
             version,
             targetFramework);
         var coordinates = new List<BrowserPackageCoordinate> { root };
+        var coordinateKeys = new HashSet<string>(StringComparer.Ordinal)
+        {
+            root.Key,
+        };
         foreach (BrowserWorkspacePackage entry in JsonSerializer.Deserialize(
             workspaceJson,
             BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [])
         {
-            if (entry.Package.Equals(root.PackageId, StringComparison.OrdinalIgnoreCase)
-                && entry.Version.Equals(root.Version, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            coordinates.Add(await BrowserPackageWorkspace.ResolveAsync(
+            BrowserPackageCoordinate coordinate =
+                await BrowserPackageWorkspace.ResolveAsync(
                 entry.Package,
                 entry.Version,
-                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework));
+                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework);
+            if (coordinateKeys.Add(coordinate.Key))
+                coordinates.Add(coordinate);
         }
 
         BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope(coordinates);
@@ -528,7 +541,7 @@ public static partial class BrowserInspectionEngine
             version,
             framework);
         PackageCompileAsset asset = coordinate.CompileAsset(assemblyName);
-        BrowserMemberDocumentation documentation = coordinate.Package.TryRead(
+        BrowserMemberDocumentation documentation = coordinate.Package.TryReadText(
             Path.ChangeExtension(asset.Path, ".xml"),
             out byte[] xml)
                 ? BrowserXmlDocumentation.Read(xml, documentationId)

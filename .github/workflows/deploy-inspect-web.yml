@@ -20,6 +20,7 @@ env:
 jobs:
   deploy:
     name: Publish and deploy
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6

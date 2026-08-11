@@ -58,6 +58,7 @@ jobs:
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
       packaging: ${{ steps.filter.outputs.packaging }}
       shipped: ${{ steps.filter.outputs.shipped }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -285,7 +286,7 @@ jobs:
             # infallible. `git ls-files` exits 128 on an unreadable index.
             # Keep this list in sync with the `outputs:` block above.
             echo "::warning title=Change detection fell back::Could not determine the changed files for ${{ github.sha }}; running every job so that no validation is skipped."
-            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped; do
+            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped web; do
               echo "$name=true" >> "$GITHUB_OUTPUT"
             done
             echo "Change detection fell back; every job filter forced true."
@@ -299,8 +300,13 @@ jobs:
           ILROUNDTRIP=false
           PACKAGING=false
           SHIPPED=false
+          WEB=false
           while IFS= read -r -d '' file; do
             case "$file" in
+              # The browser engine is a real product consumer, so changes in its product dependency
+              # graph must compile it as well as the solution. Test hosts, CLI-only projects, and
+              # unrelated tools stay on the regular code lane.
+              src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
               src/*) CODE=true ;;
               tests/*) CODE=true ;;
               # SkillCommandTests enforces equality among focused skill files,
@@ -340,7 +346,11 @@ jobs:
               # thing keeping this file honest against the pre-merge preset, so
               # editing the file must run the lane that validates it.
               eng/decompiler-gate-expected-classes.txt) CODE=true ;;
-              *.props|*.targets|*.sln|*.slnx) CODE=true ;;
+              prototypes/inspect-web/*) WEB=true ;;
+              prototypes/annotated-source-viewer/*) WEB=true ;;
+              *.props|*.targets|*.sln|*.slnx) CODE=true; WEB=true ;;
+              .github/workflows/ci.yml) CODE=true; WEB=true ;;
+              .github/workflows/deploy-inspect-web.yml) WEB=true ;;
               .github/workflows/*) CODE=true ;;
             esac
             # C# Diff smoke coverage is separate from the full test lane for the
@@ -510,8 +520,9 @@ jobs:
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
+          echo "web=$WEB" >> "$GITHUB_OUTPUT"
           echo "Changed files were decoded and classified without logging raw path bytes."
-          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
+          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED web=$WEB"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -527,6 +538,39 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
+
+  inspect-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build platform-index generator
+        run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs
+
+      - name: Publish browser app
+        run: >
+          dotnet publish
+          prototypes/inspect-web/engine/InspectWeb.Engine.csproj
+          -c Release
+
+      - name: Test inspect-web
+        working-directory: prototypes/inspect-web
+        run: npm test
+
+      - name: Test annotated-source viewer
+        working-directory: prototypes/annotated-source-viewer
+        run: npm test
 
   # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
   # the separate `test-windows` job below; macOS is still uncovered by tests and
@@ -1364,6 +1408,7 @@ jobs:
     needs:
       - changes
       - markdownlint
+      - inspect-web
       - test
       # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
       # pushes to main. That passes the gate by design; the allow list below

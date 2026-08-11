@@ -42,6 +42,7 @@ internal static class BrowserPackageWorkspace
 {
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
+    const long MaxVersionIndexBytes = 1024 * 1024;
     const int MaxOpenScopes = 4;
 
     static readonly HttpClient Http = new();
@@ -165,7 +166,11 @@ internal static class BrowserPackageWorkspace
         // before they answer, neither of which exists in a browser. Read the flat-container index
         // for the product-owned nuget.org base address instead.
         string index = $"{FlatContainer()}/{Uri.EscapeDataString(normalizedId)}/index.json";
-        using var document = System.Text.Json.JsonDocument.Parse(await Http.GetByteArrayAsync(index));
+        byte[] bytes = await DownloadBytesAsync(
+            index,
+            MaxVersionIndexBytes,
+            $"The version index for package '{normalizedId}'");
+        using var document = System.Text.Json.JsonDocument.Parse(bytes);
         return document.RootElement.GetProperty("versions")
             .EnumerateArray()
             .Select(element => element.GetString())
@@ -197,10 +202,11 @@ internal static class BrowserPackageWorkspace
                 log: null)
             ?? throw new InvalidOperationException(
                 $"nuget.org exposes no download address for {normalizedId} {normalizedVersion}.");
-        byte[] bytes = await Http.GetByteArrayAsync(url);
+        byte[] bytes = await DownloadBytesAsync(
+            url,
+            MaxCachedPackageBytes,
+            $"Package '{normalizedId}' {normalizedVersion}");
         Downloaded.Add(key);
-        if (bytes.LongLength > MaxCachedPackageBytes)
-            return bytes;
 
         while (Cache.Count >= MaxCachedPackages
             || Cache.Values.Sum(entry => entry.Bytes.LongLength) + bytes.LongLength
@@ -218,12 +224,40 @@ internal static class BrowserPackageWorkspace
         Cache[key] = new CacheEntry(bytes, ++_clock);
         return bytes;
     }
+
+    static async Task<byte[]> DownloadBytesAsync(
+        string url,
+        long maxBytes,
+        string description)
+    {
+        using HttpResponseMessage response = await Http.GetAsync(
+            url,
+            HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        try
+        {
+            using Stream source = await response.Content.ReadAsStreamAsync();
+            return await BoundedContentReader.ReadAllBytesAsync(
+                source,
+                maxBytes,
+                response.Content.Headers.ContentLength);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new InvalidOperationException(
+                $"{description} exceeds the browser byte limit.",
+                ex);
+        }
+    }
 }
 
 /// <summary>One acquired package: its exact identity and its content.</summary>
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPackage(string packageId, string version, InMemoryPackageContent content)
 {
+    const long MaxAssemblyEntryBytes = BrowserInspectionScope.MaxRetainedImageBytes;
+    const long MaxTextEntryBytes = 16L * 1024 * 1024;
+
     public string PackageId { get; } = packageId;
 
     public string Version { get; } = version;
@@ -252,12 +286,20 @@ internal sealed class BrowserPackage(string packageId, string version, InMemoryP
                 : null;
             if (kind is null)
                 continue;
+            if (!Content.TryGetEntryLength(entry, out long length))
+                throw new InvalidOperationException("A listed package document disappeared.");
+            if (length > MaxTextEntryBytes || length > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    $"A browsable document in {PackageId} {Version} exceeds the browser byte "
+                    + "limit.");
+            }
 
             documents.Add(new BrowserPackageDocument(
                 kind,
                 kind == "skill" ? SkillDisplayName(segments) : fileName,
                 entry,
-                Read(entry).Length));
+                (int)length));
         }
 
         return
@@ -279,25 +321,33 @@ internal sealed class BrowserPackage(string packageId, string version, InMemoryP
             document.Kind,
             document.Name,
             document.Path,
-            Encoding.UTF8.GetString(Read(document.Path)));
+            Encoding.UTF8.GetString(Read(document.Path, MaxTextEntryBytes)));
     }
 
-    internal Stream OpenEntry(string path)
-        => Content.TryOpenEntry(path, out Stream? stream)
+    internal Stream OpenEntry(string path, long maxExpandedBytes)
+        => Content.TryOpenEntry(path, maxExpandedBytes, out Stream? stream)
             ? stream
             : throw new InvalidOperationException($"'{path}' was not found in {PackageId} {Version}.");
 
-    internal byte[] Read(string path)
+    internal byte[] Read(string path, long maxExpandedBytes)
     {
-        using Stream stream = OpenEntry(path);
+        using Stream stream = OpenEntry(path, maxExpandedBytes);
+        if (stream is MemoryStream memory
+            && memory.TryGetBuffer(out ArraySegment<byte> segment)
+            && segment.Offset == 0
+            && segment.Count == segment.Array!.Length)
+        {
+            return segment.Array;
+        }
+
         using var buffer = new MemoryStream();
         stream.CopyTo(buffer);
         return buffer.ToArray();
     }
 
-    internal bool TryRead(string path, out byte[] bytes)
+    internal bool TryRead(string path, long maxExpandedBytes, out byte[] bytes)
     {
-        if (!Content.TryOpenEntry(path, out Stream? stream))
+        if (!Content.TryOpenEntry(path, maxExpandedBytes, out Stream? stream))
         {
             bytes = [];
             return false;
@@ -305,12 +355,24 @@ internal sealed class BrowserPackage(string packageId, string version, InMemoryP
 
         using (stream)
         {
+            if (stream is MemoryStream memory
+                && memory.TryGetBuffer(out ArraySegment<byte> segment)
+                && segment.Offset == 0
+                && segment.Count == segment.Array!.Length)
+            {
+                bytes = segment.Array;
+                return true;
+            }
+
             using var buffer = new MemoryStream();
             stream.CopyTo(buffer);
             bytes = buffer.ToArray();
             return true;
         }
     }
+
+    internal bool TryReadText(string path, out byte[] bytes) =>
+        TryRead(path, MaxTextEntryBytes, out bytes);
 
     /// <summary>
     /// Mints one typed acquisition participant for a package entry, or <see langword="null"/> when
@@ -328,7 +390,8 @@ internal sealed class BrowserPackage(string packageId, string version, InMemoryP
         try
         {
             using var peReader = new PEReader(
-                ImmutableCollectionsMarshal.AsImmutableArray(Read(path)));
+                ImmutableCollectionsMarshal.AsImmutableArray(
+                    Read(path, MaxAssemblyEntryBytes)));
             if (!peReader.HasMetadata)
                 return null;
 
@@ -346,7 +409,7 @@ internal sealed class BrowserPackage(string packageId, string version, InMemoryP
         return ResolvedAssemblyReference.Create(
             identity,
             path: null,
-            () => OpenEntry(path),
+            () => OpenEntry(path, MaxAssemblyEntryBytes),
             provenance);
     }
 
