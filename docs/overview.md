@@ -56,8 +56,8 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
-  resolves facts through targets to multi-span nodes, and keeps unanchored facts
-  visible without inventing coordinates.
+  resolves facts through targets to multi-span nodes, filters the stable node-kind
+  vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 
 ## Engineering guidance
