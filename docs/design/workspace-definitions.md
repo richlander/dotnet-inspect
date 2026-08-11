@@ -2,8 +2,8 @@
 
 How a preserved workspace — a demo, a share link, a bundled scenario — is
 described as data, how named assembly groups replace the platform
-pseudo-package, and how the browser's URL packet becomes a projection of one
-canonical JSON definition. This note pins the concrete schema and naming
+pseudo-package, and how the browser's URL packet becomes a projection of
+canonical definition records. This note pins the concrete schema and naming
 grammar for the contract that
 [inspection-space.md](../inspection-space.md#inspection-bundles-and-demos)
 already fixes in prose; that document remains the owner of the bundle
@@ -29,16 +29,20 @@ that branch's `prototypes/inspect-web/src/app.js`):
   `Microsoft.NETCore.App` and is un-lied by a string test (`isRuntimePackId`)
   at every restore path.
 
-Meanwhile the repository has four independent, hand-rolled workspace
-construction paths (three CLI, one wasm) and no serialization for any of them.
-A single definition format plus one loader is a net reduction in duplication,
-and the wasm site rebuild is sequenced behind it.
+Meanwhile the repository has four independent workspace construction paths
+(three CLI, one wasm) and no shared definition format across them. The wasm
+packet serializes only its tab-shaped construction input, and `CorpusManifest`
+already serializes the `AssemblySet` recipe for one CLI path. A shared
+workspace definition plus one loader is still a net reduction in duplication,
+but it must reuse those acquisition models rather than assume none exists; the
+wasm site rebuild is sequenced behind it.
 
 ## Decisions
 
-1. **The canonical format is a declarative JSON `WorkspaceDefinition`** of
-   provenance-typed acquisition coordinates. It uses long, readable property
-   names; it is the form that files, bundles, and tooling read and write.
+1. **The canonical format is a family of declarative JSON definition
+   records**: group catalogs, workspaces, query presets, view or navigation
+   presets, and scenarios. They use long, readable property names and remain
+   separate records in a bundle; a standalone file carries one record.
 2. **Static C# is a build-time authoring path only.** A demo may be authored
    as source, but it is compiled at build time and its assembly bytes embedded
    as bundle content. Product paths stay SRM-only and Roslyn-free; no runtime
@@ -51,24 +55,23 @@ and the wasm site rebuild is sequenced behind it.
 4. **The platform becomes a formal named assembly group.** Group references
    replace the pseudo-package; each group expression lowers to exactly one
    `AssemblyContextGroup`.
-5. **The URL share packet is a terse projection of the definition**, produced
-   and consumed by the browser's transposition layer. The visible query is a
-   human-readable courtesy label; the JSON definition is always canonical.
+5. **The URL share packet is a terse projection of one scenario
+   composition**, produced and consumed by the browser's transposition layer.
+   The visible query is a human-readable courtesy label; the peer definition
+   records are always canonical.
 
 ## The definition schema
 
-Group definitions and workspace definitions are separate concerns and,
-normally, separate documents. A **group catalog** defines named assembly
-groups: the product ships the catalog of well-known groups (the `:Platform`
-family), and a bundle may ship a catalog of curated custom groups that
-several workspace definitions reuse. A **workspace definition** describes one
-workspace — its contexts and scenarios — and subscribes to groups by
-reference; it defines none (with the one self-containment exception noted
-under `groups` below). Document kinds are declared, never inferred from
-shape: every document carries a required `kind` discriminator, for the same
-reason the projection section requires one of the packet — and necessarily
-so, since a self-contained workspace file may legitimately carry both
-`groups` and `contexts`.
+Group catalogs, workspace definitions, query presets, view or navigation
+presets, and scenarios are separate records. A **group catalog** defines named
+assembly groups: the product ships the catalog of well-known groups (the
+`:Platform` family), and a bundle may ship a catalog of curated custom groups
+that several workspace definitions reuse. A **workspace definition** describes
+only one workspace and its contexts; it subscribes to groups by reference and
+defines none (with the one self-containment exception noted under `groups`
+below). A **scenario** composes optional references to a workspace, query
+preset, and view or navigation preset. Record kinds are declared, never
+inferred from shape: every record carries a required `kind` discriminator.
 
 The vocabulary is deliberate: **catalogs define groups; workspaces declare
 contexts; a context subscribes to groups.** A context is a binding-consistent
@@ -80,12 +83,13 @@ perfectly ordinary — which is why the schema says `contexts`, not
 drops "group" so the word means exactly one thing here: a named entry in a
 group catalog.
 
-A group catalog document:
+A group catalog record:
 
 ```json
 {
   "schemaVersion": 1,
   "kind": "catalog",
+  "id": "extensions",
   "groups": [
     {
       "name": "Extensions",
@@ -118,111 +122,126 @@ needs only the platform and one package — no custom group at all:
         { "kind": "package", "id": "System.Text.Json", "version": "10.0.0", "framework": "net10.0" }
       ]
     }
-  ],
-  "scenarios": [
-    {
-      "name": "serializer",
-      "context": "workspace",
-      "view": { "lens": "api", "type": "System.Text.Json.JsonSerializer" }
-    }
   ]
 }
 ```
 
-A call-graph demo over the Extensions family is the composition case: its
-context subscribes `:Platform+Extensions`, referencing the catalog's group
-rather than restating it (the members above are the three packages the
-current imperative demo loads, so the subscription covers its scope — a
-superset, since the demo itself loads no runtime pack),
-and its scenario's view selects the target overload by anchor digest:
+Its view and scenario remain peer records:
 
 ```json
-"view": {
-  "type": "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
-  "memberAnchor": "74b6b4b321",
-  "section": "call-graph"
+{
+  "schemaVersion": 1,
+  "kind": "view",
+  "id": "serializer-view",
+  "lens": "api",
+  "type": "System.Text.Json.JsonSerializer"
 }
 ```
 
+```json
+{
+  "schemaVersion": 1,
+  "kind": "scenario",
+  "id": "serializer",
+  "workspace": "stj-serializer-tour",
+  "context": "workspace",
+  "view": "serializer-view"
+}
+```
+
+A call-graph demo over the Extensions family is the composition case: its
+workspace context subscribes `:Platform+Extensions`, referencing the catalog's
+group rather than restating it (the members above are the three packages the
+current imperative demo loads, so the subscription covers its scope — a
+superset, since the demo itself loads no runtime pack). A peer view preset
+selects the target overload by anchor digest.
+
 Field semantics:
 
-- `schemaVersion` — required in both document kinds; readers reject documents
+- `schemaVersion` — required in every record kind; readers reject records
   whose `schemaVersion` they do not understand. There is no unversioned
   form.
-- `kind` — required document discriminator: `catalog` or `workspace`. (The
-  member-coordinate `kind` under [Member coordinates](#member-coordinates)
-  is a distinct field one nesting level down; the two never share a slot.)
-- `groups` — catalog documents only, with one narrow exception: a workspace
+- `kind` — required record discriminator: `catalog`, `workspace`, `query`,
+  `view`, or `scenario`. (The member-coordinate `kind` under
+  [Member coordinates](#member-coordinates) is a distinct field one nesting
+  level down; the two never share a slot.)
+- `id` — required stable record identity. It is unique within its kind in the
+  host or bundle registry; duplicate ids, unknown references, and references
+  to the wrong record kind are typed load failures.
+- `groups` — catalog records only, with one narrow exception: a workspace
   definition that must travel as a single self-contained file may inline
   document-local group definitions. Inlining is a portability convenience,
   not the model; bundles register groups in a catalog so definitions reuse
   them. In either home, redefining a well-known group name is invalid.
 - `contexts` — one entry per context (the bundle contract's "context-group
   definitions"). Each lowers to one `AssemblyContextGroup`. A context
-  carries a `name` (how scenarios address it), an optional `framework`,
-  `subscribe` — a group expression (see the grammar below) — and `members`,
-  additional inline coordinates overlaid on the subscription. A context
-  must have at least one of `subscribe` and `members`. The array itself may
-  be omitted — see
-  [the implicit platform context](#the-implicit-platform-context) — but an
-  empty `contexts` array is invalid (omit the field instead), and a
-  workspace document must carry at least one of `contexts` or `scenarios`.
-- `scenarios` — named compositions of a context with view and query presets,
-  per the bundle contract's separation of workspace definition, query
-  preset, and view preset. A scenario has two preset slots: `view`, whose
-  shape this note pins (`lens`, `type`, `memberAnchor` or `memberSignature`,
-  `section`, and `library` — each field individually optional; member
-  selectors require `type`, `memberAnchor` and `memberSignature` are
-  mutually exclusive, and an empty view is the context's default view), and
-  an optional `query`, for which this note pins only the slot — the
-  query-plan owner defines its shape, and that owner must itself sit at or
-  below the dependency boundary. The selected query and view-facet
-  descriptors declare the context, library, type, and member inputs they
-  require and which facet combinations are valid. Activating a scenario
-  resolves those descriptors and validates the supplied selectors against
-  their contracts. Missing, ambiguous, or incompatible inputs are typed
-  failures; a consumer never invents an undeclared selector or silently
-  broadens the query. A section is not intrinsically member-scoped: its
-  descriptor may operate at package, library, type, or member scope.
+  carries a `name` (how scenarios address it), optional `framework` and
+  `rid` target constraints, `subscribe` — a group expression (see the
+  grammar below) — and `members`, additional inline coordinates overlaid on
+  the subscription. A context must have at least one of `subscribe` and
+  `members`; a workspace must have at least one context.
+- `query` records — named query presets. This note pins only the record and
+  reference slots; the query-plan owner defines each payload shape and must
+  itself sit at or below the dependency boundary.
+- `view` records — named view or navigation presets whose shape this note
+  pins (`lens`, `type`, `memberAnchor` or `memberSignature`, `section`,
+  `library`, and `focus` — each field individually optional; member selectors
+  require `type`, and `memberAnchor` and `memberSignature` are mutually
+  exclusive). `focus` is the portable acquisition-coordinate identity used
+  for navigation; it is distinct from the context used for query binding and
+  must match exactly one coordinate in that context by kind plus normalized
+  coordinate fields, never by display text or position.
   `library` scopes the view to one or more of the context's libraries — a
   view concern, because scoping is a lens on a context, not a different
-  context. The packet spells the single-library platform case `l` today
-  and drops the reachable package-library case entirely; the field covers
-  both (see the session-closure discussion under Projections). Selection
-  state uses
-  portable identities: `type` is a metadata type name, and members are
+  context. Selection state uses portable identities: `type` is a metadata
+  type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
-  Lens and section values are **registry identities, not display labels or
-  CLI spellings**: stable ids from a product-owned registry of view facets,
-  in the pattern #3486 implements (the style-tier registry: stable
-  never-localized id, title, summary, explicit order) and #3865 asks for
-  (accessibility facets) — the producer owns identity, labels, and
-  ordering; consumers render descriptors and submit ids. Two of #3865's
-  properties deliberately do not transfer: its ids are opaque and its
-  descriptors result-scoped, while workspace ids are hand-authored offline
-  and so must be human-writable and documented — the borrowed pattern
-  supplies producer ownership, not the spelling rule, which stays open
-  below. CLI commands and browser lenses are projections that abstract
-  these ids and may rename their own surfaces freely. This is load-bearing
-  because definitions persist: a bundled demo must resolve years after a
-  flag or chip label changed, which makes every id in this schema a
-  compatibility surface like the anchor digest below, with an unknown id a
-  typed outcome (the view-facet gate below). The example spellings in this
-  note (`api`, `call-graph`) are illustrative pending the registry
-  decision — today they are precisely a CLI spelling and a display-label
-  slug, the two things the binding must replace or freeze. Bare ids
-  suffice in the canonical form only once each field's value space is
-  single-scope — which the registry-binding question must deliver, since
-  today the `lens` field alone spans two colliding token spaces — and the
-  pinned view shape is modulo that question, which may add a scope field.
-  Qualified spellings (the packet's `pkg:dependencies`) belong to flat
-  projections, where no structure does that job. Qualification-in-names is
-  the projection's tool, never the schema's.
+- `scenario` records — named compositions with optional `workspace`, `input`,
+  `query`, and `view` references plus `context` when the referenced workspace
+  has several contexts. Omitting `workspace` is a genuine workspace-free
+  scenario: `input` names a bundle-registered embedded input, typed acquisition
+  location, or domain input slot required by its source- or artifact-scoped
+  query, and no assembly context group is created. A platform scenario is not
+  workspace-free; it references a workspace whose context subscribes
+  `:Platform`.
+
+The selected query and view-facet descriptors declare the context, library,
+type, and member inputs they require and which facet combinations are valid.
+Activating a scenario resolves those descriptors and validates the supplied
+selectors against their contracts. Missing, ambiguous, or incompatible inputs
+are typed failures; a consumer never invents an undeclared selector or silently
+broadens the query. A section is not intrinsically member-scoped: its descriptor
+may operate at package, library, type, or member scope.
+
+Lens and section values are **registry identities, not display labels or CLI
+spellings**: stable ids from a product-owned registry of view facets, in the
+pattern #3486 implements (the style-tier registry: stable never-localized id,
+title, summary, explicit order) and #3865 asks for (accessibility facets) —
+the producer owns identity, labels, and ordering; consumers render descriptors
+and submit ids. Two of #3865's properties deliberately do not transfer: its
+ids are opaque and its descriptors result-scoped, while workspace ids are
+hand-authored offline and so must be human-writable and documented — the
+borrowed pattern supplies producer ownership, not the spelling rule, which
+stays open below. CLI commands and browser lenses are projections that
+abstract these ids and may rename their own surfaces freely. This is
+load-bearing because definitions persist: a bundled demo must resolve years
+after a flag or chip label changed, which makes every id in this schema a
+compatibility surface like the anchor digest below, with an unknown id a typed
+outcome (the view-facet gate below). The example spellings in this note
+(`api`, `call-graph`) are illustrative pending the registry decision — today
+they are precisely a CLI spelling and a display-label slug, the two things the
+binding must replace or freeze. Bare ids suffice in the canonical form only
+once each field's value space is single-scope — which the registry-binding
+question must deliver, since today the `lens` field alone spans two colliding
+token spaces — and the pinned view shape is modulo that question, which may
+add a scope field. Qualified spellings (the packet's `pkg:dependencies`)
+belong to flat projections, where no structure does that job.
+Qualification-in-names is the projection's tool, never the schema's.
 
 ### The dependency boundary
 
-A workspace definition is a persisted contract, and the rule has two
+A definition record is a persisted contract, and the rule has two
 halves. Every identity it carries is owned either **at or below the
 inspection substrate** — L2, L1, and the `DotnetInspector.*` /
 `ILInspector.*` libraries beneath them, per
@@ -247,8 +266,8 @@ loaded context) all comply. Custom group names are the deliberate
 in-between: the grammar is substrate-owned but the names are
 bundle-author-owned, portable only with their catalog — which is why
 share links prefer well-known groups, and what the unknown-group open
-question governs. The `query` slot complies by the constraint stated
-above: its owner must sit at or below the boundary. Lens and section ids
+question governs. Query preset ids and payloads comply by the constraint
+stated above: their owner must sit at or below the boundary. Lens and section ids
 are then the one *current* hole: their only existing token spaces are
 L3-owned today, which is why the registry question below *requires*
 minting the id space at the substrate rather than merely preferring it.
@@ -256,59 +275,15 @@ The layer diagram assigns sections to L2, but the descriptor catalog
 currently resides in the CLI project, so homing the registry below the
 boundary is part of the work, not a given.
 
-### The implicit platform context
-
-A scenario that names no `context`, in a document that declares no
-`contexts`, resolves against the **implicit platform context**: the latest
-minimal runtime platform — exactly `{ "subscribe": ":Platform" }`, floating
-version and framework, the host's current defaults. The default is sugar,
-not mechanism: it is expressible in the ordinary vocabulary, and it makes
-platform-only scenarios ("show this BCL type's call graph") legal with no
-authored workspace at all.
-
-Two guardrails keep it from surprising anyone. In a document that declares
-any `contexts`, every scenario must name its context — the implicit default
-never overrides declared structure, so omitting `context` in a structured
-document is invalid rather than a silent fall-through to the platform. That
-rule does condition an omitted field's meaning on the rest of the document,
-but unlike the shape inference the `kind` discriminator eliminated, the
-dependency can only fail loudly: adding `contexts` to a scenario-only
-document invalidates its scenarios rather than silently rebinding them.
-The implicit context itself needs no name, because the only scenarios that
-can resolve to it are those that name none. And a bundled scenario-only
-document floats by construction, so the float warning (whose trigger list
-is defined under Member coordinates below, and explicitly includes the
-absent-`contexts` form) steers preserved demos toward a declared, pinned
-context.
-
-At lowering time the implicit context is a context like any other, so a
-scenario-only document still produces the "one or more" context-group
-definitions the bundle contract requires of a workspace; whether the
-contract owner wants the relaxed authoring form recorded in the contract is
-flagged the same way as the binding-policy amendment below.
-
 ### Scenario activation
 
-A workspace definition is inert: nothing in it is "active". A scenario is
-the record of what would be active — it names its context (which is also how
-focus among several contexts is expressed) and its view. Hosts apply one
-rule:
-
-- **No scenarios**: a plain workspace. The host loads the contexts and lands
-  on its own default view.
-- **Exactly one scenario**: the host activates it. This is the demo-link
-  case.
-- **Several scenarios**: the document is an authored menu (several tours over
-  one workspace). The consumer selects — an in-app picker, or an out-of-band
-  name such as a `?scenario=` parameter. The document itself never marks one
-  active.
-
-The URL projection makes the single-scenario rule principled rather than a
-convenience: transposing a live session produces a definition with exactly
-one anonymous scenario — the current view — so a share link round-trips
-through auto-activation by construction. The browser never produces a
-multi-scenario document; those are authored, and they are the form a "several
-System.Text.Json tours" demo page would take.
+A workspace definition and its presets are inert: nothing in them is active.
+A host activates only an explicitly selected scenario. A bundle may expose one
+scenario as a direct demo link or several as an authored menu, but record count
+never selects one implicitly. A URL packet transposes to one packet-local
+composition of peer workspace, view, query, and scenario records, assigns
+reserved `share-*` ids within that composition, and selects its scenario
+explicitly.
 
 ### Member coordinates
 
@@ -317,10 +292,11 @@ onto `AssemblyResolutionProvenance`'s closed hierarchy, plus one new case:
 
 | `kind` | Provenance | Coordinate fields |
 | --- | --- | --- |
-| `package` | `PackageAsset` | `id`, `version`, `framework`, optional `rid` |
-| `platform` | `PlatformAsset` | `framework`, optional `version` |
-| `project` | `ProjectAsset` | `path`, `framework`, optional `rid` |
+| `package` | `PackageAsset` | `id`; optional exact `version`, `framework`, and `rid` |
+| `platform` | `PlatformAsset` | optional `assembly`, exact `version`, and `framework` |
+| `project` | `ProjectAsset` | `path`; optional `framework` and `rid` |
 | `local` | `LocalAsset` | `path` |
+| `directory` | `LocalAsset` | `path`; optional `framework` and `rid` |
 | `embedded` | bundle content | `contentRef`, `digest`, `declaredName` |
 
 Coordinates are loader inputs that *produce* provenance, not serializations
@@ -330,26 +306,38 @@ definition never states (the resolver-source labels on `PlatformAsset` and
 path). No field-level round-trip between coordinates and provenance records
 is implied.
 
+One context must lower to one target framework/runtime binding universe. Its
+optional `framework` and `rid` are context-wide constraints. A member
+coordinate may repeat either value or inherit it from the context; every
+non-null declaration in the context, its subscription, and its members must
+agree. A subscribed catalog group is either target-neutral or declares a
+compatible target. The loader rejects a missing target required by an
+acquisition kind, conflicting target declarations, and resolved assets that do
+not match the effective target before it creates an `AssemblyContextGroup`.
+It never splits an inconsistent context or silently chooses one member's
+target.
+
 `embedded` members reference artifact bytes shipped in an inspection bundle:
 `contentRef` is a bundle-relative content identifier, `digest` is the
 SHA-256 of the content bytes, and `declaredName` is the expected assembly
 simple name, validated against the image's identity when the image is first
 opened (not at definition load, which acquires nothing). The
 digest is integrity evidence only — it confers no authorization, per the
-bundle contract. `local` and `project` members are meaningful only to hosts
-with filesystem access; a browser host rejects them with a typed outcome
-rather than silently skipping them.
+bundle contract. `local`, `project`, and `directory` members are meaningful
+only to hosts with filesystem access. A browser host rejects them with a typed
+outcome rather than silently skipping them.
 
-A member or subscription without a version **floats**. When a consumer
-realizes that coordinate, it uses the normal source and version policy to
-determine the latest acceptable version and then loads it; a fully bound
-coordinate goes directly to loading the stated version. Loading the
-definition itself leaves a floating coordinate unresolved. Floating is the
-share-link norm and wrong for preserved demos, so authored definitions pin
-every coordinate they declare — the implicit platform context is the
-sanctioned exception, declaring nothing and floating by design. Bundle
-validation has one trigger list, defined here: it warns on floating declared
-coordinates and on the absent-`contexts` form (which floats by construction).
+A versionable member coordinate or well-known group subscription without a
+version **floats**. When a consumer realizes that coordinate, it uses the
+normal source and version policy to determine the latest acceptable version
+and then loads it; a fully bound coordinate goes directly to loading the stated
+version.
+Loading the definition itself leaves a floating coordinate unresolved.
+Floating is the share-link norm and wrong for preserved demos, so authored
+definitions pin every versionable coordinate they declare. Version presence
+means an exact pin: `latest`, ranges such as `A..B`, and other selectors are
+invalid in this schema rather than alternative spellings for floating.
+Bundle validation warns on every floating declared coordinate.
 
 ### What a definition never contains
 
@@ -383,11 +371,14 @@ version     = 1*( ALPHA / DIGIT / "." / "-" )
 - `+` is the composition operator. `:Platform+Extensions` overlays the
   `Extensions` group onto the `Platform` group.
 - `@` pins a segment's version: `:Platform@10.0.10+Extensions`. This matches
-  the CLI's existing `package@version` convention and binds to the segment it
-  follows. The `version` production deliberately admits semver core and
-  pre-release forms but not build metadata: `+` is the composition operator,
-  so `:Platform@1.0.0+build.5` would be ambiguous — and nothing is lost,
-  because NuGet ignores build metadata for version identity.
+  the CLI's exact `package@version` convention and binds to the segment it
+  follows. The ABNF is only the lexical envelope: semantic validation requires
+  a normalized concrete version and rejects `latest`, ranges, and other
+  selectors. Build metadata is excluded because `+` is the composition
+  operator and NuGet ignores build metadata for version identity. A segment
+  may carry `@` only when its catalog entry declares exact-version semantics;
+  v1 defines that contract for well-known platform groups and rejects pins on
+  custom groups.
 
 The character choices are load-bearing, not stylistic. `:` and `+` are the
 survivors of a shell-safety elimination across interactive bash, zsh,
@@ -446,76 +437,97 @@ quoting-free as a bare CLI argument.
 
 ### The URL share packet
 
-The browser keeps its terse packet (`?w=` base64url JSON: `t` tab tuples,
-`a` active index, `v` view token, selection keys) as a **projection** the
-transposition layer converts to and from the canonical definition. Changes
-required by this design:
+The browser keeps a terse `?w=` base64url JSON packet as a **projection** the
+transposition layer converts to and from one packet-local scenario composition.
+The v1 packet separates navigation from binding:
 
-- **Group references ride in the tuple id slot** with the `:` sigil:
+- `t` is the deduplicated table of acquisition-coordinate tuples used as
+  navigation tabs. Group references use the tuple id slot with the `:` sigil:
   `[":Platform+Extensions", "10.0.10", "net10.0"]`. The tuple's version slot
   is the base segment's pin — a packet-borne expression must not also carry
-  an `@` pin on its base segment, so one pin has exactly one encoding.
-  Deeper pins are expressible only in the canonical form. This retires the
-  `Microsoft.NETCore.App` pseudo-package and the `isRuntimePackId` sniff,
-  and unifies restore-path matching.
-- **The projection is partial by design — for authored definitions only.**
-  Session → packet totality is a **design constraint, not a derived fact**:
-  the packet grammar is required to stay closed over interactively
-  reachable session state, and the session-closure gate below enforces it.
-  (It cannot be derived, because the current packet already violates
-  closure in one corner: library scope over an ordinary multi-assembly
-  package is never encoded at all — `l` is written only for the runtime
-  pack, and only for a single-library scope — so a library-scoped package
-  session shares as an unscoped link today. The redesign must close that
-  hole; the view preset's `library` field is its schema home.) Under that constraint the round-trip
-  claims below hold for every session. An *authored* definition, by
-  contrast, may exceed the packet — per-overlay pins, query presets,
-  multiple scenarios, or a context shape the tuple grammar cannot carry —
-  and for those the transposition layer refuses with a typed outcome
-  rather than silently flattening; the definition is shared as a file or
-  bundle instead. Which authored context shapes are projectable is bounded
-  by the context-to-tuple mapping question in
-  [Open questions](#open-questions).
+  an `@` pin on its base segment, so one pin has exactly one encoding. Deeper
+  pins are expressible only in canonical records. This retires the
+  `Microsoft.NETCore.App` pseudo-package and the `isRuntimePackId` sniff.
+- `g` is the context table. Each entry names the indexes in `t` that lower
+  together to one binding-consistent `AssemblyContextGroup`; the same tuple
+  may be referenced by more than one context when navigation needs a
+  singleton context and an analysis needs a fused context under a different
+  policy. Index order is member overlay and binding precedence, not display
+  order.
+- `a` is the focused navigation-tuple index, while `x` is the selected context
+  index. They are intentionally independent: `a` transposes to the view
+  preset's `focus`, and `x` to the scenario's `context`. A fused analysis
+  context therefore does not erase the active tab, and preserving tabs does
+  not imply relationships across independent groups.
+- `v` and the selection keys project the peer view preset. Library scope is
+  encoded for package and platform coordinates alike; the current prototype's
+  `l`-only-for-runtime-pack omission does not survive into v1.
+
+Session → packet totality is a design constraint: every interactively
+reachable v1 session has explicit navigation and context state and must
+transpose without inventing a relationship across groups. An authored record
+set may exceed the packet — per-overlay pins, query presets, multiple
+scenarios, or more than the packet's bounded tables — and the transposition
+layer refuses those with a typed outcome rather than silently flattening them.
 - **A format discriminator and strict validation are required.** The
   redesigned packet is the first supported wire contract; today's unversioned
   prototype forms have no compatibility requirement. Readers accept only a
-  supported explicit version and decode all-or-nothing: the complete query
-  value must be canonical base64url, decode to one complete JSON value with no
-  trailing content, and satisfy that version's schema and bounds. Unsupported
-  versions, truncated or appended input, malformed encoding or JSON, invalid
-  tuple shapes, and out-of-range indexes are typed invalid-packet outcomes;
-  none restores partial workspace state. The explicit version lets later
-  formats evolve without breaking links issued under this supported contract.
+  supported explicit version and decode all-or-nothing through the
+  product-owned hardened JSON entry point (`HardenedJson` on .NET): the
+  complete query value must be canonical base64url, decode to one complete
+  JSON value with no duplicate properties or trailing content, and satisfy
+  that version's schema and bounds. V1 accepts at most
+  16 KiB of encoded text, 12 KiB of decoded UTF-8 JSON, nesting depth 16,
+  1024 JSON values, 12 tuples, and 24 contexts. Its bounded in-memory parse is
+  synchronous and needs no timeout; cancellation is checked before decode.
+  Unsupported versions, truncated or appended input, malformed encoding or
+  JSON, duplicate properties, duplicate tuples, over-limit tables, invalid
+  shapes, and out-of-range indexes are typed invalid-packet outcomes; none
+  restores partial workspace state. The explicit version lets later formats
+  evolve without breaking links issued under this supported contract.
 - **Member selection moves to anchor digests.** The positional overload
   index (`o`) is replaced by the `MemberAnchor` fingerprint the UI already
   displays and the call-graph demo already matches on. With that, every
   existing demo — including the imperative call-graph demo — becomes a data
-  definition plus an ordinary link: today's demos are tab-shaped, and a
-  transposed tab is a single-subscription or single-package context, which
-  the tuple grammar always carries. One qualification: the call-graph
-  demo's value is cross-package scope, so *which* definition form
-  reproduces it — a fused subscription context or a union over N contexts —
-  tracks the context-to-tuple mapping decision, and the demo-parity gate
-  below is sequenced behind that decision. This makes the digest a
+  definition plus an ordinary link. The call-graph demo's cross-package scope
+  becomes one `g` entry referencing its package tuples, while `a` independently
+  preserves its focused tab. This makes the digest a
   compatibility surface: it hashes the canonical-signature spelling under a
   versioned salt (`dotnet-inspect.member-index.v1`) and varies with
   degraded signature decoding, so every preserved link depends on that
   spelling staying fixed — hence the anchor-durability gate below.
 - **The rich packet remains fully authoritative** over the visible query,
   which stays a human-readable label answering "what noun does this URL
-  operate on". Dedup, the workspace-size cap, truncation notices, and
-  active-index remapping remain transposition-layer concerns; the canonical
-  definition is already deduplicated and within limits.
+  operate on". Producers emit only canonical, deduplicated, within-limit
+  packets. Readers reject non-canonical packets instead of normalizing them,
+  so packet → records → packet identity is meaningful rather than identity
+  after a lossy deduplication or truncation step.
 
 ### Files and bundles
 
-The same definition serializes to standalone `.json` files (a CLI
-`--workspace <file>`, a site file loader) and embeds in inspection bundles,
-where a **demo scenario** is a named composition of workspace definition,
-query preset, and view preset per the bundle contract. Serialization follows
-the repository's `CorpusManifest` precedent: a source-generated
-`JsonSerializerContext` and an explicit `schemaVersion`, trim- and
-NativeAOT-compatible.
+Each definition record serializes to a standalone `.json` file (including a
+CLI `--workspace <file>` and a site file loader) or registers as a peer record
+in an inspection bundle. Serialization follows the repository's
+`CorpusManifest` precedent: a source-generated `JsonSerializerContext` and an
+explicit `schemaVersion`, trim- and NativeAOT-compatible. Deserialization first
+uses `HardenedJson` to reject duplicate properties, then binds through that
+context. A file is limited to 1 MiB of UTF-8 JSON, nesting depth 32, 4096 JSON
+values, and 1024 coordinates; a bundle applies the same per-record limits and
+its own aggregate byte/record budget. Stream reads and multi-record bundle
+loads honor cancellation before each record. Limit, cancellation, malformed
+input, and duplicate-key failures remain typed and distinct from an empty
+definition.
+
+`CorpusManifest` remains the corpus-specific persisted recipe; workspace
+definitions subsume neither its corpus ordering nor its population API. The
+workspace loader reuses a shared acquisition-coordinate model extracted from
+that path, with an adapter for existing manifests: `Package` maps to
+`package`; `PlatformFramework` and `PlatformAssembly` map to `platform`, with
+the latter carrying `assembly`; `Assembly` maps to `local`; `Project` to
+`project`; and `Directory` to `directory`. The current producer may still
+normalize resolved path-bound entries to full-path `Assembly` entries before
+serialization. This keeps one coordinate/resolution implementation while
+preserving `CorpusManifest` as a compatible corpus contract.
 
 ## Known gaps this design requires
 
@@ -542,29 +554,6 @@ NativeAOT-compatible.
 Questions the schema's own edges raise that this note deliberately does not
 answer; each needs a decision before or during implementation.
 
-- **Context-to-tuple mapping.** Today a tuple carries one *library or
-  package* — the platform occupies an ordinary package-shaped slot, and
-  contexts do not exist in the packet at all; the engine unions tabs on
-  demand for cross-package analysis. This design re-purposes the id slot for
-  group subscriptions, which raises two linked decisions. First, the
-  packet's unit: under "tuple = context", every transposed tab becomes a
-  single-subscription or single-package context and today's demos all remain
-  links, but an authored context that fuses a subscription with inline
-  members (the System.Text.Json example above) has no single-tuple encoding
-  — its workarounds are a composition expression (`:Platform+Extensions`
-  is one tuple), a custom catalog group, or splitting the context; the
-  alternative is a multi-tuple encoding with a shared-context marker or a
-  packet member list. Second, what a multi-tab session transposes *to*:
-  N independent contexts (faithful to tabs, but cross-package analysis then
-  needs a union context the definition never declared) or one fused
-  context (faithful to the analysis, but not to per-tab binding isolation).
-  The arms differ in gate reach, which is decision-relevant: under N
-  contexts the packet's active index stays recoverable from the transposed
-  scenario's `context`, while under one fused context it has no
-  definition counterpart and the identity gate's active-index clause is
-  unachievable on that arm. Both decisions are unresolved; until they are,
-  authored fused contexts fall under the projection-refusal rule, and
-  transposed sessions are unaffected.
 - **Unknown group references.** A `subscribe` naming a group absent from
   every catalog in scope is a typed load failure (failure stays visible, per
   repository policy). Whether hosts may offer resolution — fetching a bundle
@@ -572,17 +561,13 @@ answer; each needs a decision before or during implementation.
 - **Catalog precedence.** Collisions between two bundle catalogs, and
   whether a bundle may graft a child under a product path
   (`:Platform:MyThing`), are unresolved.
-- **Subscription pins over custom groups.** `:Platform@10.0.10` is
-  unambiguous — the pin is the runtime-pack version. What
-  `:Extensions@<version>` means for a custom group whose members carry their
-  own versions (override, constraint, or error) is unresolved.
 - **View facet registry binding.** Package-root and type lenses, together
   with package-, library-, type-, and member-scope section pipelines, are
   presentation token spaces today, and they collide across scopes
   (`overview`, `source`, `metadata`) — precisely because they are consumer
   vocabularies, not contract ones. The direction is settled (view preset
   values are product-owned registry ids that CLI commands and browser lenses
-  abstract; see the `scenarios` field semantics), but the binding is not, and
+  abstract; see the `scenario` record semantics), but the binding is not, and
   the seemingly obvious candidate is disqualified unless frozen: section
   descriptor names are *declared
   display names* (`ISectionDescriptor.Name` documents itself as "Section
@@ -610,44 +595,51 @@ answer; each needs a decision before or during implementation.
   distinguishes package-root from type scope; and how `section`
   distinguishes package, library, type, and member scopes. Today those
   scopes are inferred from `type` presence, pipeline, or command shape —
-  the inference pattern the `kind` discriminator eliminated for documents —
+  the inference pattern the `kind` discriminator eliminated for records —
   so the registry decision must either mint scope-unique ids or add explicit
   scope to the view preset. The stability disciplines also differ by
   mechanism and need different gates: minted ids are additive — never reused,
   never renamed — while the anchor digest is derived, guarded by fixed
   derivation; both are compatibility surfaces, but "append-only" applies only
   to the former.
-- **Anonymous transposed scenarios.** The URL projection emits one unnamed
-  scenario while `scenarios` are otherwise named; whether `name` is
-  optional-for-single or the transposition synthesizes a reserved name is a
-  serializer detail to fix alongside the schema.
 
 ## Status and gates
 
 Unverified, all of it. Implementation must add, at minimum:
 
 - a schema round-trip gate (serialize → deserialize → semantic equality) over
-  the source-generated context, including rejection of unknown
-  `schemaVersion` and `kind` values and redefinition of well-known group
-  names;
-- a grammar gate covering path, composition, and pin parsing, plus the
-  package-id non-collision property (no valid NuGet id parses as a group
+  every record kind, including rejection of duplicate properties, unknown
+  `schemaVersion` and `kind` values, redefinition of well-known group names,
+  and every declared byte, depth, value, coordinate, and cancellation limit;
+- a record-separation gate proving scenarios compose peer workspace, query,
+  and view records by id, workspace-free scenarios create no assembly group,
+  record count never activates a scenario implicitly, and duplicate, unknown,
+  or cross-kind record references fail visibly;
+- a grammar gate covering path, composition, and exact-pin parsing, including
+  rejection of `latest`, ranges, build metadata, and custom-group pins, plus
+  the package-id non-collision property (no valid NuGet id parses as a group
   reference);
 - a lowering gate asserting one group expression produces one
   `AssemblyContextGroup` whose binding precedence follows composition order,
   with an overlapping-member fixture;
-- a packet transposition gate proving packet → definition → packet identity
-  for the terse projection, including active-index remapping under dedup,
-  and asserting the definition → packet direction refuses non-projectable
-  definitions rather than silently flattening them;
-- a packet-validity gate rejecting unsupported or absent versions, malformed
-  or non-canonical base64url, incomplete or trailing JSON, truncated or
-  appended input, invalid field shapes, and out-of-range indexes without
-  restoring partial workspace state;
+- a target-consistency gate rejecting missing required targets, conflicting
+  framework or RID declarations, incompatible subscriptions, and resolved
+  assets outside the context's effective target before group creation;
+- a packet transposition gate proving canonical packet → peer records →
+  canonical packet identity, including independent preservation of `a`
+  navigation focus and `x` binding context, repeated tuple references across
+  contexts, and refusal of non-projectable authored record sets;
+- a packet-validity gate rejecting duplicate properties or tuples,
+  unsupported or absent versions, malformed or non-canonical base64url,
+  incomplete or trailing JSON, truncated or appended input, invalid field
+  shapes, out-of-range indexes, and every declared resource-limit breach
+  without restoring partial workspace state;
 - a session-closure gate asserting the packet grammar covers every
-  interactively reachable session state — the known current exception the
-  redesign must close is library scope over non-platform packages, which
-  `l` never encodes;
+  interactively reachable v1 session state without inferring relationships
+  across contexts, including library scope over non-platform packages;
+- a corpus-adapter gate proving `CorpusManifest` package, platform-framework,
+  and normalized path entries map to the shared coordinate model without
+  changing corpus ordering or population behavior;
 - a no-resolver-policy gate asserting every binding-target kind receives a
   non-success typed selection and that the shared policy has no filesystem or
   network resolution path;
