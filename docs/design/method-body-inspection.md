@@ -212,8 +212,24 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-The existing `LibraryBodyIndex` and `SemanticFactProjection` are the right
-substrates. Coordinate scope should be added there, not rebuilt in CLI code.
+`LibraryBodyIndex` remains the compatibility query facade over one shared body
+acquisition. `LibraryBodyAnalysisPlan` owns producer dependencies and scope;
+the acquisition returns cohesive method, safety, allocation, optimization, and
+resource-lifecycle results. Topic-specific Analysis services consume those
+results rather than adding more unrelated algorithms to the facade.
+For each decoded method, `MethodBodyAnalysisContext` packages the method
+identity, exception regions, the shared Layer-0 `MethodInstructions`, and
+Analysis-owned loop regions. Raw IL and reader-bound method bodies remain
+outside the context so a topic producer cannot create a second decode path.
+`BodySignalAnalysis` is the first topic service to consume that context.
+Allocation path contexts, confidence, and post-dominance remain private
+Layer-1 interpretations rather than becoming neutral context.
+`BodySignalAnalysis` owns array, throw, exception-region, allocating-box, and
+throw-path object signals; it receives the metadata-dependent box judgment
+through a narrow callback. `MethodBodyFlowProbe` owns the bounded throw-path
+probes reused by body-signal and allocation analysis.
+`SemanticFactProjection` remains the coordinate projection substrate.
+Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 
 ### `ILInspector.Research`
 

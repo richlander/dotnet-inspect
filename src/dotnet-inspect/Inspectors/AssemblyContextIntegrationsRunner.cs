@@ -31,6 +31,9 @@ internal sealed class AssemblyContextIntegrationsBatch
     internal ResolvedAssemblyReference? AssemblyForInspection(string path)
         => ResultFor(path).Assembly;
 
+    internal bool IntegrationEvidenceUnavailableFor(string path)
+        => ResultFor(path).Entry is null;
+
     ParticipantResult ResultFor(string path)
         => _resultByPath.TryGetValue(
             System.IO.Path.GetFullPath(path),
@@ -170,7 +173,9 @@ internal static class AssemblyContextIntegrationsRunner
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             // The owning per-library inspection path reports the artifact
             // failure; it must not prevent valid group participants from
