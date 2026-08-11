@@ -204,7 +204,10 @@ command incomplete with a nonzero exit code. Direct `library` and package
 `--library` remain single-assembly controls.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
-gates grouping, correlation, provenance, and retained-generation reuse.
+and `Create_PartitionsNonNetFrameworkFolders` gate framework partitioning.
+`Create_PartitionsSameFrameworkAcrossAssetContexts` gates package asset context
+partitioning. Together they gate correlation, provenance, and
+retained-generation reuse.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
 gates participant-at-a-time retention.
 `PackageIntegrationsWorkspaceTests.OpportunityDemand_UsesTheStreamingParticipantSnapshot`

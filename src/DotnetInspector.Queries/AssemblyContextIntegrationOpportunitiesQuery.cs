@@ -105,8 +105,8 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
     }
 
     /// <summary>
-    /// Runs the Integrations prerequisite and this dependent query for one
-    /// streaming participant before releasing its retained image.
+    /// Executes this query and its Integrations prerequisite for one streamed
+    /// participant before its retained image is released.
     /// </summary>
     public static async Task<TResult> ExecuteParticipantAsync<TResult>(
         AssemblyContextGroup group,
@@ -121,18 +121,21 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
         ArgumentNullException.ThrowIfNull(participant);
         ArgumentNullException.ThrowIfNull(callback);
 
-        var subject = new AssemblyContextSubject(participant.Assembly);
         AssemblyImageAccessResult<TResult> access =
             await group.UseAndReleaseAssemblySessionAsync(
                     participant.Assembly,
                     async (session, retained) =>
                     {
                         AssemblyIntegrationsEntry integrations =
-                            AssemblyContextIntegrationsQuery.Inspect(
-                                subject,
-                                session);
+                            AssemblyContextIntegrationsQuery
+                                .ExecuteParticipant(
+                                    participant,
+                                    session);
                         AssemblyIntegrationOpportunitiesEntry opportunities =
-                            Inspect(participant, integrations, session);
+                            ExecuteParticipant(
+                                participant,
+                                session,
+                                integrations);
                         return await callback(
                                 retained,
                                 integrations,
@@ -140,36 +143,75 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
                             .ConfigureAwait(false);
                     })
                 .ConfigureAwait(false);
-
-        return access switch
+        if (access
+            is AssemblyImageAccessResult<TResult>.Available available)
         {
-            AssemblyImageAccessResult<TResult>.Available available =>
-                available.Value,
-            AssemblyImageAccessResult<TResult>.Rejected rejected =>
-                await callback(
-                        null,
-                        new AssemblyIntegrationsEntry.Rejected(
-                            subject,
-                            rejected.Failure),
-                        new AssemblyIntegrationOpportunitiesEntry.Rejected(
-                            subject,
-                            rejected.Failure))
-                    .ConfigureAwait(false),
+            return available.Value;
+        }
+
+        if (access
+            is AssemblyImageAccessResult<TResult>.Rejected rejected)
+        {
+            var subject =
+                new AssemblyContextSubject(participant.Assembly);
+            var integrations =
+                new AssemblyIntegrationsEntry.Rejected(
+                    subject,
+                    rejected.Failure);
+            return await callback(
+                    null,
+                    integrations,
+                    new AssemblyIntegrationOpportunitiesEntry.Rejected(
+                        subject,
+                        rejected.Failure))
+                .ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException(
+            "Unknown assembly image access result.");
+    }
+
+    static AssemblyIntegrationOpportunitiesEntry ExecuteParticipant(
+        AssemblyContextParticipant participant,
+        AssemblyInspectionSession session,
+        AssemblyIntegrationsEntry integrations)
+    {
+        EnsureSameParticipant(participant, integrations.Subject);
+        return integrations switch
+        {
+            AssemblyIntegrationsEntry.Rejected rejected =>
+                new AssemblyIntegrationOpportunitiesEntry.Rejected(
+                    rejected.Subject,
+                    rejected.Failure),
+            AssemblyIntegrationsEntry.Failed failed =>
+                new AssemblyIntegrationOpportunitiesEntry.Failed(
+                    failed.Subject,
+                    failed.Error),
+            AssemblyIntegrationsEntry.Available available =>
+                Inspect(session, available),
             _ => throw new InvalidOperationException(
-                "Unknown assembly image access result."),
+                $"Unknown assembly integrations entry '{integrations.GetType().Name}'."),
         };
     }
 
     static AssemblyIntegrationOpportunitiesEntry Inspect(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
-        AssemblyIntegrationsEntry integrations)
+        AssemblyIntegrationsEntry.Available integrations)
     {
+        var existing = new HashSet<string>(
+            integrations.EcosystemSignals.Select(
+                static signal => signal.Integration),
+            StringComparer.Ordinal);
+        if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
+            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+
         AssemblyImageAccessResult<
             AssemblyIntegrationOpportunitiesEntry> access =
-            group.UseAssemblySession(
+            group.UseAssemblySession<
+                AssemblyIntegrationOpportunitiesEntry>(
                 participant.Assembly,
-                session => Inspect(participant, integrations, session));
+                session => Inspect(session, integrations, existing));
 
         return access switch
         {
@@ -187,44 +229,34 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
     }
 
     static AssemblyIntegrationOpportunitiesEntry Inspect(
-        AssemblyContextParticipant participant,
-        AssemblyIntegrationsEntry integrations,
-        AssemblyInspectionSession session)
+        AssemblyInspectionSession session,
+        AssemblyIntegrationsEntry.Available integrations)
     {
-        EnsureSameParticipant(participant, integrations.Subject);
-        if (integrations is AssemblyIntegrationsEntry.Rejected rejected)
-        {
-            return new AssemblyIntegrationOpportunitiesEntry.Rejected(
-                rejected.Subject,
-                rejected.Failure);
-        }
-        if (integrations is AssemblyIntegrationsEntry.Failed failed)
-        {
-            return new AssemblyIntegrationOpportunitiesEntry.Failed(
-                failed.Subject,
-                failed.Error);
-        }
-
-        var available =
-            (AssemblyIntegrationsEntry.Available)integrations;
         var existing = new HashSet<string>(
-            available.EcosystemSignals.Select(
+            integrations.EcosystemSignals.Select(
                 static signal => signal.Integration),
             StringComparer.Ordinal);
-        if (!available.OpenTelemetrySignals.IsDefaultOrEmpty)
+        if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
             existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+        return Inspect(session, integrations, existing);
+    }
 
+    static AssemblyIntegrationOpportunitiesEntry Inspect(
+        AssemblyInspectionSession session,
+        AssemblyIntegrationsEntry.Available integrations,
+        HashSet<string> existing)
+    {
         try
         {
             return new AssemblyIntegrationOpportunitiesEntry.Available(
-                available.Subject,
+                integrations.Subject,
                 session.IntegrationOpportunities(existing)
                     .ToImmutableArray());
         }
         catch (BadImageFormatException ex)
         {
             return new AssemblyIntegrationOpportunitiesEntry.Failed(
-                available.Subject,
+                integrations.Subject,
                 ex);
         }
     }

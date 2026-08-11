@@ -202,4 +202,15 @@ public static class AssemblyContextIntegrationsQuery
                     ex));
         }
     }
+
+    internal static AssemblyIntegrationsEntry ExecuteParticipant(
+        AssemblyContextParticipant participant,
+        AssemblyInspectionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(session);
+        return Inspect(
+            new AssemblyContextSubject(participant.Assembly),
+            session);
+    }
 }

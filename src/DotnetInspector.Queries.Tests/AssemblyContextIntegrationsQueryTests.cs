@@ -209,7 +209,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
                             "Injected.Registration"),
                     ],
                     [],
-                    new EcosystemIntegrationPresence()),
+                    scanned.Presence),
             ]);
         var registry =
             new InspectionQueryRegistry<AssemblyContextGroup>()

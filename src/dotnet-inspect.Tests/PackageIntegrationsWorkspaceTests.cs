@@ -4,7 +4,6 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
-using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -193,7 +192,9 @@ public sealed class PackageIntegrationsWorkspaceTests
 
         Assert.True(
             Commands.PackageCommand.RequiresGroupedIntegrations(
-                queries));
+                queries,
+                out bool includeIntegrationOpportunities));
+        Assert.True(includeIntegrationOpportunities);
         Assert.Empty(queries);
     }
 
@@ -205,18 +206,22 @@ public sealed class PackageIntegrationsWorkspaceTests
             [new(path, "net11.0")],
             "Test.Package",
             "1.0.0",
-            includeOpportunities: true);
+            includeIntegrationOpportunities: true);
 
         await workspace.UseAssemblyAsync(
             path,
             (retained, integrations, opportunities) =>
             {
                 Assert.NotNull(retained);
-                Assert.IsType<AssemblyIntegrationsEntry.Available>(
-                    integrations);
+                var availableIntegrations = Assert.IsType<
+                    AssemblyIntegrationsEntry.Available>(
+                        integrations);
                 var available = Assert.IsType<
                     AssemblyIntegrationOpportunitiesEntry.Available>(
                         opportunities);
+                Assert.Same(
+                    availableIntegrations.Subject.Registration,
+                    available.Subject.Registration);
                 Assert.Contains(
                     available.Opportunities,
                     opportunity =>
@@ -240,7 +245,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 "Test.Package",
                 "1.0.0"),
             maxRetainedImageBytes: 1,
-            includeOpportunities: true);
+            includeIntegrationOpportunities: true);
 
         await workspace.UseAssemblyAsync(
             path,

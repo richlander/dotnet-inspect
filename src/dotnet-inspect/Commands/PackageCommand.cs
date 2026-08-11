@@ -2570,11 +2570,12 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        bool integrationOpportunitiesRequested =
-            queries.Contains(
-                AssemblyContextIntegrationOpportunitiesQuery.Definition);
+        bool requiresGroupedIntegrations =
+            RequiresGroupedIntegrations(
+                queries,
+                out bool includeIntegrationOpportunities);
         using PackageIntegrationsWorkspace? integrationsWorkspace =
-            RequiresGroupedIntegrations(queries)
+            requiresGroupedIntegrations
                 ? PackageIntegrationsWorkspace.Create(
                     selected.Select(selection =>
                     {
@@ -2587,8 +2588,8 @@ public class PackageCommand
                             relativePath);
                     }),
                     acquisition,
-                    includeOpportunities:
-                        integrationOpportunitiesRequested)
+                    includeIntegrationOpportunities:
+                        includeIntegrationOpportunities)
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
@@ -2729,6 +2730,19 @@ public class PackageCommand
                         break;
                 }
 
+                switch (opportunities)
+                {
+                    case AssemblyIntegrationOpportunitiesEntry.Rejected
+                        rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        break;
+                    case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
                 return inspectAsync(
                     retainedAssembly,
                     integrations,
@@ -2737,13 +2751,14 @@ public class PackageCommand
     }
 
     internal static bool RequiresGroupedIntegrations(
-        HashSet<InspectionQueryDefinition> queries)
+        HashSet<InspectionQueryDefinition> queries,
+        out bool includeIntegrationOpportunities)
     {
-        bool opportunities =
-            queries.Remove(
-                AssemblyContextIntegrationOpportunitiesQuery.Definition);
-        return queries.Remove(AssemblyContextIntegrationsQuery.Definition)
-            || opportunities;
+        includeIntegrationOpportunities = queries.Remove(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition);
+        return queries.Remove(
+                AssemblyContextIntegrationsQuery.Definition)
+            || includeIntegrationOpportunities;
     }
 
     internal static PackageIntegrationAssembly
