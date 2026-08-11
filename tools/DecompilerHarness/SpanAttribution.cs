@@ -25,8 +25,9 @@ namespace ILInspector.DecompilerHarness;
 ///
 /// Attribution is a harness measurement concern; it reads compiler diagnostics
 /// (an independent oracle) and the source the pipeline already produced. It does
-/// not push a body-span API into the product printer and it never mutates the
-/// artifact that flows to other consumers.
+/// not construct or rewrite the C# artifact: authored-body replacement is owned
+/// by the product's frozen source artifact. This helper only locates spans for
+/// independent diagnostic measurement.
 /// </summary>
 internal static class SpanAttribution
 {
@@ -62,26 +63,12 @@ internal static class SpanAttribution
     // adversarial review). CS0128 has no such dependency: it requires two local
     // declarations sharing a name inside the body, which no shell state can
     // create.
-    /// <summary>
-    /// Methodology version for how <c>invalidBreakdown.productBodyDefect</c> is
-    /// computed. v1 = substitution control only (authored body must compile in
-    /// the failing shell; a broken shell masks the body defect). v2 = v1 plus
-    /// span attribution, which additionally credits a body defect when the shell
-    /// is broken but the decompiled body carries a provably shell-independent
-    /// in-body error. Both are lower bounds and are not directly comparable; the
-    /// history card must not diff productBodyDefect across the boundary.
-    ///
-    /// This lives beside <see cref="BodyIntrinsicSemanticErrorIds"/> because that
-    /// allowlist is the operative definition of the version: widening it changes
-    /// what the stamp means, so the two must move together.
-    /// </summary>
-    internal const int MethodologyVersion = 2;
-
-    // Pinned by MethodologyVersion via
+    // Pinned by AuthoredCorpusMethodology.Version via
     // SpanAttributionTests.BodyIntrinsicAllowlist_IsPinnedToCurrentMethodologyVersion.
-    // Adding an ID here without bumping MethodologyVersion fails that gate: the allowlist
-    // *is* the definition of the stamped methodology, so a silent change would make rows
-    // sharing a stamp incomparable and defeat the history card's version-boundary split.
+    // Adding an ID here without bumping AuthoredCorpusMethodology.Version fails that
+    // gate: the allow list defines the invalid-attribution lineage carried by the
+    // global methodology stamp, so a silent change would make rows sharing a lineage
+    // incomparable.
     internal static readonly ImmutableHashSet<string> BodyIntrinsicSemanticErrorIds =
         ImmutableHashSet.Create(
             StringComparer.Ordinal,

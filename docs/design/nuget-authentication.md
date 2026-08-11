@@ -299,9 +299,11 @@ The status is known inside
 between there and the caller return `string?` and `List<string>?`, so it cannot be returned
 without changing every one of them. Instead
 [`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
-ambient-scope shape already used by `NetworkTelemetry`: a scope is opened around each package
-acquisition, nested async work records into the same collector, and the "nothing resolved" path
-consults it before choosing a message.
+ambient-scope shape already used by `NetworkTelemetry`: a scope is opened at each command
+boundary that turns those nullable results into an operator-facing answer. Package acquisition
+opens one around each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
+queries open one around the complete query. Nested async work records into the same collector,
+and the "nothing resolved" path consults it before choosing a message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let
@@ -311,16 +313,17 @@ a source and a package that had nothing to do with the failure.
 
 Two further rules keep the message honest:
 
-- **404 is never recorded.** It is the one status that genuinely means the package is absent,
-  so a real miss still reports *not found*. A recorder that captured every non-success status
-  would destroy that message, which is why the test suite pins the 404 case as a control.
+- **404 is never recorded as a source failure.** A 404 from package/version enumeration means the
+  package is absent, so a real miss still reports *not found*. A 404 from ancillary listing
+  metadata is instead carried by that operation's typed incomplete-metadata result; range
+  resolution fails closed without falsely declaring the package absent.
 - **A recorded failure is advisory, not fatal.** The collector is only consulted when the
   overall lookup produced nothing, so if one source 401s and another answers, the successful
   result stands. That is this codebase's answer to the third open design question in #3417.
 
 The phase (`reading the service index`, `listing versions`) is taken from the ambient
-`NetworkTrafficKind`, which the network telemetry scope already tracks, so no call site had to
-be taught to describe itself.
+`NetworkTrafficKind`, which the network telemetry scope already tracks, so command boundaries do
+not duplicate the phase labels.
 
 ### The URL is redacted before it is stored
 
