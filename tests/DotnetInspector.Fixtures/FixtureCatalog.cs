@@ -30,6 +30,7 @@ public enum FixtureBoundary
     TargetFramework,
     UntrustedText,
     VersionPair,
+    SourceLinkMap,
 }
 
 public sealed record FixtureAsset(string Name, string ProjectName, string RelativePath);
@@ -93,6 +94,8 @@ public static class FixtureIds
     public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
     public const string HostileLiterals = "hostile.literals";
+    public const string SourceLinkMalformed = "sourcelink.malformed";
+    public const string SourceLinkNormalized = "sourcelink.normalized";
 
     public const string RunFasterAllocation = "runfaster.allocation";
 }
@@ -121,6 +124,20 @@ public static class FixtureCatalog
         "DotnetInspector.HostileNameFixtures.dll",
         Boundaries(FixtureBoundary.UntrustedText),
         "presentation", "untrusted-input");
+
+    public static readonly FixtureDefinition SourceLinkMalformed = Fixture(
+        FixtureIds.SourceLinkMalformed,
+        "DotnetInspector.SourceLinkMalformedFixtures",
+        "DotnetInspector.SourceLinkMalformedFixtures.dll",
+        Boundaries(FixtureBoundary.SourceLinkMap),
+        "sourcelink", "malformed-map");
+
+    public static readonly FixtureDefinition SourceLinkNormalized = Fixture(
+        FixtureIds.SourceLinkNormalized,
+        "DotnetInspector.SourceLinkNormalizedFixtures",
+        "DotnetInspector.SourceLinkNormalizedFixtures.dll",
+        Boundaries(FixtureBoundary.SourceLinkMap),
+        "sourcelink", "normalized-map");
 
     public static readonly FixtureDefinition DiffV1 = Fixture(
         FixtureIds.DiffV1,
@@ -403,6 +420,8 @@ public static class FixtureCatalog
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
         HostileLiterals,
+        SourceLinkMalformed,
+        SourceLinkNormalized,
         DiffV1,
         DiffV2,
         DiffAsmCaller,

@@ -86,9 +86,9 @@ public readonly record struct SourceLinkOrigin
 /// <remarks>
 /// "Reported" here means reported to the caller. Every product call site currently takes
 /// <c>Origin?.RepositoryUrl</c> and drops the reason, so a user sees no repository and no
-/// explanation. Carrying the reason into output is tracked by
-/// <see href="https://github.com/richlander/dotnet-inspect/issues/3590">#3590</see>. That the
-/// reason is always populated is gated by
+/// explanation for a provenance-attribution failure. Map parse errors and rejected entries use
+/// the separate SourceLink map-inspection path; this reason remains available to programmatic
+/// provenance callers. That the reason is always populated is gated by
 /// <c>SourceLinkProvenanceTests.EveryUnestablishedResult_CarriesAReason</c>.
 /// </remarks>
 public readonly record struct SourceLinkProvenanceResult(SourceLinkOrigin? Origin, string Reason)
