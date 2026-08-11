@@ -55,14 +55,19 @@ and the wasm site rebuild is sequenced behind it.
 
 ## The definition schema
 
-A `WorkspaceDefinition` is a versioned JSON document:
+Group definitions and workspace definitions are separate concerns and,
+normally, separate documents. A **group catalog** defines named assembly
+groups: the product ships the catalog of well-known groups (the `:Platform`
+family), and a bundle may ship a catalog of curated custom groups that
+several workspace definitions reuse. A **workspace definition** describes one
+workspace — its context groups and scenarios — and subscribes to groups by
+reference; it defines none.
+
+A group catalog document:
 
 ```json
 {
   "schemaVersion": 1,
-  "id": "stj-serializer-tour",
-  "title": "System.Text.Json serializer tour",
-  "description": "JsonSerializer surface with the platform in scope.",
   "groups": [
     {
       "name": "Extensions",
@@ -71,11 +76,23 @@ A `WorkspaceDefinition` is a versioned JSON document:
         { "kind": "package", "id": "Microsoft.Extensions.Logging.Abstractions", "version": "10.0.0", "framework": "net10.0" }
       ]
     }
-  ],
+  ]
+}
+```
+
+A workspace definition subscribes by reference. The System.Text.Json demo
+needs only the platform and one package — no custom group at all:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "stj-serializer-tour",
+  "title": "System.Text.Json serializer tour",
+  "description": "JsonSerializer surface with the platform in scope.",
   "contextGroups": [
     {
       "name": "workspace",
-      "subscribe": ":Platform@10.0.10+Extensions",
+      "subscribe": ":Platform@10.0.10",
       "framework": "net10.0",
       "members": [
         { "kind": "package", "id": "System.Text.Json", "version": "10.0.0", "framework": "net10.0" }
@@ -86,24 +103,27 @@ A `WorkspaceDefinition` is a versioned JSON document:
     {
       "name": "serializer",
       "contextGroup": "workspace",
-      "view": {
-        "lens": "api",
-        "type": "System.Text.Json.JsonSerializer",
-        "memberAnchor": "74b6b4b321",
-        "section": "call-graph"
-      }
+      "view": { "lens": "api", "type": "System.Text.Json.JsonSerializer" }
     }
   ]
 }
 ```
 
+A call-graph demo over the Extensions family is the composition case: its
+context group subscribes `:Platform+Extensions`, referencing the catalog's
+group rather than restating it, and its scenario selects the target overload
+by anchor digest (`"memberAnchor": "74b6b4b321"`, `"section": "call-graph"`).
+
 Field semantics:
 
-- `schemaVersion` — required; readers reject documents with a higher major
-  version than they understand. There is no unversioned form.
-- `groups` — custom named assembly group definitions local to this document.
-  Well-known groups (the `:Platform` family) are product-defined and never
-  restated here; a document that redefines a well-known name is invalid.
+- `schemaVersion` — required in both document kinds; readers reject documents
+  with a higher major version than they understand. There is no unversioned
+  form.
+- `groups` — catalog documents only, with one narrow exception: a workspace
+  definition that must travel as a single self-contained file may inline
+  document-local group definitions. Inlining is a portability convenience,
+  not the model; bundles register groups in a catalog so definitions reuse
+  them. In either home, redefining a well-known group name is invalid.
 - `contextGroups` — one entry per context-group definition, matching the
   bundle contract's vocabulary. Each lowers to one `AssemblyContextGroup`.
   `subscribe` is a group expression (see the grammar below); `members` are
@@ -205,11 +225,12 @@ Nothing parses a name to learn a group's members, and pins are `@` suffixes
 or schema fields — never name-mangling (`Platform.net10.0` is not a name in
 this scheme).
 
-Well-known groups are product-defined so every host resolves them
-identically. Custom groups travel in the definition or bundle that uses
-them; a share packet referencing a custom group is meaningful only to a host
-shipping that bundle, so share links should prefer well-known groups plus
-inline package coordinates.
+Well-known groups live in the product's catalog so every host resolves them
+identically. Custom groups travel in the catalog of the bundle that uses
+them (or inline, in a self-contained definition file); a share packet
+referencing a custom group is meaningful only to a host shipping that
+catalog, so share links should prefer well-known groups plus inline package
+coordinates.
 
 ### Shell note
 
