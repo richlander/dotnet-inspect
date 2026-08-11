@@ -1058,6 +1058,60 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tip:", error);
     }
 
+    [Theory]
+    [InlineData("--mermaid", false)]
+    [InlineData("--tree", false)]
+    [InlineData("--mermaid", true)]
+    public async Task Member_NonGraphScalarCount_IgnoresGraphPresentationFormat(
+        string format,
+        bool markdown)
+    {
+        var arguments = new List<string>
+        {
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library", TestAssemblyPath,
+            "-S", "Calls",
+            "--count",
+        };
+        if (markdown)
+            arguments.Add("--markdown");
+        arguments.Add(format);
+        arguments.AddRange(["--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(
+            int.TryParse(output.Trim(), CultureInfo.InvariantCulture, out var count),
+            output);
+        Assert.True(count > 0);
+    }
+
+    [Theory]
+    [InlineData("--mermaid", "multiple sections")]
+    [InlineData("--tree", "exactly one")]
+    public async Task Member_MultiSectionCount_RejectsGraphPresentationFormat(
+        string format,
+        string expectedError)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library", TestAssemblyPath,
+            "-S", "Calls,Safety Facts",
+            "--count",
+            format,
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+    }
+
     [Fact]
     public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
     {
@@ -14683,6 +14737,86 @@ public partial class CommandExecutionTests
                         StringComparer.Ordinal);
                 Assert.Equal(0, columnCounts["Package Info"]);
                 Assert.Equal(targetFrameworksCount, columnCounts["Target Frameworks"]);
+            }
+
+            var (combinedExit, combinedOutput, combinedError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info,Target Frameworks",
+                    "--fields", "Version", "--columns", "TFM",
+                    "--count", "--json");
+            Assert.Equal(0, combinedExit);
+            Assert.Empty(combinedError);
+            using (var combined = JsonDocument.Parse(combinedOutput))
+            {
+                var combinedCounts = combined.RootElement
+                    .EnumerateArray()
+                    .ToDictionary(
+                        row => row.GetProperty("section").GetString()!,
+                        row => row.GetProperty("count").GetInt32(),
+                        StringComparer.Ordinal);
+                Assert.Equal(2, combinedCounts["Package Info"]);
+                Assert.Equal(targetFrameworksCount, combinedCounts["Target Frameworks"]);
+            }
+
+            var (fileColumnExit, fileColumnOutput, fileColumnError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package README file,Manifest",
+                    "--columns", "Kind", "--count", "--json");
+            Assert.Equal(0, fileColumnExit);
+            Assert.Empty(fileColumnError);
+            using (var fileColumnMap = JsonDocument.Parse(fileColumnOutput))
+            {
+                var fileColumnCounts = fileColumnMap.RootElement
+                    .EnumerateArray()
+                    .ToDictionary(
+                        row => row.GetProperty("section").GetString()!,
+                        row => row.GetProperty("count").GetInt32(),
+                        StringComparer.Ordinal);
+                Assert.Equal(0, fileColumnCounts["Package README file"]);
+                Assert.True(fileColumnCounts["Manifest"] > 0);
+            }
+
+            foreach (var columns in new[] { "Path", "P*" })
+            {
+                var (extractedColumnExit, extractedColumnOutput, extractedColumnError) =
+                    await RunAppAsync(
+                        "package", packagePath, packagePath,
+                        "-S", "Package README file,Manifest",
+                        "--columns", columns, "--count", "--json");
+                Assert.Equal(0, extractedColumnExit);
+                Assert.Empty(extractedColumnError);
+                using var extractedColumnMap = JsonDocument.Parse(extractedColumnOutput);
+                var extractedColumnCounts = extractedColumnMap.RootElement
+                    .EnumerateArray()
+                    .ToDictionary(
+                        row => row.GetProperty("section").GetString()!,
+                        row => row.GetProperty("count").GetInt32(),
+                        StringComparer.Ordinal);
+                Assert.Equal(2, extractedColumnCounts["Package README file"]);
+                Assert.Equal(0, extractedColumnCounts["Manifest"]);
+            }
+
+            var (composedExit, composedOutput, composedError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info,Package README file,Manifest",
+                    "--fields", "Version", "--columns", "Path",
+                    "--count", "--json");
+            Assert.Equal(0, composedExit);
+            Assert.Empty(composedError);
+            using (var composedMap = JsonDocument.Parse(composedOutput))
+            {
+                var composedCounts = composedMap.RootElement
+                    .EnumerateArray()
+                    .ToDictionary(
+                        row => row.GetProperty("section").GetString()!,
+                        row => row.GetProperty("count").GetInt32(),
+                        StringComparer.Ordinal);
+                Assert.Equal(2, composedCounts["Package Info"]);
+                Assert.Equal(2, composedCounts["Package README file"]);
+                Assert.Equal(0, composedCounts["Manifest"]);
             }
 
             var (emptyProjectionExit, emptyProjectionOutput, emptyProjectionError) =

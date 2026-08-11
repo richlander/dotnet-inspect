@@ -392,7 +392,8 @@ public class ApiCommand
             return (null!, 1);
 
         if (options is MemberOptions memberFormat
-            && options.Discover is null)
+            && options.Discover is null
+            && !(options.Count && countMapSections is null))
         {
             memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
             options = memberFormat;

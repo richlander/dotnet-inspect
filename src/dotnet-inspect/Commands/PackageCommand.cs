@@ -972,6 +972,7 @@ public class PackageCommand
         SectionPipeline<InspectionResult> pipeline)
     {
         var selectedSections = ResolveMultiPackageCountSections(options, pipeline);
+        var schema = PackageDiscoverySchema();
 
         var projection = new CountProjection();
         var documentSections = new HashSet<string>(
@@ -980,7 +981,8 @@ public class PackageCommand
 
         if (documentSections.Remove(PackageSections.PackageInfo))
         {
-            if (options.Columns is { Length: > 0 })
+            if (ProjectionExcludesSection(
+                    schema, PackageSections.PackageInfo, options))
             {
                 projection.RecordRows(PackageSections.PackageInfo, 0);
             }
@@ -998,11 +1000,22 @@ public class PackageCommand
         foreach (var section in selectedSections.Where(IsPackageFileSection))
         {
             documentSections.Remove(section);
+            int count = ProjectionExcludesSection(schema, section, options)
+                ? 0
+                : BuildMultiPackageFileRows(
+                    results, section, options.SkipEmpty).Count;
             projection.RecordRows(
                 section,
-                WindowedCount(
-                    BuildMultiPackageFileRows(results, section, options.SkipEmpty).Count,
-                    options.Rows));
+                WindowedCount(count, options.Rows));
+        }
+
+        foreach (var section in documentSections.ToArray())
+        {
+            if (!ProjectionExcludesSection(schema, section, options))
+                continue;
+
+            documentSections.Remove(section);
+            projection.RecordRows(section, 0);
         }
 
         if (documentSections.Count == 0)
@@ -1014,6 +1027,14 @@ public class PackageCommand
             SelectDefault = false,
             FixedOverview = false,
             IncludeSections = documentSections,
+            Fields = HasMatchingProjection(
+                schema, documentSections, "field", options.Fields)
+                    ? options.Fields
+                    : null,
+            Columns = HasMatchingProjection(
+                schema, documentSections, "column", options.Columns)
+                    ? options.Columns
+                    : null,
         };
         foreach (var result in results)
         {
@@ -1023,6 +1044,42 @@ public class PackageCommand
 
         return projection;
     }
+
+    private static bool ProjectionExcludesSection(
+        DocumentSchema schema,
+        string section,
+        InspectionOptions options)
+    {
+        var itemKind = schema.GetSection(section)?.ItemKind;
+        if (itemKind?.Equals("field", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return options.Fields is { Length: > 0 }
+                ? !ProjectionMatches(schema, section, options.Fields)
+                : options.Columns is { Length: > 0 };
+        }
+
+        return itemKind?.Equals("column", StringComparison.OrdinalIgnoreCase) == true
+            && options.Columns is { Length: > 0 }
+            && !ProjectionMatches(schema, section, options.Columns);
+    }
+
+    private static bool HasMatchingProjection(
+        DocumentSchema schema,
+        IEnumerable<string> sections,
+        string itemKind,
+        string[]? selectors)
+        => selectors is { Length: > 0 }
+            && sections.Any(section =>
+                schema.GetSection(section)?.ItemKind.Equals(
+                    itemKind,
+                    StringComparison.OrdinalIgnoreCase) == true
+                && ProjectionMatches(schema, section, selectors));
+
+    private static bool ProjectionMatches(
+        DocumentSchema schema,
+        string section,
+        string[] selectors)
+        => schema.ValidateProjection(section, selectors).Resolved.Length > 0;
 
     private static HashSet<string> ResolveMultiPackageCountSections(
         InspectionOptions options,
