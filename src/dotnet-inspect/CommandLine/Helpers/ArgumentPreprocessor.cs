@@ -128,6 +128,10 @@ public static class ArgumentPreprocessor
         // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
         // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
         // ';'-joined token so repeated and separated forms behave the same.
+        // System.CommandLine otherwise parses `--columns=` like a bare `--columns`; split the
+        // inline-empty spelling first so projection validation can distinguish the explicit value.
+        args = ExpandInlineEmptyListOption(args, ColumnsAliases);
+        args = ExpandInlineEmptyListOption(args, FieldsAliases);
         args = MergeRepeatedListOption(args, SelectAliases, "-S");
         args = MergeRepeatedListOption(args, ColumnsAliases, "--columns");
         args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
@@ -451,6 +455,26 @@ public static class ArgumentPreprocessor
 
         result[valueSlot] = string.Join(';', values);
         return [.. result];
+    }
+
+    private static string[] ExpandInlineEmptyListOption(string[] args, string[] aliases)
+    {
+        List<string>? result = null;
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (IsListOptionAlias(args[i], aliases, out var inlineValue) && inlineValue == "")
+            {
+                result ??= [.. args[..i]];
+                result.Add(args[i][..^1]);
+                result.Add("");
+            }
+            else
+            {
+                result?.Add(args[i]);
+            }
+        }
+
+        return result is null ? args : [.. result];
     }
 
     private static bool IsListOptionAlias(string arg, string[] aliases, out string? inlineValue)

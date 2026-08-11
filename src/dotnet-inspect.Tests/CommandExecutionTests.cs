@@ -6409,6 +6409,45 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public async Task Find_InlineEmptyProjectionUnderJson_FailsInsteadOfEmittingTypedJson(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, option, "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{option[..^1]} requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_RepeatedInlineEmptyProjectionUnderJson_IsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns=", "--columns=", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--columns requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--columns")]
+    [InlineData("--fields")]
+    public async Task Find_BareProjectionUnderJson_PreservesTypedJson(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, option, option, "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("results", out _));
+    }
+
+    [Theory]
     [InlineData("Type;Type")]
     [InlineData("Type, Type")]
     [InlineData("Type,TYPE")]

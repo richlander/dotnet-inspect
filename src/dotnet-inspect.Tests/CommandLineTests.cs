@@ -601,6 +601,16 @@ public class CommandLineTests
         Assert.Equal(["member", "Foo", "--columns", "Select;Signature"], result);
     }
 
+    [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public void PreprocessArgs_ExpandsInlineEmptyProjectionValue(string option)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["find", "Foo", option]);
+
+        Assert.Equal(["find", "Foo", option[..^1], ""], result);
+    }
+
     [Fact]
     public void PreprocessArgs_SingleSelect_Unchanged()
     {
