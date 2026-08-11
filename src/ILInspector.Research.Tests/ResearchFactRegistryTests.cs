@@ -1,3 +1,4 @@
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -7,6 +8,125 @@ namespace ILInspector.Research.Tests;
 
 public class ResearchFactRegistryTests
 {
+    [Fact]
+    public void Registry_UnionsProducerAnalysisRequirementsBeforeAcquisition()
+    {
+        Assert.Equal(
+            ResearchFactRequirements.None,
+            new ResearchFactRegistry().Requirements);
+        Assert.Equal(
+            ResearchFactRequirements.None,
+            ResearchFactRegistry.CallRelationships.Requirements);
+
+        ResearchFactRequirements requirements =
+            ResearchFactRegistry.Default.Requirements;
+        Assert.Equal(ResearchAnalysisScope.Assembly, requirements.Scope);
+        Assert.True(
+            requirements.Features.HasFlag(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+        Assert.True(
+            requirements.Features.HasFlag(
+                LibraryBodyAnalysisFeatures.Allocations));
+    }
+
+    [Fact]
+    public void CallRelationshipRegistry_RequiresSuppliedCallSites()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ResearchViews.CollectFacts(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.BoxInt),
+                registry: ResearchFactRegistry.CallRelationships));
+    }
+
+    [Fact]
+    public void RequirementsNone_DoesNotResolveAnAssemblyContext()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        var producer = new AssemblyContextCapturingProducer();
+
+        _ = ResearchViews.CollectFacts(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            registry: new ResearchFactRegistry(producer));
+
+        Assert.True(producer.WasInvoked);
+        Assert.Null(producer.AssemblyContext);
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_UsesMemberScopeAndReusesCompatibleFullIndex()
+    {
+        string sourcePath =
+            typeof(ResearchFixture).Assembly.Location;
+        int token = LibraryBodyIndex.Open(
+                sourcePath,
+                LibraryBodyAnalysisFeatures.MethodEvidence)
+            .Methods.First(method =>
+                method.Name
+                    == nameof(
+                        ResearchFixture.CallsAllocInLoopCallee))
+            .MetadataToken;
+        string copyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-{Guid.NewGuid():N}.dll");
+        string fullFirstPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-{Guid.NewGuid():N}.dll");
+        File.Copy(sourcePath, copyPath);
+        File.Copy(sourcePath, fullFirstPath);
+        try
+        {
+            ResearchFactRequirements member =
+                ResearchFactRequirements.ForMember(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            LibraryBodyIndex scoped =
+                AnalysisIndexCache.ForPath(copyPath, member, token);
+            Assert.NotEmpty(scoped.DirectCalls);
+            Assert.All(
+                scoped.DirectCalls,
+                call => Assert.Equal(
+                    token,
+                    call.Caller.MetadataToken));
+
+            ResearchFactRequirements assembly =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            LibraryBodyIndex full =
+                AnalysisIndexCache.ForPath(copyPath, assembly, token);
+            Assert.NotSame(scoped, full);
+            Assert.True(
+                full.DirectCalls.Length
+                    > scoped.DirectCalls.Length);
+            Assert.Same(
+                scoped,
+                AnalysisIndexCache.ForPath(copyPath, member, token));
+
+            LibraryBodyIndex fullFirst =
+                AnalysisIndexCache.ForPath(
+                    fullFirstPath,
+                    assembly,
+                    token);
+            Assert.Same(
+                fullFirst,
+                AnalysisIndexCache.ForPath(
+                    fullFirstPath,
+                    member,
+                    token));
+        }
+        finally
+        {
+            File.Delete(copyPath);
+            File.Delete(fullFirstPath);
+        }
+    }
+
     [Fact]
     public void Registry_OrdersProducersAfterTheirDependencies()
     {
@@ -461,6 +581,9 @@ public class ResearchFactRegistryTests
         public string Name => "counting";
         public IReadOnlyList<string> Produces { get; } = ["cost.test", "semantics.test", "cost.header.test"];
         public IReadOnlyList<string> DependsOn => [];
+        public ResearchFactRequirements Requirements { get; } =
+            ResearchFactRequirements.ForAssembly(
+                LibraryBodyAnalysisFeatures.MethodEvidence);
 
         public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
         {
@@ -489,6 +612,30 @@ public class ResearchFactRegistryTests
                     new AnnotationDescriptor("cost.header.test", AnnotationCategory.Cost, "test header"),
                     "shared")
             ];
+        }
+
+    }
+
+    sealed class AssemblyContextCapturingProducer
+        : IResearchFactProducer
+    {
+        public bool WasInvoked { get; private set; }
+        public ResearchAssemblyContext? AssemblyContext
+        {
+            get;
+            private set;
+        }
+
+        public string Name => "assembly-context-capturing";
+        public IReadOnlyList<string> Produces => [];
+        public IReadOnlyList<string> DependsOn => [];
+
+        public IReadOnlyList<IAnnotation> Produce(
+            ResearchFactContext context)
+        {
+            WasInvoked = true;
+            AssemblyContext = context.Assembly;
+            return [];
         }
     }
 }
