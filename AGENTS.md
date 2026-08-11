@@ -276,6 +276,41 @@ release, and `README.md` (packed as the package readme) and the shipped
 version moves and update whatever the release changed; the checklist is in
 `docs/release-workflow.md`.
 
+### Package acquisition when nuget.org is disabled
+
+Some machine-level NuGet configurations disable nuget.org in favor of a
+company-imposed proxy feed. When that proxy does not mirror a pinned package
+version -- the co-developed `Markout` pins in `Directory.Packages.props` are
+the common case -- restore fails with `NU1603` ("was not found ... resolved
+instead") even though nuget.org serves the exact pin.
+
+Do not edit the machine-level NuGet config, and do not commit a repository
+`nuget.config` that starts with `<clear/>`: clearing the inherited sources on
+such a machine has previously left it with no usable feed at all. Instead,
+override the source list for a single restore. `--source`/`-s` replaces the
+configured feeds for that one invocation only and downloads the pinned
+versions into the global package cache (`~/.nuget/packages`):
+
+```bash
+dotnet restore dotnet-inspect.slnx -s https://api.nuget.org/v3/index.json
+```
+
+Subsequent restores resolve exact centrally-pinned versions from that cache
+without consulting any feed, so plain `dotnet build` works afterward. The fix
+is per-machine and must be repeated after `dotnet nuget locals all --clear` or
+when a pin moves to a version the proxy still lacks.
+
+Prefer `--source` over `--add-source` for this recovery: a restore given both
+nuget.org and the proxy has been observed to still fail with `NU1603` when the
+proxy answers with a different version of the same package.
+
+Acquiring the shipped tool accepts the same override, verified for both forms:
+
+```bash
+dotnet tool install -g dotnet-inspect --source https://api.nuget.org/v3/index.json
+dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
+```
+
 ### File-based apps
 
 Do not use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files.
