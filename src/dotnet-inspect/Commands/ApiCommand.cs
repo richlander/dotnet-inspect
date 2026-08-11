@@ -121,7 +121,8 @@ public class ApiCommand
                     || !CountOutput.ValidateMapFormat(
                         listingOptions.Format,
                         OutputFormatter.ResolveCountMapSections(
-                            typePipeline, listingOptions.IncludeSections, fixedOverview: false))))
+                            typePipeline, listingOptions.IncludeSections, fixedOverview: false),
+                        listingOptions.Tree)))
             {
                 return null;
             }
@@ -326,7 +327,8 @@ public class ApiCommand
                 typePipeline, selectionSections, fixedOverview: false);
         if (options.Discover == null && options.Count && !options.SelectDeferredToListing
             && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
-                || !CountOutput.ValidateMapFormat(options.Format, countMapSections)))
+                || !CountOutput.ValidateMapFormat(
+                    options.Format, countMapSections, options.Tree)))
         {
             return (null!, 1);
         }
@@ -917,8 +919,8 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
-    /// nothing. Returns false when the caller should stop.
+    /// Fails a projection whose names cannot apply to the selected shape, rather than exiting 0
+    /// with an empty or partially unrelated render. Returns false when the caller should stop.
     /// </summary>
     /// <remarks>
     /// This is the gate for "a projection that matches nothing must not look like success".
@@ -944,9 +946,15 @@ public class ApiCommand
     /// prevent.</item>
     /// </list>
     ///
-    /// The name check is deliberately a NARROWING condition on an already-empty render, never a
-    /// pre-check. Two earlier attempts validated names up front and both produced false negatives,
-    /// because the set of legitimately projectable names is wider than any one section's schema:
+    /// The name check is normally a narrowing condition on an already-empty render. When another
+    /// selected section writes content, it also runs if the selection contains a section of the
+    /// projected kind; otherwise unrelated rows can hide an invalid projection. It remains
+    /// disabled for a cross-kind projection such as <c>-S Classes --fields NoSuchField</c>, where
+    /// fields intentionally do not constrain the selected table.
+    ///
+    /// The candidates still come from every section, not only the selection. Two earlier attempts
+    /// validated against selected-section names and produced false negatives, because the set of
+    /// legitimately projectable names is wider than any one section's schema:
     /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
     /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
     /// that survives regardless of which section is selected. Both of those RENDER, so ordering
@@ -957,12 +965,21 @@ public class ApiCommand
 
     private static bool TryReportEmptyProjection(bool wroteAnyContent, ApiOptions options)
     {
-        if (wroteAnyContent)
-            return true;
-
         var names = options.Fields ?? options.Columns;
         if (names is not { Length: > 0 })
             return true;
+
+        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
+        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        if (wroteAnyContent
+            && options.IncludeSections is { Count: > 0 } sections
+            && !sections.Any(section =>
+                schema.GetSection(section)?.ItemKind.Equals(
+                    wantedKind,
+                    StringComparison.OrdinalIgnoreCase) == true))
+        {
+            return true;
+        }
 
         // Resolved by KIND across EVERY section, not against the selected sections. Two
         // independent corrections are folded in here, and dropping either one reopens a real
@@ -979,8 +996,6 @@ public class ApiCommand
         // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
         // unrelated section's column and silently succeed while printing nothing. `--fields` can
         // only be satisfied by a field and `--columns` only by a column.
-        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
-        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
         var candidates = new List<string>();
         foreach (var section in schema.SectionNames)
         {

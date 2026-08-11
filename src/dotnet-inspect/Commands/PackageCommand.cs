@@ -666,12 +666,11 @@ public class PackageCommand
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
-            // Verify package signature if nupkg is available
-            if (resolution.NupkgPath != null && (options.Verbosity >= Verbosity.Normal || wantsSignals))
-            {
-                logger.Log($"Verifying package signature: {Path.GetFileName(resolution.NupkgPath)}");
-                result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
-            }
+            await PopulatePackageSignatureAsync(
+                result,
+                resolution.NupkgPath,
+                ShouldVerifyPackageSignature(options, wantsSignals, pipeline),
+                logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
@@ -1813,6 +1812,12 @@ public class PackageCommand
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
+            await PopulatePackageSignatureAsync(
+                result,
+                resolution.NupkgPath,
+                ShouldVerifyPackageSignature(options, wantsSignals, pipeline),
+                logger.Log);
+
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             if (wantsFilesSection)
@@ -1864,6 +1869,34 @@ public class PackageCommand
             }
         }
     }
+
+    private static async Task PopulatePackageSignatureAsync(
+        InspectionResult result,
+        string? nupkgPath,
+        bool shouldVerify,
+        Action<string> log)
+    {
+        if (nupkgPath is null || !shouldVerify)
+            return;
+
+        log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
+        result.SignatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
+    }
+
+    private static bool ShouldVerifyPackageSignature(
+        InspectionOptions options,
+        bool wantsSignals,
+        SectionPipeline<InspectionResult> pipeline)
+        => options.Verbosity >= Verbosity.Normal
+            || wantsSignals
+            || options.IncludeSections?.Contains(
+                PackageSections.PackageInfo) == true
+            || options.IncludeSections?.Contains(
+                PackageSections.Signature) == true
+            || (options.FixedOverview
+                && pipeline.FixedOverviewSectionNames.Contains(
+                    PackageSections.PackageInfo,
+                    StringComparer.OrdinalIgnoreCase));
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
     {

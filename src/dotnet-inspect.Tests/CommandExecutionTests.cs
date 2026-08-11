@@ -1298,6 +1298,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_MultiSectionCount_RejectsTreeForDirectAndDeferredListings()
+    {
+        foreach (var target in new[]
+        {
+            Array.Empty<string>(),
+            new[] { "System.Coll" },
+        })
+        {
+            var (exit, output, error) = await RunAppAsync(
+                ["type", .. target,
+                    "--platform", target.Length == 0
+                        ? "System.Text.Json"
+                        : "System.Private.CoreLib",
+                    "-S", "Classes,Structs",
+                    "--count", "--tree", "--tips", "q"]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("exactly one", error);
+        }
+    }
+
+    [Fact]
     public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4308,6 +4331,17 @@ public partial class CommandExecutionTests
         Assert.Equal(1, countExit);
         Assert.Contains("NoSuchField", countError, StringComparison.Ordinal);
         Assert.DoesNotContain("0", countOutput.Trim(), StringComparison.Ordinal);
+
+        var (mixedCountExit, mixedCountOutput, mixedCountError) =
+            await RunAppAsync(
+                "type", "--platform", "System.Text.Json",
+                "-S", "API Info,Classes",
+                "--fields", "NoSuchField",
+                "--count", "--json", "--tips", "q");
+
+        Assert.Equal(1, mixedCountExit);
+        Assert.Empty(mixedCountOutput);
+        Assert.Contains("NoSuchField", mixedCountError, StringComparison.Ordinal);
 
         // --plaintext wrote straight to the console and so never saw the gate at all, which is
         // the same bypass shape as the fact-table routing in #3648: a path that skips the shared
@@ -15753,6 +15787,48 @@ public partial class CommandExecutionTests
             Assert.Equal(0, projectedWindowExit);
             Assert.Empty(projectedWindowError);
             Assert.Equal("0\n", projectedWindowOutput.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiPackageCount_AcquiresSignatureRows()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (singleExit, singleOutput, singleError) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Signature", "--count", "--tips", "q");
+            var (multiExit, multiOutput, multiError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Signature", "--count", "--tips", "q");
+            var (singleInfoExit, singleInfoOutput, singleInfoError) =
+                await RunAppAsync(
+                    "package", packagePath,
+                    "-S", "Package Info", "--count", "--tips", "q");
+            var (multiInfoExit, multiInfoOutput, multiInfoError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info", "--count", "--tips", "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.Equal(0, multiExit);
+            Assert.Empty(multiError);
+            Assert.Equal(
+                2 * int.Parse(singleOutput.Trim(), CultureInfo.InvariantCulture),
+                int.Parse(multiOutput.Trim(), CultureInfo.InvariantCulture));
+            Assert.Equal(0, singleInfoExit);
+            Assert.Empty(singleInfoError);
+            Assert.Equal(0, multiInfoExit);
+            Assert.Empty(multiInfoError);
+            Assert.Equal(
+                2 * int.Parse(singleInfoOutput.Trim(), CultureInfo.InvariantCulture),
+                int.Parse(multiInfoOutput.Trim(), CultureInfo.InvariantCulture));
         }
         finally
         {

@@ -44,14 +44,26 @@ public static class CountOutput
     }
 
     /// <summary>
-    /// Validates that the selected format can represent a multi-section count map.
-    /// Scalar counts are format-independent bare numbers, so they remain valid for every format.
+    /// Validates that the selected presentation can represent a multi-section count map.
+    /// Scalar counts are format-independent bare numbers, so they remain valid for every format
+    /// and ignore a tree presentation flag.
     /// </summary>
     public static bool ValidateMapFormat(
         OutputFormat format,
-        IReadOnlyList<string>? orderedSections)
+        IReadOnlyList<string>? orderedSections,
+        bool tree = false)
     {
-        if (orderedSections is null || format != OutputFormat.Mermaid)
+        if (orderedSections is null)
+            return true;
+
+        if (tree)
+        {
+            CommandError.Write(
+                "--count cannot render multiple sections as --tree; --tree requires exactly one selected shape.");
+            return false;
+        }
+
+        if (format != OutputFormat.Mermaid)
             return true;
 
         CommandError.Write(
