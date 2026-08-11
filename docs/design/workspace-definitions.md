@@ -181,7 +181,8 @@ Field semantics:
   view concern, because scoping is a lens on a context, not a different
   context. The packet spells the single-library platform case `l` today
   and drops the reachable package-library case entirely; the field covers
-  both (see the session-closure discussion under Projections). Selection state uses
+  both (see the session-closure discussion under Projections). Selection
+  state uses
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
