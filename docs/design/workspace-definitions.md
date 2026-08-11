@@ -147,7 +147,9 @@ Field semantics:
   definitions"). Each lowers to one `AssemblyContextGroup`. `subscribe` is a
   group expression (see the grammar below); `members` are additional inline
   coordinates overlaid on the subscription. A context must have at least one
-  of the two.
+  of the two. The array itself may be omitted — see
+  [the implicit platform context](#the-implicit-platform-context) — but a
+  workspace document must carry at least one of `contexts` or `scenarios`.
 - `scenarios` — named compositions of a context with view and query presets,
   per the bundle contract's separation of workspace definition, query
   preset, and view preset. A scenario has two preset slots: `view`, whose
@@ -157,6 +159,29 @@ Field semantics:
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
+
+### The implicit platform context
+
+A scenario that names no `context`, in a document that declares no
+`contexts`, resolves against the **implicit platform context**: the latest
+minimal runtime platform — exactly `{ "subscribe": ":Platform" }`, floating
+version and framework, the host's current defaults. The default is sugar,
+not mechanism: it is expressible in the ordinary vocabulary, and it makes
+platform-only scenarios ("show this BCL type's call graph") legal with no
+authored workspace at all.
+
+Two guardrails keep it from surprising anyone. In a document that declares
+any `contexts`, every scenario must name its context — the implicit default
+never overrides declared structure, so omitting `context` in a structured
+document is invalid rather than a silent fall-through to the platform. And a
+bundled scenario-only document floats by construction, so the float warning
+above steers preserved demos toward a declared, pinned context.
+
+At lowering time the implicit context is a context like any other, so a
+scenario-only document still produces the "one or more" context-group
+definitions the bundle contract requires of a workspace; whether the
+contract owner wants the relaxed authoring form recorded in the contract is
+flagged the same way as the binding-policy amendment above.
 
 ### Scenario activation
 
@@ -399,9 +424,6 @@ answer; each needs a decision before or during implementation.
   unambiguous — the pin is the runtime-pack version. What
   `:Extensions@<version>` means for a custom group whose members carry their
   own versions (override, constraint, or error) is unresolved.
-- **Empty `contexts`.** The bundle contract gives a workspace definition
-  "one or more" context-group definitions; whether a scenario-only document
-  is ever legal would need that rule relaxed by its owner.
 - **Anonymous transposed scenarios.** The URL projection emits one unnamed
   scenario while `scenarios` are otherwise named; whether `name` is
   optional-for-single or the transposition synthesizes a reserved name is a
