@@ -181,13 +181,8 @@ public class PackageCommand
                     options = options with { Verbosity = requiredVerbosity };
             }
 
-            // Pre-render validation: check --fields/--columns names against the section schema
-            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
-            {
-                var schemaMap = PackageDiscoverySchema();
-                if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
-                    return 1;
-            }
+            if (!ValidatePackageProjection(options, packageArgs.Length))
+                return 1;
         }
 
         if (packageArgs.Length < 1)
@@ -1037,6 +1032,13 @@ public class PackageCommand
         "Vulnerabilities"
     ];
 
+    private static readonly string[] MultiPackageInfoColumnNames =
+    [
+        "Package",
+        "Field",
+        "Value",
+    ];
+
     private static readonly string[] PackageSignalsColumnNames =
     [
         "Area",
@@ -1047,6 +1049,83 @@ public class PackageCommand
 
     private static DocumentSchema PackageDiscoverySchema()
         => AddPackageDynamicDiscoveryItems(InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
+
+    private static bool ValidatePackageProjection(
+        InspectionOptions options,
+        int packageCount)
+    {
+        if (options.Fields is not { Length: > 0 }
+            && options.Columns is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        bool multiPackageInfoShape =
+            packageCount > 1
+            && (options.Count || options.Tabular)
+            && !options.FixedOverview
+            && !HasPathFilter(options)
+            && !SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections)
+            && (options.IncludeSections is not { Count: > 0 }
+                || (options.IncludeSections.Count == 1
+                    && options.IncludeSections.Contains(
+                        PackageSections.PackageInfo)));
+        if (multiPackageInfoShape)
+        {
+            bool valid = true;
+            if (options.Fields is { Length: > 0 })
+            {
+                valid &= ProjectionDiagnostics.ValidateProjection(
+                    PackageDiscoverySchema(),
+                    PackageSections.PackageInfo,
+                    options.Fields,
+                    columns: null);
+            }
+
+            if (options.Columns is { Length: > 0 })
+            {
+                var combinedSchema = new DocumentSchema().Add(
+                    PackageSections.PackageInfo,
+                    "column",
+                    MultiPackageInfoColumnNames);
+                valid &= ProjectionDiagnostics.ValidateProjection(
+                    combinedSchema,
+                    PackageSections.PackageInfo,
+                    fields: null,
+                    columns: options.Columns);
+            }
+
+            return valid;
+        }
+
+        if (options.IncludeSections is not { Count: > 0 })
+            return true;
+
+        return ProjectionDiagnostics.ValidateProjection(
+            PackageDiscoverySchema(),
+            options.IncludeSections,
+            options.Fields,
+            options.Columns);
+    }
+
+    private static HashSet<string>? ResolvePackageInfoFields(
+        string[]? patterns)
+    {
+        if (patterns is not { Length: > 0 })
+            return null;
+
+        const string ProbeSection = "probe";
+        return PackageInfoFieldNames
+            .Where(
+                field => new DocumentSchema()
+                    .Add(ProbeSection, "field", [field])
+                    .ValidateProjection(ProbeSection, patterns)
+                    .Resolved
+                    .Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 
     private static DocumentSchema AddPackageDynamicDiscoveryItems(DocumentSchema schema)
     {
@@ -2230,10 +2309,9 @@ public class PackageCommand
             return;
         }
 
-        bool hasProjection = options.Fields is { Length: > 0 }
-            || options.Columns is { Length: > 0 };
+        bool hasFieldProjection = options.Fields is { Length: > 0 };
         bool countPackageInfoRows =
-            !hasProjection
+            !hasFieldProjection
             && (string.Equals(
                     selectedSection,
                     PackageSections.PackageInfo,
@@ -2554,11 +2632,7 @@ public class PackageCommand
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
         HashSet<string>? selectedFields =
-            options.Fields is { Length: > 0 }
-                ? new HashSet<string>(
-                    options.Fields,
-                    StringComparer.OrdinalIgnoreCase)
-                : null;
+            ResolvePackageInfoFields(options.Fields);
         var rows = results
             .SelectMany(result => new InspectionResultView(result).Metadata
                 .Where(

@@ -16788,7 +16788,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package Info",
                 "--fields",
-                "Version",
+                "Ver*",
                 "--tsv",
                 "--count");
             var rendered = await RunAppAsync(
@@ -16798,13 +16798,26 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package Info",
                 "--fields",
-                "Version",
+                "Ver*",
                 "--tsv");
+            var column = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--columns",
+                "Field",
+                "--tsv",
+                "--rows",
+                "1");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, column.Exit);
             Assert.Empty(count.Error);
             Assert.Empty(rendered.Error);
+            Assert.Empty(column.Error);
             Assert.Equal("2", count.Output.Trim());
             string[] rows = rendered.Output.Split(
                 '\n',
@@ -16816,6 +16829,11 @@ public partial class CommandExecutionTests
                     "\tVersion\t",
                     row,
                     StringComparison.Ordinal));
+            Assert.Equal(
+                ["field", "Version"],
+                column.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {
