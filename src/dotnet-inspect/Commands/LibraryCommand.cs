@@ -1403,7 +1403,7 @@ public class LibraryCommand
             return true;
         }
 
-        string? incompatibleShape = options.Tree ? "--tree"
+        string? incompatibleShape = options.Tree && !options.Count ? "--tree"
             : options.Print ? "--print"
             : options.Value ? "--value"
             : options.Urls ? "--urls"

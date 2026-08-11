@@ -1298,6 +1298,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_MultiSectionCount_RejectsEmbeddedMermaidPresentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library", TestAssemblyPath,
+            "-S", "Calls,Safety Facts",
+            "--count",
+            "--markdown",
+            "--mermaid",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("multiple sections as Mermaid", error);
+    }
+
+    [Fact]
     public async Task Type_MultiSectionCount_RejectsTreeForDirectAndDeferredListings()
     {
         foreach (var target in new[]
@@ -4409,6 +4428,28 @@ public partial class CommandExecutionTests
         Assert.Equal(1, mixedCountExit);
         Assert.Empty(mixedCountOutput);
         Assert.Contains("NoSuchField", mixedCountError, StringComparison.Ordinal);
+
+        var (directCountExit, directCountOutput, directCountError) =
+            await RunAppAsync(
+                "type", "System.String", "--platform", "System.Private.CoreLib",
+                "-S", "Type Info",
+                "--fields", "NoSuchField",
+                "--count", "--tips", "q");
+
+        Assert.Equal(1, directCountExit);
+        Assert.Empty(directCountOutput);
+        Assert.Contains("NoSuchField", directCountError, StringComparison.Ordinal);
+
+        var (directOkExit, directOkOutput, directOkError) =
+            await RunAppAsync(
+                "type", "System.String", "--platform", "System.Private.CoreLib",
+                "-S", "Type Info",
+                "--fields", "Kind",
+                "--count", "--tips", "q");
+
+        Assert.Equal(0, directOkExit);
+        Assert.Equal("1", directOkOutput.Trim());
+        Assert.Empty(directOkError);
 
         // --plaintext wrote straight to the console and so never saw the gate at all, which is
         // the same bypass shape as the fact-table routing in #3648: a path that skips the shared
@@ -13967,12 +14008,24 @@ public partial class CommandExecutionTests
             var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
                 "-S", "Async Methods", "--count", "--tsv", "--tips", "q");
+            var (multiTreeCountExit, multiTreeCountOutput, multiTreeCountError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--count", "--tree", "--tips", "q");
+            var (multiTreeMapExit, multiTreeMapOutput, multiTreeMapError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods,Library Info", "--count", "--tree", "--tips", "q");
 
             Assert.Equal(0, singleCountExit);
             Assert.Equal(0, multiCountExit);
+            Assert.Equal(0, multiTreeCountExit);
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
+            Assert.Empty(multiTreeCountError);
             Assert.Equal(singleCountOutput, multiCountOutput);
+            Assert.Equal(singleCountOutput, multiTreeCountOutput);
+            Assert.Equal(1, multiTreeMapExit);
+            Assert.Empty(multiTreeMapOutput);
+            Assert.Contains("exactly one", multiTreeMapError);
         }
         finally
         {

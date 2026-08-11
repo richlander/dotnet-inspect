@@ -51,7 +51,8 @@ public static class CountOutput
     public static bool ValidateMapFormat(
         OutputFormat format,
         IReadOnlyList<string>? orderedSections,
-        bool tree = false)
+        bool tree = false,
+        bool embeddedMermaid = false)
     {
         if (orderedSections is null)
             return true;
@@ -63,7 +64,7 @@ public static class CountOutput
             return false;
         }
 
-        if (format != OutputFormat.Mermaid)
+        if (format != OutputFormat.Mermaid && !embeddedMermaid)
             return true;
 
         CommandError.Write(

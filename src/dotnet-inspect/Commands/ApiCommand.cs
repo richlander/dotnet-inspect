@@ -122,7 +122,8 @@ public class ApiCommand
                         listingOptions.Format,
                         OutputFormatter.ResolveCountMapSections(
                             typePipeline, listingOptions.IncludeSections, fixedOverview: false),
-                        listingOptions.Tree)))
+                        listingOptions.Tree,
+                        listingOptions.EmbeddedMermaid)))
             {
                 return null;
             }
@@ -328,7 +329,7 @@ public class ApiCommand
         if (options.Discover == null && options.Count && !options.SelectDeferredToListing
             && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
                 || !CountOutput.ValidateMapFormat(
-                    options.Format, countMapSections, options.Tree)))
+                    options.Format, countMapSections, options.Tree, options.EmbeddedMermaid)))
         {
             return (null!, 1);
         }
@@ -960,17 +961,23 @@ public class ApiCommand
     /// that survives regardless of which section is selected. Both of those RENDER, so ordering
     /// emptiness first puts the schema's blind spots out of reach.
     /// </remarks>
-    private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
-        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options);
+    private static bool TryReportEmptyProjection(
+        string rendered,
+        ApiOptions options,
+        DocumentSchema? schema = null)
+        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options, schema);
 
-    private static bool TryReportEmptyProjection(bool wroteAnyContent, ApiOptions options)
+    private static bool TryReportEmptyProjection(
+        bool wroteAnyContent,
+        ApiOptions options,
+        DocumentSchema? schema = null)
     {
         var names = options.Fields ?? options.Columns;
         if (names is not { Length: > 0 })
             return true;
 
         var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
-        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        schema ??= ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
         if (wroteAnyContent
             && options.IncludeSections is { Count: > 0 } sections
             && !sections.Any(section =>
@@ -1458,6 +1465,11 @@ public class ApiCommand
             {
                 projection.RecordRows(SectionNames.CallGraph, graphRows);
             }
+            if (!TryReportEmptyProjection(
+                    projection.WroteAnyContent,
+                    options,
+                    GetTypeDocumentSchema(options)))
+                return 1;
             var ordered = OutputFormatter.ResolveCountMapSections(
                 ApiMemberSectionPipelines.Create(options),
                 options.IncludeSections,
