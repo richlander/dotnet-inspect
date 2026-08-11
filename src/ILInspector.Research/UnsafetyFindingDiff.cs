@@ -87,13 +87,14 @@ internal static class UnsafetyFindingDiff
         Func<T, SafetyProjection> project)
         where T : notnull
     {
-        var complete = comparison switch
+        var complete = comparison.Value switch
         {
             FindingComparison<T>.Complete value => value,
             // Both producer inputs are total Complete censuses. A failed
             // comparison here would violate the Analysis producer contract.
             FindingComparison<T>.Failed failed => throw new InvalidOperationException(
                 $"A comparison of total Analysis censuses cannot fail: {failed.Failure}"),
+            _ => throw new InvalidOperationException("Unknown finding comparison value."),
         };
         var oldGroups = GroupProjections(complete.OldAtoms, memberKey, project);
         var newGroups = GroupProjections(complete.NewAtoms, memberKey, project);
@@ -102,7 +103,7 @@ internal static class UnsafetyFindingDiff
 
         foreach (var pair in complete.Pairs)
         {
-            switch (pair)
+            switch (pair.Value)
             {
                 case PairFinding<T>.Added added:
                     Increment(addedCounts, added.New.Key.IdentityKey);
@@ -110,6 +111,11 @@ internal static class UnsafetyFindingDiff
                 case PairFinding<T>.Removed removed:
                     Increment(removedCounts, removed.Old.Key.IdentityKey);
                     break;
+                case PairFinding<T>.Present:
+                case PairFinding<T>.Changed:
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown pair finding value.");
             }
         }
 

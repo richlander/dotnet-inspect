@@ -378,8 +378,8 @@ public static class TimelineCommand
         Func<IEnumerable<T>, IEnumerable<T>, FindingSubject, int, FindingComparison<T>> compare)
         where T : notnull
     {
-        if (oldInspection is FindingInspection<T>.Complete oldComplete
-            && newInspection is FindingInspection<T>.Complete newComplete)
+        if (oldInspection.Value is FindingInspection<T>.Complete oldComplete
+            && newInspection.Value is FindingInspection<T>.Complete newComplete)
         {
             return compare(
                 oldComplete.Findings.Select(static finding => finding.Payload),
@@ -641,7 +641,7 @@ public static class TimelineCommand
     static TimelineEvaluationRow BuildCensusEvaluationRow<T>(
         VersionedFindingInspection<T> evaluation)
         where T : notnull
-        => evaluation.Inspection switch
+        => evaluation.Inspection.Value switch
         {
             FindingInspection<T>.Complete complete => new TimelineEvaluationRow(
                 evaluation.Version.Key,
@@ -661,6 +661,8 @@ public static class TimelineCommand
                 "Failed",
                 null,
                 failed.Error.Reason),
+            _ => throw new InvalidOperationException(
+                "Finding inspection returned an unknown value."),
         };
 
     static TimelineEvaluationRow BuildIdentityEvaluationRow<T>(
