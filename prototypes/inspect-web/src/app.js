@@ -1,4 +1,5 @@
 import {
+  callGraphTargetTypeId,
   lenses,
   mermaidLabel,
   packageForView,
@@ -6616,12 +6617,13 @@ function graphTargetForSvgNode(graph, node) {
 }
 
 function resolveLoadedGraphTarget(target) {
+  const typeId = callGraphTargetTypeId(target);
   const packages = [state.package, ...state.packages.filter(item => item !== state.package)];
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
     const type = pkg.types?.find(item =>
       libraryKey(item).toLowerCase() === target.assembly.toLowerCase()
-      && (item.metadataId ?? item.queryId ?? item.id) === target.typeFullName);
+      && (item.metadataId ?? item.queryId ?? item.id) === typeId);
     if (!type) continue;
 
     const selection = findGraphMemberSelection(type, target);
@@ -6637,7 +6639,7 @@ function resolveLoadedGraphTarget(target) {
         version: pkg.version,
         framework: pkg.activeFramework,
         assembly: type.assembly,
-        type: target.typeFullName,
+        type: typeId,
         member: target.memberName,
         selectorKey: target.selectorKey,
         metadataToken: target.metadataToken
@@ -6682,7 +6684,7 @@ async function drillPlatformNode(node) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: node.assembly,
-      type: node.typeFullName,
+      type: callGraphTargetTypeId(node),
       member: node.memberName,
       selectorKey: node.selectorKey,
       metadataToken: node.metadataToken
@@ -6782,9 +6784,10 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = 
 // Resolve a platform call-graph node's structured identity to a concrete type, member
 // group, and overload in the resident runtime pack.
 function findRuntimeMemberSelection(pack, node) {
-  if (!pack || !node?.typeFullName) return null;
+  const typeId = callGraphTargetTypeId(node);
+  if (!pack || !typeId) return null;
   const type = pack.types.find(
-    item => (item.metadataId ?? item.queryId ?? item.id) === node.typeFullName);
+    item => (item.metadataId ?? item.queryId ?? item.id) === typeId);
   if (!type) return null;
   const groups = memberGroups(type);
   if (node.metadataToken != null) {

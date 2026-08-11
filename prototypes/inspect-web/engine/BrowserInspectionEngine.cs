@@ -942,6 +942,7 @@ public static partial class BrowserInspectionEngine
         $"n{node.Id}",
         node.Member.DeclaringType.Assembly ?? "",
         node.Member.DeclaringType.ToQualifiedDisplayString(),
+        MetadataTypeId(node.Member.DeclaringType),
         node.Member.Name,
         [.. node.Member.OpenSignatureParameters.Select(type => type.ToQualifiedDisplayString())],
         node.Member.OpenSignatureReturn.ToQualifiedDisplayString(),
@@ -949,6 +950,22 @@ public static partial class BrowserInspectionEngine
         null,
         Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
         node.Kind.ToString().ToLowerInvariant());
+
+    static string MetadataTypeId(Analysis.TypeRef type)
+    {
+        while (type.Kind == Analysis.TypeRefKind.GenericInstance
+            && type.ElementType is not null)
+        {
+            type = type.ElementType;
+        }
+        if (type.Kind != Analysis.TypeRefKind.Definition)
+        {
+            throw new InvalidOperationException(
+                "A call-graph target has no metadata definition type identity.");
+        }
+
+        return string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+    }
 
     internal static BrowserCallGraphTarget[] Targets(IEnumerable<CallGraphNode> nodes)
     {

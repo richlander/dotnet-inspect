@@ -301,16 +301,14 @@ internal static class BrowserPackageWorkspace
         using PackageDownloadReservation reservation = ReservePackageDownload(
             key,
             declaredLength);
+        byte[] bytes;
         try
         {
             using Stream source = await response.Content.ReadAsStreamAsync();
-            byte[] bytes = await BoundedContentReader.ReadAllBytesAsync(
+            bytes = await BoundedContentReader.ReadAllBytesAsync(
                 source,
                 MaxCachedPackageBytes,
                 declaredLength);
-            reservation.Commit(bytes);
-            Downloaded.Add(key);
-            return bytes;
         }
         catch (InvalidDataException ex)
         {
@@ -318,6 +316,20 @@ internal static class BrowserPackageWorkspace
                 $"Package '{normalizedId}' {normalizedVersion} exceeds the browser byte limit.",
                 ex);
         }
+
+        try
+        {
+            BrowserPackageArchiveValidator.Validate(bytes);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new InvalidOperationException(
+                $"Package '{normalizedId}' {normalizedVersion} is not a supported ZIP archive.",
+                ex);
+        }
+        reservation.Commit(bytes);
+        Downloaded.Add(key);
+        return bytes;
     }
 
     static ImmutableHashSet<string> RetainCoordinatePackages(
@@ -543,6 +555,7 @@ internal sealed class BrowserPackage
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ArgumentNullException.ThrowIfNull(retainedBytes);
+        BrowserPackageArchiveValidator.Validate(retainedBytes);
         PackageId = packageId;
         Version = version;
         RetainedBytes = retainedBytes;

@@ -47,6 +47,10 @@ export function packageForView(packages, view) {
   return packages.find(pkg => pkg.id === view.package) ?? null;
 }
 
+export function callGraphTargetTypeId(target) {
+  return target?.typeMetadataId || target?.typeFullName || "";
+}
+
 export function mermaidLabel(value) {
   let encoded = "";
   for (const character of String(value ?? "")) {

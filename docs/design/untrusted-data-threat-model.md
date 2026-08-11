@@ -282,7 +282,9 @@ cache entries use SHA-256-derived keys through `CoreCache`.
 The Browser-Wasm package path is filesystem-free and applies host-owned byte
 budgets before content reaches its cache or inspection workspace: 1 MB for a
 version-index response, 128 MB for a downloaded nupkg, 64 MB for one expanded
-assembly entry, and 16 MB for one expanded Markdown or XML entry.
+assembly entry, and 16 MB for one expanded Markdown or XML entry. It also
+rejects more than 4,096 archive entries by scanning the ZIP central directory
+without allocating entry objects, before `ZipArchive` can materialize them.
 `InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
 the caller's limit before allocating that length, then verifies the observed
 expansion against the declaration. `InMemoryPackageContentTests` gates the
@@ -302,6 +304,8 @@ retained-image budget.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
+`PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the
+host-specific central-directory entry limit.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry
@@ -985,7 +989,7 @@ only ordinary compiler output.
    cannot silently regrow.
 2. Define product-wide package, symbol, source-download, and
    decompressed-archive byte and entry-count budgets. The Browser-Wasm package
-   host now has byte limits, but that host-specific policy does not settle the
+   host now has byte and entry-count limits, but that host-specific policy does not settle the
    extraction, symbol, or entry-count contracts for other consumers.
 3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.

@@ -20,9 +20,12 @@ The rule is enforced by the compiler, not by a convention.
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, and the group's image and
 retained-descriptor accessors in this project, and `Directory.Build.targets`
 already escalates `RS0030` to an error for every project.
-`BrowserEngineLayeringTests` in `src/dotnet-inspect.Tests` pins that wiring and
+`BrowserEngineLayeringTests` in `engine.Tests` pins that wiring and
 resolves every complete banned documentation id, including generic arity and
 parameter types — a renamed or malformed entry bans nothing and fails the gate.
+It also bans opening a retained descriptor or invoking `AssemblyReader` in the
+host; descriptors may carry typed identity into a product query, but their image
+content remains query-owned.
 Acquisition still decodes a healthy entry's real metadata identity.
 A selected malformed entry receives a path-derived identity only as a rejection
 carrier, so the workspace returns its typed failure instead of silently
@@ -75,6 +78,8 @@ graph opens one workspace over every package the site currently has open.
 Coordinates are temporarily leased while that composite scope is assembled, so
 acquiring a later package cannot evict an earlier archive and leave it alive
 outside cache accounting.
+Call-graph targets carry both display spelling and exact metadata type identity;
+navigation uses the latter so nested and generic type names retain `+` and arity.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 
@@ -107,7 +112,9 @@ in the same 12-package/128 MB aggregate while the download is in flight.
 Acquisition is bounded before content enters either cache or workspace. A
 version-index response may contain at most 1 MB, one downloaded nupkg at most
 128 MB, one expanded assembly entry at most 64 MB, and one expanded Markdown or
-XML entry at most 16 MB. `InMemoryPackageContent` checks a ZIP entry's declared
+XML entry at most 16 MB. A nupkg may contain at most 4,096 entries; the host
+validates and scans the central directory without allocating entry objects
+before `ZipArchive` can materialize them. `InMemoryPackageContent` checks a ZIP entry's declared
 expanded length before allocation and verifies the observed expansion against
 that declaration. `InMemoryPackageContentTests` gates both the pre-expansion
 rejection and bounded stream reading. These are Browser-Wasm host limits, not a
@@ -283,7 +290,7 @@ npm test
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
-role preflight before identity decoding, malformed selected-participant
+central-directory entry limit before archive enumeration, role preflight before identity decoding, malformed selected-participant
 visibility, reference-only retained-image budget, duplicate XML parameter
 handling, Mermaid label containment, and complete call-graph navigation targets.
 The JavaScript tests gate the annotated view helper against the shared sample
@@ -308,8 +315,8 @@ The shared product paths are gated by:
   path-less, stream-backed assembly reference, and supplying the whole-assembly
   analysis context that path-keyed resolution cannot provide.
 
-`BrowserEngineLayeringTests` in `src/dotnet-inspect.Tests` gates the layering
-rule described above.
+`BrowserEngineLayeringTests` in `engine.Tests` gates the layering rule described
+above on every browser-engine CI run.
 
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`

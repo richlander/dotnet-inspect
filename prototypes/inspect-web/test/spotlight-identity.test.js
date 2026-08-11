@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  callGraphTargetTypeId,
   mermaidLabel,
   packageForView,
   packageIdentityKey,
@@ -62,6 +63,18 @@ test("history never applies a selection to another coordinate", () => {
 
   assert.equal(packageForView([newVersion], view), null);
   assert.equal(packageForView([oldPackage, newVersion], view), oldPackage);
+});
+
+test("call graph navigation prefers exact metadata type identity", () => {
+  assert.equal(
+    callGraphTargetTypeId({
+      typeFullName: "Example.Outer.Inner",
+      typeMetadataId: "Example.Outer`1+Inner`1"
+    }),
+    "Example.Outer`1+Inner`1");
+  assert.equal(
+    callGraphTargetTypeId({ typeFullName: "Example.Legacy" }),
+    "Example.Legacy");
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {

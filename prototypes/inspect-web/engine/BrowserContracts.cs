@@ -285,6 +285,7 @@ public sealed record BrowserCallGraphTarget(
     string Id,
     string Assembly,
     string TypeFullName,
+    string TypeMetadataId,
     string MemberName,
     string[] ParameterTypes,
     string ReturnType,

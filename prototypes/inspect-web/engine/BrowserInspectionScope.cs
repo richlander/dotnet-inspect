@@ -43,7 +43,7 @@ internal sealed record BrowserWorkspaceParticipant(
 /// </para>
 /// <para>
 /// Disposal belongs to that registry, not to a caller.
-/// <c>BrowserEngineLayeringTests</c> in <c>src/dotnet-inspect.Tests</c> is the gate for the
+/// <c>BrowserEngineLayeringTests</c> in <c>engine.Tests</c> is the gate for the
 /// boundary this remark asserts: no engine source opens a session, a metadata source, an analysis
 /// index, or an image span.
 /// </para>

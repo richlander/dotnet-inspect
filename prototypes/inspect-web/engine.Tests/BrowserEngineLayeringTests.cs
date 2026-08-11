@@ -3,7 +3,7 @@ using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
-namespace DotnetInspector.Tests;
+namespace InspectWeb.Engine.Tests;
 
 /// <summary>
 /// Pins the browser engine's layering rule: every interaction that inspects an assembly runs
@@ -52,6 +52,8 @@ public sealed class BrowserEngineLayeringTests
 
         Assert.Contains("T:ILInspector.Metadata.AssemblyInspectionSession", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyImageSnapshot", banned);
+        Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
+        Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
         Assert.Contains(

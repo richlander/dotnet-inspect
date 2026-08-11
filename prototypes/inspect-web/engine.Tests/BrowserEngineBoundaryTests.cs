@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
@@ -116,6 +117,27 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration()
+    {
+        _ = new BrowserPackage(
+            "Entry.Limit",
+            "1.0.0",
+            PackageEntries(BrowserPackageArchiveValidator.MaxEntries),
+            fromCache: false);
+        byte[] nupkg = PackageEntries(BrowserPackageArchiveValidator.MaxEntries + 1);
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => new BrowserPackage("Entry.Flood", "1.0.0", nupkg, fromCache: false));
+
+        Assert.Contains("entry-count limit", failure.Message, StringComparison.Ordinal);
+
+        InvalidOperationException zip64Failure = Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageArchiveValidator.Validate(
+                Zip64WithDeclaredEntryCount(BrowserPackageArchiveValidator.MaxEntries + 1)));
+        Assert.Contains("entry-count limit", zip64Failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void XmlDocumentation_DuplicateParametersUseTheLastCompilerEntry()
     {
         const string xml = """
@@ -158,7 +180,13 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void CallGraphTargets_CarryEveryNavigableNodeWithNormalizedKinds()
     {
-        TypeRef declaringType = TypeRef.Definition("Example", "Example", "Widget");
+        TypeRef declaringTypeDefinition = TypeRef.Definition(
+            "Example",
+            "Example",
+            "Outer`1+Widget`1");
+        TypeRef declaringType = TypeRef.GenericInstance(
+            declaringTypeDefinition,
+            [TypeRef.CoreLib("System", "String"), TypeRef.CoreLib("System", "Int32")]);
         TypeRef returnType = TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void");
         var member = new MemberRef(
             declaringType,
@@ -177,6 +205,13 @@ public sealed class BrowserEngineBoundaryTests
 
         Assert.Equal(["n0", "n1", "n2"], targets.Select(target => target.Id));
         Assert.Equal(["focus", "normal", "external"], targets.Select(target => target.Kind));
+        Assert.All(
+            targets,
+            target =>
+            {
+                Assert.Equal("Example.Outer.Widget<int>", target.TypeFullName);
+                Assert.Equal("Example.Outer`1+Widget`1", target.TypeMetadataId);
+            });
     }
 
     static BrowserPackageCoordinate Coordinate(string id, byte[] nupkg)
@@ -248,5 +283,42 @@ public sealed class BrowserEngineBoundaryTests
         }
 
         return content.ToArray();
+    }
+
+    static byte[] PackageEntries(int entryCount)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(content, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            for (int index = 0; index < entryCount; index++)
+                archive.CreateEntry($"content/{index:D5}.txt", CompressionLevel.NoCompression);
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] Zip64WithDeclaredEntryCount(int entryCount)
+    {
+        byte[] archive = new byte[56 + 20 + 22];
+        Span<byte> bytes = archive;
+
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, 0x06064b50);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[4..], 44);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[12..], 45);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[14..], 45);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[24..], (ulong)entryCount);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[32..], (ulong)entryCount);
+
+        int locator = 56;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[locator..], 0x07064b50);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(locator + 16)..], 1);
+
+        int end = locator + 20;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[end..], 0x06054b50);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 8)..], ushort.MaxValue);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 10)..], ushort.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 12)..], uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 16)..], uint.MaxValue);
+        return archive;
     }
 }

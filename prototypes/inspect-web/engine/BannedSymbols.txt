@@ -19,6 +19,8 @@ T:ILInspector.Metadata.AssemblyImageSnapshot;A group's immutable image belongs t
 T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
 T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
+T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.
+P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead;A descriptor may carry identity into a query, but the browser host must not open its image.
 
 M:DotnetInspector.Queries.AssemblyContextGroup.UseAssemblyImage``1(ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyImageCallback{``0});Inspecting an image span in the host is the thing the workspace rule exists to prevent.
 M:DotnetInspector.Queries.AssemblyContextGroup.GetAssemblyImageSpan(ILInspector.Metadata.ResolvedAssemblyReference);Inspecting an image span in the host is the thing the workspace rule exists to prevent.
