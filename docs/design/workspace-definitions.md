@@ -84,7 +84,23 @@ perfectly ordinary — which is why the schema says `contexts`, not
 drops "group" so the word means exactly one thing here: a named entry in a
 group catalog.
 
-A group catalog record:
+The worked examples below play three distinct roles, and the distinction
+is the point:
+
+1. a record **demonstrative of a product-side registration** — shipped by
+   the product or a bundle, referenced by consumers, written by none of
+   them;
+2. **authoring examples of the schema** — the records a demo author
+   writes; and
+3. a **terse demo reference** — the one record a demo link names, terse
+   precisely because every asset it references is registered on the
+   product side. (A share link is the deliberate contrast: a live session
+   references nothing registered, so its packet carries the whole
+   composition inline — see Projections.)
+
+First, the product-side registration. A bundle registers this catalog
+entry curating the Extensions family; consumers only ever subscribe to
+it:
 
 ```json
 {
@@ -104,8 +120,9 @@ A group catalog record:
 }
 ```
 
-A workspace definition subscribes by reference. The System.Text.Json demo
-needs only the platform and one package — no custom group at all:
+Next, the authoring examples — what a demo author writes. A workspace
+definition subscribes by reference; the System.Text.Json demo needs only
+the platform and one package, so no custom group is involved at all:
 
 ```json
 {
@@ -116,7 +133,7 @@ needs only the platform and one package — no custom group at all:
   "description": "JsonSerializer surface with the platform in scope.",
   "contexts": [
     {
-      "name": "workspace",
+      "name": "stj",
       "subscribe": ":Platform@10.0.10",
       "framework": "net10.0",
       "members": [
@@ -127,7 +144,7 @@ needs only the platform and one package — no custom group at all:
 }
 ```
 
-Its view and scenario remain peer records:
+Its view and navigation presets are peer authored records:
 
 ```json
 {
@@ -164,17 +181,29 @@ Its view and scenario remain peer records:
 }
 ```
 
+Finally, the terse demo reference. The scenario record composes the
+records above by id and is the only record a demo link has to name:
+
 ```json
 {
   "schemaVersion": 1,
   "kind": "scenario",
   "id": "serializer",
   "workspace": "stj-serializer-tour",
-  "context": "workspace",
+  "context": "stj",
   "view": "serializer-view",
   "navigation": "serializer-navigation"
 }
 ```
+
+Note the two reference namespaces: `workspace`, `view`, and `navigation`
+name peer records' ids in the host or bundle registry, while `context`
+names an entry inside the referenced workspace's `contexts` (optional
+here, since that workspace declares only one). Because everything the
+scenario references is registered product-side, activating this demo
+needs nothing more than the scenario's id — a demo link is as terse as
+`?scenario=serializer` — and that terseness is the payoff of product-side
+registration, not a property of the URL scheme.
 
 A call-graph demo over the Extensions family is the composition case: its
 workspace context subscribes `:Platform+Extensions`, referencing the catalog's
