@@ -145,7 +145,11 @@ Its view and scenario remain peer records:
   "kind": "navigation",
   "id": "serializer-navigation",
   "tabs": [
-    { "id": "platform", "subscribe": ":Platform@10.0.10" },
+    {
+      "id": "platform",
+      "subscribe": ":Platform@10.0.10",
+      "framework": "net10.0"
+    },
     {
       "id": "stj",
       "coordinate": {
@@ -188,6 +192,10 @@ Field semantics:
   `view`, `navigation`, or `scenario`. (The member-coordinate `kind` under
   [Member coordinates](#member-coordinates) is a distinct field one nesting
   level down; the two never share a slot.)
+- Record and nested-object shapes are closed. Unknown properties are typed load
+  failures at every level rather than ignored extension data; otherwise a typo
+  such as `versoin` would silently turn an intended pin into a floating
+  coordinate.
 - `id` — required stable record identity. It is unique within its kind in the
   host or bundle registry; duplicate ids, unknown references, and references
   to the wrong record kind are typed load failures.
@@ -220,12 +228,18 @@ Field semantics:
   `memberSignature` (a canonical signature), never by overload index.
 - `navigation` records — named ordered tab sets plus one focused tab id. Each
   tab has a record-local stable id and exactly one source: either a kinded
-  acquisition coordinate or a group subscription. Tab ids are unique, `focus`
-  resolves exactly one of them, and normalized tab sources are unique. Every
-  normalized source must equal one context's `subscribe` or one of its explicit
-  `members` in the referenced workspace, but it need not occur in the
-  scenario's selected query context. Navigation order is presentation state
-  and never doubles as binding precedence.
+  acquisition coordinate or a group subscription. A group source also carries
+  optional `framework` and `rid` target declarations because those values are
+  not part of the subscription string. Tab ids are unique, `focus` resolves
+  exactly one of them, and normalized tab sources are unique. Source identity
+  is the source kind plus every normalized explicit field, including the group
+  expression, pin, framework, and RID. A coordinate source must equal an
+  explicit member; a group source must equal a context's `subscribe`; and every
+  non-null target declaration must agree with that context's effective target.
+  If an omitted target would match contexts with different effective targets,
+  activation fails as ambiguous rather than choosing one. The match may occur
+  outside the scenario's selected query context. Navigation order is
+  presentation state and never doubles as binding precedence.
 - `scenario` records — named compositions with optional `workspace`, `input`,
   `query`, `view`, and `navigation` references plus `context` when the
   referenced workspace has several contexts. Omitting `workspace` is a genuine
@@ -382,6 +396,12 @@ ranges such as `A..B`, build metadata, and other selectors. Those forms are
 invalid rather than alternative spellings for floating. Bundle validation
 warns on every floating declared coordinate.
 
+An exact pin constrains selection, not only parsing. The shared acquisition
+owner must compare the normalized resolved version for equality before
+returning an asset; prefix and substring matches are not exact. A request for
+`10.0.1` therefore cannot select `10.0.10`, whether the pin came from a member
+coordinate, group subscription, or packet tuple.
+
 ### What a definition never contains
 
 Per the bundle contract: no live streams, `PEReader` instances, sessions,
@@ -503,11 +523,12 @@ The normative v1 decoded shape is:
 `f`, `t`, `g`, `a`, and `x` are required. `f` is the exact integer `1`.
 `v` (lens), `y` (type), `m` (member anchor), `s` (member signature), `c`
 (section), and `l` (library-identity array) are optional view fields; `m` and
-`s` are mutually exclusive and each requires `y`. Unknown properties are
-invalid. The compact serializer emits properties in the order above, adding
-optional view fields in their listed order, with no insignificant whitespace.
-Packet identity below is semantic identity after decoding; canonical emission
-has one byte representation.
+`s` are mutually exclusive and each requires `y`. `l` contains unique
+canonical identity strings in ascending ordinal order. Unknown properties and
+any other `l` order are invalid. The compact serializer emits properties in
+the order above, adding optional view fields in their listed order, with no
+insignificant whitespace. Packet identity below is semantic identity after
+decoding; canonical emission has one byte representation.
 
 The packet separates navigation from binding:
 
@@ -518,6 +539,9 @@ The packet separates navigation from binding:
   package coordinate. A group tuple's version slot is the base segment's pin;
   its expression must contain no `@`, so one pin has exactly one encoding.
   Per-segment pins below the base are expressible only in canonical records.
+  Package tuple fields copy to both the navigation coordinate and the context
+  member. Group tuple framework and RID fields copy to the navigation group
+  source, while its id and version form the context's `subscribe`.
   This retires the `Microsoft.NETCore.App` pseudo-package and the
   `isRuntimePackId` sniff. `t` order transposes directly to the navigation
   record's ordered tabs, and `a` to its focused tab id, so a focused group tab
@@ -529,9 +553,15 @@ The packet separates navigation from binding:
   policy. Index order is member overlay and binding precedence, not display
   order. A context contains at most one group-reference index, it must be
   first, and the remaining indexes become ordered `members`; this is exactly
-  the canonical context's `subscribe`-then-`members` shape. Every `t` index
-  must occur in at least one `g` entry. Transposition assigns packet-local
-  context names `g0`, `g1`, and so on; `x` addresses that same order.
+  the canonical context's `subscribe`-then-`members` shape. Within one context,
+  every referenced tuple has the same framework slot and the same RID slot,
+  including `null`; those slots become the context's target declarations.
+  Canonical record-to-packet emission writes the effective context target into
+  every tuple, so inherited and repeated target spellings have one packet form.
+  A tuple referenced by several contexts imposes that same target on each.
+  Every `t` index must occur in at least one `g` entry. Transposition assigns
+  packet-local context names `g0`, `g1`, and so on; `x` addresses that same
+  order.
 - `a` is the focused navigation-tuple index, while `x` is the selected context
   index. They are intentionally independent: `a` transposes to the navigation
   preset's `focus`, while `x` transposes to the scenario's `context`. The
@@ -557,17 +587,21 @@ layer refuses those with a typed outcome rather than silently flattening them.
   product-owned hardened JSON entry point (`HardenedJson` on .NET): the
   complete query value must be canonical base64url, decode to one complete
   JSON value with no duplicate properties or trailing content, and satisfy
-  that version's schema and bounds. V1 accepts at most
+  that version's schema and bounds. After binding, the reader reserializes the
+  value canonically and requires byte equality with the decoded UTF-8;
+  reordered properties, alternate number spellings, and insignificant
+  whitespace are invalid rather than silently normalized. V1 accepts at most
   16 KiB of encoded text, 12 KiB of decoded UTF-8 JSON, nesting depth 16,
   1024 JSON values, 12 tuples, and 24 contexts. Its bounded in-memory parse is
   synchronous and needs no timeout; cancellation is checked before decode.
   Unsupported format versions, truncated or appended input, malformed encoding
   or JSON, duplicate properties, tuples, contexts, or library identities,
-  unknown properties, orphaned tuple indexes, invalid group-index ordering or
-  multiplicity, over-limit tables, invalid shapes, and out-of-range indexes are
-  typed invalid-packet outcomes; none restores partial workspace state. The
-  explicit version lets later formats evolve without breaking links issued
-  under this supported contract.
+  unknown properties, orphaned tuple indexes, inconsistent context-target
+  slots, invalid group-index ordering or multiplicity, non-ordinal library
+  scope, non-canonical decoded JSON, over-limit tables, invalid shapes, and
+  out-of-range indexes are typed invalid-packet outcomes; none restores partial
+  workspace state. The explicit version lets later formats evolve without
+  breaking links issued under this supported contract.
 - **Member selection moves to anchor digests.** The positional overload
   index (`o`) is replaced by the `MemberAnchor` fingerprint the UI already
   displays and the call-graph demo already matches on. With that, every
@@ -595,12 +629,13 @@ in an inspection bundle. Serialization follows the repository's
 explicit `schemaVersion`, trim- and NativeAOT-compatible. That precedent does
 not supply duplicate-key hardening — current `CorpusManifest.FromJson`
 deserializes directly. The new workspace loader first uses `HardenedJson` to
-reject duplicate properties, then binds through the generated context. A file
-is limited to 1 MiB of UTF-8 JSON, nesting depth 32, 4096 JSON values, and 1024
-coordinates; a bundle applies the same per-record limits and its own aggregate
-byte/record budget. Stream reads and multi-record bundle loads honor
-cancellation before each record. Limit, cancellation, malformed input, and
-duplicate-key failures remain typed and distinct from an empty definition.
+reject duplicate properties, then binds through a generated context configured
+to reject unmapped members recursively. A file is limited to 1 MiB of UTF-8
+JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates; a bundle applies
+the same per-record limits and its own aggregate byte/record budget. Stream
+reads and multi-record bundle loads honor cancellation before each record.
+Limit, cancellation, malformed input, duplicate-key, and unknown-property
+failures remain typed and distinct from an empty definition.
 
 `CorpusManifest` remains the corpus-specific persisted recipe; workspace
 definitions subsume neither its corpus ordering nor its population API, and
@@ -623,6 +658,10 @@ two persisted contracts are isomorphic.
   substrate-owned implementation outside the CLI: it performs no filesystem
   or network resolution and returns a non-success typed selection for every
   binding request, including intrinsic core-library requests.
+- **Exact platform-version selection.** Current platform discovery includes
+  prefix and substring probes that are useful for broad discovery but cannot
+  satisfy an exact workspace pin. The shared acquisition owner needs an exact
+  normalized-version path and a visible not-found outcome for near matches.
 - **A fifth provenance case.** `AssemblyResolutionProvenance` is
   deliberately closed (private-protected constructor and discriminator), so
   the `embedded` coordinate requires a new case added in
@@ -693,9 +732,10 @@ answer; each needs a decision before or during implementation.
 Unverified, all of it. Implementation must add, at minimum:
 
 - a schema round-trip gate (serialize → deserialize → semantic equality) over
-  every record kind, including rejection of duplicate properties, unknown
-  `schemaVersion` and `kind` values, redefinition of well-known group names,
-  and every declared byte, depth, value, coordinate, and cancellation limit;
+  every record kind, including rejection of duplicate and unknown properties
+  at top-level and nested shapes, unknown `schemaVersion` and `kind` values,
+  redefinition of well-known group names, and every declared byte, depth,
+  value, coordinate, and cancellation limit;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
@@ -711,18 +751,23 @@ Unverified, all of it. Implementation must add, at minimum:
 - a target-consistency gate rejecting missing required targets, conflicting
   framework or RID declarations, incompatible subscriptions, and resolved
   assets outside the context's effective target before group creation;
+- an exact-resolution gate proving normalized resolved versions equal every
+  present pin, with near-prefix platform fixtures such as `10.0.1` versus
+  `10.0.10` exercised through coordinates, subscriptions, and packet tuples;
 - a packet transposition gate proving canonical packet → peer records →
-  canonical packet semantic identity, including group-reference focus,
-  independent preservation of `a` navigation focus and `x` binding context,
-  repeated tuple references across contexts, and refusal of non-projectable
-  authored record sets;
+  canonical packet semantic identity, including target-bearing group-reference
+  focus, canonical emission of inherited context targets, independent
+  preservation of `a` navigation focus and `x` binding context, repeated tuple
+  references across contexts, and refusal of non-projectable authored record
+  sets;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
-  input, unknown properties, orphaned tuple indexes, invalid group-index
-  ordering or multiplicity, invalid field shapes, out-of-range indexes, and
-  every declared resource-limit breach without restoring partial workspace
-  state;
+  input, reordered or whitespace-bearing decoded JSON, unknown properties,
+  orphaned tuple indexes, inconsistent context-target slots, invalid
+  group-index ordering or multiplicity, non-ordinal library scope, invalid
+  field shapes, out-of-range indexes, and every declared resource-limit breach
+  without restoring partial workspace state;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
@@ -738,9 +783,10 @@ Unverified, all of it. Implementation must add, at minimum:
   negative cases proving missing, ambiguous, and incompatible inputs fail
   closed;
 - a navigation gate proving ordered tabs and record-local focus round-trip,
-  duplicate ids or normalized sources fail, group and coordinate sources
-  resolve in at least one workspace context, and focus remains valid when it is
-  outside the scenario's selected query context;
+  duplicate ids or normalized sources fail, target-distinct group sources
+  remain distinct, group and coordinate sources resolve in at least one
+  workspace context, and focus remains valid when it is outside the scenario's
+  selected query context;
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
