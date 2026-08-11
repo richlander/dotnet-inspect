@@ -422,12 +422,15 @@ public class ProjectCommand
                 return false;
             }
             if (options.Tree
-                && (options.Columns is { Length: > 0 }
+                && (options.JsonOutput
+                    || options.Tabular
+                    || options.Columns is { Length: > 0 }
                     || options.Fields is { Length: > 0 }
                     || options.Rows is not null))
             {
                 CommandError.Write(
-                    "--tree cannot be combined with --fields, --columns, or --rows.");
+                    "--tree cannot be combined with structured formats, "
+                    + "--fields, --columns, or --rows.");
                 return false;
             }
             return true;

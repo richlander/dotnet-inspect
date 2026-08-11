@@ -50,9 +50,10 @@ public static class DiscoverOutput
 
         bool hasTabularProjection =
             columns is { Length: > 0 } || fields is { Length: > 0 };
+        bool structuredOutput = json || tsv || jsonl || !markdown;
 
         // Auto-promote to tree when discovering items from multiple sections
-        if (!tree && !hasTabularProjection && rows is null
+        if (!tree && !structuredOutput && !hasTabularProjection && rows is null
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
                 value, sectionCategories, schema.SectionNames, out _, out _))

@@ -50,6 +50,7 @@ internal static class ProjectOutputFormatter
         ProjectInspectionView view = BuildView(inspection);
         if (options.JsonOutput)
         {
+            view = ApplyRowWindow(view, options.Rows);
             return JsonSerializer.Serialize(
                     view,
                     ProjectViewJsonContext.Default.ProjectInspectionView)
@@ -64,8 +65,8 @@ internal static class ProjectOutputFormatter
                 !options.NoHeader,
                 options.Tsv,
                 options.Jsonl,
-                options.Columns,
-                options.Fields,
+                MergeProjectionNames(options.Columns, options.Fields),
+                fields: null,
                 (writer, formatter, writerOptions) =>
                 {
                     writerOptions.IncludeSections = includeSections;
@@ -83,12 +84,37 @@ internal static class ProjectOutputFormatter
         var markdownOptions = new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            Projection = OutputFormatter.BuildProjection(
+                MergeProjectionNames(options.Columns, options.Fields)),
             RowWindow = RowWindow.ToMarkout(options.Rows),
         };
         return MarkoutSerializer.Serialize(
             view,
             ProjectViewContext.Default,
             markdownOptions);
+    }
+
+    static ProjectInspectionView ApplyRowWindow(
+        ProjectInspectionView view,
+        RowWindow? rows)
+        => new()
+        {
+            Skills = Window(view.Skills, rows),
+            AgentGuidance = Window(view.AgentGuidance, rows),
+            PackageDocs = Window(view.PackageDocs, rows),
+        };
+
+    static List<T>? Window<T>(List<T>? source, RowWindow? rows) =>
+        source is null ? null : RowWindow.Apply(rows, source).ToList();
+
+    static string[]? MergeProjectionNames(
+        string[]? columns,
+        string[]? fields)
+    {
+        if (columns is not { Length: > 0 } && fields is not { Length: > 0 })
+            return null;
+
+        return [.. (columns ?? []).Concat(fields ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 }

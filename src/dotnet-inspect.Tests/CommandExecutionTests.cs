@@ -16553,6 +16553,108 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Fields_ProjectTableColumns()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Fields",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    new ProjectSkillDoc(
+                        "skills/selected/SKILL.md",
+                        "---\nname: selected\n---\nselected")
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--fields", "Name",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument row = JsonDocument.Parse(output);
+            Assert.Equal(
+                ["name"],
+                row.RootElement.EnumerateObject()
+                    .Select(property => property.Name));
+            Assert.Equal(
+                "selected",
+                row.RootElement.GetProperty("name").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(new[] { "--rows", "1" }, "A.Project.Guidance")]
+    [InlineData(
+        new[] { "--rows", "1", "--tail" },
+        "C.Project.Guidance")]
+    [InlineData(new[] { "--rows", "2..2" }, "B.Project.Guidance")]
+    public async Task Project_Json_AppliesRowWindow(
+        string[] rowArguments,
+        string expectedPackage)
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.Guidance",
+                "1.0.0",
+                "README.md",
+                "readme",
+                AgentsText: "first"),
+            new ProjectDocPackage(
+                "B.Project.Guidance",
+                "1.0.0",
+                "README.md",
+                "readme",
+                AgentsText: "second"),
+            new ProjectDocPackage(
+                "C.Project.Guidance",
+                "1.0.0",
+                "README.md",
+                "readme",
+                AgentsText: "third"));
+
+        try
+        {
+            var arguments = new List<string>
+            {
+                "project",
+                projectPath,
+                "-S",
+                "Agent Guidance",
+                "--json",
+            };
+            arguments.AddRange(rowArguments);
+
+            var (exit, output, error) =
+                await RunAppAsync([.. arguments]);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement row = Assert.Single(
+                document.RootElement.GetProperty("agent_guidance")
+                    .EnumerateArray());
+            Assert.Equal(
+                expectedPackage,
+                row.GetProperty("package").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_Columns_ReportsUnknownColumnsBeforeRendering()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16891,6 +16993,65 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Single(
             output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    public async Task Project_Discover_MultiSectionStructuredFormatStaysFlat(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Skills,Agent Guidance",
+            format);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("├", output);
+        Assert.DoesNotContain("└", output);
+        Assert.Contains("Package", output);
+
+        if (format == "--json")
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(
+                JsonValueKind.Array,
+                document.RootElement.ValueKind);
+        }
+        else if (format == "--jsonl")
+        {
+            foreach (string line in output.Split(
+                         '\n',
+                         StringSplitOptions.RemoveEmptyEntries))
+            {
+                using JsonDocument _ = JsonDocument.Parse(line);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    public async Task Project_Discover_RejectsTreeWithStructuredFormat(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "--tree",
+            format);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree cannot be combined with structured formats",
+            error);
+        Assert.DoesNotContain("Project not found", error);
     }
 
     [Fact]
