@@ -53,6 +53,7 @@ internal sealed class BrowserInspectionScope : IDisposable
 {
     /// <summary>The retained-image budget one browser workspace may hold across its groups.</summary>
     internal const long MaxRetainedImageBytes = 64L * 1024 * 1024;
+    internal const int MaxAssembliesPerRole = 256;
 
     readonly InspectionWorkspace _workspace = new();
     readonly BrowserWorkspaceGroup _surface;
@@ -79,6 +80,9 @@ internal sealed class BrowserInspectionScope : IDisposable
         long groupBudget = hasSeparateImplementation
             ? MaxRetainedImageBytes / 2
             : MaxRetainedImageBytes;
+        BrowserWorkspaceGroup.ValidateAssets(surfaceAssets, groupBudget);
+        if (hasSeparateImplementation)
+            BrowserWorkspaceGroup.ValidateAssets(implementationAssets, groupBudget);
         _surface = new BrowserWorkspaceGroup(_workspace, surfaceAssets, groupBudget);
         _implementation = shared
             ? _surface
@@ -205,6 +209,7 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(assets);
+        ValidateAssets(assets, maxRetainedImageBytes);
 
         // One binding-policy snapshot per role: a reference assembly resolves other references,
         // while an implementation assembly resolves other implementations.
@@ -237,13 +242,47 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
             Participants.Select(participant => participant.Participant),
             new AssemblyContextGroupOptions
             {
-                // Exhausting the browser budget remains a typed ResourceBudget rejection carried
-                // beside the query's other participant results.
+                // Preserve the workspace's own retained-snapshot defense after the host preflight.
                 MaxRetainedImageBytes = maxRetainedImageBytes,
             });
     }
 
     public ImmutableArray<BrowserWorkspaceParticipant> Participants { get; }
+
+    internal static void ValidateAssets(
+        IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> assets,
+        long maxRetainedImageBytes)
+    {
+        if (assets.Count > BrowserInspectionScope.MaxAssembliesPerRole)
+        {
+            throw new InvalidOperationException(
+                "The selected workspace role exceeds the browser assembly-count limit.");
+        }
+
+        long expandedBytes = 0;
+        foreach ((BrowserPackageCoordinate coordinate, PackageCompileAsset asset) in assets)
+        {
+            if (!coordinate.Package.Content.TryGetEntryLength(asset.Path, out long length))
+                throw new InvalidOperationException($"'{asset.Path}' disappeared from its package.");
+            try
+            {
+                expandedBytes = checked(expandedBytes + length);
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidOperationException(
+                    "The selected workspace role exceeds the browser retained-image budget.",
+                    ex);
+            }
+        }
+
+        if (expandedBytes > maxRetainedImageBytes)
+        {
+            throw new InvalidOperationException(
+                "The selected workspace role exceeds the browser retained-image budget before "
+                + "assembly identity decoding.");
+        }
+    }
 
     public TResult Use<TResult>(Func<AssemblyContextGroup, TResult> query)
     {

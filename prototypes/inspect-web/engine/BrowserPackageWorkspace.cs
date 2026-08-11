@@ -52,6 +52,9 @@ internal static class BrowserPackageWorkspace
     static readonly HttpClient Http = new();
     static readonly Dictionary<string, CacheEntry> Cache = new(StringComparer.Ordinal);
     static readonly Dictionary<string, ScopeEntry> Scopes = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, long> Reservations = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, Task<byte[]>> PendingDownloads = new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
@@ -67,7 +70,8 @@ internal static class BrowserPackageWorkspace
             Downloaded.Count,
             Cache.Count,
             Scopes.Count,
-            Cache.Values.Sum(entry => entry.Bytes.LongLength));
+            Cache.Values.Sum(entry => entry.Bytes.LongLength)
+                + Reservations.Values.Sum());
 
     /// <summary>Acquires one package's content at an exact resolved version.</summary>
     public static async Task<BrowserPackage> AcquireAsync(string packageId, string? version)
@@ -169,7 +173,48 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version,
         string? targetFramework)
-        => OpenScope([await ResolveAsync(packageId, version, targetFramework)]);
+        => (await ResolveAndOpenScopeAsync(
+            [new BrowserPackageRequest(packageId, version, targetFramework)])).Scope;
+
+    /// <summary>
+    /// Resolves and temporarily leases every requested coordinate until the aggregate scope owns
+    /// them. A later package acquisition cannot evict an earlier coordinate while a composite
+    /// workspace is still being assembled.
+    /// </summary>
+    public static async Task<BrowserScopeResolution> ResolveAndOpenScopeAsync(
+        IReadOnlyList<BrowserPackageRequest> requests)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        if (requests.Count == 0)
+            throw new ArgumentException("A workspace requires at least one package request.");
+
+        var coordinates = new List<BrowserPackageCoordinate>();
+        var coordinateKeys = new HashSet<string>(StringComparer.Ordinal);
+        var leasedPackages = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (BrowserPackageRequest request in requests)
+            {
+                BrowserPackageCoordinate coordinate = await ResolveAsync(
+                    request.PackageId,
+                    request.Version,
+                    request.TargetFramework);
+                string packageKey = PackageKey(coordinate);
+                if (leasedPackages.Add(packageKey))
+                    LeasePackage(packageKey);
+                if (coordinateKeys.Add(coordinate.Key))
+                    coordinates.Add(coordinate);
+            }
+
+            BrowserInspectionScope scope = OpenScope(coordinates);
+            return new BrowserScopeResolution(scope, [.. coordinates]);
+        }
+        finally
+        {
+            foreach (string packageKey in leasedPackages)
+                ReleasePackageLease(packageKey);
+        }
+    }
 
     static async Task<string> ResolveVersionAsync(string normalizedId, string? requestedVersion)
     {
@@ -213,7 +258,29 @@ internal static class BrowserPackageWorkspace
             Cache[key] = cached with { LastAccess = ++_clock };
             return (cached.Bytes, true);
         }
+        if (PendingDownloads.TryGetValue(key, out Task<byte[]>? pending))
+            return (await pending, true);
 
+        Task<byte[]> download = DownloadAndCacheAsync(
+            normalizedId,
+            normalizedVersion,
+            key);
+        PendingDownloads.Add(key, download);
+        try
+        {
+            return (await download, false);
+        }
+        finally
+        {
+            PendingDownloads.Remove(key);
+        }
+    }
+
+    static async Task<byte[]> DownloadAndCacheAsync(
+        string normalizedId,
+        string normalizedVersion,
+        string key)
+    {
         string url = await PackageExtractor.GetPackageDownloadUrlAsync(
                 Http,
                 PackageSource.NuGetOrg,
@@ -222,19 +289,35 @@ internal static class BrowserPackageWorkspace
                 log: null)
             ?? throw new InvalidOperationException(
                 $"nuget.org exposes no download address for {normalizedId} {normalizedVersion}.");
-        byte[] bytes = await DownloadBytesAsync(
+        using HttpResponseMessage response = await Http.GetAsync(
             url,
-            MaxCachedPackageBytes,
-            $"Package '{normalizedId}' {normalizedVersion}");
-        Downloaded.Add(key);
+            HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        long declaredLength = response.Content.Headers.ContentLength
+            ?? throw new InvalidOperationException(
+                $"Package '{normalizedId}' {normalizedVersion} did not declare its byte length, "
+                + "so the browser cannot reserve its package-cache budget before download.");
 
-        MakeCacheRoom(
-            bytes.LongLength,
-            additionalEntries: 1,
-            ImmutableHashSet<string>.Empty);
-
-        Cache[key] = new CacheEntry(bytes, ++_clock);
-        return (bytes, false);
+        using PackageDownloadReservation reservation = ReservePackageDownload(
+            key,
+            declaredLength);
+        try
+        {
+            using Stream source = await response.Content.ReadAsStreamAsync();
+            byte[] bytes = await BoundedContentReader.ReadAllBytesAsync(
+                source,
+                MaxCachedPackageBytes,
+                declaredLength);
+            reservation.Commit(bytes);
+            Downloaded.Add(key);
+            return bytes;
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new InvalidOperationException(
+                $"Package '{normalizedId}' {normalizedVersion} exceeds the browser byte limit.",
+                ex);
+        }
     }
 
     static ImmutableHashSet<string> RetainCoordinatePackages(
@@ -246,35 +329,41 @@ internal static class BrowserPackageWorkspace
                 group => group.Key,
                 group => group.First().Package,
                 StringComparer.Ordinal);
-        long retainedBytes = packages.Values.Sum(package => package.RetainedBytes.LongLength);
-        if (packages.Count > MaxCachedPackages || retainedBytes > MaxCachedPackageBytes)
+        if (packages.Count > MaxCachedPackages)
         {
             throw new InvalidOperationException(
-                "The requested workspace's package archives exceed the browser package-cache "
-                + "limit.");
+                "The requested workspace's package count exceeds the browser package-cache limit.");
         }
 
         ImmutableHashSet<string> packageKeys =
             packages.Keys.ToImmutableHashSet(StringComparer.Ordinal);
-        foreach (string packageKey in packageKeys)
-            Cache.Remove(packageKey);
-        MakeCacheRoom(retainedBytes, packages.Count, packageKeys);
         foreach ((string packageKey, BrowserPackage package) in packages)
-            Cache[packageKey] = new CacheEntry(package.RetainedBytes, ++_clock);
+        {
+            if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
+                || !ReferenceEquals(entry.Bytes, package.RetainedBytes))
+            {
+                throw new InvalidOperationException(
+                    "A resolved browser package escaped aggregate cache accounting before its "
+                    + "workspace opened.");
+            }
+        }
+
+        TouchPackages(packageKeys);
         return packageKeys;
     }
 
     static void MakeCacheRoom(
         long additionalBytes,
-        int additionalEntries,
-        IReadOnlySet<string> protectedKeys)
+        int additionalEntries)
     {
-        while (Cache.Count + additionalEntries > MaxCachedPackages
-            || Cache.Values.Sum(entry => entry.Bytes.LongLength) + additionalBytes
+        while (Cache.Count + Reservations.Count + additionalEntries > MaxCachedPackages
+            || Cache.Values.Sum(entry => entry.Bytes.LongLength)
+                + Reservations.Values.Sum()
+                + additionalBytes
                 > MaxCachedPackageBytes)
         {
             string? oldest = Cache
-                .Where(entry => !protectedKeys.Contains(entry.Key))
+                .Where(entry => !Leases.ContainsKey(entry.Key))
                 .OrderBy(entry => entry.Value.LastAccess)
                 .Select(entry => entry.Key)
                 .FirstOrDefault();
@@ -305,6 +394,49 @@ internal static class BrowserPackageWorkspace
         Cache.Remove(packageKey);
     }
 
+    internal static PackageDownloadReservation ReservePackageDownload(
+        string packageKey,
+        long declaredLength)
+    {
+        if (declaredLength < 0 || declaredLength > MaxCachedPackageBytes)
+        {
+            throw new InvalidOperationException(
+                "The package exceeds the browser package-cache byte limit.");
+        }
+        if (Reservations.ContainsKey(packageKey))
+            throw new InvalidOperationException("The package download is already reserved.");
+
+        MakeCacheRoom(declaredLength, additionalEntries: 1);
+        Reservations.Add(packageKey, declaredLength);
+        return new PackageDownloadReservation(packageKey, declaredLength);
+    }
+
+    static void LeasePackage(string packageKey)
+    {
+        if (!Cache.ContainsKey(packageKey))
+            throw new InvalidOperationException("A package must be cached before it can be leased.");
+        Leases[packageKey] = Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
+    }
+
+    static void ReleasePackageLease(string packageKey)
+    {
+        if (!Leases.TryGetValue(packageKey, out int count))
+            throw new InvalidOperationException("The package lease is not active.");
+        if (count == 1)
+            Leases.Remove(packageKey);
+        else
+            Leases[packageKey] = count - 1;
+    }
+
+    internal static void RegisterAcquiredPackage(BrowserPackage package)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        string key = PackageKey(package.PackageId, package.Version);
+        Cache.Remove(key);
+        MakeCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1);
+        Cache[key] = new CacheEntry(package.RetainedBytes, ++_clock);
+    }
+
     static void TouchPackages(IEnumerable<string> packageKeys)
     {
         foreach (string packageKey in packageKeys)
@@ -320,7 +452,10 @@ internal static class BrowserPackageWorkspace
     }
 
     static string PackageKey(BrowserPackageCoordinate coordinate) =>
-        $"{coordinate.PackageId.ToLowerInvariant()}@{coordinate.Version.ToLowerInvariant()}";
+        PackageKey(coordinate.PackageId, coordinate.Version);
+
+    static string PackageKey(string packageId, string version) =>
+        $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
     static async Task<byte[]> DownloadBytesAsync(
         string url,
@@ -346,7 +481,51 @@ internal static class BrowserPackageWorkspace
                 ex);
         }
     }
+
+    internal sealed class PackageDownloadReservation(string packageKey, long reservedBytes)
+        : IDisposable
+    {
+        bool _completed;
+
+        public void Commit(byte[] bytes)
+        {
+            ArgumentNullException.ThrowIfNull(bytes);
+            if (_completed)
+                throw new InvalidOperationException("The package reservation is complete.");
+            if (bytes.LongLength != reservedBytes)
+            {
+                throw new InvalidDataException(
+                    "The downloaded package length does not match its reservation.");
+            }
+
+            Reservations.Remove(packageKey);
+            Cache[packageKey] = new CacheEntry(bytes, ++_clock);
+            _completed = true;
+        }
+
+        public void Dispose()
+        {
+            if (_completed)
+                return;
+            Reservations.Remove(packageKey);
+            _completed = true;
+        }
+    }
 }
+
+/// <summary>One exact package coordinate request used to assemble a browser workspace.</summary>
+internal sealed record BrowserPackageRequest(
+    string PackageId,
+    string? Version,
+    string? TargetFramework);
+
+/// <summary>
+/// A registry-owned scope together with the coordinates resolved for this request, in request
+/// order. The scope may have been opened earlier with the same coordinate set in another order.
+/// </summary>
+internal sealed record BrowserScopeResolution(
+    BrowserInspectionScope Scope,
+    ImmutableArray<BrowserPackageCoordinate> RequestedCoordinates);
 
 /// <summary>One acquired package: its exact identity and its content.</summary>
 [SupportedOSPlatform("browser")]

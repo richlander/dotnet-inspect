@@ -39,3 +39,27 @@ export function spotlightCandidateSignature(activePackage, packages) {
     .map(pkg => `${packageIdentityKey(pkg)}:${pkg.types?.length ?? 0}`)
     .join("|")}`;
 }
+
+export function packageForView(packages, view) {
+  if (view.packageKey) {
+    return packages.find(pkg => packageIdentityKey(pkg) === view.packageKey) ?? null;
+  }
+  return packages.find(pkg => pkg.id === view.package) ?? null;
+}
+
+export function mermaidLabel(value) {
+  let encoded = "";
+  for (const character of String(value ?? "")) {
+    const scalar = character.codePointAt(0);
+    if (character === "&") encoded += "&amp;";
+    else if (character === "<") encoded += "&lt;";
+    else if (character === ">") encoded += "&gt;";
+    else if (character === '"') encoded += "&quot;";
+    else if (character === "\\") encoded += "&#92;";
+    else if (scalar < 0x20 || (scalar >= 0x7f && scalar <= 0x9f)
+      || scalar === 0x2028 || scalar === 0x2029) {
+      encoded += `&#92;u${scalar.toString(16).toUpperCase().padStart(4, "0")}`;
+    } else encoded += character;
+  }
+  return encoded;
+}

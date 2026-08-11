@@ -291,8 +291,17 @@ The host's 128 MB package-cache budget is aggregate: an open inspection scope's
 nupkg remains represented in the same LRU, and evicting that package disposes
 every retaining scope before removing the cache entry. Scope reuse therefore
 cannot keep an evicted archive alive outside the advertised budget.
+Package downloads must declare their content length; the host reserves that
+length and evicts unleased entries before allocating the response array.
+Composite workspace construction temporarily leases each resolved coordinate,
+so a later acquisition cannot evict an earlier pending coordinate. In-flight
+reservations and retained cache entries share the same 12-package/128 MB limit.
+Before assembly identity decoding, each workspace role also rejects more than
+256 selected assemblies or a declared expanded total above that role's 32/64 MB
+retained-image budget.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
-gates that aggregate ownership and eviction relationship.
+gates aggregate ownership and eviction; its oversized-role case gates
+pre-decoding rejection.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry

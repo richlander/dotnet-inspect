@@ -1,6 +1,7 @@
 using System.Reflection;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace DotnetInspector.Tests;
 
@@ -89,30 +90,12 @@ public sealed class BrowserEngineLayeringTests
     {
         foreach (string symbol in BannedSymbols())
         {
-            string qualified = symbol[2..];
-            if (symbol.StartsWith("T:", StringComparison.Ordinal))
-            {
-                Assert.True(
-                    Resolve(qualified) is not null,
-                    $"Banned type '{qualified}' no longer exists, so the entry bans nothing.");
-                continue;
-            }
-
-            Assert.StartsWith("M:", symbol, StringComparison.Ordinal);
-            string withoutParameters = qualified.Split('(')[0].Split("``")[0];
-            int lastDot = withoutParameters.LastIndexOf('.');
-            string typeName = withoutParameters[..lastDot];
-            string memberName = withoutParameters[(lastDot + 1)..];
-            Type type = Resolve(typeName)
-                ?? throw new InvalidOperationException(
-                    $"Banned member '{qualified}' names type '{typeName}', which no longer exists.");
+            ISymbol? resolved = DocumentationCommentId.GetFirstSymbolForDeclarationId(
+                symbol,
+                ProductCompilation);
             Assert.True(
-                type.GetMember(
-                        memberName,
-                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
-                    .Length
-                    > 0,
-                $"Banned member '{qualified}' no longer exists, so the entry bans nothing.");
+                resolved is not null,
+                $"Banned symbol '{symbol}' no longer resolves exactly, so the entry bans nothing.");
         }
     }
 
@@ -142,6 +125,17 @@ public sealed class BrowserEngineLayeringTests
         typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly,
         typeof(DotnetInspector.Queries.AssemblyContextGroup).Assembly,
     ];
+
+    static CSharpCompilation ProductCompilation { get; } = CSharpCompilation.Create(
+        "BrowserEngineBannedSymbols",
+        references:
+        [
+            .. ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Concat(ProductAssemblies.Select(assembly => assembly.Location))
+                .Distinct(StringComparer.Ordinal)
+                .Select(path => MetadataReference.CreateFromFile(path)),
+        ]);
 
     static IReadOnlyList<string> BannedSymbols() =>
     [

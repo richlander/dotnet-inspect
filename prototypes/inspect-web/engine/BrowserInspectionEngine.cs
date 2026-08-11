@@ -51,12 +51,11 @@ public static partial class BrowserInspectionEngine
         string version,
         string targetFramework)
     {
-        BrowserPackageCoordinate requested = await BrowserPackageWorkspace.ResolveAsync(
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
             targetFramework);
-        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope([requested]);
-        BrowserPackageCoordinate coordinate = scope.Coordinate(requested);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
         // The site's default path shows public types by default and reaches non-public ones
         // through the accessibility filter, so it asks for the composed scope: a public type
@@ -341,12 +340,11 @@ public static partial class BrowserInspectionEngine
         string version,
         string targetFramework)
     {
-        BrowserPackageCoordinate requested = await BrowserPackageWorkspace.ResolveAsync(
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
             targetFramework);
-        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope([requested]);
-        BrowserPackageCoordinate coordinate = scope.Coordinate(requested);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
         // The workspace is retained and reused, so this runs the whole-group query rather than
         // the streaming per-participant form: that form's release is terminal for the released
@@ -424,12 +422,11 @@ public static partial class BrowserInspectionEngine
         string version,
         string targetFramework)
     {
-        BrowserPackageCoordinate requested = await BrowserPackageWorkspace.ResolveAsync(
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
             targetFramework);
-        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope([requested]);
-        BrowserPackageCoordinate coordinate = scope.Coordinate(requested);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
         var registry = new InspectionQueryRegistry<AssemblyContextGroup>()
             .Add(
@@ -529,30 +526,25 @@ public static partial class BrowserInspectionEngine
                 "A call graph needs the selected overload's method-body token.");
         }
 
-        BrowserPackageCoordinate root = await BrowserPackageWorkspace.ResolveAsync(
-            packageId,
-            version,
-            targetFramework);
-        var coordinates = new List<BrowserPackageCoordinate> { root };
-        var coordinateKeys = new HashSet<string>(StringComparer.Ordinal)
+        var requests = new List<BrowserPackageRequest>
         {
-            root.Key,
+            new(packageId, version, targetFramework),
         };
         foreach (BrowserWorkspacePackage entry in JsonSerializer.Deserialize(
             workspaceJson,
             BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [])
         {
-            BrowserPackageCoordinate coordinate =
-                await BrowserPackageWorkspace.ResolveAsync(
+            requests.Add(new BrowserPackageRequest(
                 entry.Package,
                 entry.Version,
-                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework);
-            if (coordinateKeys.Add(coordinate.Key))
-                coordinates.Add(coordinate);
+                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework));
         }
 
-        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope(coordinates);
-        BrowserPackageCoordinate rootCoordinate = scope.Coordinate(root);
+        BrowserScopeResolution resolution =
+            await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
+        BrowserInspectionScope scope = resolution.Scope;
+        BrowserPackageCoordinate rootCoordinate =
+            scope.Coordinate(resolution.RequestedCoordinates[0]);
         (
             BrowserWorkspaceParticipant participant,
             int implementationToken
@@ -592,11 +584,7 @@ public static partial class BrowserInspectionEngine
                     scope.ImplementationParticipants.Length,
                     callerAssemblies,
                     view.Tier.ToString()),
-                [
-                    .. projection.Nodes
-                        .Where(node => node.Kind == CallGraphNodeKind.External)
-                        .Select(Target),
-                ],
+                Targets(projection.Nodes),
                 NoBody: view.CalleeRoot is null && view.CallerRoot is null),
             BrowserJsonContext.Default.BrowserCallGraph);
     }
@@ -785,12 +773,11 @@ public static partial class BrowserInspectionEngine
             string targetFramework,
             string assemblyName)
     {
-        BrowserPackageCoordinate requested = await BrowserPackageWorkspace.ResolveAsync(
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
             targetFramework);
-        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope([requested]);
-        BrowserPackageCoordinate coordinate = scope.Coordinate(requested);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
         return (scope, scope.SurfaceParticipant(
             coordinate,
@@ -815,12 +802,11 @@ public static partial class BrowserInspectionEngine
             string selectorKey,
             int metadataToken)
     {
-        BrowserPackageCoordinate requested = await BrowserPackageWorkspace.ResolveAsync(
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
             targetFramework);
-        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope([requested]);
-        BrowserPackageCoordinate coordinate = scope.Coordinate(requested);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
             BrowserWorkspaceParticipant participant,
             int methodToken
@@ -963,6 +949,12 @@ public static partial class BrowserInspectionEngine
         null,
         Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
         node.Kind.ToString().ToLowerInvariant());
+
+    internal static BrowserCallGraphTarget[] Targets(IEnumerable<CallGraphNode> nodes)
+    {
+        ArgumentNullException.ThrowIfNull(nodes);
+        return [.. nodes.Select(Target)];
+    }
 
     static BrowserCallGraphNode Tree(Analysis.CallTreeNode? node) => node is null
         ? new BrowserCallGraphNode("", "None", false, null, [], "", "", "")

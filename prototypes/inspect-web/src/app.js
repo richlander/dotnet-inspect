@@ -1,5 +1,7 @@
 import {
   lenses,
+  mermaidLabel,
+  packageForView,
   packageIdentityKey,
   packageLenses,
   rootCommands,
@@ -242,9 +244,9 @@ function recordNav() {
 }
 
 function applyView(view) {
-  const pkg = state.packages.find(item => packageIdentityKey(item) === view.packageKey)
-    ?? state.packages.find(item => item.id === view.package);
-  if (pkg) activatePackage(pkg);
+  const pkg = packageForView(state.packages, view);
+  if (!pkg) return false;
+  activatePackage(pkg);
   state.lens = view.lens;
   state.selectedTypeId = view.selectedTypeId;
   state.selectedMemberKey = view.selectedMemberKey;
@@ -272,18 +274,28 @@ function applyView(view) {
   } else {
     render();
   }
+  return true;
 }
 
 function navBack() {
-  if (nav.index <= 0) return;
-  nav.index -= 1;
-  applyView(nav.stack[nav.index].view);
+  while (nav.index > 0) {
+    const candidate = nav.index - 1;
+    nav.index = candidate;
+    if (applyView(nav.stack[candidate].view)) return;
+    nav.stack.splice(candidate, 1);
+  }
+  render();
 }
 
 function navForward() {
-  if (nav.index >= nav.stack.length - 1) return;
-  nav.index += 1;
-  applyView(nav.stack[nav.index].view);
+  while (nav.index < nav.stack.length - 1) {
+    const candidate = nav.index + 1;
+    nav.index = candidate;
+    if (applyView(nav.stack[candidate].view)) return;
+    nav.stack.splice(candidate, 1);
+    nav.index -= 1;
+  }
+  render();
 }
 
 const memberSections = ["overview", "source", "annotated", "call-graph", "facts"];
@@ -4138,9 +4150,7 @@ function spotlightTypeMatches(query) {
 // packages or their type counts change.
 let spotlightMemberCache = null;
 function spotlightMemberCandidates() {
-  const signature = `${state.package?.id ?? ""}#${state.packages
-    .map(pkg => `${pkg.id}:${pkg.types?.length ?? 0}`)
-    .join("|")}`;
+  const signature = spotlightCandidateSignature(state.package, state.packages);
   if (spotlightMemberCache && spotlightMemberCache.signature === signature) return spotlightMemberCache.pool;
   const pool = [];
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
@@ -5834,7 +5844,7 @@ function buildTypeGraphMermaid(meta) {
   nodes.forEach((node, index) => idOf.set(node.id, `t${index}`));
   const lines = ["flowchart TD"];
   for (const node of nodes) {
-    const label = shortTypeName(node.displayName).replace(/"/g, "&quot;");
+    const label = mermaidLabel(shortTypeName(node.displayName));
     lines.push(`  ${idOf.get(node.id)}["${label}"]:::${node.role}`);
   }
   for (const edge of edges) {
@@ -6052,7 +6062,7 @@ function buildDependencyGraphMermaid(selectedTfm) {
   const lines = ["flowchart TD"];
   for (const key of keys) {
     const info = nodeInfo.get(key);
-    const label = info.id.replace(/"/g, "&quot;");
+    const label = mermaidLabel(info.id);
     lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
   }
   for (const edge of edges) {
@@ -6555,7 +6565,7 @@ function attachGraphPanZoom(
       }
       const loaded = resolveLoadedGraphTarget(target);
       const platform = !loaded
-        && target.kind === "External"
+        && target.kind === "external"
         && target.assembly
         && target.typeFullName;
       if (!loaded && !platform) return;

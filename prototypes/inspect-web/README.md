@@ -21,8 +21,9 @@ The rule is enforced by the compiler, not by a convention.
 retained-descriptor accessors in this project, and `Directory.Build.targets`
 already escalates `RS0030` to an error for every project.
 `BrowserEngineLayeringTests` in `src/dotnet-inspect.Tests` pins that wiring and
-checks that every banned identifier still resolves — a renamed entry bans
-nothing. Acquisition still decodes a healthy entry's real metadata identity.
+resolves every complete banned documentation id, including generic arity and
+parameter types — a renamed or malformed entry bans nothing and fails the gate.
+Acquisition still decodes a healthy entry's real metadata identity.
 A selected malformed entry receives a path-derived identity only as a rejection
 carrier, so the workspace returns its typed failure instead of silently
 shortening the selected assembly set.
@@ -52,9 +53,12 @@ reach the same open group rather than reacquiring every image.
 recently used one on eviction, which is what returns its retained image bytes.
 A scope carries a 64 MB aggregate retained-image budget. Two distinct
 compile/implementation groups receive 32 MB each; a shared or reference-only
-single group receives the full 64 MB. Exhausting a group budget surfaces as a
-typed `ResourceBudget` rejection beside the results rather than as a silently
-shorter list.
+single group receives the full 64 MB. Before decoding any identity, the host
+rejects a role whose declared expanded assembly total exceeds its group budget
+or whose selected set exceeds 256 assemblies. This keeps acquisition itself
+inside the same bound rather than relying on the later retained-snapshot check.
+Failures after the role passes that preflight remain typed participant outcomes
+beside healthy results.
 
 Because a scope is reused, nothing here runs the terminal participant-streaming
 forms of `AssemblyContextIntegrationsQuery` or
@@ -68,6 +72,9 @@ A workspace may also span several package coordinates on purpose:
 `MemberCallGraphSession` can only see callers in a sibling package when that
 package is a participant of the *same* binding-consistent group, so the call
 graph opens one workspace over every package the site currently has open.
+Coordinates are temporarily leased while that composite scope is assembled, so
+acquiring a later package cannot evict an earlier archive and leave it alive
+outside cache accounting.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 
@@ -92,7 +99,10 @@ single-threaded, and both caches are written for that host: at most 12 packages
 or 128 MB of package content in aggregate, including nupkg arrays retained by
 open scopes, and at most four open workspaces. Evicting a package first disposes
 every scope that retains it, so cache eviction actually releases the archive
-bytes instead of removing only the cache's reference.
+bytes instead of removing only the cache's reference. A nupkg response must
+declare its content length. The cache reserves that length and evicts enough
+unleased content before allocating the response array; reservations participate
+in the same 12-package/128 MB aggregate while the download is in flight.
 
 Acquisition is bounded before content enters either cache or workspace. A
 version-index response may contain at most 1 MB, one downloaded nupkg at most
@@ -191,7 +201,10 @@ rows and groups them by the returned integration name.
 makes that split on purpose: the projection owns identity, direction, cycles,
 and boundaries, and each front end spells them for itself. The Mermaid renderer
 HTML-encodes delimiters and visibly encodes control and line-separator
-characters before artifact labels enter the grammar.
+characters before artifact labels enter the grammar. The type-relationship
+renderer applies the same containment. Call-graph navigation receives typed
+targets for every projected node and uses the transport's normalized lowercase
+node kind rather than inferring identity from SVG text.
 
 ## Unsupported
 
@@ -270,8 +283,9 @@ npm test
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
-malformed selected-participant visibility, reference-only retained-image budget,
-duplicate XML parameter handling, and Mermaid label containment.
+role preflight before identity decoding, malformed selected-participant
+visibility, reference-only retained-image budget, duplicate XML parameter
+handling, Mermaid label containment, and complete call-graph navigation targets.
 The JavaScript tests gate the annotated view helper against the shared sample
 document and keep Spotlight candidate/cache identity coordinate-complete.
 
