@@ -5293,6 +5293,14 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ApiMemberDetailPipeline_FixedOverview_IsExactlySignature()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal([SectionNames.Signature], pipeline.FixedOverviewSectionNames);
+    }
+
+    [Fact]
     public void ApiMemberDetailPipeline_SourceCategory_MapsToSourceViews()
     {
         var categories = ApiMemberDetailSectionDescriptors.CreatePipeline().GetCategoryMap();

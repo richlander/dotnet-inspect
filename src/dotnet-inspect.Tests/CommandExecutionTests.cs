@@ -4587,12 +4587,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareSelect_KeepsTheInfoSet()
+    public async Task MemberList_BareSelect_KeepsTheInfoSet()
     {
         // `type` and `member` share ApiCommand's preamble and both run in singleTypeMode, so the
-        // fixed overview is scoped by the options record rather than by that flag. This is the
-        // negative case for that discriminator: `member` is a separate command with its own
-        // overview and converts on its own PR, so it must not pick up Type Info here. See #3547.
+        // fixed overview is scoped by the options record and member view rather than by that flag.
+        // This is the negative case for the detail-view conversion: a broad member list retains its
+        // compact summary preset and must not pick up Type Info. See #3547.
         var (exit, output, _) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
             "-S", "--tips", "q");
@@ -14649,18 +14649,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareSelect_RendersInfoPreset()
+    public async Task MemberDetail_BareSelect_RendersFixedOverview()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1", "-S");
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
+            "-S", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Signature", output);
-        Assert.Contains("## Decompiled Source", output);
+        Assert.Equal([SectionNames.Signature], SectionHeadings(output));
+        Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## IL", output);
         Assert.DoesNotContain("## Original Source", output);
-        Assert.True(output.IndexOf("## Signature", StringComparison.Ordinal) < output.IndexOf("## Decompiled Source", StringComparison.Ordinal));
+        Assert.True(
+            output.Split('\n').Length <= 8,
+            $"Member detail overview grew to {output.Split('\n').Length} lines.");
         Assert.DoesNotContain("Tip:", error);
+        Assert.Equal(0, countExit);
+        Assert.Equal("1", countOutput.Trim());
+        Assert.Empty(countError);
     }
 
     [Fact]
@@ -14677,6 +14685,20 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("| Name | Signature | Description |", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task MemberOverloadInventory_BareSelect_KeepsMethodsPreset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "-m", "SerializeToNode", "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal([SectionNames.Methods], SectionHeadings(output));
+        Assert.DoesNotContain("## Signature", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.Empty(error);
     }
 
     [Fact]
