@@ -952,6 +952,60 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void FullMemberUsesBareTypesBackedByNamespaceSet()
+    {
+        var type = CreateEmptyType("Samples", "FieldWriter");
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        };
+        type.Members.Add(constructor);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    constructor,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(
+                        """
+                        this.writer = writer;
+                        this.formatter = formatter;
+                        _options = options ?? new MarkoutWriterOptions();
+                        """))
+            ]));
+
+        Assert.Equal(
+            ["Markout", "Markout.Formatting", "System.IO"],
+            result.Usings);
+        Assert.Contains(
+            "public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "using Markout;\nusing Markout.Formatting;\nusing System.IO;\n",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void QualifiedPolicyKeepsReferencesQualified()
     {
         var type = CreateEmptyType("Samples", "Worker");
@@ -1083,6 +1137,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.DoesNotContain("using Alpha;", result.Source, StringComparison.Ordinal);
         Assert.DoesNotContain("using Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
         Assert.Contains(
             "public Alpha.Widget Convert(Beta.Widget value);",
             result.Units[0].Source,
@@ -1405,13 +1460,13 @@ public sealed class CSharpTypePrinterTests
     {
         var insensitive = new CSharpTypePrintResult(
             [],
+            ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "Alpha"),
             [],
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "Alpha"),
             () => "");
         var ordinal = new CSharpTypePrintResult(
             [],
+            ImmutableSortedSet.Create(StringComparer.Ordinal, "alpha"),
             [],
-            ImmutableHashSet.Create(StringComparer.Ordinal, "alpha"),
             () => "");
 
         Assert.False(insensitive.Equals(ordinal));
@@ -2063,15 +2118,19 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void SourceEscapesAndDeduplicatesUsings()
+    public void SourceEscapesDeduplicatesAndSortsEmittedUsings()
     {
         var result = _printer.Print(
             new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
             new CSharpTypePrintOptions
             {
-                Usings = ["System", "System", "Some.namespace.Value"]
+                Usings = ["Alpha", "event", "System", "System", "Some.namespace.Value"]
             });
 
+        Assert.StartsWith(
+            "using @event;\nusing Alpha;\nusing Some.@namespace.Value;\nusing System;\n",
+            result.Source,
+            StringComparison.Ordinal);
         Assert.Contains("using Some.@namespace.Value;", result.Source, StringComparison.Ordinal);
         Assert.Single(
             result.Source.Split('\n'),

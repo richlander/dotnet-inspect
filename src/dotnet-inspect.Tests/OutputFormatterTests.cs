@@ -2271,6 +2271,51 @@ public class OutputFormatterTests
         Assert.Contains("no SourceLink data", sourceLink.Evidence);
     }
 
+    [Fact]
+    public void SingleAudit_Signals_UnusableSourceLink_ReportsTheParseError()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasSourceLink = true;
+        inspection.PdbLocation = "standalone";
+        inspection.SourceLinkMap = new SourceLinkMapInspection(
+            SourceLinkMapStatus.Unusable,
+            "invalid JSON",
+            [],
+            []);
+
+        AuditSignalBuilder.PopulateLibraryAudit(
+            typeof(OutputFormatterTests).Assembly.Location,
+            inspection,
+            new VerboseLogger(false));
+
+        var sourceLink = Assert.Single(
+            inspection.AuditSignals!,
+            signal => signal.Signal == "SourceLink");
+        Assert.Equal("Present (unusable)", sourceLink.Value);
+        Assert.Contains("invalid JSON", sourceLink.Evidence);
+        Assert.DoesNotContain("SourceLink data found", sourceLink.Evidence);
+    }
+
+    [Fact]
+    public void SingleAudit_SourceLinkDiagnostics_RendersParseAndEntryFailures()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasSourceLink = true;
+        inspection.SourceLinkMap = new SourceLinkMapInspection(
+            SourceLinkMapStatus.Unusable,
+            "invalid JSON",
+            ["/_/*"],
+            ["/_/*"]);
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("## SourceLink: Diagnostics", output);
+        Assert.Contains("| Map error |  | invalid JSON |", output);
+        Assert.Contains(
+            "| Rejected mapping | /_/* | entry does not conform to the SourceLink document-map schema |",
+            output);
+    }
+
     private static LibraryInspection CreateTestAudit(string fileName, string? tfm)
     {
         return new LibraryInspection

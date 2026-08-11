@@ -339,6 +339,17 @@ inputs directly. Nothing gates the invariant, which is why the gaps persisted; s
 
 ### SourceLink provenance is read off the URL source is fetched from
 
+SourceLink map presence is not reported as successful usability. The
+SourceLink-aware audit retains whole-map parse failures and individually
+rejected keys, reports unusable and partially usable states in `Signals`, and
+exposes details through `SourceLink: Diagnostics`. Authored document keys also
+participate in `Non-normalized Paths`; a normalized CodeView path cannot hide a
+non-normalized SourceLink key. This fail-visible boundary is gated by
+`CommandExecutionTests.Library_MalformedSourceLink_ReportsMapAndPathDiagnostics`,
+`OutputFormatterTests.SingleAudit_Signals_UnusableSourceLink_ReportsTheParseError`,
+and
+`CommandExecutionTests.SourceLinkAudit_NormalizedFixtureStaysClean`.
+
 Reported provenance must describe the origin that source content is actually
 fetched from, for every document the assembly resolves. When that cannot be
 established for all of them, report no repository.
@@ -954,10 +965,12 @@ Disabling the check fails nine of them.
 
 `SourceLinkProvenanceResult.Reason` is the *latent* half of the same exposure.
 Its messages quote artifact text throughout — the query, the path, the host, a
-revision, a rejected map key — and today no caller renders it: all six read
-`Origin?.RepositoryUrl` and drop the reason. Issue #3590 exists to report it,
-which is exactly the change that turns these into a live path, so #3590 must
-adopt visual encoding rather than merely surfacing the strings.
+revision, a rejected map key — and today no caller renders it: current callers read
+`Origin?.RepositoryUrl` and drop the reason. The library map-diagnostics path
+does not render that composite provenance reason: it projects map errors and
+rejected keys separately, and its view records apply visual containment. Any
+future surface for the provenance reason must do the same rather than merely
+printing the string.
 
 A test framework is a sink too. xUnit builds its row labels from the theory
 arguments, so the runner prints a raw `U+202E` from a hostile fixture to the
