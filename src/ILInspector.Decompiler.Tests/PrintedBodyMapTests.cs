@@ -662,7 +662,12 @@ public class PrintedBodyMapTests
             map.Nodes,
             node => node.Kind == "BinaryExpression"
                 && Text(map, node.Extent) == "exists && true");
-        Assert.True(operand.Id < wrapper.Id);
+        Assert.True(
+            SlotOf(ranges, diamond)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "exists && true ? 1 : 0",
+                "ConditionalExpression")));
         var fact = Assert.Single(map.Annotations);
         Assert.Equal("BinaryExpression", fact.Kind);
         Assert.True(fact.Extent.HasValue);
@@ -707,7 +712,12 @@ public class PrintedBodyMapTests
             map.Nodes,
             node => node.Kind == "PatternExpression"
                 && Text(map, node.Extent) == "value is not null");
-        Assert.True(operand.Id < wrapper.Id);
+        Assert.True(
+            SlotOf(ranges, argument)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "value is not null",
+                "PatternExpression")));
         var fact = Assert.Single(map.Annotations);
         Assert.Equal(operand.Id, fact.NodeId);
         Assert.Equal("NameExpression", fact.Kind);
@@ -786,7 +796,12 @@ public class PrintedBodyMapTests
             map.Nodes,
             node => node.Kind == "ConversionExpression"
                 && Text(map, node.Extent) == "(void*)(stackalloc int[1])");
-        Assert.True(operand.Id < wrapper.Id);
+        Assert.True(
+            SlotOf(ranges, allocation)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "(void*)(stackalloc int[1])",
+                "ConversionExpression")));
         var fact = Assert.Single(map.Annotations);
         Assert.Equal(operand.Id, fact.NodeId);
         Assert.Equal("StackAllocationExpression", fact.Kind);
@@ -820,7 +835,12 @@ public class PrintedBodyMapTests
             map.Nodes,
             node => node.Kind == "ConversionExpression"
                 && Text(map, node.Extent) == "unchecked((uint)(-1))");
-        Assert.True(literal.Id < conversion.Id);
+        Assert.True(
+            SlotOf(ranges, fallback)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "unchecked((uint)(-1))",
+                "ConversionExpression")));
         var fact = Assert.Single(map.Annotations);
         Assert.Equal(literal.Id, fact.NodeId);
         Assert.Equal("LiteralExpression", fact.Kind);
@@ -2278,6 +2298,22 @@ public class PrintedBodyMapTests
         int c = line.CompareTo(otherLine);
         return c != 0 ? c : column.CompareTo(otherColumn);
     }
+
+    static int SlotOf(PrintedRangeMap ranges, IrNode node)
+        => ranges.Select((range, index) => (range.Node, index))
+            .Single(item => ReferenceEquals(item.Node, node))
+            .index;
+
+    static IrNode ContextualRoot(
+        PrintedRangeMap ranges,
+        string text,
+        string kind)
+        => Assert.Single(
+            ranges,
+            printed => printed.Node is SynthesizedRenderedExpression
+                && ranges.TryGetNodeKind(printed.Node, out string? renderedKind)
+                && renderedKind == kind
+                && ranges.Output[printed.Characters] == text).Node;
 
     static string Text(PrintedBodyMap map, PrintedExtent extent) => Text(map.Lines, extent);
 
