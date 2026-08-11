@@ -36,7 +36,8 @@ selection controls rendering.
 | Section | Purpose | Network posture |
 | --- | --- | --- |
 | `Symbols` | PDB format/location, SourceLink presence, symbol server, builder hints | may acquire one missing PDB when authorized |
-| `Signals` | summary evidence including SourceLink/provenance signals | opt-in; may acquire one missing PDB |
+| `Signals` | summary evidence including SourceLink map presence and usability | opt-in; may acquire one missing PDB |
+| `SourceLink: Diagnostics` | local map parse errors and rejected document mappings | network-free |
 | `SourceLink: Files` | type-to-SourceLink URL rows for the selected library | opt-in; may acquire one missing PDB |
 | `SourceLink: Availability` | per-source-file reachability via HTTP HEAD | opt-in; one request per source file |
 | `SourceLink: Missing Files` | compiler source paths that are neither reachable nor embedded | opt-in; derived from availability pass |
@@ -150,6 +151,13 @@ PDB acquisition proceeds in this order:
 Windows PDBs are detected but not read by this tool. If no matching portable PDB
 is available, SourceLink sections should degrade to absent/empty evidence rather
 than guessing.
+
+Map presence is not map usability. A malformed custom-debug-information payload,
+an empty map, or a map whose entries are all rejected remains visibly present
+but unusable. `Signals` carries that summary; `SourceLink: Diagnostics` carries
+the parse reason and rejected keys. Non-normalized authored document keys remain
+in `Non-normalized Paths`, alongside CodeView PDB paths, so the deterministic
+path signal evaluates both inputs.
 
 ### Identity is mandatory
 
