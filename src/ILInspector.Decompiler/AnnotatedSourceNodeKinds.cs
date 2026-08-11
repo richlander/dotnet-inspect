@@ -75,7 +75,6 @@ public static class AnnotatedSourceNodeKinds
             "ObjectInitializerExpression",
             "WithExpression",
             "InitializerExpression",
-            "FunctionPointerExpression",
             "MethodAddressExpression",
             "DelegateCreationExpression",
             "LambdaExpression",

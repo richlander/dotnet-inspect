@@ -76,7 +76,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(ObjectInitializerExpression)] = "ObjectInitializerExpression",
             [typeof(WithExpression)] = "WithExpression",
             [typeof(InitializerBlock)] = "InitializerExpression",
-            [typeof(LoadFunctionPointer)] = "FunctionPointerExpression",
+            [typeof(LoadFunctionPointer)] = "UnsupportedExpression",
             [typeof(AddressOfMethod)] = "MethodAddressExpression",
             [typeof(DelegateCreation)] = "DelegateCreationExpression",
             [typeof(Lambda)] = "LambdaExpression",

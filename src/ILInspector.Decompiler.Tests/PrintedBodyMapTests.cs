@@ -107,6 +107,11 @@ public class PrintedBodyMapTests
             new LoadToken(RuntimeTokenKind.Type, objectType, objectType.ToDisplayString())));
         Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
             new LoadToken(RuntimeTokenKind.Field, null, "C.F")));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadFunctionPointer(
+                new MethodRef(objectType, "Target", intType, [], HasThis: false),
+                isVirtual: false,
+                instance: null)));
     }
 
     [Fact]
@@ -345,6 +350,10 @@ public class PrintedBodyMapTests
             new MethodRef(holderType, "get_Total", intType, [], HasThis: true),
             new LoadArgument(0, "this", holderType),
             []);
+        var functionPointer = new LoadFunctionPointer(
+            new MethodRef(holderType, "Target", intType, [], HasThis: false),
+            isVirtual: false,
+            instance: null);
         var pattern = new IsPattern(
             new LoadArgument(4, "subject", objectType),
             stringType,
@@ -388,6 +397,7 @@ public class PrintedBodyMapTests
         block.Add(new StoreLocal(14, intType, fieldLoad));
         block.Add(new StoreLocal(15, intType, propertyLoad));
         block.Add(new StoreLocal(16, intType, fieldAddressRead));
+        block.Add(new ExpressionStatement(functionPointer));
         block.Add(new Return(managedRead));
         var container = new BlockContainer();
         container.Add(block);
@@ -467,6 +477,10 @@ public class PrintedBodyMapTests
         AssertSurfaceKind(ranges, fieldLoad, "Count", "NameExpression");
         AssertSurfaceKind(ranges, propertyLoad, "Total", "NameExpression");
         AssertSurfaceKind(ranges, fieldAddressRead, "Count", "NameExpression");
+        Assert.True(ranges.TryGetRange(functionPointer, out var functionPointerRange));
+        Assert.StartsWith("/* LoadFunctionPointer", ranges.Output[functionPointerRange]);
+        Assert.True(ranges.TryGetNodeKind(functionPointer, out string? functionPointerKind));
+        Assert.Equal("UnsupportedExpression", functionPointerKind);
     }
 
     [Fact]
