@@ -27,8 +27,29 @@ internal static class SourceDocumentPath
     internal static string NormalizeSeparators(string path)
         => path.Replace('\\', '/');
 
+    internal static bool HasDeterministicRoot(string path)
+        => DeterministicRootLength(path) > 0;
+
     internal static string TrimSyntheticRoot(string path)
         => path.StartsWith("/_/", StringComparison.Ordinal) ? path[3..] : path;
+
+    static int DeterministicRootLength(string path)
+    {
+        if (path.StartsWith("/_/", StringComparison.Ordinal))
+            return 3;
+        if (path.Length < 4
+            || path[0] != '/'
+            || path[1] != '_'
+            || path[2] is < '1' or > '9')
+        {
+            return 0;
+        }
+
+        int index = 3;
+        while (index < path.Length && path[index] is >= '0' and <= '9')
+            index++;
+        return index < path.Length && path[index] == '/' ? index + 1 : 0;
+    }
 }
 
 internal sealed class SourceDocumentPathResolver
