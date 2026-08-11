@@ -66,11 +66,11 @@ public sealed class CSharpTypePrinter
             CSharpTypeNamePolicy.ContextualShort => [],
             _ => throw new InvalidOperationException()
         };
-        var emittedUsings = options.IncludeUsings
+        var effectiveUsings = options.IncludeUsings
             ? configuredUsings
                 .Concat(derivedUsings)
-                .ToImmutableHashSet(StringComparer.Ordinal)
-            : ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+                .ToImmutableSortedSet(StringComparer.Ordinal)
+            : ImmutableSortedSet.Create<string>(StringComparer.Ordinal);
 
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         var renderedUnits = ImmutableArray.CreateBuilder<RenderedFragment>();
@@ -99,9 +99,9 @@ public sealed class CSharpTypePrinter
         var renderedUnitList = renderedUnits.ToImmutable();
         return new CSharpTypePrintResult(
             unitList,
+            effectiveUsings,
             diagnostics.ToImmutable(),
-            emittedUsings,
-            () => ComposeSource(renderedUnitList, emittedUsings, options));
+            () => ComposeSource(renderedUnitList, effectiveUsings, options));
     }
 
     /// <summary>
@@ -153,7 +153,9 @@ public sealed class CSharpTypePrinter
             sb.AppendLf($"[module: {attribute}]");
         if (options.IncludeUsings)
         {
-            foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace).Order(StringComparer.Ordinal))
+            foreach (var ns in usings
+                .Select(CSharpFormatter.EscapeNamespace)
+                .Order(StringComparer.Ordinal))
                 sb.AppendLf($"using {ns};");
         }
         foreach (var unit in units)
