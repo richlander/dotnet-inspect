@@ -91,7 +91,8 @@ A group catalog document:
       "name": "Extensions",
       "members": [
         { "kind": "package", "id": "Microsoft.Extensions.DependencyInjection.Abstractions", "version": "10.0.0", "framework": "net10.0" },
-        { "kind": "package", "id": "Microsoft.Extensions.Logging.Abstractions", "version": "10.0.0", "framework": "net10.0" }
+        { "kind": "package", "id": "Microsoft.Extensions.Logging", "version": "10.0.0", "framework": "net10.0" },
+        { "kind": "package", "id": "Microsoft.Extensions.Http", "version": "10.0.0", "framework": "net10.0" }
       ]
     }
   ]
@@ -130,9 +131,17 @@ needs only the platform and one package — no custom group at all:
 
 A call-graph demo over the Extensions family is the composition case: its
 context subscribes `:Platform+Extensions`, referencing the catalog's group
-rather than restating it, and its scenario's view selects the target
-overload by anchor digest
-(`"view": { "memberAnchor": "74b6b4b321", "section": "call-graph" }`).
+rather than restating it (the members above are the three packages the
+current imperative demo loads, so the subscription reproduces its scope),
+and its scenario's view selects the target overload by anchor digest:
+
+```json
+"view": {
+  "type": "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
+  "memberAnchor": "74b6b4b321",
+  "section": "call-graph"
+}
+```
 
 Field semantics:
 
@@ -148,20 +157,26 @@ Field semantics:
   not the model; bundles register groups in a catalog so definitions reuse
   them. In either home, redefining a well-known group name is invalid.
 - `contexts` — one entry per context (the bundle contract's "context-group
-  definitions"). Each lowers to one `AssemblyContextGroup`. `subscribe` is a
-  group expression (see the grammar below); `members` are additional inline
-  coordinates overlaid on the subscription. A context must have at least one
-  of the two. The array itself may be omitted — see
-  [the implicit platform context](#the-implicit-platform-context) — but a
+  definitions"). Each lowers to one `AssemblyContextGroup`. A context
+  carries a `name` (how scenarios address it), an optional `framework`,
+  `subscribe` — a group expression (see the grammar below) — and `members`,
+  additional inline coordinates overlaid on the subscription. A context
+  must have at least one of `subscribe` and `members`. The array itself may
+  be omitted — see
+  [the implicit platform context](#the-implicit-platform-context) — but an
+  empty `contexts` array is invalid (omit the field instead), and a
   workspace document must carry at least one of `contexts` or `scenarios`.
 - `scenarios` — named compositions of a context with view and query presets,
   per the bundle contract's separation of workspace definition, query
   preset, and view preset. A scenario has two preset slots: `view`, whose
   shape this note pins (`lens`, `type`, `memberAnchor` or `memberSignature`,
-  `section` — each individually optional; member selectors require `type`,
-  `memberAnchor` and `memberSignature` are mutually exclusive, `section`
-  requires a member selector, and an empty view is the context's default
-  view), and an optional `query`, for which this note pins only the
+  `section`, and `library` — the platform-library scope the packet spells
+  `l`, one or more library names, a view concern because scoping is a lens
+  on a context, not a different context; each field individually optional;
+  member selectors require `type`, `memberAnchor` and `memberSignature` are
+  mutually exclusive, `section` requires a member selector, and an empty
+  view is the context's default view), and an optional `query`, for which
+  this note pins only the
   slot — the query-plan owner defines its shape. Selection state uses
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
@@ -194,15 +209,23 @@ authored workspace at all.
 Two guardrails keep it from surprising anyone. In a document that declares
 any `contexts`, every scenario must name its context — the implicit default
 never overrides declared structure, so omitting `context` in a structured
-document is invalid rather than a silent fall-through to the platform. And a
-bundled scenario-only document floats by construction, so the float warning
-above steers preserved demos toward a declared, pinned context.
+document is invalid rather than a silent fall-through to the platform. That
+rule does condition an omitted field's meaning on the rest of the document,
+but unlike the shape inference the `kind` discriminator eliminated, the
+dependency can only fail loudly: adding `contexts` to a scenario-only
+document invalidates its scenarios rather than silently rebinding them.
+The implicit context itself needs no name, because the only scenarios that
+can resolve to it are those that name none. And a bundled scenario-only
+document floats by construction, so the float warning below steers
+preserved demos toward a declared, pinned context; the warning fires on the
+absent-`contexts` form itself, since there is no declared coordinate to
+warn on.
 
 At lowering time the implicit context is a context like any other, so a
 scenario-only document still produces the "one or more" context-group
 definitions the bundle contract requires of a workspace; whether the
 contract owner wants the relaxed authoring form recorded in the contract is
-flagged the same way as the binding-policy amendment above.
+flagged the same way as the binding-policy amendment below.
 
 ### Scenario activation
 
@@ -259,8 +282,10 @@ rather than silently skipping them.
 
 A member or subscription without a version **floats** ("resolve latest at
 load"). Floating is the share-link norm and wrong for preserved demos, so
-authored definitions pin every coordinate, and bundle validation warns on
-floating coordinates in bundled definitions.
+authored definitions pin every coordinate they declare — the implicit
+platform context is the sanctioned exception, declaring nothing and
+floating by design — and bundle validation warns on floating coordinates
+in bundled definitions.
 
 ### What a definition never contains
 
@@ -370,15 +395,21 @@ required by this design:
   `Microsoft.NETCore.App` pseudo-package and the `isRuntimePackId` sniff,
   and unifies restore-path matching.
 - **The projection is partial by design — for authored definitions only.**
-  A live session is packet-born: its state exists because a packet or an
-  interactive action produced it, so transposing a session to a packet is
-  always total, and the round-trip claims below hold unconditionally. An
-  *authored* definition, by contrast, may exceed the packet — per-overlay
-  pins, query presets, multiple scenarios, or a context shape the tuple
-  grammar cannot carry — and for those the transposition layer refuses with
-  a typed outcome rather than silently flattening; the definition is shared
-  as a file or bundle instead. Which authored context shapes are
-  projectable is bounded by the context-to-tuple mapping question in
+  Session → packet totality is a **design constraint, not a derived fact**:
+  the packet grammar is required to stay closed over interactively
+  reachable session state, and the session-closure gate below enforces it.
+  (It cannot be derived, because the current packet already violates
+  closure in one corner: a multi-library platform scope encodes only when
+  the scope is exactly one library — `l` is written only for a
+  single-library set — so the redesign must either widen the library slot
+  or bound the interactive scope.) Under that constraint the round-trip
+  claims below hold for every session. An *authored* definition, by
+  contrast, may exceed the packet — per-overlay pins, query presets,
+  multiple scenarios, or a context shape the tuple grammar cannot carry —
+  and for those the transposition layer refuses with a typed outcome
+  rather than silently flattening; the definition is shared as a file or
+  bundle instead. Which authored context shapes are projectable is bounded
+  by the context-to-tuple mapping question in
   [Open questions](#open-questions).
 - **A format discriminator is required.** Today's two wire forms are
   distinguished by shape; the next revision adds an explicit version so
@@ -390,13 +421,15 @@ required by this design:
   existing demo — including the imperative call-graph demo — becomes a data
   definition plus an ordinary link: today's demos are tab-shaped, and a
   transposed tab is a single-subscription or single-package context, which
-  the tuple grammar always carries (the fused-context caveat in Open
-  questions concerns richer authored shapes, not these). This makes the
-  digest a compatibility
-  surface: it hashes the canonical-signature spelling under a versioned salt
-  (`dotnet-inspect.member-index.v1`) and varies with degraded signature
-  decoding, so every preserved link depends on that spelling staying fixed —
-  hence the anchor-durability gate below.
+  the tuple grammar always carries. One qualification: the call-graph
+  demo's value is cross-package scope, so *which* definition form
+  reproduces it — a fused subscription context or a union over N contexts —
+  tracks the context-to-tuple mapping decision, and the demo-parity gate
+  below is sequenced behind that decision. This makes the digest a
+  compatibility surface: it hashes the canonical-signature spelling under a
+  versioned salt (`dotnet-inspect.member-index.v1`) and varies with
+  degraded signature decoding, so every preserved link depends on that
+  spelling staying fixed — hence the anchor-durability gate below.
 - **The rich packet remains fully authoritative** over the visible query,
   which stays a human-readable label answering "what noun does this URL
   operate on". Dedup, the workspace-size cap, truncation notices, and
@@ -452,8 +485,13 @@ answer; each needs a decision before or during implementation.
   N independent contexts (faithful to tabs, but cross-package analysis then
   needs a union context the definition never declared) or one fused
   context (faithful to the analysis, but not to per-tab binding isolation).
-  Both are unresolved; until they are, authored fused contexts fall under
-  the projection-refusal rule, and transposed sessions are unaffected.
+  The arms differ in gate reach, which is decision-relevant: under N
+  contexts the packet's active index stays recoverable from the transposed
+  scenario's `context`, while under one fused context it has no
+  definition counterpart and the identity gate's active-index clause is
+  unachievable on that arm. Both decisions are unresolved; until they are,
+  authored fused contexts fall under the projection-refusal rule, and
+  transposed sessions are unaffected.
 - **Unknown group references.** A `subscribe` naming a group absent from
   every catalog in scope is a typed load failure (failure stays visible, per
   repository policy). Whether hosts may offer resolution — fetching a bundle
@@ -501,6 +539,10 @@ Unverified, all of it. Implementation must add, at minimum:
   for the terse projection, including active-index remapping under dedup,
   and asserting the definition → packet direction refuses non-projectable
   definitions rather than silently flattening them;
+- a session-closure gate asserting the packet grammar covers every
+  interactively reachable session state — the multi-library platform scope
+  is the known current exception the redesign must close, by widening the
+  library slot or bounding the interactive scope;
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
