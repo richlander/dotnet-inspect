@@ -531,8 +531,9 @@ insignificant whitespace. String values preserve their scalar sequence without
 Unicode normalization, reject unpaired surrogates, escape only quote,
 backslash, and C0 controls, use `\b`, `\t`, `\n`, `\f`, and `\r` where
 defined, use lowercase `\u00xx` for other C0 controls, and emit every other
-scalar as raw UTF-8. This packet-specific rule does not inherit
-`JavaScriptEncoder.Default` from the `CorpusManifest` serialization precedent.
+scalar as raw UTF-8. The packet uses a purpose-built writer: none of
+`JavaScriptEncoder.Default`, `UnsafeRelaxedJsonEscaping`, or
+`JavaScriptEncoder.Create(UnicodeRanges.All)` implements that complete rule.
 Packet identity below is semantic identity after decoding; canonical emission
 has one byte representation.
 
@@ -779,8 +780,10 @@ Unverified, all of it. Implementation must add, at minimum:
   non-ordinal library scope, invalid field shapes, out-of-range indexes, and
   every declared resource-limit breach without restoring partial workspace
   state; fixed browser/.NET byte vectors cover composed groups, generic and
-  non-ASCII metadata names, canonical signatures, control characters, quotes,
-  and backslashes;
+  non-ASCII metadata names, canonical signatures, lowercase C0 escapes, quotes,
+  backslashes, raw U+007F/U+0085/U+2028/U+2029, and a valid supplementary-plane
+  scalar such as U+E0074, with negative lone-high- and lone-low-surrogate cases
+  proving rejection rather than U+FFFD substitution;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
