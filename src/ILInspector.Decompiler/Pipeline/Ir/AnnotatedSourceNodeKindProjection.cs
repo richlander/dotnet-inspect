@@ -29,6 +29,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(SwitchExpressionArm)] = "SwitchExpressionArm",
             [typeof(UnionSwitchExpression)] = "SwitchExpression",
             [typeof(UnionSwitchExpressionArm)] = "SwitchExpressionArm",
+            [typeof(SynthesizedSwitchExpressionArm)] = "SwitchExpressionArm",
             [typeof(TupleSwitchExpression)] = "SwitchExpression",
             [typeof(TupleSwitchExpressionArm)] = "SwitchExpressionArm",
             [typeof(PatternSwitchExpression)] = "SwitchExpression",

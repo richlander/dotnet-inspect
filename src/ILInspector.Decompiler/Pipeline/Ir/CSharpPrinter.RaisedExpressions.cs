@@ -351,10 +351,10 @@ public sealed partial class CSharpPrinter
     string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)
     {
         var arms = node.Arms.Select(arm => UnionSwitchArmText(arm, target));
-        if (node.NullValue is { } nullValue)
-            arms = arms.Prepend($"null => {SwitchArmValueText(nullValue, target)}");
-        if (node.DefaultValue is { } defaultValue)
-            arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
+        if (node.NullArm is { } nullArm)
+            arms = arms.Prepend(SynthesizedSwitchArmText(nullArm, target));
+        if (node.DefaultArm is { } defaultArm)
+            arms = arms.Append(SynthesizedSwitchArmText(defaultArm, target));
         return $"{UnionSwitchReceiverText(node.Value)} switch {{ {string.Join(", ", arms)} }}";
     }
 
@@ -370,10 +370,15 @@ public sealed partial class CSharpPrinter
     string PatternSwitchExpressionInline(PatternSwitchExpression node, TypeRef? target = null)
     {
         var arms = node.Arms.Select(arm => PatternSwitchArmText(arm, target));
-        if (node.DefaultValue is { } defaultValue)
-            arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
+        if (node.DefaultArm is { } defaultArm)
+            arms = arms.Append(SynthesizedSwitchArmText(defaultArm, target));
         return $"{Operand(node.Value)} switch {{ {string.Join(", ", arms)} }}";
     }
+
+    string SynthesizedSwitchArmText(SynthesizedSwitchExpressionArm arm, TypeRef? target)
+        => CaptureNodeText(
+            arm,
+            $"{(arm.IsNull ? "null" : "_")} => {SwitchArmValueText(arm.Value, target)}");
 
     /// <summary>One arm of a <see cref="PatternSwitchExpression"/>: <c>Type[ local]</c> or
     /// <c>Type { Property: Inner inner }</c>, an optional <c>when</c> guard, and the yielded value.</summary>

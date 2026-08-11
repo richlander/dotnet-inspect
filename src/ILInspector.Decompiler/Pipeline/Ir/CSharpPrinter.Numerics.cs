@@ -1828,7 +1828,10 @@ public sealed partial class CSharpPrinter
     readonly record struct CoercedText(string Text, string Kind);
 
     string CoerceText(IrExpression value, TypeRef? target)
-        => RenderCoercion(value, target).Text;
+    {
+        var rendered = RenderCoercion(value, target);
+        return WithNodeKind(value, rendered.Text, rendered.Kind);
+    }
 
     CoercedText TransparentCoercion(IrExpression value)
     {

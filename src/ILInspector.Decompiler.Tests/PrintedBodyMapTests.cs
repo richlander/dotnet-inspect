@@ -436,6 +436,91 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void TargetCoercedInlineSwitchRecordsRootAndFactJoin()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var switchExpression = new SwitchExpression(
+            new LoadArgument(0, "x", intType),
+            [
+                new SwitchExpressionArm(
+                    [0],
+                    isDefault: false,
+                    new Constant(1, intType)),
+                new SwitchExpressionArm(
+                    [],
+                    isDefault: true,
+                    new Constant(2, intType)),
+            ]);
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, intType, switchExpression));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("x", intType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [switchExpression] = [new Annotation(Alloc, 0)],
+            });
+
+        var node = Assert.Single(
+            map.Nodes,
+            candidate => candidate.Kind == "SwitchExpression");
+        Assert.Equal(
+            "x switch { 0 => 1, _ => 2 }",
+            Text(map, node.Extent));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(node.Id, fact.NodeId);
+        Assert.Equal(node.Kind, fact.Kind);
+        Assert.Equal(node.Extent, fact.Extent);
+    }
+
+    [Fact]
+    public void PatternSwitchRecordsSynthesizedDefaultArm()
+    {
+        using var source = MetadataSource.Open(typeof(PatternSwitchSample).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(PatternSwitchSample).FullName!,
+            nameof(PatternSwitchSample.Classify));
+        CSharpPrinter.PrintRaised(
+            function!,
+            out var ranges,
+            method => IrImporter.Import(source, method),
+            source.AreProvablyDisjoint);
+        var synthesizedDefault = Assert.Single(
+            function!.Descendants.OfType<SynthesizedSwitchExpressionArm>());
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [synthesizedDefault] = [new Annotation(Alloc, 0)],
+            });
+
+        var arms = map.Nodes
+            .Where(node => node.Kind == "SwitchExpressionArm")
+            .Select(node => Text(map, node.Extent))
+            .ToArray();
+        Assert.Equal(3, arms.Length);
+        Assert.Contains("_ => false", arms);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal("SwitchExpressionArm", fact.Kind);
+        Assert.True(fact.Extent.HasValue);
+        Assert.Equal("_ => false", Text(map, fact.Extent.Value));
+    }
+
+    [Fact]
     public void ContextRenderedConditionRecordsPatternKind()
     {
         var (_, ranges) = Print(
@@ -447,6 +532,46 @@ public class PrintedBodyMapTests
             map.Nodes,
             node => node.Kind == "PatternExpression"
                 && Text(map, node.Extent) == "o is string s");
+    }
+
+    [Fact]
+    public void InvertedNullConditionRecordsPatternKind()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var condition = new LogicalNot(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadArgument(0, "o", objectType),
+                new Constant(null, objectType)));
+        var thenBlock = new Block();
+        thenBlock.Add(new Return(null));
+        var block = new Block(0);
+        block.Add(new IfStatement(condition, thenBlock, null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("o", objectType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(
+            map.Nodes,
+            node => node.Kind == "PatternExpression"
+                && Text(map, node.Extent) == "o is not null");
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "BinaryExpression"
+                && Text(map, node.Extent) == "o is not null");
     }
 
     [Fact]
@@ -489,7 +614,7 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
-    public void ConditionalRenderedAsLogicalAndRecordsBinaryKind()
+    public void TargetCoercedConditionalRecordsVisibleRootKind()
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -520,9 +645,9 @@ public class PrintedBodyMapTests
 
         Assert.NotNull(result.Output);
         Assert.True(ranges.TryGetRange(diamond, out var range));
-        Assert.Equal("exists && true", ranges.Output[range]);
+        Assert.Equal("exists && true ? 1 : 0", ranges.Output[range]);
         Assert.True(ranges.TryGetNodeKind(diamond, out string? kind));
-        Assert.Equal("BinaryExpression", kind);
+        Assert.Equal("ConditionalExpression", kind);
     }
 
     [Fact]

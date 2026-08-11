@@ -2044,8 +2044,14 @@ public sealed partial class CSharpPrinter
             int switchStart = sb.Length;
             sb.Append(UnionSwitchReceiverText(unionSwitch.Value)).AppendLf(" switch");
             sb.Append(pad).AppendLf("{");
-            if (unionSwitch.NullValue is { } nullValue)
-                sb.Append(inner).Append("null => ").Append(SwitchArmValueText(nullValue, _function.Signature.ReturnType)).AppendLf(",");
+            if (unionSwitch.NullArm is { } nullArm)
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(SynthesizedSwitchArmText(nullArm, _function.Signature.ReturnType));
+                CaptureContextRange(nullArm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
             foreach (var arm in unionSwitch.Arms)
             {
                 sb.Append(inner);
@@ -2054,8 +2060,14 @@ public sealed partial class CSharpPrinter
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
-            if (unionSwitch.DefaultValue is { } defaultValue)
-                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(defaultValue, _function.Signature.ReturnType)).AppendLf(",");
+            if (unionSwitch.DefaultArm is { } defaultArm)
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(SynthesizedSwitchArmText(defaultArm, _function.Signature.ReturnType));
+                CaptureContextRange(defaultArm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
             sb.Append(pad).Append("}");
             CaptureContextRange(unionSwitch, switchStart, sb.Length);
             sb.AppendLf(";");
@@ -2079,8 +2091,14 @@ public sealed partial class CSharpPrinter
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
-            if (patternSwitch.DefaultValue is { } patternDefault)
-                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(patternDefault, _function.Signature.ReturnType)).AppendLf(",");
+            if (patternSwitch.DefaultArm is { } defaultArm)
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(SynthesizedSwitchArmText(defaultArm, _function.Signature.ReturnType));
+                CaptureContextRange(defaultArm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
             sb.Append(pad).Append("}");
             CaptureContextRange(patternSwitch, switchStart, sb.Length);
             sb.AppendLf(";");
@@ -3703,7 +3721,11 @@ public sealed partial class CSharpPrinter
                 Conditions.Inverse(c.Kind),
                 IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
                 c.Left, c.Right),
-            "BinaryExpression"),
+            ComparisonSurfaceKind(
+                Conditions.Inverse(c.Kind),
+                IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
+                c.Left,
+                c.Right)),
         LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } n when InvertedEqualityOperatorCallText(call) is { } invertedEquality
             => WithNodeKind(n, invertedEquality, "BinaryExpression"),
         LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } n when InvertedRelationalOperatorCallText(call) is { } invertedRelational
