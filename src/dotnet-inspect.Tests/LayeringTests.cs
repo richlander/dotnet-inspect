@@ -106,14 +106,18 @@ public sealed class LayeringTests
             "Commands",
             commandFile);
         string source = File.ReadAllText(path);
-        string directIndexOpen =
+        string directIndexAccess =
             $@"\b(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*\.\s*"
-            + $@"{nameof(LibraryBodyIndex.Open)}\s*\(";
+            + $@"{nameof(LibraryBodyIndex.Open)}\w*\b";
         string sessionOpen =
             $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
-            + $@"{nameof(MethodBodyInspectionSession.Open)}\s*\(";
+            + $@"{nameof(MethodBodyInspectionSession.Open)}\w*\b";
 
-        Assert.DoesNotMatch(directIndexOpen, source);
+        Assert.Matches(
+            directIndexAccess,
+            $"indexes.Select({nameof(LibraryBodyIndex)}."
+                + $"{nameof(LibraryBodyIndex.Open)})");
+        Assert.DoesNotMatch(directIndexAccess, source);
         Assert.Matches(sessionOpen, source);
     }
 }

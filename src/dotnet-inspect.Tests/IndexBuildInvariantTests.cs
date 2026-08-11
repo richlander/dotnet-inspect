@@ -4,6 +4,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Findings;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
 
@@ -139,15 +140,49 @@ public class IndexBuildInvariantTests
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
 
-        FindingInspection<ILInspector.Analysis.UnsafetyOccurrence> inspection =
+        FindingInspection<Analysis.UnsafetyOccurrence> inspection =
             TimelineCommand.InspectUnsafetyAssemblies(
                 [FixtureAssembly],
                 typeof(IndexBuildGuardFixture).FullName!,
                 nameof(IndexBuildGuardFixture.Work));
 
         Assert.IsType<
-            FindingInspection<ILInspector.Analysis.UnsafetyOccurrence>.Complete>(
+            FindingInspection<Analysis.UnsafetyOccurrence>.Complete>(
                 inspection.Value);
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public void TimelineCommand_AnalysisSession_HonorsAllocationAndBodyScope()
+    {
+        Analysis.MethodIdentity target = Analysis.LibraryBodyIndex
+            .Open(
+                FixtureAssembly,
+                includeAllocations: false,
+                includeOpportunities: false)
+            .DeclaredMethods
+            .Single(method =>
+                method.DeclaringType.Name
+                    == nameof(IndexBuildGuardFixture)
+                && method.Name
+                    == nameof(IndexBuildGuardFixture.Work));
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        MethodBodyInspectionSession session =
+            TimelineCommand.OpenAnalysisSession(
+                FixtureAssembly,
+                Analysis.AnalysisFindings.AllocationDescriptor,
+                target.MetadataToken);
+
+        Assert.Equal(
+            Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                | Analysis.LibraryBodyAnalysisFeatures.Allocations,
+            session.BodyIndex.Features);
+        Assert.NotEmpty(
+            session.BodyIndex.GetAllocationOccurrences()[target.MetadataToken]);
+        Assert.Equal(
+            [target.MetadataToken],
+            session.BodyIndex.GetDirectCallsByCaller().Keys);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
 
