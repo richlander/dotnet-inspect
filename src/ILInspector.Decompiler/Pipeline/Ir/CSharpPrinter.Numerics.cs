@@ -195,9 +195,10 @@ public sealed partial class CSharpPrinter
     /// pointer additive form — including <c>pointer + pointer</c> and
     /// <c>integer - pointer</c>, which are not valid pointer arithmetic.
     /// </summary>
-    bool TryPointerArithmeticText(Binary binary, out string text)
+    bool TryPointerArithmeticText(Binary binary, out string text, out bool rendersConversion)
     {
         text = "";
+        rendersConversion = false;
         if (binary.Kind is BinaryKind.Divide
             && TryPointerDifferenceDivisionText(binary, out text))
         {
@@ -253,6 +254,7 @@ public sealed partial class CSharpPrinter
             ? $"{BytePointerOperand(pointer)} {BinaryOperator(binary)} {Operand(offset)}"
             : $"{Operand(offset)} {BinaryOperator(binary)} {BytePointerOperand(pointer)}";
         text = $"({TypeText(pointer.ResultType!)})({inner})";
+        rendersConversion = true;
         return true;
     }
 
@@ -887,8 +889,11 @@ public sealed partial class CSharpPrinter
         // wrong value. Render through `byte*` so the IL byte offset is reproduced
         // verbatim with no implicit scaling.
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Divide
-            && TryPointerArithmeticText(binary, out string pointerText))
+            && TryPointerArithmeticText(binary, out string pointerText, out bool rendersConversion))
         {
+            _printedRanges?.SetNodeKind(
+                binary,
+                rendersConversion ? "ConversionExpression" : "BinaryExpression");
             // A pointer `add.ovf`/`sub.ovf` carries an overflow check the default
             // (unchecked) C# context would drop, and a plain pointer add spelled
             // inside a checked region would silently acquire `.ovf` on recompile.
@@ -1014,7 +1019,10 @@ public sealed partial class CSharpPrinter
         if (TryLongLiteralText(operand) is { } longOperandLiteral)
         {
             return new Rendered(
-                longOperandLiteral,
+                WithNodeKind(
+                    operand,
+                    longOperandLiteral,
+                    "LiteralExpression"),
                 longOperandLiteral[0] == '-' ? Precedence.Unary : Precedence.Primary).At(demand);
         }
 
@@ -1488,7 +1496,67 @@ public sealed partial class CSharpPrinter
             : null;
 
     string ComparisonText(Comparison comparison)
-        => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
+        => WithNodeKind(
+            comparison,
+            ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right),
+            ComparisonSurfaceKind(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right));
+
+    string ComparisonSurfaceKind(
+        ComparisonKind kind,
+        bool isUnsigned,
+        IrExpression left,
+        IrExpression right)
+    {
+        if (IsUnorderedFloatOrdering(kind, isUnsigned, left, right))
+            return "UnaryExpression";
+        if (IsNullEquality(kind, left, right))
+            return "PatternExpression";
+        if (TryGetUnsignedNullTest(kind, isUnsigned, left, right, out var operand, out _))
+        {
+            return operand.ResultType is { Kind: TypeRefKind.Pointer }
+                ? "BinaryExpression"
+                : "PatternExpression";
+        }
+        return "BinaryExpression";
+    }
+
+    static bool IsUnorderedFloatOrdering(
+        ComparisonKind kind,
+        bool isUnsigned,
+        IrExpression left,
+        IrExpression right)
+        => isUnsigned
+            && IsFloatComparison(left, right)
+            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual;
+
+    static bool IsNullEquality(ComparisonKind kind, IrExpression left, IrExpression right)
+        => kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            && (left is Constant { Value: null } || right is Constant { Value: null });
+
+    static bool TryGetUnsignedNullTest(
+        ComparisonKind kind,
+        bool isUnsigned,
+        IrExpression left,
+        IrExpression right,
+        out IrExpression operand,
+        out bool isNullTest)
+    {
+        if (isUnsigned
+            && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
+                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })
+                || (kind == ComparisonKind.LessThanOrEqual && right is Constant { Value: null })
+                || (kind == ComparisonKind.GreaterThanOrEqual && left is Constant { Value: null })))
+        {
+            isNullTest = kind is ComparisonKind.LessThanOrEqual or ComparisonKind.GreaterThanOrEqual;
+            operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
+            return true;
+        }
+
+        operand = left;
+        isNullTest = false;
+        return false;
+    }
 
     string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
     {
@@ -1496,17 +1564,14 @@ public sealed partial class CSharpPrinter
         // ordered — 'a >= b unordered' must print as !(a < b) or NaN inputs
         // execute the wrong path. Equality needs no special form: C#'s ==
         // is beq and != is bne.un already.
-        if (isUnsigned && IsFloatComparison(left, right)
-            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
-                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
+        if (IsUnorderedFloatOrdering(kind, isUnsigned, left, right))
         {
             return $"!({Operand(left)} {ComparisonOperator(Conditions.Inverse(kind))} {Operand(right)})";
         }
         // Null tests render the is-form (taste doc): it is always the
         // reference test the IL performs, where == could round-trip to an
         // op_Equality call under operator overloads.
-        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
-            && (left is Constant { Value: null } || right is Constant { Value: null }))
+        if (IsNullEquality(kind, left, right))
         {
             var operand = right is Constant { Value: null } ? left : right;
             if (IsInstanceNullTestText(operand, isNotNull: kind == ComparisonKind.NotEqual) is { } typeTest)
@@ -1537,22 +1602,16 @@ public sealed partial class CSharpPrinter
         // is-null ordering form; rendered literally `obj > null` or `obj <= null`
         // is CS0019. Pointers forbid the is-pattern (CS8521), so spell those with
         // equality.
-        if (isUnsigned
-            && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
-                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })
-                || (kind == ComparisonKind.LessThanOrEqual && right is Constant { Value: null })
-                || (kind == ComparisonKind.GreaterThanOrEqual && left is Constant { Value: null })))
+        if (TryGetUnsignedNullTest(kind, isUnsigned, left, right, out var nullOperand, out bool isNullTest))
         {
-            bool isNullTest = kind is ComparisonKind.LessThanOrEqual or ComparisonKind.GreaterThanOrEqual;
-            var operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
-            if (IsInstanceNullTestText(operand, isNotNull: !isNullTest) is { } typeTest)
+            if (IsInstanceNullTestText(nullOperand, isNotNull: !isNullTest) is { } typeTest)
                 return typeTest;
-            if (ValueTypeUnionValueReceiverText(operand) is { } unionReceiver)
+            if (ValueTypeUnionValueReceiverText(nullOperand) is { } unionReceiver)
                 return $"{unionReceiver} is {(isNullTest ? "" : "not ")}null";
 
-            return operand.ResultType is { Kind: TypeRefKind.Pointer }
-                ? $"{Operand(operand)} {(isNullTest ? "==" : "!=")} null"
-                : $"{Operand(operand)} is {(isNullTest ? "" : "not ")}null";
+            return nullOperand.ResultType is { Kind: TypeRefKind.Pointer }
+                ? $"{Operand(nullOperand)} {(isNullTest ? "==" : "!=")} null"
+                : $"{Operand(nullOperand)} is {(isNullTest ? "" : "not ")}null";
         }
         // A pointer compared to a native-int zero is a null check: csc lowers
         // `ptr == null` to `ldc.i4.0; conv.u; ceq`, so the zero arrives as an
@@ -1720,9 +1779,10 @@ public sealed partial class CSharpPrinter
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
         if (cast is null)
             return Operand(operand);
-        return checkedSafe
+        string text = checkedSafe
             ? CheckedSafeCast(() => $"({cast}){Operand(operand)}", force: IsOutOfRangeUnsignedConstant(operand))
             : $"({cast}){Operand(operand)}";
+        return CaptureContextualExpression(operand, text, "ConversionExpression");
     }
 
     /// <summary>
@@ -1745,7 +1805,10 @@ public sealed partial class CSharpPrinter
         // (e.g. (long)ulong.MaxValue), which is CS0221 without unchecked; the
         // unsigned value, not the peeled signed value, is what overflows, so wrap
         // any constant operand defensively (a no-op for a fitting constant).
-        return CheckedSafeCast(() => $"({TypeText(signed)}){Operand(operand)}", force: TryGetIntegerConstant(operand, out _));
+        string text = CheckedSafeCast(
+            () => $"({TypeText(signed)}){Operand(operand)}",
+            force: TryGetIntegerConstant(operand, out _));
+        return CaptureContextualExpression(operand, text, "ConversionExpression");
     }
 
     /// <summary>
@@ -1760,19 +1823,63 @@ public sealed partial class CSharpPrinter
     /// reconciling against an enum sibling use <see cref="TryCoerceEnumOperand"/>,
     /// the operand-shaped door into the same rules.
     /// </summary>
+    string CoerceNodeText(Coerce coerce)
+    {
+        var rendered = RenderCoercion(coerce.Operand, coerce.Target);
+        return WithNodeKind(
+            coerce,
+            rendered.Text,
+            rendered.Kind);
+    }
+
+    readonly record struct CoercedText(
+        string Text,
+        string Kind,
+        bool IsContextualWrapper = false);
+
     string CoerceText(IrExpression value, TypeRef? target)
+    {
+        var rendered = RenderCoercion(value, target);
+        return BindCoercion(value, rendered);
+    }
+
+    string BindCoercion(IrExpression value, CoercedText rendered)
+    {
+        return rendered.IsContextualWrapper
+            ? CaptureContextualExpression(value, rendered.Text, rendered.Kind)
+            : WithNodeKind(value, rendered.Text, rendered.Kind);
+    }
+
+    CoercedText TransparentCoercion(IrExpression value)
+    {
+        string text = Expression(value);
+        return new(text, RenderedNodeKind(value));
+    }
+
+    CoercedText RenderCoercion(IrExpression value, TypeRef? target)
     {
         // The long-literal lens (#3347) at a value sink — a return, an argument, an
         // assignment, a field/array store, a box. Gated on an Int64 sink so the fold
         // only ever replaces a rendering that was already the bare `(long)N` cast;
         // a wider or differently-typed sink keeps whichever coercion cast it needs.
         if (IsCoreInt64(target) && TryLongLiteralText(value) is { } longSinkLiteral)
-            return longSinkLiteral;
+            return new(longSinkLiteral, "LiteralExpression");
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
             && AddressOfValue(value) is { } address)
         {
-            return $"({TypeText(nativeTarget)})(&{Deref(address)})";
+            string addressText = WithNodeKind(
+                address,
+                $"&{Deref(address)}",
+                "AddressExpression");
+            return ReferenceEquals(value, address)
+                ? new(
+                    $"({TypeText(nativeTarget)})({addressText})",
+                    "ConversionExpression",
+                    IsContextualWrapper: true)
+                : new(
+                    $"({TypeText(nativeTarget)})({addressText})",
+                    "ConversionExpression");
         }
         // A fixed-statement pinned local reads as a pointer (the fixed variable),
         // so the IL's conv.u/conv.i deriving an unmanaged pointer from it
@@ -1783,7 +1890,7 @@ public sealed partial class CSharpPrinter
             && value is Convert { Operand: LoadLocal pinnedLoad }
             && _fixedLocals.Contains(pinnedLoad.Index))
         {
-            return $"({TypeText(target)}){LocalName(pinnedLoad.Index)}";
+            return new($"({TypeText(target)}){LocalName(pinnedLoad.Index)}", "ConversionExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is Convert
@@ -1793,7 +1900,11 @@ public sealed partial class CSharpPrinter
             }
             && fixedBufferAddress.ElementType.Equals(target.ElementType))
         {
-            return $"&{Deref(fixedBufferAddress)}";
+            string elementText = WithNodeKind(
+                fixedBufferAddress,
+                Deref(fixedBufferAddress),
+                "ElementAccessExpression");
+            return new($"&{elementText}", "AddressExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is Convert
@@ -1802,22 +1913,32 @@ public sealed partial class CSharpPrinter
                 Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
             } addressConvert)
         {
-            return $"({TypeText(target)})(&{Deref(addressConvert.Operand)})";
+            string addressText = WithNodeKind(
+                addressConvert.Operand,
+                $"&{Deref(addressConvert.Operand)}",
+                "AddressExpression");
+            return new($"({TypeText(target)})({addressText})", "ConversionExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is not Constant { Value: null }
             && EffectiveType(value) is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" })
         {
-            return IsZeroConstant(value)
-                ? $"({TypeText(target)})null"
-                : $"({TypeText(target)}){Operand(value)}";
+            if (IsZeroConstant(value))
+                return new($"({TypeText(target)})null", "ConversionExpression");
+            return new(
+                $"({TypeText(target)}){Operand(value)}",
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
             && value is not Constant { Value: null }
             && !target.Equals(pointerSource))
         {
-            return $"({TypeText(target)}){Operand(value)}";
+            return new(
+                $"({TypeText(target)}){Operand(value)}",
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         // An enum shift — or a bitwise chain over one — renders as its underlying
         // integer (ShiftEnumLeftOperand: `(int)e >> n`), not the enum its stale
@@ -1838,7 +1959,10 @@ public sealed partial class CSharpPrinter
             && (CoercionRendering.CanSpellIntegerToEnum(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes)
                 || CoercionRendering.CanSpellUnknownEnumConstant(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes)))
         {
-            return EnumIntegerCast(value, shiftEnumTarget);
+            return new(
+                EnumIntegerCast(value, shiftEnumTarget),
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#
@@ -1853,15 +1977,29 @@ public sealed partial class CSharpPrinter
         if (target is { } enumTarget
             && CoercionRendering.CanSpellIntegerToEnum(EffectiveType(value), enumTarget, _function.TypeShapes))
         {
-            return value is Constant { Value: int or long } enumKonst
-                ? EnumConstantText(enumKonst, enumTarget)
-                : EnumIntegerCast(value, enumTarget);
+            if (value is Constant { Value: int or long } enumKonst)
+            {
+                long enumValue = enumKonst.Value is int i ? i : (long)enumKonst.Value!;
+                bool hasName = EnumMemberName(new Constant(enumValue, enumTarget)) is not null;
+                if (!hasName)
+                    Expression(enumKonst);
+                return new(
+                    EnumConstantText(enumKonst, enumTarget),
+                    hasName ? "MemberAccessExpression" : "ConversionExpression",
+                    IsContextualWrapper: !hasName);
+            }
+            return new(
+                EnumIntegerCast(value, enumTarget),
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         if (value is Binary enumArithmetic
             && target is { } enumArithmeticTarget
             && EnumArithmeticUnderlyingType(enumArithmetic)?.Equals(enumArithmeticTarget) == true)
         {
-            return EnumArithmeticValueText(enumArithmetic) ?? Expression(value);
+            return new(
+                EnumArithmeticValueText(enumArithmetic) ?? Expression(value),
+                RenderedNodeKind(value));
         }
         // An enum value at an integer-typed sink: cast to the target whenever
         // the cast is value-preserving — same stack family (a byte-backed enum
@@ -1883,9 +2021,12 @@ public sealed partial class CSharpPrinter
             // must stay bare (work-2302 CI canary). A missing value__ assumes
             // the I4-signed shape, matching EnumSemanticFamily.
             var underlying = EnumUnderlyingType(EffectiveType(value)) ?? TypeRef.CoreLib("System", "Int32");
-            return CSharpConversionRules.CheckedConversionCanThrow(underlying, primitiveTarget)
-                ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
-                : $"({TypeText(primitiveTarget)}){Operand(value)}";
+            return new(
+                CSharpConversionRules.CheckedConversionCanThrow(underlying, primitiveTarget)
+                    ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
+                    : $"({TypeText(primitiveTarget)}){Operand(value)}",
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         // Enum → enum: C# permits the explicit conversion between any two enum
         // types directly. Reached when a slot join carries one enum and a
@@ -1899,7 +2040,10 @@ public sealed partial class CSharpPrinter
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes))
         {
-            return CheckedSafeCast(() => $"({TypeText(enumToEnumTarget)}){Operand(value)}");
+            return new(
+                CheckedSafeCast(() => $"({TypeText(enumToEnumTarget)}){Operand(value)}"),
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         // The same cast, for a cross-assembly enum. ClassifyShape only sees types
         // defined in the inspected assembly, so a framework enum like
@@ -1918,7 +2062,11 @@ public sealed partial class CSharpPrinter
             && target is { } unknownEnum
             && CoercionRendering.CanSpellUnknownEnumConstant(EffectiveType(value), unknownEnum, _function.TypeShapes))
         {
-            return EnumConstantText(unknownKonst, unknownEnum);
+            Expression(unknownKonst);
+            return new(
+                EnumConstantText(unknownKonst, unknownEnum),
+                "ConversionExpression",
+                IsContextualWrapper: true);
         }
         // A bool-valued expression flowing into an integer target is IL's
         // comparison/test result consumed as a number — `cgt.un; ret` from an int
@@ -1933,26 +2081,41 @@ public sealed partial class CSharpPrinter
             // and wider signed targets; narrow and unsigned targets need the
             // explicit cast — `(byte)(b ? 1 : 0)` (slice-5b round 4: denying
             // these severed single live ranges into unassigned reads).
-            return BoolToIntegerText(value, intTarget);
+            var rendered = BoolToInteger(value, intTarget);
+            string kind = intTarget is
+            {
+                Namespace: "System",
+                Name: "Int32" or "Int64",
+                Assembly: TypeRef.CoreLibrary,
+            }
+                ? "ConditionalExpression"
+                : "ConversionExpression";
+            return new(rendered.Text, kind, IsContextualWrapper: true);
         }
         if (value is Conditional conditional
             && target is { } conditionalTarget
             && TryConditionalTextForTarget(conditional, conditionalTarget) is { } targetedConditional)
-            return targetedConditional;
+        {
+            return new(
+                targetedConditional,
+                SpellsAsLogicalAnd(conditional)
+                    ? "BinaryExpression"
+                    : "ConditionalExpression");
+        }
         if (value is SwitchExpression switchExpression
             && target is { } switchTarget
             && CanRenderSwitchExpressionForTarget(switchExpression, switchTarget))
-            return SwitchExpressionInline(switchExpression, switchTarget);
+            return new(SwitchExpressionInline(switchExpression, switchTarget), "SwitchExpression");
         if (value is UnionSwitchExpression unionSwitchExpression
             && target is { } unionSwitchTarget)
-            return UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget);
+            return new(UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget), "SwitchExpression");
         if (value is TupleSwitchExpression tupleSwitchExpression
             && target is { } tupleSwitchTarget)
-            return TupleSwitchExpressionInline(tupleSwitchExpression, tupleSwitchTarget);
+            return new(TupleSwitchExpressionInline(tupleSwitchExpression, tupleSwitchTarget), "SwitchExpression");
         if (value is Coalesce coalesce
             && target is { } coalesceTarget
             && TryCoalesceTextForTarget(coalesce, coalesceTarget) is { } targetedCoalesce)
-            return targetedCoalesce;
+            return new(targetedCoalesce, "CoalesceExpression");
         // Cast only off a value whose rendered C# type reliably equals its IR
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of
@@ -1960,18 +2123,26 @@ public sealed partial class CSharpPrinter
         // generic bodies, where a keyed cast would be illegal (CS0030). Leave
         // those to render as-is (the enum cast above is the one safe exception).
         if (value is Conditional or Coalesce or LoadStackSlot)
-            return Expression(value);
+            return TransparentCoercion(value);
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a
         // negative into unsigned, a bitmask wider than the target — does not
         // convert bare and is CS0266/CS0221, so reinterpret its bits with an
         // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
-            return NumericConstant(konst, t);
+        {
+            long literal = konst.Value is int i ? i : (long)konst.Value!;
+            return new(
+                NumericConstant(konst, t),
+                CSharpConversionRules.ConstantFits(literal, t)
+                    ? "LiteralExpression"
+                    : "ConversionExpression",
+                IsContextualWrapper: !CSharpConversionRules.ConstantFits(literal, t));
+        }
         if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(EffectiveType(value), numericTarget))
-            return Expression(value);
+            return TransparentCoercion(value);
         if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
-            return Expression(value);
+            return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
         // target on the conversion's operand, not (char)((ushort)x). An
@@ -1981,10 +2152,30 @@ public sealed partial class CSharpPrinter
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, numericTarget))
-            return conv.Operand is Constant { Value: int or long } convConst
-                ? NumericConstant(convConst, numericTarget)
-                : CheckedSafeNumericCast(EffectiveType(conv.Operand), numericTarget, () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}");
-        return CheckedSafeNumericCast(EffectiveType(value), numericTarget, () => $"({TypeText(numericTarget)}){Operand(value)}");
+        {
+            if (conv.Operand is Constant { Value: int or long } convConst)
+            {
+                long literal = convConst.Value is int i ? i : (long)convConst.Value!;
+                return new(
+                    NumericConstant(convConst, numericTarget),
+                    CSharpConversionRules.ConstantFits(literal, numericTarget)
+                        ? "LiteralExpression"
+                        : "ConversionExpression");
+            }
+            return new(
+                CheckedSafeNumericCast(
+                    EffectiveType(conv.Operand),
+                    numericTarget,
+                    () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}"),
+                "ConversionExpression");
+        }
+        return new(
+            CheckedSafeNumericCast(
+                EffectiveType(value),
+                numericTarget,
+                () => $"({TypeText(numericTarget)}){Operand(value)}"),
+            "ConversionExpression",
+            IsContextualWrapper: true);
     }
 
     string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
@@ -2011,10 +2202,16 @@ public sealed partial class CSharpPrinter
     {
         if (SpellsAsLogicalAnd(conditional))
         {
-            return Condition(new LogicalBinary(
+            var logical = new LogicalBinary(
                 LogicalKind.And,
                 (IrExpression)conditional.Condition.Clone(),
-                (IrExpression)conditional.WhenTrue.Clone()));
+                (IrExpression)conditional.WhenTrue.Clone());
+            if (TryPropertyPatternText(logical) is { } propertyPattern)
+                return WithNodeKind(conditional, propertyPattern, "PatternExpression");
+            return WithNodeKind(
+                conditional,
+                Condition(logical),
+                "BinaryExpression");
         }
 
         // `?:` is right-associative — the CONDITION is its hazard side
@@ -2127,32 +2324,66 @@ public sealed partial class CSharpPrinter
             && IsBooleanLike(conditional.WhenTrue);
 
     string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
+    {
         // The long-literal lens (#3347). Only at a join whose target is Int64 or
         // neutralized (EffectiveJoinTarget returns null when the arms already render
         // bare at the target — the reference witness's case): the folded literal is
         // long-typed exactly as the `(long)N` cast it replaces, so the join's natural
         // type is unchanged. A join distributing some OTHER target still needs its own
         // coercion cast and falls through untouched.
-        => (target is null || IsCoreInt64(target)) && TryLongLiteralText(arm) is { } longArmLiteral
-            ? longArmLiteral
-            : target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
-            ? charText
-            // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
-            // into StringComparison) is CS0266 — int does not convert to the enum.
-            // TryCoerceEnumOperand owns the decision: the enum cast for an integer
-            // arm (constant or not; a cross-assembly enum is unresolved, and its
-            // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
-            // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
-            // and renders its member name via Operand.
-            : TryCoerceJoinArm(arm, target, primitiveCoercionSourceType, joinHasExactTypedArm) is { } coercedArm
-                ? coercedArm
-            : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
-            && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? BoolToIntegerText(arm, intTarget)
-                : Operand(arm);
+        if ((target is null || IsCoreInt64(target))
+            && TryLongLiteralText(arm) is { } longArmLiteral)
+        {
+            return WithNodeKind(arm, longArmLiteral, "LiteralExpression");
+        }
+        if (target is { } charTarget
+            && IsCoreChar(charTarget)
+            && TryCharConstantText(arm, out var charText))
+        {
+            return WithNodeKind(arm, charText, "LiteralExpression");
+        }
+        // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
+        // into StringComparison) is CS0266 — int does not convert to the enum.
+        // TryCoerceEnumOperand owns the decision: the enum cast for an integer
+        // arm (constant or not; a cross-assembly enum is unresolved, and its
+        // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
+        // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
+        // and renders its member name via Operand.
+        if (TryCoerceJoinArm(
+            arm,
+            target,
+            primitiveCoercionSourceType,
+            joinHasExactTypedArm) is { } coercedArm)
+        {
+            return coercedArm;
+        }
+        if (target is { } intTarget
+            && TypeFamilies.IsIntegerLike(intTarget)
+            && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
+        {
+            return BoolToIntegerText(arm, intTarget);
+        }
+        return Operand(arm);
+    }
 
     string BoolToIntegerText(IrExpression value, TypeRef target)
-        => BoolToInteger(value, target).Text;
+        => CapturedBoolToInteger(value, target).Text;
+
+    Rendered CapturedBoolToInteger(IrExpression value, TypeRef target)
+    {
+        var rendered = BoolToInteger(value, target);
+        string kind = target is
+        {
+            Namespace: "System",
+            Name: "Int32" or "Int64",
+            Assembly: TypeRef.CoreLibrary,
+        }
+            ? "ConditionalExpression"
+            : "ConversionExpression";
+        return new(
+            CaptureContextualExpression(value, rendered.Text, kind),
+            rendered.Precedence);
+    }
 
     /// <summary>
     /// The bool→integer truthiness composition as a precedence-carrying
@@ -2232,10 +2463,30 @@ public sealed partial class CSharpPrinter
         if (target is { } retarget && TypeFamilies.IsIntegerLike(retarget)
             && arm is Coerce staleCoerce && !staleCoerce.Target.Equals(retarget))
         {
-            return new Rendered(CoerceText(staleCoerce.Operand, retarget), Precedence.Conditional);
+            var rendered = RenderCoercion(staleCoerce.Operand, retarget);
+            string text = BindCoercion(staleCoerce.Operand, rendered);
+            return new Rendered(
+                WithNodeKind(staleCoerce, text, rendered.Kind),
+                Precedence.Conditional);
         }
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
-            return new Rendered(coerced, Precedence.Unary);
+        {
+            string kind = arm is Constant { Value: int or long } constant
+                && target is not null
+                && EnumMemberName(new Constant(
+                    constant.Value is int i ? i : (long)constant.Value!,
+                    target)) is not null
+                    ? "MemberAccessExpression"
+                    : "ConversionExpression";
+            if (kind == "ConversionExpression" && arm is Constant)
+                Expression(arm);
+            return BindJoinArm(
+                arm,
+                coerced,
+                Precedence.Unary,
+                kind,
+                isContextualWrapper: kind == "ConversionExpression");
+        }
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
         // must not be the place that finds out (slice-4 review's verify item).
@@ -2254,9 +2505,12 @@ public sealed partial class CSharpPrinter
         {
             var underlying = EnumUnderlyingType(enumArmType) ?? TypeRef.CoreLib("System", "Int32");
             return new Rendered(
-                CSharpConversionRules.CheckedConversionCanThrow(underlying, integerTarget)
+                CaptureContextualExpression(
+                    arm,
+                    CSharpConversionRules.CheckedConversionCanThrow(underlying, integerTarget)
                     ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
                     : $"({TypeText(integerTarget)}){Operand(arm)}",
+                    "ConversionExpression"),
                 Precedence.Unary);
         }
         // Third direction, unified (#2302/#2306/#2310/#2322): a primitive arm
@@ -2286,21 +2540,48 @@ public sealed partial class CSharpPrinter
             {
                 long payload = konst.Value is int ci ? ci : (long)konst.Value!;
                 if (!CSharpConversionRules.ConstantFits(payload, numericTarget))
-                    return new Rendered(NumericConstant(konst, numericTarget), Precedence.Unary);
+                    return BindJoinArm(
+                        arm,
+                        NumericConstant(konst, numericTarget),
+                        Precedence.Unary,
+                        "ConversionExpression",
+                        isContextualWrapper: true);
                 var bareType = TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64");
                 return !joinHasExactTypedArm || CSharpConversionRules.IsImplicitIntegerWidening(numericTarget, bareType)
-                    ? new Rendered($"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}", Precedence.Unary)
+                    ? BindJoinArm(
+                        arm,
+                        $"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}",
+                        Precedence.Unary,
+                        "ConversionExpression",
+                        isContextualWrapper: true)
                     : null;
             }
             if (EffectiveType(arm) is { } armType
                 && CSharpConversionRules.NeedsNumericCast(armType, numericTarget)
                 && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
             {
-                return new Rendered(CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}"), Precedence.Unary);
+                return BindJoinArm(
+                    arm,
+                    CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}"),
+                    Precedence.Unary,
+                    "ConversionExpression",
+                    isContextualWrapper: true);
             }
         }
         return null;
     }
+
+    Rendered BindJoinArm(
+        IrExpression arm,
+        string text,
+        Precedence precedence,
+        string kind,
+        bool isContextualWrapper)
+        => new(
+            isContextualWrapper
+                ? CaptureContextualExpression(arm, text, kind)
+                : WithNodeKind(arm, text, kind),
+            precedence);
 
     /// <summary>
     /// Whether an arm's bare rendering keeps the surrounding join valid at

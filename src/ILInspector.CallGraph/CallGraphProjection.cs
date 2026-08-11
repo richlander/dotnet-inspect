@@ -84,6 +84,19 @@ public readonly record struct CallGraphEdge(int From, int To, string? LoopLabel)
 /// </param>
 public readonly record struct CallGraphRow(int Number, CallGraphEdge Edge);
 
+/// <summary>The outcome of locating one physical focus call in a projection.</summary>
+public enum CallGraphRowMatch
+{
+    /// <summary>The call maps to exactly one projected logical edge.</summary>
+    Found,
+
+    /// <summary>The bounded projection contains no edge for the call.</summary>
+    NotProjected,
+
+    /// <summary>More than one projected edge claims the call.</summary>
+    Ambiguous,
+}
+
 /// <summary>
 /// A format-neutral projection of the typed call-graph facts that
 /// <c>ILInspector.Analysis</c> produces (<see cref="CallTreeNode"/> caller and callee roots
@@ -142,6 +155,64 @@ public sealed class CallGraphProjection
 
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];
+
+    /// <summary>
+    /// Resolves one physical call site in the selected member to its stable
+    /// logical edge row. Exact catalog storage evidence wins; a unique typed
+    /// structural match handles assembly-local projections.
+    /// </summary>
+    public CallGraphRowMatch FindFocusCalleeRow(
+        DirectCall call,
+        out CallGraphRow row)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+
+        CallGraphRow[] exact =
+        [
+            .. Rows.Where(candidate =>
+                candidate.Edge.From == Focus.Id
+                && Nodes[candidate.Edge.To].GraphEvidence.Any(evidence =>
+                    evidence.Storage.Kind
+                        == GraphNodeStorageKind.CallSite
+                    && evidence.Storage.ModuleVersionId
+                        == call.Caller.ModuleVersionId
+                    && evidence.Storage.MethodToken
+                        == call.Caller.MetadataToken
+                    && evidence.Storage.ILOffset == call.ILOffset
+                    && evidence.Storage.OperandToken
+                        == call.OperandToken)),
+        ];
+        if (exact.Length == 1)
+        {
+            row = exact[0];
+            return CallGraphRowMatch.Found;
+        }
+        if (exact.Length > 1)
+        {
+            row = default;
+            return CallGraphRowMatch.Ambiguous;
+        }
+
+        GraphNodeIdentity callee =
+            GraphNodeIdentity.FromMember(call.Callee);
+        CallGraphRow[] structural =
+        [
+            .. Rows.Where(candidate =>
+                candidate.Edge.From == Focus.Id
+                && GraphNodeIdentity.FromMember(
+                    Nodes[candidate.Edge.To].Member) == callee),
+        ];
+        if (structural.Length == 1)
+        {
+            row = structural[0];
+            return CallGraphRowMatch.Found;
+        }
+
+        row = default;
+        return structural.Length > 1
+            ? CallGraphRowMatch.Ambiguous
+            : CallGraphRowMatch.NotProjected;
+    }
 
     /// <summary>
     /// Projects the combined caller/target/callee view. Both roots are the selected
