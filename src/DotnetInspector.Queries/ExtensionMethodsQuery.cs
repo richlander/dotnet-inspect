@@ -24,18 +24,32 @@ public static class ExtensionMethodsQuery
     public static InspectionQuery<ExtensionMethodsResult> Definition { get; } =
         new("Extension methods", InspectionCost.NetworkFree);
 
-    public static ExtensionMethodsResult Execute(AssemblyInspectionSession session)
+    public static ExtensionMethodsResult Execute(
+        AssemblyInspectionSession session)
+        => Execute(session, includeAll: false);
+
+    public static ExtensionMethodsResult Execute(
+        AssemblyInspectionSession session,
+        bool includeAll)
     {
         ArgumentNullException.ThrowIfNull(session);
 
         try
         {
             return new ExtensionMethodsResult.Available(
-                session.ExtensionMethods().ToImmutableArray());
+                Read(session, includeAll));
         }
         catch (Exception ex)
         {
             return new ExtensionMethodsResult.Failed(ex);
         }
+    }
+
+    internal static ImmutableArray<ExtensionMethodInfo> Read(
+        AssemblyInspectionSession session,
+        bool includeAll)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return session.ExtensionMethods(includeAll).ToImmutableArray();
     }
 }
