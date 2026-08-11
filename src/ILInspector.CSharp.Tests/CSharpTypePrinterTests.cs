@@ -2365,6 +2365,30 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void GlobalTypeReferencePreventsCollidingDeclaredNamespaceImport()
+    {
+        var node = CreateEmptyType("Lib", "Node");
+        var client = CreateEmptyType("App", "Client");
+        var getNode = CreateMethod("GetNode");
+        getNode.SignatureModel!.ReturnType = "Lib.Node";
+        getNode.SignatureModel.Parameters =
+        [
+            new ApiParameter { Type = "Node", Name = "ambient" }
+        ];
+        client.Members.Add(getNode);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(node), new CSharpTypePrintRequest(client)]);
+
+        Assert.DoesNotContain("using Lib;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lib", result.Usings);
+        Assert.Contains(
+            "public Lib.Node GetNode(Node ambient);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DeclaredSimpleNameCollisionKeepsReferencedDeclarationQualified()
     {
         var user = CreateEmptyType("App", "User");
@@ -2509,6 +2533,61 @@ public sealed class CSharpTypePrinterTests
             "[return: global::External.AccessorMarker]",
             result.Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParenthesizedAttributeValueFollowedByBinaryOperatorIsNotACast()
+    {
+        var constants = CreateEmptyType("App", "Constants");
+        var consumer = CreateEmptyType("App", "Consumer");
+        consumer.Attributes = ["App.Probe((Constants.Value) + 1)"];
+
+        var result = _printer.PrintBatch(
+            [
+                new CSharpTypePrintRequest(constants),
+                new CSharpTypePrintRequest(consumer)
+            ],
+            new CSharpTypePrintOptions { IncludeCustomAttributes = true });
+
+        Assert.Contains(
+            "[App.Probe((Constants.Value) + 1)]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("global::Constants.Value", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AttributeValueCanUseTypeDeclaredInAncestorNamespace()
+    {
+        var foo = CreateEmptyType("A", "Foo");
+        var options = CreateEmptyType("A", "Options");
+        options.Kind = "enum";
+        options.Members =
+        [
+            new ApiMember
+            {
+                Name = "Fast",
+                Kind = "field",
+                ReturnType = "A.Foo.Options"
+            }
+        ];
+        var consumer = CreateEmptyType("A.B", "Consumer");
+        consumer.Attributes = ["Marker(Foo.Options.Fast)"];
+
+        var result = _printer.PrintBatch(
+            [
+                new CSharpTypePrintRequest(
+                    foo,
+                    nestedTypes: [new CSharpTypePrintRequest(options)]),
+                new CSharpTypePrintRequest(consumer)
+            ],
+            new CSharpTypePrintOptions { IncludeCustomAttributes = true });
+
+        Assert.Contains(
+            "[Marker(Foo.Options.Fast)]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("global::Foo.Options.Fast", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]

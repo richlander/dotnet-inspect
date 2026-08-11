@@ -139,7 +139,11 @@ public sealed class CSharpTypePrinter
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
             var groupedTypes = group.ToList();
-            var declaredTypeFullNameSet = declaredTypeFullNamesByNamespace[group.Key];
+            var declaredTypeFullNameSet = declaredTypeFullNamesByNamespace
+                .Where(entry => string.Equals(entry.Key, group.Key, StringComparison.Ordinal)
+                    || IsAncestorNamespace(entry.Key, group.Key))
+                .SelectMany(entry => entry.Value)
+                .ToImmutableHashSet(StringComparer.Ordinal);
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             bool useBlockScopedNamespace = containingNamespace is not null && !useFileScopedNamespace;
             var ancestorTypeNames = preparedTypes

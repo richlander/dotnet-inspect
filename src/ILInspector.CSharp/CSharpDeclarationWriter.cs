@@ -185,7 +185,7 @@ internal static class CSharpDeclarationWriter
         var shortenableReferences = CollectTypeReferences(type)
             .Concat(memberList.SelectMany(member => CollectMemberTypeReferences(member)))
             .Concat(parameters.SelectMany(parameter =>
-                ExtractQualifiedTypeNames(parameter.Type)))
+                ExtractTypeNames(parameter.Type)))
             .ToHashSet(StringComparer.Ordinal);
         shortenableReferences.ExceptWith(memberList.SelectMany(CollectExplicitInterfaceTypeReferences));
         var references = shortenableReferences
@@ -303,7 +303,7 @@ internal static class CSharpDeclarationWriter
             .ToHashSet(StringComparer.Ordinal);
         var shortenableReferences = CollectTypeReferences(type)
             .Concat(parameters.SelectMany(parameter =>
-                ExtractQualifiedTypeNames(parameter.Type)))
+                ExtractTypeNames(parameter.Type)))
             .ToHashSet(StringComparer.Ordinal);
         var primaryParameterDeclaredAttributeReferences = parameters
             .SelectMany(parameter => CollectDeclaredAttributeTypeReferences(parameter.Attributes))
@@ -401,7 +401,7 @@ internal static class CSharpDeclarationWriter
                         member,
                         includeParameterAttributes: scope.Type.Kind != "delegate")))
                 .Concat(scope.AdditionalParameters.SelectMany(parameter =>
-                    ExtractQualifiedTypeNames(parameter.Type))))
+                    ExtractTypeNames(parameter.Type))))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
@@ -545,6 +545,8 @@ internal static class CSharpDeclarationWriter
                 && !uniquelyImportableDeclaredTypeFullNames.Contains(group.First().FullName))
                 continue;
             var ns = group.First().Namespace;
+            if (ns.Length == 0)
+                continue;
             if (unsafeNamespaces.Contains(ns))
                 continue;
             usings.Add(ns);
@@ -572,10 +574,10 @@ internal static class CSharpDeclarationWriter
     static IEnumerable<string> CollectParameterTypeReferences(ApiParameter parameter)
     {
         if (!string.IsNullOrWhiteSpace(parameter.Type))
-            foreach (var reference in ExtractQualifiedTypeNames(parameter.Type))
+            foreach (var reference in ExtractTypeNames(parameter.Type))
                 yield return reference;
         foreach (var attribute in parameter.Attributes)
-            foreach (var reference in ExtractQualifiedTypeNames(StripAttributeArguments(attribute)))
+            foreach (var reference in ExtractTypeNames(StripAttributeArguments(attribute)))
                 yield return reference;
     }
 
@@ -591,7 +593,7 @@ internal static class CSharpDeclarationWriter
     {
         foreach (var attribute in AttributeTexts(attributes, member))
         {
-            foreach (var reference in ExtractQualifiedTypeNames(StripAttributeArguments(attribute)))
+            foreach (var reference in ExtractTypeNames(StripAttributeArguments(attribute)))
                 yield return reference;
             foreach (var reference in CollectAttributeArgumentTypeReferences([attribute]))
                 yield return reference;
@@ -633,15 +635,16 @@ internal static class CSharpDeclarationWriter
                     int next = close + 1;
                     while (next < attribute.Length && char.IsWhiteSpace(attribute[next]))
                         next++;
+                    // A following + or - is ambiguous with a parenthesized value
+                    // expression, so preserve it rather than inventing type evidence.
                     if (next >= attribute.Length
-                        || (attribute[next] is not '+' and not '-'
-                            && !char.IsAsciiDigit(attribute[next])))
+                        || !char.IsAsciiDigit(attribute[next]))
                     {
                         continue;
                     }
                 }
 
-                foreach (var reference in ExtractQualifiedTypeNames(attribute[(open + 1)..close]))
+                foreach (var reference in ExtractTypeNames(attribute[(open + 1)..close]))
                     yield return reference;
                 index = close;
             }
@@ -659,7 +662,7 @@ internal static class CSharpDeclarationWriter
                 continue;
             var recognizedReferences = CollectAttributeArgumentTypeReferences([attribute])
                 .ToHashSet(StringComparer.Ordinal);
-            foreach (var valueExpression in ExtractQualifiedTypeNames(
+            foreach (var valueExpression in ExtractTypeNames(
                 attribute[(firstArgumentList + 1)..]))
             {
                 if (recognizedReferences.Contains(valueExpression))
@@ -1094,19 +1097,19 @@ internal static class CSharpDeclarationWriter
     {
         if (type.BaseType is { Length: > 0 })
         {
-            foreach (var reference in ExtractQualifiedTypeNames(type.BaseType))
+            foreach (var reference in ExtractTypeNames(type.BaseType))
                 yield return reference;
         }
         foreach (var iface in type.Interfaces)
         {
-            foreach (var reference in ExtractQualifiedTypeNames(iface))
+            foreach (var reference in ExtractTypeNames(iface))
                 yield return reference;
         }
         foreach (var typeParameter in type.TypeParameters)
         {
             foreach (var constraint in typeParameter.Constraints)
             {
-                foreach (var reference in ExtractQualifiedTypeNames(constraint))
+                foreach (var reference in ExtractTypeNames(constraint))
                     yield return reference;
             }
         }
@@ -1118,7 +1121,7 @@ internal static class CSharpDeclarationWriter
     {
         foreach (var expression in MemberTypeExpressions(member, includeParameterAttributes))
         {
-            foreach (var reference in ExtractQualifiedTypeNames(expression))
+            foreach (var reference in ExtractTypeNames(expression))
                 yield return reference;
         }
     }
@@ -1131,7 +1134,7 @@ internal static class CSharpDeclarationWriter
         int memberSeparator = member.Name.LastIndexOf('.');
         if (memberSeparator > 0)
         {
-            foreach (var reference in ExtractQualifiedTypeNames(member.Name[..memberSeparator]))
+            foreach (var reference in ExtractTypeNames(member.Name[..memberSeparator]))
                 yield return reference;
         }
     }
@@ -1158,7 +1161,7 @@ internal static class CSharpDeclarationWriter
             }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
-                    foreach (var reference in ExtractQualifiedTypeNames(constraint))
+                    foreach (var reference in ExtractTypeNames(constraint))
                         yield return reference;
         }
 
@@ -1383,12 +1386,11 @@ internal static class CSharpDeclarationWriter
         return paren < 0 ? attribute : attribute[..paren];
     }
 
-    static IEnumerable<string> ExtractQualifiedTypeNames(string expression)
+    static IEnumerable<string> ExtractTypeNames(string expression)
     {
         foreach (var token in DottedIdentifierTokens(expression))
         {
-            if (!token.Contains('.', StringComparison.Ordinal)
-                || token.StartsWith("global.", StringComparison.Ordinal)
+            if (token.StartsWith("global.", StringComparison.Ordinal)
                 || token.StartsWith("global::", StringComparison.Ordinal))
             {
                 continue;
@@ -2957,7 +2959,8 @@ internal static class CSharpDeclarationWriter
             if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings)
                 potentiallyImportedNamespaces.UnionWith(shorteningTypeRefs.Select(reference => reference.Namespace));
             var collisionEvidence = bindingTypeRefs
-                .Where(reference => potentiallyImportedNamespaces.Contains(reference.Namespace))
+                .Where(reference => reference.Namespace.Length == 0
+                    || potentiallyImportedNamespaces.Contains(reference.Namespace))
                 .ToList();
             var collisions = CollidingSimpleNames(collisionEvidence);
             var allShadowingNames = lexicalShadowingNames
@@ -3033,6 +3036,8 @@ internal static class CSharpDeclarationWriter
 
             foreach (var typeRef in typeRefs)
             {
+                if (typeRef.Namespace.Length == 0)
+                    continue;
                 if (valueOnlyFullNames.Contains(typeRef.FullName))
                 {
                     KeepAttributeValueQualified(typeRef);
@@ -3228,6 +3233,8 @@ internal static class CSharpDeclarationWriter
         return text.Length;
     }
 
+    // An empty namespace records unqualified type-position evidence. It participates
+    // in collision analysis but never produces a replacement or using directive.
     sealed record TypeRef(string FullName, string Namespace, string SimpleName)
     {
         public static TypeRef? TryCreate(string value)
@@ -3236,7 +3243,11 @@ internal static class CSharpDeclarationWriter
             if (value.Length == 0)
                 return null;
             var lastDot = value.LastIndexOf('.');
-            if (lastDot <= 0 || lastDot == value.Length - 1)
+            if (lastDot == value.Length - 1)
+                return null;
+            if (lastDot < 0)
+                return new TypeRef(value, "", StripArity(value));
+            if (lastDot == 0)
                 return null;
             var ns = value[..lastDot];
             var simple = StripArity(value[(lastDot + 1)..]);

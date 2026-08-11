@@ -266,6 +266,35 @@ public sealed class CSharpFormatterTests
         Assert.Equal(["System.Windows.Forms"], declaration.Usings);
     }
 
+    [Fact]
+    public void UnqualifiedTypePreventsCollidingImport()
+    {
+        var type = new ApiType { Namespace = "App", Name = "Client", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Get",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Lib.Node",
+                MemberName = "Get",
+                Parameters = [new ApiParameter { Type = "Node", Name = "ambient" }]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public Lib.Node Get(Node ambient)",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Empty(declaration.Usings);
+    }
+
     [Theory]
     [InlineData(CSharpTypeNamePolicy.ShortWithUsings)]
     [InlineData(CSharpTypeNamePolicy.ContextualShort)]
