@@ -111,18 +111,21 @@ public sealed class FindingTargetFormatterTests
                 TypeRef.CoreLib("System", "Void"),
                 MemberKind.Constructor))));
         Assert.Equal(
-            "Sample.Widget.Run :: System.Linq.Enumerable.Select<string, int>(string, int)",
+            "Sample.Widget.Run :: System.Linq.Enumerable.Select<System.IO.Stream, System.Text.StringBuilder>(System.Text.StringBuilder, System.IO.Stream)",
             FindingTargetFormatter.Format(Call(new MemberRef(
                 TypeRef.CoreLib("System.Linq", "Enumerable"),
                 "Select",
-                [TypeRef.CoreLib("System", "String"), TypeRef.CoreLib("System", "Int32")],
-                TypeRef.CoreLib("System", "String"),
+                [
+                    TypeRef.CoreLib("System.Text", "StringBuilder"),
+                    TypeRef.CoreLib("System.IO", "Stream"),
+                ],
+                TypeRef.CoreLib("System", "Object"),
                 MemberKind.Method)
             {
                 TypeArguments =
                 [
-                    TypeRef.CoreLib("System", "String"),
-                    TypeRef.CoreLib("System", "Int32"),
+                    TypeRef.CoreLib("System.IO", "Stream"),
+                    TypeRef.CoreLib("System.Text", "StringBuilder"),
                 ],
             })));
     }
