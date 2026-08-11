@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using CSharpText;
 using ILInspector.Metadata;
@@ -44,9 +45,14 @@ public sealed record CSharpFormatOptions
     public bool OmitPropertyAccessors { get; init; }
 }
 
+/// <summary>
+/// A rendered declaration and the namespace imports its shortened type names
+/// require. <paramref name="Usings"/> contains raw namespace identities, not
+/// rendered <c>using ...;</c> lines.
+/// </summary>
 public sealed record CSharpFormattedDeclaration(
     string Text,
-    IReadOnlyList<string> Usings,
+    ImmutableSortedSet<string> Usings,
     IReadOnlyList<string> Diagnostics);
 
 /// <summary>
@@ -531,7 +537,7 @@ public sealed class CSharpFormatter
         };
 
     static CSharpFormattedDeclaration ToFormattedDeclaration(CSharpRenderedDeclaration declaration)
-        => new(declaration.Source, declaration.Usings.ToArray(), declaration.Diagnostics.ToArray());
+        => new(declaration.Source, declaration.Usings, declaration.Diagnostics.ToArray());
 
     static string FormatTypeParameter(TypeParameter parameter, bool includeVariance)
         => includeVariance && parameter.Variance is { } variance

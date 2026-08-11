@@ -20,7 +20,7 @@
 * { box-sizing: border-box; }
 html, body, #app { min-height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); }
-button, input { font: inherit; color: inherit; }
+button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 
 .titlebar {
@@ -76,7 +76,15 @@ h2 { font-size: 14px; }
   font: 11px var(--mono);
 }
 .summarybar strong { color: var(--text); }
-.medium-toggles { display: flex; gap: 12px; margin-left: auto; }
+.kind-filter { display: flex; align-items: center; gap: 7px; margin-left: auto; }
+.kind-filter select {
+  max-width: 230px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--raised);
+}
+.medium-toggles { display: flex; gap: 12px; }
 .medium-toggles label { cursor: pointer; }
 .medium-toggles input { accent-color: var(--accent); }
 .error { padding: 9px 22px; background: #4d1f20; color: #ffd8d8; font: 12px var(--mono); }

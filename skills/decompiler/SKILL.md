@@ -20,9 +20,10 @@ dnx dotnet-inspect -y -- <command>
 
 ## Decompiled source and IL
 
-A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
-Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the full
-zero-network evidence set:
+A selected overload and bare `-S` both render its bounded `Signature` overview.
+Select `Decompiled Source` explicitly when implementation evidence is the
+question. Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the
+full zero-network evidence set:
 
 - `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
   PDB names use byte-preserving type/role-derived names by default.
