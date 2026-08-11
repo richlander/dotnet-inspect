@@ -1075,6 +1075,15 @@ internal sealed class SynthesizedSwitchExpressionArm : IrNode
     public override string Describe() => IsNull ? "null arm" : "default arm";
 }
 
+internal sealed class SynthesizedRenderedExpression : IrNode
+{
+    public SynthesizedRenderedExpression(string kind) => Kind = kind;
+
+    public string Kind { get; }
+
+    public override string Describe() => $"rendered {Kind}";
+}
+
 /// <summary>
 /// A raised tuple relational-pattern switch expression over independent
 /// side-effect-free places: <c>(x, y) switch { (&gt; 0, &gt; 0) =&gt; "I", ...,

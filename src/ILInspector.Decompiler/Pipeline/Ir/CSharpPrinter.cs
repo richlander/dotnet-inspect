@@ -539,6 +539,18 @@ public sealed partial class CSharpPrinter
 
     List<(IrNode Node, int Start, int End)>? _contextRanges;
 
+    /// <summary>
+    /// Context-added syntax roots, such as a target conversion around an
+    /// existing expression. Keying by the operand gives speculative rendering
+    /// the same last-write-wins behavior as <see cref="_expressionText"/>.
+    /// </summary>
+    Dictionary<IrExpression, ContextualExpressionCapture>? _contextualExpressions;
+
+    readonly record struct ContextualExpressionCapture(
+        SynthesizedRenderedExpression Node,
+        IrExpression Operand,
+        string Text);
+
     readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
 
     internal sealed record StackSlotUnifierTelemetry(
@@ -1807,19 +1819,24 @@ public sealed partial class CSharpPrinter
         }
         int start = sb.Length;
         var enclosingContextRanges = _contextRanges;
+        var enclosingContextualExpressions = _contextualExpressions;
         _contextRanges = null;
+        _contextualExpressions = null;
         int? statementStartOverride;
         List<(IrNode Node, int Start, int End)>? contextRanges;
+        Dictionary<IrExpression, ContextualExpressionCapture>? contextualExpressions;
         try
         {
             AppendStatementCore(sb, node, indent, out statementStartOverride);
             contextRanges = _contextRanges;
+            contextualExpressions = _contextualExpressions;
         }
         finally
         {
             _contextRanges = enclosingContextRanges;
+            _contextualExpressions = enclosingContextualExpressions;
         }
-        RecordExpressionRanges(sb, node, start);
+        RecordExpressionRanges(sb, node, start, contextualExpressions);
         if (contextRanges is not null)
         {
             foreach (var contextRange in contextRanges)
@@ -1902,10 +1919,22 @@ public sealed partial class CSharpPrinter
     /// claimed against that block, where it is more likely to be unique. That is
     /// also why a structured statement's body enumerates before its condition.
     /// </para>
+    /// <para>
+    /// A target context can add a visible wrapper that has no IR owner while
+    /// leaving the operand visible inside it. Such roots use a print-only
+    /// identity and search within the operand parent's proven window. They are
+    /// inserted after contained claims and before the first containing claim.
+    /// </para>
     /// </remarks>
-    void RecordExpressionRanges(StringBuilder sb, IrNode statement, int start)
+    void RecordExpressionRanges(
+        StringBuilder sb,
+        IrNode statement,
+        int start,
+        IReadOnlyDictionary<IrExpression, ContextualExpressionCapture>? contextualExpressions)
     {
-        if (_expressionText is null || _expressionText.Count == 0 || sb.Length <= start)
+        if (sb.Length <= start
+            || ((_expressionText is null || _expressionText.Count == 0)
+                && contextualExpressions is not { Count: > 0 }))
             return;
 
         string text = sb.ToString(start, sb.Length - start);
@@ -1938,7 +1967,9 @@ public sealed partial class CSharpPrinter
                 continue;
             }
 
-            if (!_expressionText.TryGetValue(descendant, out string? printed) || printed.Length == 0)
+            if (_expressionText is null
+                || !_expressionText.TryGetValue(descendant, out string? printed)
+                || printed.Length == 0)
                 continue;
 
             int at = text.IndexOf(printed, windowStart, windowEnd - windowStart, StringComparison.Ordinal);
@@ -1952,9 +1983,6 @@ public sealed partial class CSharpPrinter
 
             windows[descendant] = (at, at + printed.Length);
         }
-
-        if (windows.Count == 0)
-            return;
 
         // Windows had to be computed parent-first, but a node must be recorded
         // after every descendant. Siblings come out in child order -- not in the
@@ -1971,10 +1999,78 @@ public sealed partial class CSharpPrinter
                 pending.Push(child);
         }
 
+        var claims = new List<(IrNode Node, int Start, int End)>();
         for (int i = completion.Count - 1; i >= 0; i--)
         {
             if (windows.TryGetValue(completion[i], out var claim))
-                _printedRanges!.Record(completion[i], start + claim.Start, start + claim.End);
+                claims.Add((completion[i], claim.Start, claim.End));
+        }
+
+        if (contextualExpressions is { Count: > 0 })
+        {
+            var contextualClaims = new List<(IrNode Node, int Start, int End)>();
+            foreach (var capture in contextualExpressions.Values)
+            {
+                int windowStart = 0, windowEnd = text.Length;
+                bool blocked = false;
+                for (var parent = capture.Operand.Parent;
+                     parent is not null && !ReferenceEquals(parent, statement);
+                     parent = parent.Parent)
+                {
+                    if (windows.TryGetValue(parent, out var window))
+                    {
+                        (windowStart, windowEnd) = window;
+                        break;
+                    }
+                    if (refused?.Contains(parent) == true)
+                    {
+                        blocked = true;
+                        break;
+                    }
+                }
+
+                if (blocked)
+                    continue;
+
+                int at = text.IndexOf(
+                    capture.Text,
+                    windowStart,
+                    windowEnd - windowStart,
+                    StringComparison.Ordinal);
+                if (at < 0
+                    || (at + 1 < windowEnd
+                        && text.IndexOf(
+                            capture.Text,
+                            at + 1,
+                            windowEnd - at - 1,
+                            StringComparison.Ordinal) >= 0))
+                {
+                    continue;
+                }
+
+                contextualClaims.Add((capture.Node, at, at + capture.Text.Length));
+            }
+
+            foreach (var contextual in contextualClaims
+                .OrderBy(claim => claim.End - claim.Start))
+            {
+                int insertion = claims.FindIndex(claim =>
+                    claim.Start <= contextual.Start
+                    && claim.End >= contextual.End
+                    && (claim.Start < contextual.Start || claim.End > contextual.End));
+                if (insertion < 0)
+                    claims.Add(contextual);
+                else
+                    claims.Insert(insertion, contextual);
+            }
+        }
+
+        foreach (var claim in claims)
+        {
+            _printedRanges!.Record(
+                claim.Node,
+                start + claim.Start,
+                start + claim.End);
         }
     }
 
@@ -3422,6 +3518,17 @@ public sealed partial class CSharpPrinter
         return text;
     }
 
+    string CaptureContextualExpression(IrExpression operand, string text, string kind)
+    {
+        if (_printedRanges is not null)
+        {
+            var node = new SynthesizedRenderedExpression(kind);
+            _printedRanges.SetNodeKind(node, kind);
+            (_contextualExpressions ??= [])[operand] = new(node, operand, text);
+        }
+        return text;
+    }
+
     void CaptureContextRange(IrNode node, int start, int end)
     {
         if (_printedRanges is not null && end > start)
@@ -3680,7 +3787,7 @@ public sealed partial class CSharpPrinter
             // SwitchArmValueText (the #2145 one-rule-in-all-three discipline).
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
                 && EffectiveType(right) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? BoolToInteger(right, intTarget)
+                ? CapturedBoolToInteger(right, intTarget)
                 // Operand() parenthesizes every non-atom itself (Conditional
                 // included), so its output is always effectively primary — the
                 // loose fragments reach this context only through the two
@@ -3746,9 +3853,17 @@ public sealed partial class CSharpPrinter
         Call { Callee.Name: "op_False", Arguments: [var value] } call
             => WithNodeKind(call, InvertedUserTruthiness(value), "ConditionalExpression"),
         _ when Truthiness(condition) is { } truthy
-            => WithNodeKind(condition, truthy.Direct, truthy.DirectKind),
+            => BindDirectTruthiness(condition, truthy.Direct, truthy.DirectKind),
         _ => Expression(condition),
     };
+
+    string BindDirectTruthiness(
+        IrExpression condition,
+        string text,
+        string kind)
+        => condition is IsInstance or IsPattern
+            ? WithNodeKind(condition, text, kind)
+            : CaptureContextualExpression(condition, text, kind);
 
     string TransparentConditionText(IrExpression owner, IrExpression value, string text)
         => WithNodeKind(owner, text, RenderedNodeKind(value));
@@ -4286,7 +4401,11 @@ public sealed partial class CSharpPrinter
             return "IndirectAccessExpression";
         }
 
-        return load.Address switch
+        return DereferencedSurfaceKind(load.Address, text);
+    }
+
+    string DereferencedSurfaceKind(IrExpression address, string text)
+        => address switch
         {
             LoadArgument { Index: 0, Name: "this" } => "NameExpression",
             LoadLocalAddress or LoadArgumentAddress => "NameExpression",
@@ -4295,10 +4414,9 @@ public sealed partial class CSharpPrinter
             Unbox => "InvocationExpression",
             { ResultType.Kind: TypeRefKind.Pointer } => "IndirectAccessExpression",
             Conditional { ResultType.Kind: TypeRefKind.ByRef } => "ConditionalExpression",
-            { ResultType.Kind: TypeRefKind.ByRef } address => RenderedNodeKind(address),
+            { ResultType.Kind: TypeRefKind.ByRef } byRef => RenderedNodeKind(byRef),
             _ => "IndirectAccessExpression",
         };
-    }
 
     string? PointerElementAccessText(LoadIndirect load)
     {
@@ -5351,9 +5469,16 @@ public sealed partial class CSharpPrinter
     /// render normally.
     /// </summary>
     string OperatorOperand(IrExpression argument)
-        => argument is LoadArgumentAddress or LoadLocalAddress or LoadFieldAddress or LoadElementAddress
-            ? Deref(argument)
-            : Operand(argument);
+    {
+        if (argument is not (LoadArgumentAddress or LoadLocalAddress or LoadFieldAddress or LoadElementAddress))
+            return Operand(argument);
+
+        string text = Deref(argument);
+        return WithNodeKind(
+            argument,
+            text,
+            DereferencedSurfaceKind(argument, text));
+    }
 
     string ConversionOperatorSpelling(TypeRef target, IrExpression value)
     {

@@ -30,6 +30,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(UnionSwitchExpression)] = "SwitchExpression",
             [typeof(UnionSwitchExpressionArm)] = "SwitchExpressionArm",
             [typeof(SynthesizedSwitchExpressionArm)] = "SwitchExpressionArm",
+            [typeof(SynthesizedRenderedExpression)] = "ConversionExpression",
             [typeof(TupleSwitchExpression)] = "SwitchExpression",
             [typeof(TupleSwitchExpressionArm)] = "SwitchExpressionArm",
             [typeof(PatternSwitchExpression)] = "SwitchExpression",
@@ -149,6 +150,7 @@ internal static class AnnotatedSourceNodeKindProjection
     internal static string From(IrNode node)
         => node switch
         {
+            SynthesizedRenderedExpression rendered => rendered.Kind,
             LoadProperty { IndexArguments.Count: > 0 } => "ElementAccessExpression",
             LoadToken { Kind: RuntimeTokenKind.Type, Type: not null } => "TypeOfExpression",
             _ => Kinds.GetValueOrDefault(node.GetType(), AnnotatedSourceNodeKinds.Unknown),

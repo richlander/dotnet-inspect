@@ -642,12 +642,188 @@ public class PrintedBodyMapTests
             container);
 
         var result = CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [diamond] = [new Annotation(Alloc, 0)],
+            });
 
         Assert.NotNull(result.Output);
         Assert.True(ranges.TryGetRange(diamond, out var range));
-        Assert.Equal("exists && true ? 1 : 0", ranges.Output[range]);
+        Assert.Equal("exists && true", ranges.Output[range]);
         Assert.True(ranges.TryGetNodeKind(diamond, out string? kind));
-        Assert.Equal("ConditionalExpression", kind);
+        Assert.Equal("BinaryExpression", kind);
+        var wrapper = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConditionalExpression"
+                && Text(map, node.Extent) == "exists && true ? 1 : 0");
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "BinaryExpression"
+                && Text(map, node.Extent) == "exists && true");
+        Assert.True(operand.Id < wrapper.Id);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal("BinaryExpression", fact.Kind);
+        Assert.True(fact.Extent.HasValue);
+        Assert.Equal("exists && true", Text(map, fact.Extent.Value));
+    }
+
+    [Fact]
+    public void ContextualTruthinessPreservesOperandAndWrapperKinds()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var argument = new LoadArgument(0, "value", objectType);
+        var thenBlock = new Block();
+        thenBlock.Add(new Return(null));
+        var block = new Block(0);
+        block.Add(new IfStatement(argument, thenBlock, null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("value", objectType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [argument] = [new Annotation(Alloc, 0)],
+            });
+
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "NameExpression"
+                && Text(map, node.Extent) == "value");
+        var wrapper = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "PatternExpression"
+                && Text(map, node.Extent) == "value is not null");
+        Assert.True(operand.Id < wrapper.Id);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(operand.Id, fact.NodeId);
+        Assert.Equal("NameExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void AddressStrippedOperatorTruthinessRecordsNameKind()
+    {
+        using var source = MetadataSource.Open(typeof(BoolBoxProbe).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(BoolBoxProbe).FullName!,
+            nameof(BoolBoxProbe.Branch));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var address = Assert.Single(
+            function!.Descendants.OfType<LoadArgumentAddress>());
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [address] = [new Annotation(Alloc, 0)],
+            });
+
+        var name = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "NameExpression"
+                && Text(map, node.Extent) == "value");
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "AddressExpression"
+                && Text(map, node.Extent) == "value");
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(name.Id, fact.NodeId);
+        Assert.Equal("NameExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void ContextualStackallocConversionPreservesOperandAndWrapperKinds()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var intPointer = TypeRef.Pointer(intType);
+        var voidPointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Void"));
+        var allocation = new StackAllocArray(
+            intType,
+            new Constant(1, intType),
+            intPointer);
+        var block = new Block(0);
+        block.Add(new Return(allocation));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                voidPointer,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [allocation] = [new Annotation(Alloc, 0)],
+            });
+
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "StackAllocationExpression");
+        Assert.Equal("stackalloc int[1]", Text(map, operand.Extent));
+        var wrapper = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "(void*)(stackalloc int[1])");
+        Assert.True(operand.Id < wrapper.Id);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(operand.Id, fact.NodeId);
+        Assert.Equal("StackAllocationExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void CoercedJoinArmPreservesLiteralAndConversionKinds()
+    {
+        using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(EnumCastSamples).FullName!,
+            nameof(EnumCastSamples.CrossSignCoalesceConstant));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var fallback = Assert.Single(
+            function!.Descendants.OfType<Constant>(),
+            constant => constant.Value is int value && value == -1);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [fallback] = [new Annotation(Alloc, 0)],
+            });
+
+        var literal = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "LiteralExpression"
+                && Text(map, node.Extent) == "-1");
+        var conversion = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "unchecked((uint)(-1))");
+        Assert.True(literal.Id < conversion.Id);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(literal.Id, fact.NodeId);
+        Assert.Equal("LiteralExpression", fact.Kind);
     }
 
     [Fact]
