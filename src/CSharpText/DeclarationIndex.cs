@@ -269,7 +269,10 @@ public sealed record DeclarationSpan(
     /// <summary>True when the declaration carries a top-level <c>static</c> modifier.</summary>
     public bool IsStatic { get; init; }
 
-    /// <summary>True when the declaration has an initializer introduced by <c>=</c>.</summary>
+    /// <summary>
+    /// True when this declared name has an initializer introduced by <c>=</c>. Rows for
+    /// comma-separated field or event declarators share a span but carry this fact independently.
+    /// </summary>
     public bool HasInitializer { get; init; }
 
     /// <summary>True when this declaration can itself contain member declarations.</summary>
@@ -288,8 +291,8 @@ public sealed record DeclarationSpan(
 }
 
 /// <summary>
-/// The declarations of one C# source file, recovered in a single forward pass over
-/// <see cref="CSharpLexer"/>'s token stream.
+/// The declarations of one C# source file, recovered in a forward lexical pass over
+/// <see cref="CSharpLexer"/>'s token stream followed by linear trust finalization.
 /// <para>
 /// This exists because locating a member's authored text is two questions, and only one of them
 /// has an exact answer. A portable PDB says exactly which lines a member's <i>body</i> occupies,

@@ -125,6 +125,43 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void ManyUnclosedExtensionScopes_ApplyTrustInOneFinalPass()
+    {
+        var baselineSource = new StringBuilder("static class S {\n");
+        for (int i = 0; i < 80_000; i++)
+            baselineSource.Append("int f").Append(i).AppendLine(";");
+        baselineSource.AppendLine("}");
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder("static class S {\n");
+        for (int i = 0; i < 60_000; i++)
+            source.AppendLine("extension(){");
+        for (int i = 0; i < 80_000; i++)
+            source.Append("int f").Append(i).AppendLine(";");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(80_001, index.Declarations.Length);
+        Assert.Equal(60_000, index.TransparentScopes.Length);
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => declaration.Kind == DeclarationKind.Field && declaration.SpanKnown);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"scope case took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    [Fact]
     public void RelationalInitializerChain_DoesNotRescanEachRemainingSuffix()
     {
         var source = new StringBuilder("class C { static dynamic f = a");
@@ -524,6 +561,50 @@ public class DeclarationIndexTests
         Assert.Empty(index.TransparentScopes);
     }
 
+    [Fact]
+    public void AnExtensionBlockInAPartialPartWithoutStatic_IsTransparent()
+    {
+        var index = DeclarationIndex.Build("""
+            partial class Ext
+            {
+                extension(int value)
+                {
+                    public int Doubled => value * 2;
+                }
+            }
+
+            static partial class Ext
+            {
+            }
+            """);
+
+        Assert.DoesNotContain(index.Declarations, declaration => declaration.Name == "extension");
+        var property = Assert.Single(index.FindByName(DeclarationKind.Property, "Doubled"));
+        Assert.True(property.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void APlainExtensionHeaderInANonStaticPartialTypeNamedExtension_IsAmbiguous()
+    {
+        var index = DeclarationIndex.Build("""
+            partial class extension
+            {
+                extension()
+                {
+                    void Local() { }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => !declaration.IsType && declaration.SpanKnown);
+        var local = Assert.Single(index.FindByName(DeclarationKind.Method, "Local"));
+        Assert.False(local.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
     [Theory]
     [InlineData(": base(new Options { Path = path })")]
     [InlineData(": base(new object[] { path })")]
@@ -714,6 +795,29 @@ public class DeclarationIndexTests
         Assert.Equal(
             ["A", "B", "C2", "P", "Q", "Map"],
             index.Declarations.Where(s => s.Kind == DeclarationKind.Field).Select(s => s.Name));
+    }
+
+    [Fact]
+    public void EachDeclaratorCarriesItsOwnInitializerFact()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                static int A, B = 1, C2;
+                event System.Action E1, E2 = null, E3;
+            }
+            """);
+
+        Assert.Equal(
+            [("A", false), ("B", true), ("C2", false)],
+            index.Declarations
+                .Where(declaration => declaration.Kind == DeclarationKind.Field)
+                .Select(declaration => (declaration.Name, declaration.HasInitializer)));
+        Assert.Equal(
+            [("E1", false), ("E2", true), ("E3", false)],
+            index.Declarations
+                .Where(declaration => declaration.Kind == DeclarationKind.Event)
+                .Select(declaration => (declaration.Name, declaration.HasInitializer)));
     }
 
     /// <summary>
@@ -967,6 +1071,38 @@ public class DeclarationIndexTests
             declaration => !declaration.IsType
                 && declaration.SpanKnown
                 && declaration.Contains(5));
+    }
+
+    [Fact]
+    public void AnUnknownExtensionScopeCarriesTrustIntoInPassParentDecisions()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                class Sh { }
+            #if X
+                extension(int x)
+            #else
+                int P
+            #endif
+                {
+                    public void M()
+                    {
+            #if Y
+                        int F = 1
+            #endif
+                        ;
+                    }
+                }
+            }
+            """);
+
+        var sibling = Assert.Single(index.FindByName(DeclarationKind.Class, "Sh"));
+        Assert.False(
+            sibling.SpanKnown,
+            "the in-pass reachability walk must not stop at a parent whose scope is unknown");
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.False(method.SpanKnown);
     }
 
     [Fact]

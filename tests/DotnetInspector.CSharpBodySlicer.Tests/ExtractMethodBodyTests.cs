@@ -1489,6 +1489,27 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ExtensionBlockInAPartialPartWithoutStatic_ExcludesItsWrapper()
+    {
+        var source = Lines(
+            "partial class Ext",                 // 1
+            "{",                                 // 2
+            "    extension(int value)",          // 3
+            "    {",                             // 4
+            "        public int Doubled",        // 5
+            "            => value * 2;",         // 6
+            "    }",                             // 7
+            "}",                                 // 8
+            "static partial class Ext",          // 9
+            "{",                                 // 10
+            "}");                                // 11
+
+        Assert.Equal(
+            "public int Doubled\n    => value * 2;",
+            BodySlicer.ExtractMethodBody(source, 6, 6, "get_Doubled"));
+    }
+
+    [Fact]
     public void OneLineConstructorInitializerWithBracesAndAnotherArgument_RemainsSliceable()
     {
         var source = Lines(

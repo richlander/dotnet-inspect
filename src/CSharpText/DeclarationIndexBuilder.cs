@@ -4,7 +4,7 @@ namespace CSharpText;
 
 /// <summary>
 /// Recovers <see cref="DeclarationSpan"/>s from <see cref="CSharpLexer"/>'s token stream in one
-/// forward pass.
+/// forward lexical pass followed by linear trust finalization.
 /// <para>
 /// The pass is a small state machine over three events. A <c>{</c> ends a header and opens a
 /// scope; a <c>}</c> closes one; a <c>;</c> ends a header that never opened a scope. Everything
@@ -16,6 +16,16 @@ namespace CSharpText;
 /// </summary>
 internal static class DeclarationIndexBuilder
 {
+    private enum ExtensionScopeKind
+    {
+        None,
+        Known,
+        Ambiguous,
+    }
+
+    private readonly record struct Declarator(string Name, bool HasInitializer);
+    private readonly record struct RowRange(int Start, int EndExclusive);
+
     private sealed class Row
     {
         public DeclarationKind Kind;
@@ -31,6 +41,7 @@ internal static class DeclarationIndexBuilder
         public int ParentIndex = -1;
         public bool SpanKnown = true;
         public bool IsStatic;
+        public bool IsPartial;
         public bool HasInitializer;
         public bool ClosesAtEndOfFile;
         public ImmutableArray<LineRange> AttributeLists = [];
@@ -60,6 +71,7 @@ internal static class DeclarationIndexBuilder
         var transparentScopeRows = ImmutableArray.CreateBuilder<TransparentScopeSpan>();
         var transparentScopeStarts =
             new Dictionary<int, (int StartLine, int BodyStartLine, int FirstRowIndex)>();
+        var unknownRowRanges = new List<RowRange>();
         bool depthLost = false;
 
         // -1 marks an anonymous scope: a method body, a lambda, a property's accessor block, a
@@ -363,14 +375,15 @@ internal static class DeclarationIndexBuilder
             return row;
         }
 
-        // Every declarator in one field or event declaration shares these facts. Copy the measured
-        // row instead of rescanning the complete header once per comma-separated name.
-        void EmitAdditionalBodiless(Row sharedDeclaration, string name)
+        // Every declarator in one field or event declaration shares its measured span. Copy those
+        // facts instead of rescanning the complete header once per comma-separated name, while
+        // retaining the initializer fact recovered for this particular declarator.
+        void EmitAdditionalBodiless(Row sharedDeclaration, Declarator declarator)
         {
             rows.Add(new Row
             {
                 Kind = sharedDeclaration.Kind,
-                Name = name,
+                Name = declarator.Name,
                 TriviaStartLine = sharedDeclaration.TriviaStartLine,
                 SignatureStartLine = sharedDeclaration.SignatureStartLine,
                 SignatureStartColumn = sharedDeclaration.SignatureStartColumn,
@@ -383,7 +396,7 @@ internal static class DeclarationIndexBuilder
                 AttributeLists = sharedDeclaration.AttributeLists,
                 SpanKnown = sharedDeclaration.SpanKnown,
                 IsStatic = sharedDeclaration.IsStatic,
-                HasInitializer = sharedDeclaration.HasInitializer,
+                HasInitializer = declarator.HasInitializer,
                 ClosesAtEndOfFile = sharedDeclaration.ClosesAtEndOfFile,
             });
         }
@@ -749,10 +762,12 @@ internal static class DeclarationIndexBuilder
                 // onto the enclosing static class, so the index makes it transparent and lets them
                 // land there too. Giving it a row of its own would put every extension member
                 // inside a parent that has no metadata counterpart.
-                if (DeclaresAnExtensionBlock(pending, Enclosing(), Text))
+                var extensionScope = ClassifyExtensionScope(pending, Enclosing(), Text);
+                if (extensionScope is not ExtensionScopeKind.None)
                 {
                     int startLine = triviaStart >= 0 ? triviaStart : pending[0].Line + 1;
-                    bool membersKnown = tok.DepthKnown && triviaKnown && headerKnown
+                    bool membersKnown = extensionScope is ExtensionScopeKind.Known
+                        && tok.DepthKnown && triviaKnown && headerKnown
                         && attachedAttributesKnown && headerDelimitersKnown
                         && pending.All(t => t.DepthKnown);
                     transparentScopeStarts[scopes.Count] =
@@ -770,6 +785,7 @@ internal static class DeclarationIndexBuilder
                 {
                     int sigStart = pending.Count > 0 ? pending[0].Line + 1 : tok.Line + 1;
                     int sigColumn = pending.Count > 0 ? pending[0].Column : tok.Column;
+                    var declarationHeader = Truncate(pending, Text).Header;
                     rows.Add(new Row
                     {
                         Kind = k,
@@ -786,10 +802,8 @@ internal static class DeclarationIndexBuilder
                             && attachedAttributesKnown && headerDelimitersKnown
                             && unknownTransparentScopes == 0
                             && pending.All(t => t.DepthKnown),
-                        IsStatic = HasTopLevelKeyword(
-                            Truncate(pending, Text).Header,
-                            "static",
-                            Text),
+                        IsStatic = HasTopLevelKeyword(declarationHeader, "static", Text),
+                        IsPartial = HasTopLevelKeyword(declarationHeader, "partial", Text),
                     });
                     scopes.Add((rows.Count - 1, true, true, true));
                 }
@@ -875,10 +889,8 @@ internal static class DeclarationIndexBuilder
                         // A branch-dependent close makes ownership just as uncertain as an
                         // uncertain opener, including for rows emitted before the close was seen.
                         if (!tok.DepthKnown || !scopes[^1].MembersKnown)
-                        {
-                            for (int i = transparentStart.FirstRowIndex; i < rows.Count; i++)
-                                rows[i].SpanKnown = false;
-                        }
+                            unknownRowRanges.Add(
+                                new RowRange(transparentStart.FirstRowIndex, rows.Count));
                     }
 
                     var (idx, ownsRow, _, membersKnown) = scopes[^1];
@@ -1148,15 +1160,13 @@ internal static class DeclarationIndexBuilder
                     {
                         var truncated = Truncate(pending, Text);
                         int arrow = truncated.ArrowLine;
-                        bool hasInitializer = truncated.CutAtEquals && arrow < 0;
-
-                        // "public int A, B, C;" declares three fields. Metadata sees three, so the
-                        // index owes a row apiece — a field is declaration-only, which is exactly
-                        // the case a name lookup has to serve. They share one span because they
-                        // share one declaration.
-                        var extra = k is DeclarationKind.Field or DeclarationKind.Event && arrow < 0
-                            ? ExtraDeclaratorNames(pending, Text)
-                            : null;
+                        var declarators =
+                            k is DeclarationKind.Field or DeclarationKind.Event && arrow < 0
+                                ? Declarators(pending, Text)
+                                : null;
+                        bool hasInitializer = declarators is not null
+                            ? declarators[0].HasInitializer
+                            : truncated.CutAtEquals && arrow < 0;
 
                         var sharedDeclaration =
                             EmitBodiless(tok, k, name, arrow, hasInitializer);
@@ -1184,9 +1194,9 @@ internal static class DeclarationIndexBuilder
                                 namespaceScopeLostFrom = rows.Count;
                         }
 
-                        if (extra is not null)
-                            foreach (var more in extra)
-                                EmitAdditionalBodiless(sharedDeclaration, more);
+                        if (declarators is not null)
+                            for (int i = 1; i < declarators.Count; i++)
+                                EmitAdditionalBodiless(sharedDeclaration, declarators[i]);
                     }
                 }
                 EndDeclaration(tok);
@@ -1220,8 +1230,22 @@ internal static class DeclarationIndexBuilder
         // the end-of-file resolution below so that the namespace's own end, which is a maximum
         // over the rows it encloses, is computed from rows already marked unknown.
         if (namespaceScopeLostFrom >= 0)
-            for (int i = namespaceScopeLostFrom; i < rows.Count; i++)
-                rows[i].SpanKnown = false;
+            unknownRowRanges.Add(new RowRange(namespaceScopeLostFrom, rows.Count));
+
+        foreach (var start in transparentScopeStarts.Values)
+        {
+            // Unlike a declaration-owning scope, a transparent scope has no open row for the EOF
+            // recovery below to invalidate. Record the affected rows now and apply every
+            // overlapping range in one final pass rather than rewriting the same suffix once per
+            // scope.
+            unknownRowRanges.Add(new RowRange(start.FirstRowIndex, rows.Count));
+            transparentScopeRows.Add(new TransparentScopeSpan(
+                start.StartLine,
+                start.BodyStartLine,
+                lines.Count));
+        }
+
+        ApplyUnknownRanges(rows, unknownRowRanges);
 
         // A file whose braces never close leaves rows open. Report the end as the last line rather
         // than -1, and mark the span unknown, so a caller cannot mistake a truncated file for a
@@ -1275,18 +1299,6 @@ internal static class DeclarationIndexBuilder
         for (int i = 0; i < rows.Count; i++)
             depths[i] = rows[i].ParentIndex >= 0 ? depths[rows[i].ParentIndex] + 1 : 0;
 
-        foreach (var start in transparentScopeStarts.Values)
-        {
-            // Unlike a declaration-owning scope, a transparent scope has no open row for the EOF
-            // recovery above to invalidate. Its unclosed members still cannot be vouched for.
-            for (int i = start.FirstRowIndex; i < rows.Count; i++)
-                rows[i].SpanKnown = false;
-            transparentScopeRows.Add(new TransparentScopeSpan(
-                start.StartLine,
-                start.BodyStartLine,
-                lines.Count));
-        }
-
         transparentScopes = [.. transparentScopeRows
             .OrderBy(scope => scope.StartLine)
             .ThenBy(scope => scope.EndLine)];
@@ -1307,6 +1319,29 @@ internal static class DeclarationIndexBuilder
                 .Select(attribute => attribute.Column)
                 .DefaultIfEmpty(signatureStartColumn)
                 .Min();
+    }
+
+    private static void ApplyUnknownRanges(List<Row> rows, List<RowRange> ranges)
+    {
+        if (ranges.Count == 0)
+            return;
+
+        var deltas = new int[rows.Count + 1];
+        foreach (var range in ranges)
+        {
+            if (range.Start >= range.EndExclusive)
+                continue;
+            deltas[range.Start]++;
+            deltas[range.EndExclusive]--;
+        }
+
+        int active = 0;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            active += deltas[i];
+            if (active > 0)
+                rows[i].SpanKnown = false;
+        }
     }
 
     private static bool HasTopLevelKeyword(
@@ -1578,19 +1613,20 @@ internal static class DeclarationIndexBuilder
             return (DeclarationKind.Property, "this");
 
         if (Enumerable.Range(0, words.Count).Any(w => Keyword(w, "event")))
-            return (DeclarationKind.Event, DeclaratorNames(pending, text)[0]);
+            return (DeclarationKind.Event, Declarators(pending, text)[0].Name);
 
         // With no parameter list, a body means a property. An expression body counts: "int P => 1;"
         // is a property, while "Func<int,int> F = x => x;" is a field whose value happens to be a
         // lambda, and the two are told apart by whether the header was cut at the arrow.
         return opensBody || truncated.ArrowLine >= 0
             ? (DeclarationKind.Property, words[^1])
-            : (DeclarationKind.Field, DeclaratorNames(pending, text)[0]);
+            : (DeclarationKind.Field, Declarators(pending, text)[0].Name);
     }
 
     /// <summary>
-    /// The declared names of a field or field-like event declaration, in source order — one per
-    /// declarator, so <c>public int A, B, C;</c> yields three. Always at least one entry.
+    /// The names and initializer facts of a field or field-like event declaration, in source
+    /// order — one per declarator, so <c>public int A, B = 1, C;</c> yields three entries and only
+    /// B carries an initializer. Always at least one entry.
     /// </summary>
     /// <remarks>
     /// A comma is a declarator boundary only at parenthesis, bracket, brace, and angle depth zero,
@@ -1624,9 +1660,11 @@ internal static class DeclarationIndexBuilder
     /// unreachable, and unreachable code that looks load-bearing is worse than none.
     /// </para>
     /// </remarks>
-    private static List<string> DeclaratorNames(List<ScanToken> pending, Func<ScanToken, string> text)
+    private static List<Declarator> Declarators(
+        List<ScanToken> pending,
+        Func<ScanToken, string> text)
     {
-        var names = new List<string>();
+        var declarators = new List<Declarator>();
         int[]? typeArgumentEnds = null;
         int start = 0;
         int depth = 0;
@@ -1672,15 +1710,15 @@ internal static class DeclarationIndexBuilder
 
             var name = LastNameBeforeAssignment(pending, start, i, text);
             if (name.Length > 0)
-                names.Add(name);
+                declarators.Add(new Declarator(name, sawEquals));
             start = i + 1;
             angle = 0;
             sawEquals = false;
         }
 
-        if (names.Count == 0)
-            names.Add("");
-        return names;
+        if (declarators.Count == 0)
+            declarators.Add(new Declarator("", false));
+        return declarators;
     }
 
     /// <summary>
@@ -1791,16 +1829,6 @@ internal static class DeclarationIndexBuilder
     }
 
     /// <summary>
-    /// The declarator names after the first, or <see langword="null"/> when the declaration
-    /// declares a single name.
-    /// </summary>
-    private static List<string>? ExtraDeclaratorNames(List<ScanToken> pending, Func<ScanToken, string> text)
-    {
-        var names = DeclaratorNames(pending, text);
-        return names.Count > 1 ? names.GetRange(1, names.Count - 1) : null;
-    }
-
-    /// <summary>
     /// Index of the <c>(</c> opening the parameter list, or -1. The list is the parenthesized
     /// group whose <c>)</c> is the header's final token; any earlier group belongs to a tuple type,
     /// an attribute argument, or a cast.
@@ -1881,12 +1909,13 @@ internal static class DeclarationIndexBuilder
     }
 
     /// <summary>
-    /// Whether the header declares a C# 14 <c>extension</c> block. The block may be generic, and
-    /// its type parameter list sits between the keyword and the receiver: <c>extension&lt;T&gt;(
-    /// IEnumerable&lt;T&gt; source)</c>. Testing only for a following <c>(</c> misses that form,
-    /// and the cost is not one bad row -- the block is then indexed as a method, and every member
-    /// inside it is rejected for sitting in a method rather than a type, so the extension members
-    /// disappear from the index entirely.
+    /// Whether the header is a C# 14 <c>extension</c> block, or is locally ambiguous with a
+    /// constructor in a partial type named <c>extension</c>. The block may be generic, and its type
+    /// parameter list sits between the keyword and the receiver:
+    /// <c>extension&lt;T&gt;(IEnumerable&lt;T&gt; source)</c>. Testing only for a following
+    /// <c>(</c> misses that form, and the cost is not one bad row -- the block is then indexed as a
+    /// method, and every member inside it is rejected for sitting in a method rather than a type,
+    /// so the extension members disappear from the index entirely.
     /// <para>
     /// The keyword is always the header's first token. An accessibility modifier is CS0106 and an
     /// attribute is CS7014, both measured against the compiler, so there is nothing for it to
@@ -1896,22 +1925,32 @@ internal static class DeclarationIndexBuilder
     /// punctuation is expression syntax, so a relational <c>&gt;</c> there cannot close the outer
     /// type-parameter list.
     /// </summary>
-    private static bool DeclaresAnExtensionBlock(
+    private static ExtensionScopeKind ClassifyExtensionScope(
         List<ScanToken> pending,
         Row? enclosing,
         Func<ScanToken, string> text)
     {
-        // Extension blocks are legal only directly inside static classes. Requiring that context
-        // also preserves C# 13 source such as "class extension { extension() { } }", where the
-        // same contextual word names a constructor rather than a C# 14 extension block.
-        if (enclosing is not { Kind: DeclarationKind.Class, IsStatic: true }
+        if (enclosing is not { Kind: DeclarationKind.Class }
             || pending.Count < 2
             || !IsKeyword(pending, 0, "extension", text))
-            return false;
+            return ExtensionScopeKind.None;
         if (text(pending[1]) == "(")
-            return true;
+        {
+            // In a class named "extension", the plain form is also a constructor. A non-partial
+            // declaration supplies enough local evidence to preserve the C# 13 interpretation.
+            // A partial declaration does not: another part can make the aggregate type static,
+            // in which case the same text is a C# 14 extension block. Keep that shape transparent
+            // but unknown so neither interpretation can become successful source.
+            if (enclosing.Name == "extension" && !enclosing.IsStatic)
+            {
+                return enclosing.IsPartial
+                    ? ExtensionScopeKind.Ambiguous
+                    : ExtensionScopeKind.None;
+            }
+            return ExtensionScopeKind.Known;
+        }
         if (text(pending[1]) != "<")
-            return false;
+            return ExtensionScopeKind.None;
 
         int angle = 0;
         var groups = new List<string>();
@@ -1934,7 +1973,7 @@ internal static class DeclarationIndexBuilder
                     _ => "{",
                 };
                 if (groups.Count == 0 || groups[^1] != expected)
-                    return false;
+                    return ExtensionScopeKind.None;
                 groups.RemoveAt(groups.Count - 1);
                 continue;
             }
@@ -1942,12 +1981,16 @@ internal static class DeclarationIndexBuilder
                 continue;
             angle += c == "<" ? 1 : -1;
             if (angle == 0)
-                return i + 1 < pending.Count && text(pending[i + 1]) == "(";
+            {
+                return i + 1 < pending.Count && text(pending[i + 1]) == "("
+                    ? ExtensionScopeKind.Known
+                    : ExtensionScopeKind.None;
+            }
             if (angle < 0)
-                return false;
+                return ExtensionScopeKind.None;
         }
 
-        return false;
+        return ExtensionScopeKind.None;
     }
 
     /// <summary>

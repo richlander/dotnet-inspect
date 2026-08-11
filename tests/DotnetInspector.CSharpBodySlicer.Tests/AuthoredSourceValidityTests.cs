@@ -571,6 +571,24 @@ public class AuthoredSourceValidityTests
     }
 
     [Fact]
+    public void PartialExtensionPartWithoutStatic_RealPdbRangeExcludesTheWrapper()
+    {
+        var slice = Assert.Single(
+            SliceCorpus(),
+            s => Path.GetFileName(s.File) == "PartialExtensionBlockCorpusFixture.cs"
+                && s.Member.Contains(
+                    "ReviewedPartialExtensionProperty",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(SliceOutcome.WellFormed, slice.Outcome);
+        Assert.StartsWith(
+            "public int ReviewedPartialExtensionProperty",
+            slice.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("extension(", slice.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ConditionalExtensionHeader_RealPdbRangeReportsAbsent()
     {
         var slice = Assert.Single(

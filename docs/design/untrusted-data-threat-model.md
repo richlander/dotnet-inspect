@@ -655,6 +655,13 @@ follow the same physical-line accounting.
 `BodySlicer` consumes that bounded token stream once rather than tokenizing the
 same untrusted file again.
 
+Uncertain transparent scopes record row ranges during the lexical pass and
+apply all overlapping ranges in one linear finalization pass. They do not
+rescan and rewrite the declaration suffix once per scope.
+`DeclarationIndexTests.ManyUnclosedExtensionScopes_ApplyTrustInOneFinalPass`
+compares elapsed time with an equivalent row baseline and applies an allocation
+budget to an accepted input near the token limit.
+
 Limit exhaustion is a visible extraction failure, not an absent declaration.
 `ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
 token emission boundary, while
