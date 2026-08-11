@@ -118,16 +118,20 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
     readonly InspectionWorkspace _workspace;
     readonly Dictionary<string, ParticipantResult> _participants;
     readonly Dictionary<string, string> _preflightFailures;
+    readonly bool _includeIntegrationOpportunities;
 
     PackageIntegrationsWorkspace(
         InspectionWorkspace workspace,
         Dictionary<string, ParticipantResult> participants,
         Dictionary<string, string> preflightFailures,
-        int contextGroupCount)
+        int contextGroupCount,
+        bool includeIntegrationOpportunities)
     {
         _workspace = workspace;
         _participants = participants;
         _preflightFailures = preflightFailures;
+        _includeIntegrationOpportunities =
+            includeIntegrationOpportunities;
         ContextGroupCount = contextGroupCount;
     }
 
@@ -142,17 +146,21 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
     internal static PackageIntegrationsWorkspace Create(
         IEnumerable<PackageIntegrationAssembly> assemblies,
         string packageName,
-        string packageVersion) =>
+        string packageVersion,
+        bool includeIntegrationOpportunities = false) =>
         Create(
             assemblies,
             PackageIntegrationAcquisition.Remote(
                 packageName,
-                packageVersion));
+                packageVersion),
+            includeIntegrationOpportunities:
+                includeIntegrationOpportunities);
 
     internal static PackageIntegrationsWorkspace Create(
         IEnumerable<PackageIntegrationAssembly> assemblies,
         PackageIntegrationAcquisition acquisition,
-        long? maxRetainedImageBytes = null)
+        long? maxRetainedImageBytes = null,
+        bool includeIntegrationOpportunities = false)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
         ArgumentNullException.ThrowIfNull(acquisition);
@@ -264,7 +272,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                 workspace,
                 results,
                 preflightFailures,
-                contextGroupCount);
+                contextGroupCount,
+                includeIntegrationOpportunities);
         }
         catch
         {
@@ -278,6 +287,7 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
         Func<
             ResolvedAssemblyReference?,
             AssemblyIntegrationsEntry?,
+            AssemblyIntegrationOpportunitiesEntry?,
             Task<TResult>> callback)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -287,14 +297,25 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                 Path.GetFullPath(path),
                 out ParticipantResult? participant))
         {
-            return await callback(null, null).ConfigureAwait(false);
+            return await callback(null, null, null).ConfigureAwait(false);
+        }
+
+        if (_includeIntegrationOpportunities)
+        {
+            return await AssemblyContextIntegrationOpportunitiesQuery
+                .ExecuteParticipantAsync(
+                    participant.Group,
+                    participant.Participant,
+                    callback)
+                .ConfigureAwait(false);
         }
 
         return await AssemblyContextIntegrationsQuery
             .ExecuteParticipantAsync(
                 participant.Group,
                 participant.Participant,
-                callback)
+                (retained, integrations) =>
+                    callback(retained, integrations, null))
             .ConfigureAwait(false);
     }
 
