@@ -11,38 +11,57 @@ namespace NuGetFetch.Plugins;
 /// environment macros, and clear text.
 /// </para>
 /// <para>
-/// Plugins are started lazily and then kept for the lifetime of this object. Starting one costs
-/// a process launch plus a five-message initialization handshake, so re-launching per request
-/// would be a poor trade for a tool that reads several sources.
+/// Plugins are discovered and started lazily, then kept for the lifetime of this object.
+/// Discovery scans the NuGet convention directory and <c>PATH</c>, while starting one costs a
+/// process launch plus a five-message initialization handshake. Deferring both means commands
+/// that never receive an authentication challenge pay neither cost.
 /// </para>
 /// </remarks>
 public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposable
 {
     private readonly Action<string>? _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly List<PluginExecutable> _executables;
+    private readonly Lazy<IReadOnlyList<PluginExecutable>> _executables;
     private readonly Dictionary<string, PluginConnection?> _connections = new(StringComparer.Ordinal);
     private bool _disposed;
 
     /// <summary>Creates a provider over the plugins visible to this process.</summary>
     /// <param name="log">Optional diagnostic sink.</param>
     public PluginCredentialProvider(Action<string>? log = null)
-        : this(log, null)
     {
+        _log = log;
+        _executables = new(
+            static () => PluginDiscovery.Discover(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>Creates a provider over an explicit plugin list, bypassing discovery. For tests.</summary>
-    internal PluginCredentialProvider(Action<string>? log, IReadOnlyList<PluginExecutable>? executables)
+    internal PluginCredentialProvider(Action<string>? log, IReadOnlyList<PluginExecutable> executables)
     {
         _log = log;
-        _executables = [.. executables ?? PluginDiscovery.Discover()];
+        PluginExecutable[] snapshot = [.. executables];
+        _executables = new(() => snapshot, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
-    /// <summary>Whether any plugin was found. When false, callers can skip the credential path entirely.</summary>
-    public bool HasPlugins => _executables.Count > 0;
+    /// <summary>Creates a provider over deferred plugin discovery. For tests.</summary>
+    internal PluginCredentialProvider(
+        Action<string>? log,
+        Func<IReadOnlyList<PluginExecutable>> discover)
+    {
+        _log = log;
+        _executables = new(
+            () => [.. discover()],
+            LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    /// <summary>
+    /// Whether any plugin was found. Accessing this property performs discovery if it has not
+    /// happened yet.
+    /// </summary>
+    public bool HasPlugins => _executables.Value.Count > 0;
 
     /// <inheritdoc/>
-    public bool HasCredentialSources => HasPlugins;
+    public bool HasCredentialSources => !_executables.IsValueCreated || HasPlugins;
 
     /// <summary>
     /// Whether plugins may block for user input. False by default, matching <c>dotnet restore</c>
@@ -68,12 +87,19 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
         bool isRetry,
         CancellationToken cancellationToken)
     {
-        if (_disposed || _executables.Count == 0)
+        if (_disposed)
         {
             return null;
         }
 
-        foreach (PluginExecutable executable in _executables)
+        IReadOnlyList<PluginExecutable> executables = _executables.Value;
+
+        if (executables.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (PluginExecutable executable in executables)
         {
             PluginConnection? connection = await GetConnectionAsync(executable, cancellationToken).ConfigureAwait(false);
 
