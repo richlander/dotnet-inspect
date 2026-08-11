@@ -99,7 +99,6 @@ public static class AnnotatedSourceNodeKinds
             "CaughtExceptionExpression",
             "AddressExpression",
             "IndirectAccessExpression",
-            "CopyBlockStatement",
             "ObjectInitializationStatement",
             "SizeOfExpression",
             "DefaultExpression",

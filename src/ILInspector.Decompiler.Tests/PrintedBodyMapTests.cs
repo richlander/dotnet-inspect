@@ -115,6 +115,11 @@ public class PrintedBodyMapTests
         Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(new EndFinally()));
         Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
             new EndFilter(new Constant(1, intType))));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new CopyBlock(
+                new Constant(0, intType),
+                new Constant(0, intType),
+                new Constant(1, intType))));
     }
 
     [Fact]
@@ -130,8 +135,8 @@ public class PrintedBodyMapTests
     }
 
     [Theory]
-    [MemberData(nameof(UnsupportedControlTransferComments))]
-    public void UnsupportedControlTransferCommentsRecordUnsupportedKind(
+    [MemberData(nameof(UnsupportedCommentPlaceholders))]
+    public void UnsupportedCommentPlaceholdersRecordUnsupportedKind(
         IrNode node,
         string expectedText)
     {
@@ -162,13 +167,20 @@ public class PrintedBodyMapTests
                 && Text(map, candidate.Extent) == expectedText.TrimEnd());
     }
 
-    public static TheoryData<IrNode, string> UnsupportedControlTransferComments =>
+    public static TheoryData<IrNode, string> UnsupportedCommentPlaceholders =>
         new()
         {
             { new EndFinally(), "// endfinally\n" },
             {
                 new EndFilter(new Constant(1, TypeRef.CoreLib("System", "Int32"))),
                 "// endfilter(1)\n"
+            },
+            {
+                new CopyBlock(
+                    new Constant(0, TypeRef.CoreLib("System", "Int32")),
+                    new Constant(0, TypeRef.CoreLib("System", "Int32")),
+                    new Constant(1, TypeRef.CoreLib("System", "Int32"))),
+                "/* unsupported cpblk */\n"
             },
         };
 
@@ -384,6 +396,13 @@ public class PrintedBodyMapTests
                 isUnsigned: false,
                 new LoadLocal(1, intType),
                 new Constant(1, intType)));
+        var checkedOperator = new IncrementDecrement(
+            new LoadLocal(1, intType),
+            isIncrement: true,
+            isPrefix: false,
+            isUserDefined: true,
+            isChecked: true);
+        var checkedOperatorStatement = new ExpressionStatement(checkedOperator);
         var fieldLoad = new LoadField(
             new FieldRef(holderType, "Count", intType),
             new LoadArgument(0, "this", holderType));
@@ -440,6 +459,7 @@ public class PrintedBodyMapTests
         block.Add(new StoreLocal(13, boolType, enumComparison));
         block.Add(increment);
         block.Add(checkedIncrement);
+        block.Add(checkedOperatorStatement);
         block.Add(new StoreLocal(14, intType, fieldLoad));
         block.Add(new StoreLocal(15, intType, propertyLoad));
         block.Add(new StoreLocal(16, intType, fieldAddressRead));
@@ -520,6 +540,8 @@ public class PrintedBodyMapTests
         AssertSurfaceKind(ranges, namedEnumOperand, "Mode.Enabled", "MemberAccessExpression");
         AssertSurfaceKind(ranges, increment, "V_1++;\n", "IncrementOrDecrementExpression");
         AssertSurfaceKind(ranges, checkedIncrement, "checked { V_1++; }\n", "CheckedStatement");
+        AssertSurfaceKind(ranges, checkedOperatorStatement, "checked { V_1++; }\n", "CheckedStatement");
+        AssertSurfaceKind(ranges, checkedOperator, "V_1++", "IncrementOrDecrementExpression");
         AssertSurfaceKind(ranges, fieldLoad, "Count", "NameExpression");
         AssertSurfaceKind(ranges, propertyLoad, "Total", "NameExpression");
         AssertSurfaceKind(ranges, fieldAddressRead, "Count", "NameExpression");

@@ -125,7 +125,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(FixedBufferElementAddress)] = "AddressExpression",
             [typeof(LoadIndirect)] = "IndirectAccessExpression",
             [typeof(StoreIndirect)] = "AssignmentStatement",
-            [typeof(CopyBlock)] = "CopyBlockStatement",
+            [typeof(CopyBlock)] = "UnsupportedExpression",
             [typeof(InitObject)] = "ObjectInitializationStatement",
             [typeof(LoadElement)] = "ElementAccessExpression",
             [typeof(StoreElement)] = "AssignmentStatement",

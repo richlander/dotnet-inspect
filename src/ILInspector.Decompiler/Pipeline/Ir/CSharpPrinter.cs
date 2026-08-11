@@ -2913,7 +2913,7 @@ public sealed partial class CSharpPrinter
             UnsupportedNode u => $"/* {u.Describe()} */",
             // A user-defined checked ++/-- as a statement spells checked(x++),
             // which is CS0201 in statement position; use a checked { ... } block.
-            IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(id),
+            IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(e, id),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
@@ -5542,13 +5542,14 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>A user-defined checked ++/-- in statement position: a <c>checked { x++; }</c> block, since the <c>checked(x++)</c> expression is CS0201 as a statement.</summary>
-    string CheckedIncrementStatement(IncrementDecrement id)
+    string CheckedIncrementStatement(ExpressionStatement owner, IncrementDecrement id)
     {
+        _printedRanges?.SetNodeKind(owner, "CheckedStatement");
         bool saved = _checkedContext;
         _checkedContext = true;
         try
         {
-            return $"checked {{ {IncrementDecrementText(id)}; }}";
+            return $"checked {{ {Expression(id)}; }}";
         }
         finally
         {
