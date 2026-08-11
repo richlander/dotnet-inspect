@@ -1321,6 +1321,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryAndPackage_ScalarCount_IgnoreTreePresentation()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
+                "library", "System.Text.Json",
+                "-S", "References", "--count", "--tree", "--tips", "q");
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+
+            Assert.Equal(0, libraryExit);
+            Assert.Empty(libraryError);
+            Assert.True(
+                int.TryParse(
+                    libraryOutput.Trim(),
+                    CultureInfo.InvariantCulture,
+                    out var libraryCount),
+                libraryOutput);
+            Assert.True(libraryCount > 0);
+
+            Assert.Equal(0, packageExit);
+            Assert.Empty(packageError);
+            Assert.True(
+                int.TryParse(
+                    packageOutput.Trim(),
+                    CultureInfo.InvariantCulture,
+                    out var packageCount),
+                packageOutput);
+            Assert.True(packageCount > 0);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryAndPackage_MultiSectionCount_RejectTreePresentation()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
+                "library", "System.Text.Json",
+                "-S", "References,Library Info",
+                "--count", "--tree", "--tips", "q");
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info,Target Frameworks",
+                "--count", "--tree", "--tips", "q");
+
+            Assert.Equal(1, libraryExit);
+            Assert.Empty(libraryOutput);
+            Assert.Contains("exactly one", libraryError);
+            Assert.Equal(1, packageExit);
+            Assert.Empty(packageOutput);
+            Assert.Contains("exactly one", packageError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -15677,8 +15744,23 @@ public partial class CommandExecutionTests
                     "-S", "Package Info,Target Frameworks",
                     "--fields", "Version", "--columns", "TFM",
                     "--count", "--json");
+            var (singleCombinedExit, singleCombinedOutput, singleCombinedError) =
+                await RunAppAsync(
+                    "package", packagePath,
+                    "-S", "Package Info,Target Frameworks",
+                    "--fields", "Version", "--columns", "TFM",
+                    "--count", "--json");
             Assert.Equal(0, combinedExit);
             Assert.Empty(combinedError);
+            Assert.Equal(0, singleCombinedExit);
+            Assert.Empty(singleCombinedError);
+            using var singleCombined = JsonDocument.Parse(singleCombinedOutput);
+            var singleCombinedCounts = singleCombined.RootElement
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("section").GetString()!,
+                    row => row.GetProperty("count").GetInt32(),
+                    StringComparer.Ordinal);
             using (var combined = JsonDocument.Parse(combinedOutput))
             {
                 var combinedCounts = combined.RootElement
@@ -15687,8 +15769,12 @@ public partial class CommandExecutionTests
                         row => row.GetProperty("section").GetString()!,
                         row => row.GetProperty("count").GetInt32(),
                         StringComparer.Ordinal);
-                Assert.Equal(2, combinedCounts["Package Info"]);
-                Assert.Equal(targetFrameworksCount, combinedCounts["Target Frameworks"]);
+                Assert.Equal(
+                    2 * singleCombinedCounts["Package Info"],
+                    combinedCounts["Package Info"]);
+                Assert.Equal(
+                    2 * singleCombinedCounts["Target Frameworks"],
+                    combinedCounts["Target Frameworks"]);
             }
 
             var (fileColumnExit, fileColumnOutput, fileColumnError) =
@@ -15746,7 +15832,7 @@ public partial class CommandExecutionTests
                         row => row.GetProperty("section").GetString()!,
                         row => row.GetProperty("count").GetInt32(),
                         StringComparer.Ordinal);
-                Assert.Equal(2, composedCounts["Package Info"]);
+                Assert.Equal(0, composedCounts["Package Info"]);
                 Assert.Equal(2, composedCounts["Package README file"]);
                 Assert.Equal(0, composedCounts["Manifest"]);
             }

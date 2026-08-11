@@ -128,7 +128,8 @@ public class PackageCommand
 
                 var ordered = OutputFormatter.ResolveCountMapSections(
                     pipeline, options.IncludeSections, options.FixedOverview);
-                if (!CountOutput.ValidateMapFormat(options.Format, ordered))
+                if (!CountOutput.ValidateMapFormat(
+                        options.Format, ordered, options.Tree))
                     return 1;
             }
 
@@ -1095,9 +1096,9 @@ public class PackageCommand
         var itemKind = schema.GetSection(section)?.ItemKind;
         if (itemKind?.Equals("field", StringComparison.OrdinalIgnoreCase) == true)
         {
-            return options.Fields is { Length: > 0 }
-                ? !ProjectionMatches(schema, section, options.Fields)
-                : options.Columns is { Length: > 0 };
+            return options.Columns is { Length: > 0 }
+                || (options.Fields is { Length: > 0 }
+                    && !ProjectionMatches(schema, section, options.Fields));
         }
 
         return itemKind?.Equals("column", StringComparison.OrdinalIgnoreCase) == true
@@ -1320,7 +1321,7 @@ public class PackageCommand
     private static bool ValidatePackageContentMode(InspectionOptions options)
     {
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
-        if (options.Tree && options.Discover == null)
+        if (options.Tree && options.Discover == null && !options.Count)
         {
             CommandError.Write("package --tree is discovery-tree output and requires -D/--discover.");
             CommandError.WriteLine("Use --layout to show the package file tree.");
@@ -2819,7 +2820,8 @@ public class PackageCommand
 
             var ordered = OutputFormatter.ResolveCountMapSections(
                 pipeline, libraryOptions.IncludeSections, libraryOptions.FixedOverview);
-            if (!CountOutput.ValidateMapFormat(libraryOptions.Format, ordered))
+            if (!CountOutput.ValidateMapFormat(
+                    libraryOptions.Format, ordered, libraryOptions.Tree))
                 return 1;
         }
 

@@ -294,7 +294,7 @@ public class LibraryCommand
         if (!ValidateMultiTfmOutput(options))
             return 1;
 
-        if (options.Tree && options.Discover == null)
+        if (options.Tree && options.Discover == null && !options.Count)
         {
             if (options.IncludeSections is not { Count: 1 }
                 || !options.IncludeSections.Contains(SectionNames.References))
@@ -304,10 +304,9 @@ public class LibraryCommand
             }
         }
 
-        if (options.Tree && options.Discover == null)
+        if (options.Tree && options.Discover == null && !options.Count)
         {
-            if (options.Count
-                || options.Print
+            if (options.Print
                 || options.Value
                 || options.Urls
                 || options.Paths
@@ -360,7 +359,8 @@ public class LibraryCommand
 
             var ordered = OutputFormatter.ResolveCountMapSections(
                 pipeline, options.IncludeSections, options.FixedOverview);
-            if (!CountOutput.ValidateMapFormat(options.Format, ordered))
+            if (!CountOutput.ValidateMapFormat(
+                    options.Format, ordered, options.Tree))
                 return 1;
         }
 
