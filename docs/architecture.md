@@ -670,13 +670,19 @@ Research overlay bridge, and the application layer:
   generated-framework classification remain separate Analysis services over
   those shared results. Within acquisition, one
   `MethodBodyAnalysisContext` carries the method identity, exception regions,
-  shared Layer-0 `MethodInstructions`, and Analysis-owned loop regions to topic
-  producers. Raw IL and reader-bound method bodies remain outside the context,
-  preventing producers from creating a second decode path. Allocation path
-  contexts, confidence, and
+  shared Layer-0 `MethodInstructions`, Analysis-owned loop regions, and
+  immutable decoded local types to topic producers. Raw IL, generic decoding
+  scope, metadata readers, and reader-bound method bodies remain outside the
+  context, preventing producers from creating a second decode or metadata
+  traversal path. Allocation path contexts, confidence, and
   post-dominance remain producer-owned Layer-1 interpretations.
-  `BodySignalAnalysis` is the first producer on that context; metadata-dependent
-  box classification is supplied through a narrow callback, and
+  `BodySignalAnalysis` consumes the context with metadata-dependent box
+  classification supplied through a narrow callback.
+  `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
+  occurrence interpretation; call-site acquisition remains separate and
+  delegates only its safety projection. `MethodInstructionFacts` owns the
+  metadata-free local/argument-slot grammar shared by safety and allocation
+  interpretation.
   `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
   analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
   of every analysis algorithm. The app unions the features required by selected
