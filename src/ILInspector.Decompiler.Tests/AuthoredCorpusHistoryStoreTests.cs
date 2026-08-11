@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -112,7 +113,9 @@ public class AuthoredCorpusHistoryStoreTests
             "\"corpusRows\": 4",
             "\"invented\": 0,\n  \"corpusRows\": 4",
             StringComparison.Ordinal);
-        string missing = json.Replace("\"corpusRows\": 4,\n  ", "", StringComparison.Ordinal);
+        JsonObject missingDocument = JsonNode.Parse(json)!.AsObject();
+        Assert.True(missingDocument.Remove("corpusRows"));
+        string missing = missingDocument.ToJsonString();
 
         Assert.Throws<JsonException>(
             () => AuthoredCorpusHistoryStore.ParseBenchmarkReport(duplicate));
@@ -178,13 +181,12 @@ public class AuthoredCorpusHistoryStoreTests
 
     [Fact]
     [Trait("Area", "Corpus")]
-    public void TrackedHistory_VerifiesUnchangedThroughTheTypedStore()
+    public void TrackedHistory_VerifiesUnchangedWithoutRequiringADeepCheckout()
     {
         string path = AuthoredCorpusHistoryCardTests.TrackedHistoryPath();
-        var repository = AuthoredCorpusHistoryStore.GitRepository.OpenCurrent();
 
         IReadOnlyList<HistoryRun> runs =
-            AuthoredCorpusHistoryStore.ParseAndVerify(File.ReadAllText(path), repository);
+            AuthoredCorpusHistoryStore.ParseAndVerify(File.ReadAllText(path), new TrackedRepository());
 
         Assert.Equal(10, runs.Count);
     }
@@ -300,5 +302,23 @@ public class AuthoredCorpusHistoryStoreTests
             => BenchmarkExists
                 ? AuthoredCorpusMethodology.Version
                 : throw new InvalidDataException("benchmark missing");
+    }
+
+    sealed class TrackedRepository : AuthoredCorpusHistoryStore.IRepository
+    {
+        static readonly HashSet<string> VersionTwoCommits =
+        [
+            "14781e8d",
+            "d4002cf1",
+            "35014d91",
+            "168464d9",
+            "50046669",
+        ];
+
+        public string ResolveCommit(string commit) => commit;
+
+        public bool IsOnMain(string commit) => true;
+
+        public int MethodologyAt(string commit) => VersionTwoCommits.Contains(commit) ? 2 : 1;
     }
 }

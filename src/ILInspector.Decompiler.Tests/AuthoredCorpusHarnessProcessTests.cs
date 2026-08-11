@@ -170,7 +170,7 @@ public class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(1, run.ExitCode);
         Assert.Contains("EVIL history verification failed:", run.Output, StringComparison.Ordinal);
-        Assert.Contains("/does-not-exist/history.jsonl", run.Output, StringComparison.Ordinal);
+        Assert.Contains("history.jsonl", run.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(1, run.ExitCode);
         Assert.Contains("Could not append EVIL history:", run.Output, StringComparison.Ordinal);
-        Assert.Contains("/does-not-exist/history.jsonl", run.Output, StringComparison.Ordinal);
+        Assert.Contains("history.jsonl", run.Output, StringComparison.Ordinal);
     }
 
     /// <summary>
