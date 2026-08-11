@@ -250,6 +250,25 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
 
     /// <summary>
+    /// Opens descriptor-owned PE metadata without loading an embedded or
+    /// adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false);
+    }
+
+    /// <summary>
     /// Opens an acquisition descriptor through its authoritative stream factory.
     /// The optional path is used only for adjacent PDB discovery.
     /// </summary>
@@ -316,7 +335,8 @@ public class PdbContext : IDisposable
             assembly.Identity.Name,
             log,
             PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
-            assembly.LastWriteTimeUtc);
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: true);
     }
 
     static PdbContext Open(
@@ -1247,6 +1267,16 @@ public class PdbContext : IDisposable
     /// </summary>
     public PresenceFlags ScanPresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_peReader);
+
+    public PresenceFlags ScanPresenceFlags(
+        EcosystemIntegrationPresence integrationPresence)
+        => AssemblyDetailScanner.ScanPresenceFlags(
+            _peReader,
+            integrationPresence);
+
+    public PresenceFlags ScanPresenceFlagsWithoutIntegrations()
+        => AssemblyDetailScanner.ScanPresenceFlagsWithoutIntegrations(
+            _peReader);
 
     public void Dispose()
     {

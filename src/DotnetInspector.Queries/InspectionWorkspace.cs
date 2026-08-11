@@ -285,6 +285,56 @@ public sealed class AssemblyContextGroup : IDisposable
             });
     }
 
+    internal async Task<AssemblyImageAccessResult<TResult>>
+        UseAndReleaseAssemblySessionAsync<TResult>(
+            ResolvedAssemblyReference assembly,
+            Func<
+                AssemblyInspectionSession,
+                ResolvedAssemblyReference,
+                Task<TResult>> callback)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        BeginCallback();
+        Exception? operationFailure = null;
+        ParticipantState? participant = null;
+        try
+        {
+            participant = FindParticipant(assembly);
+            SnapshotAccess access = GetSnapshot(participant);
+            if (access.Failure is { } failure)
+            {
+                return new AssemblyImageAccessResult<TResult>.Rejected(
+                    assembly,
+                    failure);
+            }
+
+            AssemblyImageSnapshot snapshot = access.Snapshot!;
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(snapshot);
+            TResult value = await callback(
+                    session,
+                    snapshot.RetainAssemblyReference(assembly))
+                .ConfigureAwait(false);
+            return new AssemblyImageAccessResult<TResult>.Available(value);
+        }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
+        finally
+        {
+            if (participant is null)
+                EndCallback(operationFailure);
+            else
+                ReleaseSnapshotAndEndCallback(
+                    participant,
+                    operationFailure);
+        }
+    }
+
     internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyImageSnapshot, TResult> callback)
@@ -409,6 +459,9 @@ public sealed class AssemblyContextGroup : IDisposable
     {
         lock (participant.ImageLoadGate)
         {
+            ObjectDisposedException.ThrowIf(
+                participant.Released,
+                participant);
             if (participant.Initialized)
                 return participant.Access;
 
@@ -433,6 +486,41 @@ public sealed class AssemblyContextGroup : IDisposable
             participant.Initialized = true;
             return access;
         }
+    }
+
+    void ReleaseSnapshotAndEndCallback(
+        ParticipantState participant,
+        Exception? operationFailure)
+    {
+        bool release;
+        lock (participant.ImageLoadGate)
+        {
+            lock (_lifetimeGate)
+            {
+                _activeCallbacks--;
+                release =
+                    _disposed && _activeCallbacks == 0 && !_released;
+                if (release)
+                {
+                    _released = true;
+                }
+                else if (!_disposed)
+                {
+                    _retainedImageBytes -= participant.Release();
+                }
+            }
+        }
+
+        CompleteCallbackRelease(release, operationFailure);
+    }
+
+    void ReleaseSnapshotCore(ParticipantState participant)
+    {
+        long imageSize;
+        lock (participant.ImageLoadGate)
+            imageSize = participant.Release();
+        if (imageSize != 0)
+            ReleaseImage(imageSize);
     }
 
     bool TryReserveImage(long imageSize)
@@ -477,19 +565,26 @@ public sealed class AssemblyContextGroup : IDisposable
                 _released = true;
         }
 
-        if (release)
+        CompleteCallbackRelease(release, operationFailure);
+    }
+
+    void CompleteCallbackRelease(
+        bool release,
+        Exception? operationFailure)
+    {
+        if (!release)
+            return;
+
+        try
         {
-            try
-            {
-                ReleaseOwnedState();
-            }
-            catch (Exception releaseFailure)
-                when (operationFailure is not null)
-            {
-                throw new AggregateException(
-                    operationFailure,
-                    releaseFailure);
-            }
+            ReleaseOwnedState();
+        }
+        catch (Exception releaseFailure)
+            when (operationFailure is not null)
+        {
+            throw new AggregateException(
+                operationFailure,
+                releaseFailure);
         }
     }
 
@@ -538,9 +633,7 @@ public sealed class AssemblyContextGroup : IDisposable
         foreach (ParticipantState participant
             in _participantByRegistration.Values)
         {
-            long imageSize = participant.Release();
-            if (imageSize != 0)
-                ReleaseImage(imageSize);
+            ReleaseSnapshotCore(participant);
         }
 
         if (failures is not null)
@@ -554,13 +647,18 @@ public sealed class AssemblyContextGroup : IDisposable
             participant;
         internal object ImageLoadGate { get; } = new();
         internal bool Initialized { get; set; }
+        internal bool Released { get; private set; }
         internal SnapshotAccess Access { get; set; }
 
         internal long Release()
         {
+            if (Released)
+                return 0;
+
             long imageSize = Access.Snapshot?.Length ?? 0;
             Access = default;
             Initialized = false;
+            Released = true;
             return imageSize;
         }
     }
