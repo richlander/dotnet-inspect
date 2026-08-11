@@ -28,6 +28,12 @@ public sealed class CSharpTypePrinter
         var requestList = requests.ToArray();
         if (requestList.Any(request => request is null))
             throw new ArgumentException("Type print requests cannot contain null entries.", nameof(requests));
+        if (requestList.Sum(CountReplacementTargets) > 1)
+        {
+            throw new ArgumentException(
+                "A C# type print batch can select at most one replacement target.",
+                nameof(requests));
+        }
 
         // A single request produces at most one namespace, so a file-scoped
         // namespace declaration is always legal and reads cleaner. Multiple
@@ -129,11 +135,13 @@ public sealed class CSharpTypePrinter
         diagnostics.AddRange(plannedModuleAttributes.Diagnostics.Select(
             diagnostic => new CSharpTypePrintDiagnostic("<module>", diagnostic)));
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
+        var renderedUnits = ImmutableArray.CreateBuilder<RenderedFragment>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
             var groupedTypes = group.ToList();
             var declaredTypeFullNameSet = declaredTypeFullNamesByNamespace[group.Key];
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
+            bool useBlockScopedNamespace = containingNamespace is not null && !useFileScopedNamespace;
             var ancestorTypeNames = preparedTypes
                 .Where(candidate => IsAncestorNamespace(candidate.Namespace, group.Key))
                 .Select(candidate => CSharpFormatter.StripArity(candidate.Type.Name))
@@ -142,8 +150,7 @@ public sealed class CSharpTypePrinter
                 .Where(reference => string.Equals(reference.Namespace, group.Key, StringComparison.Ordinal)
                     || IsAncestorNamespace(reference.Namespace, group.Key))
                 .Select(reference => reference.SimpleName);
-            var source = string.Join(
-                "\n\n",
+            var rendered = Join(
                 groupedTypes.Select(type => RenderType(
                     type,
                     indent: 0,
@@ -161,25 +168,30 @@ public sealed class CSharpTypePrinter
                     declaredTypeFullNameSet,
                     importedDeclaredTypeFullNames,
                     typeNameContext.KnownNamespaces,
-                    diagnostics)));
+                    diagnostics)),
+                "\n\n");
             if (containingNamespace is not null)
             {
                 string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
-                source = useFileScopedNamespace
-                    ? $"namespace {renderedNamespace};\n\n{source}"
-                    : $"namespace {renderedNamespace}\n{{\n{Indent(source, 1)}\n}}";
+                rendered = useFileScopedNamespace
+                    ? rendered.Wrap($"namespace {renderedNamespace};\n\n", "")
+                    : rendered
+                        .Indent(1)
+                        .Wrap($"namespace {renderedNamespace}\n{{\n", "\n}");
             }
 
-            units.Add(new CSharpTypeSourceUnit(containingNamespace, source));
+            units.Add(new CSharpTypeSourceUnit(containingNamespace, rendered.Source));
+            renderedUnits.Add(rendered);
         }
 
         var unitList = units.ToImmutable();
+        var renderedUnitList = renderedUnits.ToImmutable();
         return new CSharpTypePrintResult(
             unitList,
             diagnostics.Distinct().ToImmutableArray(),
             emittedUsings,
             () => ComposeSource(
-                unitList,
+                renderedUnitList,
                 emittedUsings,
                 plannedAssemblyAttributes.Attributes,
                 plannedModuleAttributes.Attributes,
@@ -259,14 +271,16 @@ public sealed class CSharpTypePrinter
             _ => throw new InvalidOperationException()
         };
 
-    static string ComposeSource(
-        ImmutableArray<CSharpTypeSourceUnit> units,
+    static CSharpSourceArtifact ComposeSource(
+        ImmutableArray<RenderedFragment> units,
         IReadOnlyCollection<string> usings,
         IReadOnlyList<string> assemblyAttributes,
         IReadOnlyList<string> moduleAttributes,
         CSharpTypePrintOptions options)
     {
         var sb = new System.Text.StringBuilder();
+        CSharpSourceRange? bodyRange = null;
+        string? bodyIndent = null;
         if (options.EmitPragmaWarningDisable)
             sb.AppendLf("#pragma warning disable");
         foreach (var attribute in assemblyAttributes)
@@ -279,10 +293,38 @@ public sealed class CSharpTypePrinter
                 sb.AppendLf($"using {ns};");
         }
         foreach (var unit in units)
+        {
+            int unitStart = sb.Length;
             sb.AppendLf(unit.Source);
+            if (unit.ReplaceableBodyRange is { } range)
+            {
+                bodyRange = new CSharpSourceRange(unitStart + range.Start, range.Length);
+                bodyIndent = unit.ReplaceableBodyIndent;
+            }
+        }
 
-        return sb.ToString();
+        return new CSharpSourceArtifact(sb.ToString(), bodyRange, bodyIndent);
     }
+
+    static int CountReplacementTargets(CSharpTypePrintRequest request)
+    {
+        int count = request.MemberPolicyOverrides.Sum(policy => policy.Body switch
+        {
+            CSharpBlockBody { IsReplacementTarget: true } => 1,
+            CSharpPropertyBody property => CountReplacementTargets(property),
+            CSharpEventBody @event => CountReplacementTargets(@event),
+            _ => 0,
+        });
+        return count + request.NestedTypes.Sum(CountReplacementTargets);
+    }
+
+    static int CountReplacementTargets(CSharpPropertyBody body)
+        => (body.Getter?.IsReplacementTarget == true ? 1 : 0)
+            + (body.Setter?.IsReplacementTarget == true ? 1 : 0);
+
+    static int CountReplacementTargets(CSharpEventBody body)
+        => (body.Adder.IsReplacementTarget ? 1 : 0)
+            + (body.Remover.IsReplacementTarget ? 1 : 0);
 
     static string NormalizeNamespace(string? value)
         => string.IsNullOrWhiteSpace(value) ? "" : value;
@@ -403,7 +445,7 @@ public sealed class CSharpTypePrinter
         return overrides;
     }
 
-    static string RenderType(
+    static RenderedFragment RenderType(
         PreparedType prepared,
         int indent,
         CSharpTypePrintOptions options,
@@ -449,7 +491,7 @@ public sealed class CSharpTypePrinter
         diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
             diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
         if (prepared.Type.Kind == "delegate")
-            return RenderDelegate(prepared, formatter, indent);
+            return new RenderedFragment(RenderDelegate(prepared, formatter, indent));
 
         var propertyFormatter = DeclarationFormatter(
             prepared.Namespace,
@@ -467,26 +509,27 @@ public sealed class CSharpTypePrinter
             prepared.Type,
             prepared.PrimaryConstructorParameters);
 
-        var lines = new List<string>
+        var fragments = new List<RenderedFragment>
         {
-            PadDeclaration(declaration, pad),
-            $"{pad}{{"
+            new(PadDeclaration(declaration, pad)),
+            new($"{pad}{{")
         };
         if (prepared.Type.Kind == "enum")
         {
-            lines.AddRange(prepared.Members.Select((member, index) =>
-                RenderEnumMember(member, indent + 1, index < prepared.Members.Length - 1)));
+            fragments.AddRange(prepared.Members.Select((member, index) =>
+                new RenderedFragment(
+                    RenderEnumMember(member, indent + 1, index < prepared.Members.Length - 1))));
         }
         else
         {
             foreach (var member in prepared.Members)
-                lines.AddRange(RenderMember(prepared, member, formatter, propertyFormatter, indent + 1));
+                fragments.Add(RenderMember(prepared, member, formatter, propertyFormatter, indent + 1));
             foreach (var nested in prepared.NestedTypes)
             {
                 var nestedShadowingNames = inScopeShadowingNames.ToHashSet(StringComparer.Ordinal);
                 var nestedRootShadowingNames = inheritedRootShadowingNames.ToHashSet(StringComparer.Ordinal);
                 nestedRootShadowingNames.Add(CSharpFormatter.StripArity(prepared.Type.Name));
-                lines.Add(RenderType(
+                fragments.Add(RenderType(
                     nested,
                     indent + 1,
                     options,
@@ -500,11 +543,11 @@ public sealed class CSharpTypePrinter
                     diagnostics));
             }
         }
-        lines.Add($"{pad}}}");
-        return string.Join('\n', lines);
+        fragments.Add(new RenderedFragment($"{pad}}}"));
+        return Join(fragments, "\n");
     }
 
-    static IEnumerable<string> RenderMember(
+    static RenderedFragment RenderMember(
         PreparedType type,
         PreparedMember member,
         CSharpFormatter formatter,
@@ -516,8 +559,8 @@ public sealed class CSharpTypePrinter
         {
             string declaration = formatter.FormatMember(type.Type, member.Member);
             if (member.Body is CSharpFieldInitializer fieldInitializer)
-                return [$"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};"];
-            return [PadDeclaration(EnsureTerminated(declaration), pad)];
+                return new RenderedFragment($"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};");
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(declaration), pad));
         }
 
         if (IsProperty(member.Member))
@@ -533,26 +576,36 @@ public sealed class CSharpTypePrinter
             || member.Member.IsAbstract
             || member.Policy == CSharpBodyPolicy.Skeleton)
         {
-            return [PadDeclaration(EnsureTerminated(memberDeclaration), pad)];
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(memberDeclaration), pad));
         }
         string initializer = member.Body is CSharpBlockBody { ConstructorInitializer: { } constructorInitializer }
             ? " " + CSharpFormatter.FormatConstructorInitializer(constructorInitializer)
             : "";
         if (member.Body is null && member.Policy == CSharpBodyPolicy.Stub)
-            return [$"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}"];
-
-        var body = member.Body switch
         {
-            CSharpBlockBody block => block.Source,
+            return new RenderedFragment(
+                $"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}");
+        }
+
+        var block = member.Body switch
+        {
+            CSharpBlockBody body => body,
             _ => throw new InvalidOperationException(
                 $"Member '{member.Member.Name}' has no renderable block body."),
         };
-        if (member.Policy == CSharpBodyPolicy.Stub && body == "throw null;")
-            return [$"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}"];
-        return RenderBlock(memberDeclaration + initializer, body, indent);
+        if (member.Policy == CSharpBodyPolicy.Stub && block.Source == "throw null;")
+        {
+            return new RenderedFragment(
+                $"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}");
+        }
+        return RenderBlock(
+            memberDeclaration + initializer,
+            block.Source,
+            indent,
+            block.IsReplacementTarget);
     }
 
-    static IEnumerable<string> RenderProperty(
+    static RenderedFragment RenderProperty(
         PreparedType type,
         PreparedMember member,
         CSharpFormatter formatter,
@@ -563,7 +616,7 @@ public sealed class CSharpTypePrinter
         if (member.Policy == CSharpBodyPolicy.Skeleton)
         {
             string skeleton = formatter.FormatMember(type.Type, member.Member);
-            return [PadDeclaration(EnsureTerminated(skeleton), pad)];
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(skeleton), pad));
         }
 
         var body = (CSharpPropertyBody)member.Body!;
@@ -582,25 +635,33 @@ public sealed class CSharpTypePrinter
                     member.Member,
                     SetterKeyword(member.Member),
                     formatter) + ";");
-            return [$"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}"];
+            return new RenderedFragment(
+                $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}");
         }
 
-        var lines = new List<string>
+        var fragments = new List<RenderedFragment>
         {
-            PadDeclaration(declaration, pad),
-            $"{pad}{{"
+            new(PadDeclaration(declaration, pad)),
+            new($"{pad}{{")
         };
-        AddAccessor(lines, type.Type, member.Member, "get", body.Getter, formatter, indent + 1);
-        AddAccessor(
-            lines,
-            type.Type,
-            member.Member,
-            SetterKeyword(member.Member),
-            body.Setter,
-            formatter,
-            indent + 1);
-        lines.Add($"{pad}}}");
-        return lines;
+        if (body.Getter is not null)
+        {
+            fragments.Add(
+                RenderAccessor(type.Type, member.Member, "get", body.Getter, formatter, indent + 1));
+        }
+        if (body.Setter is not null)
+        {
+            fragments.Add(
+                RenderAccessor(
+                    type.Type,
+                    member.Member,
+                    SetterKeyword(member.Member),
+                    body.Setter,
+                    formatter,
+                    indent + 1));
+        }
+        fragments.Add(new RenderedFragment($"{pad}}}"));
+        return Join(fragments, "\n");
     }
 
     // An init-only property's write accessor is spelled `init`, not `set`. Honor the
@@ -612,7 +673,7 @@ public sealed class CSharpTypePrinter
             ? "init"
             : "set";
 
-    static IEnumerable<string> RenderEvent(
+    static RenderedFragment RenderEvent(
         PreparedType type,
         PreparedMember member,
         CSharpFormatter formatter,
@@ -622,7 +683,7 @@ public sealed class CSharpTypePrinter
         if (member.Policy == CSharpBodyPolicy.Skeleton)
         {
             string skeleton = formatter.FormatMember(type.Type, member.Member);
-            return [PadDeclaration(EnsureTerminated(skeleton), pad)];
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(skeleton), pad));
         }
 
         var body = (CSharpEventBody)member.Body!;
@@ -630,44 +691,35 @@ public sealed class CSharpTypePrinter
             type.Type,
             member.Member,
             body);
-        var lines = new List<string>
+        var fragments = new List<RenderedFragment>
         {
-            PadDeclaration(declaration, pad),
-            $"{pad}{{"
+            new(PadDeclaration(declaration, pad)),
+            new($"{pad}{{"),
+            RenderAccessor(type.Type, member.Member, "add", body.Adder, formatter, indent + 1),
+            RenderAccessor(type.Type, member.Member, "remove", body.Remover, formatter, indent + 1),
+            new($"{pad}}}")
         };
-        AddAccessor(lines, type.Type, member.Member, "add", body.Adder, formatter, indent + 1);
-        AddAccessor(lines, type.Type, member.Member, "remove", body.Remover, formatter, indent + 1);
-        lines.Add($"{pad}}}");
-        return lines;
+        return Join(fragments, "\n");
     }
 
-    static void AddAccessor(
-        List<string> lines,
+    static RenderedFragment RenderAccessor(
         ApiType declaringType,
         ApiMember member,
         string kind,
-        CSharpAccessorBody? body,
+        CSharpAccessorBody body,
         CSharpFormatter formatter,
         int indent)
     {
-        if (body is null)
-            return;
         string pad = new(' ', indent * 4);
         string head = AccessorHead(declaringType, member, kind, formatter);
         if (body.Kind == CSharpAccessorBodyKind.Auto)
-        {
-            lines.Add($"{pad}{head};");
-            return;
-        }
+            return new RenderedFragment($"{pad}{head};");
 
-        lines.Add($"{pad}{head}");
-        lines.Add($"{pad}{{");
         string source = body.Kind == CSharpAccessorBodyKind.Throw
             ? "throw null;"
             : body.Source!;
-        foreach (var line in SourceLines(source))
-            lines.Add($"{pad}    {line}");
-        lines.Add($"{pad}}}");
+        var block = RenderBodyBlock(source, indent, body.IsReplacementTarget);
+        return block.Wrap($"{pad}{head}\n", "");
     }
 
     static string AccessorHead(
@@ -755,14 +807,30 @@ public sealed class CSharpTypePrinter
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
 
-    static IEnumerable<string> RenderBlock(string declaration, string source, int indent)
+    static RenderedFragment RenderBlock(
+        string declaration,
+        string source,
+        int indent,
+        bool isReplacementTarget)
     {
         string pad = new(' ', indent * 4);
-        yield return PadDeclaration(declaration, pad);
-        yield return $"{pad}{{";
-        foreach (var line in SourceLines(source))
-            yield return $"{pad}    {line}";
-        yield return $"{pad}}}";
+        var body = RenderBodyBlock(source, indent, isReplacementTarget);
+        return body.Wrap(PadDeclaration(declaration, pad) + "\n", "");
+    }
+
+    static RenderedFragment RenderBodyBlock(
+        string source,
+        int indent,
+        bool isReplacementTarget)
+    {
+        string pad = new(' ', indent * 4);
+        string block = CSharpSourceLayout.RenderBlock(source, pad);
+        return isReplacementTarget
+            ? new RenderedFragment(
+                block,
+                new CSharpSourceRange(0, block.Length),
+                pad)
+            : new RenderedFragment(block);
     }
 
     // A rendered declaration may span several lines when leading attributes are
@@ -772,11 +840,6 @@ public sealed class CSharpTypePrinter
             ? string.Join('\n', declaration.Split('\n').Select(line => line.Length == 0 ? line : pad + line))
             : pad + declaration;
 
-    static IEnumerable<string> SourceLines(string source)
-        => source.Split('\n')
-            .Select(line => line.TrimEnd('\r'))
-            .Where(line => line.Length > 0);
-
     static bool AllAuto(CSharpPropertyBody body)
         => (body.Getter is null || body.Getter.Kind == CSharpAccessorBodyKind.Auto)
             && (body.Setter is null || body.Setter.Kind == CSharpAccessorBodyKind.Auto);
@@ -785,12 +848,6 @@ public sealed class CSharpTypePrinter
         => declaration.EndsWith(';') || declaration.EndsWith('}')
             ? declaration
             : declaration + ";";
-
-    static string Indent(string source, int depth)
-    {
-        string pad = new(' ', depth * 4);
-        return string.Join('\n', source.Split('\n').Select(line => line.Length == 0 ? line : pad + line));
-    }
 
     internal static ApiType SnapshotTypeForRendering(
         ApiType type,
@@ -979,6 +1036,13 @@ public sealed class CSharpTypePrinter
             throw new NotSupportedException(
                 $"C# member body policy '{policy.BodyPolicy}' for '{member.Name}' requires a body provider.");
         }
+        if (policy.Body is CSharpBlockBody { IsReplacementTarget: true }
+            && policy.BodyPolicy != CSharpBodyPolicy.Full)
+        {
+            throw new ArgumentException(
+                $"Replacement target '{member.Name}' must use full body policy.",
+                parameterName);
+        }
         if (member.IsAbstract && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
         {
             throw new ArgumentException(
@@ -1081,6 +1145,69 @@ public sealed class CSharpTypePrinter
     static bool HasOnlyAccessors(ApiMember member, string first, string second)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors
             && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
+
+    static RenderedFragment Join(IEnumerable<RenderedFragment> fragments, string separator)
+    {
+        var array = fragments.ToArray();
+        if (array.Length == 0)
+            return new RenderedFragment("");
+
+        var source = new System.Text.StringBuilder();
+        CSharpSourceRange? bodyRange = null;
+        string? bodyIndent = null;
+        for (int i = 0; i < array.Length; i++)
+        {
+            if (i > 0)
+                source.Append(separator);
+
+            var fragment = array[i];
+            int fragmentStart = source.Length;
+            source.Append(fragment.Source);
+            if (fragment.ReplaceableBodyRange is { } range)
+            {
+                if (bodyRange is not null)
+                    throw new InvalidOperationException("Rendered C# contains multiple replacement targets.");
+                bodyRange = new CSharpSourceRange(fragmentStart + range.Start, range.Length);
+                bodyIndent = fragment.ReplaceableBodyIndent;
+            }
+        }
+
+        return new RenderedFragment(source.ToString(), bodyRange, bodyIndent);
+    }
+
+    sealed record RenderedFragment(
+        string Source,
+        CSharpSourceRange? ReplaceableBodyRange = null,
+        string? ReplaceableBodyIndent = null)
+    {
+        internal RenderedFragment Indent(int depth)
+        {
+            string pad = new(' ', depth * 4);
+            string IndentSource(string source)
+                => string.Join(
+                    '\n',
+                    source.Split('\n').Select(line => line.Length == 0 ? line : pad + line));
+
+            if (ReplaceableBodyRange is not { } range)
+                return new RenderedFragment(IndentSource(Source));
+
+            string prefix = IndentSource(Source[..range.Start]);
+            string body = IndentSource(Source.Substring(range.Start, range.Length));
+            string suffix = IndentSource(Source[range.End..]);
+            return new RenderedFragment(
+                prefix + body + suffix,
+                new CSharpSourceRange(prefix.Length, body.Length),
+                pad + ReplaceableBodyIndent);
+        }
+
+        internal RenderedFragment Wrap(string prefix, string suffix)
+            => new(
+                prefix + Source + suffix,
+                ReplaceableBodyRange is { } range
+                    ? new CSharpSourceRange(prefix.Length + range.Start, range.Length)
+                    : null,
+                ReplaceableBodyIndent);
+    }
 
     sealed record PreparedType(
         string Namespace,

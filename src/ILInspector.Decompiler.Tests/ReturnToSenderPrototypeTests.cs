@@ -6517,6 +6517,7 @@ public class ReturnToSenderPrototypeTests
         var references = RoslynTestReferences.TrustedPlatform.ToArray();
 
         var decompiledArtifact = CompileBackSourceComposer.Compose(request);
+        Assert.NotNull(decompiledArtifact.SourceArtifact.ReplaceableBodyRange);
         var decompiledTree = CSharpSyntaxTree.ParseText(decompiledArtifact.Source, parseOptions);
         var decompiledDiagnostics = CSharpCompilation
             .Create("return-to-sender-decompiled", [decompiledTree], references, compileOptions)
