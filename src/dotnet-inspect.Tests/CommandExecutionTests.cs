@@ -11520,6 +11520,111 @@ public partial class CommandExecutionTests
         Assert.Equal(2, DataRows(windowed));
     }
 
+    /// <summary>
+    /// The <c>--all-libraries</c> document is assembled by hand, and every block boundary is
+    /// produced by one helper that appends a block plus its trailing blank line. That is easy to
+    /// break silently in either direction: #3963 doubled the blank before every section on Windows,
+    /// and a separator rewritten to emit one newline instead of two would run the sections
+    /// together. Neither produces a carriage return, so neither is visible to a line-ending
+    /// assertion.
+    /// <para>
+    /// The invariant asserted here is therefore two-sided -- each <c>##</c> heading is preceded by
+    /// exactly one blank line, so a missing blank and an extra blank both fail. The two ends of the
+    /// document are covered separately, because a heading loop cannot see them: it opens with the
+    /// package's title heading followed by one blank line, and it carries no trailing whitespace,
+    /// so the assembling <c>TrimEnd</c> cannot be dropped. All of these have teeth on every
+    /// platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the
+    /// complementary property, the line ending itself, over the per-library path; that assertion
+    /// has teeth only on the <c>test-windows</c> leg.
+    /// </para>
+    /// <para>
+    /// Both producers are covered, because they fail differently. The aggregated path (#3951, which
+    /// the per-library test does not reach) is exercised by <c>-S Switches,Dependencies</c> against
+    /// a real package. The per-library path appears there only as the document's last block, where
+    /// a trailing newline it emitted would be absorbed by the assembling <c>TrimEnd</c> and go
+    /// unnoticed; it is therefore also run against a local two-library package, so that a boundary
+    /// between two per-library blocks is measured directly.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
+    {
+        var (exit, aggregated, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,Dependencies");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Switches", aggregated, StringComparison.Ordinal);
+        AssertBlocksSeparatedByOneBlankLine(aggregated, "# system.text.json");
+
+        // The per-library producer, which the run above reaches only as the document's last block,
+        // where a trailing newline it emitted would be absorbed by the assembling TrimEnd. This
+        // package ships two libraries for the selected framework, so the boundary between two
+        // per-library blocks is measured rather than inferred.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (localExit, perLibrary, _) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+
+            Assert.Equal(0, localExit);
+            AssertBlocksSeparatedByOneBlankLine(perLibrary, "# test.libraryfiles");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
+    /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
+    /// line, and it carries no trailing whitespace.
+    /// </summary>
+    private static void AssertBlocksSeparatedByOneBlankLine(string output, string expectedTitlePrefix)
+    {
+        Assert.DoesNotContain('\r', output);
+
+        // The document's own end, not the harness's. OutputFormatter.WriteLfLine appends the
+        // terminating newline itself, so asserting output ends with one asserts WriteLfLine;
+        // strip it and require what the assembling TrimEnd is actually for -- that the document
+        // carries no trailing whitespace. Every block contributes a trailing blank line, so
+        // without that TrimEnd the document would end "\n\n\n".
+        Assert.EndsWith("\n", output, StringComparison.Ordinal);
+        var document = output[..^1];
+        Assert.Equal(document.TrimEnd(), document);
+
+        var lines = document.Split('\n');
+
+        // The document's start, which the heading loop cannot reach: the title block is one
+        // heading line naming the package, followed by exactly one blank line. A bare
+        // StartsWith("# ") would admit anything prepended above the title that is itself a heading.
+        Assert.StartsWith(expectedTitlePrefix, lines[0], StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            lines[1].Length == 0,
+            $"expected a blank line after the title, found '{lines[1]}'");
+
+        var headings = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].StartsWith("## ", StringComparison.Ordinal))
+                continue;
+
+            headings++;
+            Assert.True(i >= 2, $"'{lines[i]}' has no room for a preceding blank line");
+            Assert.True(
+                lines[i - 1].Length == 0,
+                $"expected a blank line before '{lines[i]}', found '{lines[i - 1]}'");
+            Assert.True(
+                lines[i - 2].Length != 0,
+                $"expected exactly one blank line before '{lines[i]}', found more than one");
+        }
+
+        Assert.True(
+            headings >= 2,
+            $"expected at least two section headings, so that separation between blocks is "
+                + $"exercised and not just the boundary below the title, got:\n{output}");
+    }
+
     [Fact]
     public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
     {
