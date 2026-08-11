@@ -552,8 +552,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
