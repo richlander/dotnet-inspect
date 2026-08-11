@@ -27,6 +27,8 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class ReturnToSender
 {
+    const string CompilationAssemblyName = "return-to-sender";
+
     public enum FaultIsolationKind
     {
         BodyDefect,
@@ -44,6 +46,12 @@ static class ReturnToSender
         /// attributable to the decompiler by span comparison.
         /// </summary>
         SpanMeasured,
+
+        /// <summary>
+        /// Authored body compiled in the successful RTS shell and was compared with
+        /// the original method under the same Full-fidelity IL contract.
+        /// </summary>
+        FidelityControl,
     }
 
     public sealed record FaultIsolationResult(
@@ -706,12 +714,13 @@ static class ReturnToSender
     internal static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        bool applyCompileBackFloor = true)
         => CompileBackTargets(
             assemblyPath,
             targets,
             sourceIndex,
-            applyCompileBackFloor: true,
+            applyCompileBackFloor,
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
@@ -1725,7 +1734,7 @@ static class ReturnToSender
             },
             new RoundTripCompilationOptions
             {
-                AssemblyName = "return-to-sender",
+                AssemblyName = CompilationAssemblyName,
                 MaxIterations = 80,
             });
 
@@ -1767,8 +1776,7 @@ static class ReturnToSender
             var faultIsolation = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
                 ? null
                 : TryIsolateRecompileFailure(
-                    sourceResult.Request,
-                    unit,
+                    sourceResult,
                     compilationResult.Diagnostics,
                     sourceIndex,
                     parseOptions,
@@ -1844,6 +1852,18 @@ static class ReturnToSender
         string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
             ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
             : fidelityDiff?.Failure;
+        var fidelityIsolation = status is FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff
+                ? TryIsolateFidelityDifference(
+                    sourceResult,
+                    originalPe,
+                    reader,
+                    methodHandle,
+                    sourceIndex,
+                    parseOptions,
+                    compileOptions,
+                    references)
+                : null;
 
         return new Result(
             plan,
@@ -1857,6 +1877,7 @@ static class ReturnToSender
             IlDiff: ilDiff,
             MemberAnchor: memberAnchor,
             Decisions: targetBody.Decisions,
+            FaultIsolation: fidelityIsolation,
             SiblingAccessor: siblingAccessor,
             FidelityDiff: fidelityDiff)
         {
@@ -2206,6 +2227,7 @@ static class ReturnToSender
         {
             ExcludeTargetAssembly = true,
             SnapshotAssemblyImages = true,
+            AllowPlatformAssemblyVersionRollForward = true,
         });
         ResolvedAssemblyReference targetAssembly =
             resolver.AcquireTargetAssembly()
@@ -2265,18 +2287,189 @@ static class ReturnToSender
     }
 
     internal static FaultIsolationResult? TryIsolateRecompileFailure(
-        ArtifactRequest request,
-        string decompiledSource,
+        ProductArtifact artifact,
         ImmutableArray<Diagnostic> decompiledDiagnostics,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
-        if (sourceIndex is null)
+        var request = artifact.Request;
+        var control = TryCompileAuthoredBody(
+            artifact,
+            sourceIndex,
+            parseOptions,
+            compileOptions,
+            references);
+        if (control is null)
             return null;
 
-        if (!sourceIndex.TryFindForAttribution(
+        if (control.PeImage is not null)
+        {
+            return new FaultIsolationResult(
+                FaultIsolationKind.BodyDefect,
+                control.SourceMember.SourcePath,
+                "authored body compiled in the same RTS shell");
+        }
+
+        // Shell is broken: the substitution control is blind. Recover the
+        // additional signal by span attribution — but only credit a body
+        // defect for a provably shell-independent in-body error (syntax or
+        // body-intrinsic semantic).
+        if (BuildTargetIdentity(request) is { } identity
+            && SpanAttribution.IsolatingBodyError(
+                artifact.Source,
+                decompiledDiagnostics,
+                control.Source,
+                control.Diagnostics,
+                identity,
+                parseOptions) is { } isolatingError)
+        {
+            return new FaultIsolationResult(
+                FaultIsolationKind.BodyDefect,
+                control.SourceMember.SourcePath,
+                $"span-measured: shell-independent decompiled body error absent from authored body ({FormatDiagnostic(isolatingError)})")
+            {
+                Method = FaultIsolationMethod.SpanMeasured,
+            };
+        }
+
+        var error = control.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        return new FaultIsolationResult(
+            FaultIsolationKind.ShellOrClosureDefect,
+            control.SourceMember.SourcePath,
+            FormatDiagnostic(error));
+    }
+
+    /// <summary>
+    /// Attributes a successful RTS IL-diff by replacing only the target body with
+    /// its exactly correlated authored body and recompiling the final RTS shell.
+    /// Authored IL exactness isolates the decompiled body; authored IL divergence
+    /// or compilation failure isolates the shell/context. Missing correlation or an
+    /// unavailable Full-fidelity comparison produces no verdict.
+    /// </summary>
+    /// <remarks>
+    /// <c>ValidDifferentFaultIsolationTests</c> gates the two verdicts, the
+    /// unavailable path, and non-vacuous wiring from <c>CompileBackTarget</c>.
+    /// </remarks>
+    internal static FaultIsolationResult? TryIsolateFidelityDifference(
+        ProductArtifact artifact,
+        PEReader originalPe,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
+        ReturnToSenderSourceIndex? sourceIndex,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions,
+        IReadOnlyList<MetadataReference> references)
+    {
+        var request = artifact.Request;
+        var control = TryCompileAuthoredBody(
+            artifact,
+            sourceIndex,
+            parseOptions,
+            compileOptions,
+            references);
+        if (control is null)
+            return null;
+
+        if (control.PeImage is null)
+        {
+            var error = control.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+            string errorDetail = FormatDiagnostic(error) ?? "compile failed without an error diagnostic";
+            return new FaultIsolationResult(
+                FaultIsolationKind.ShellOrClosureDefect,
+                control.SourceMember.SourcePath,
+                $"authored body did not compile in the same RTS shell ({errorDetail})")
+            {
+                Method = FaultIsolationMethod.FidelityControl,
+            };
+        }
+
+        using var stream = new MemoryStream(control.PeImage, writable: false);
+        using var authoredPe = new PEReader(stream);
+        var authoredOps = FindAndDisassemble(authoredPe, request.FullType, request.MethodName, overload: 0)
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        if (authoredOps is null)
+            return null;
+
+        var fidelityDiff = BuildIlDiff(
+            originalPe,
+            originalReader,
+            originalMethod,
+            authoredPe,
+            request.FullType,
+            request.MethodName,
+            overload: 0,
+            FidelityCheck.ContractBodyDiffNormalization)?.Diff;
+        var originalOps = MetadataInstructionProducer.Disassemble(
+                originalPe,
+                originalReader,
+                originalReader.GetMethodDefinition(originalMethod))
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        if (originalOps is null)
+            return null;
+
+        var status = ClassifyFidelityControlStatus(
+            originalOps.SequenceEqual(authoredOps),
+            fidelityDiff);
+        return status switch
+        {
+            FidelityCheck.CompileBackStatus.Exact => new FaultIsolationResult(
+                FaultIsolationKind.BodyDefect,
+                control.SourceMember.SourcePath,
+                "authored body reproduced the original IL in the same RTS shell")
+            {
+                Method = FaultIsolationMethod.FidelityControl,
+            },
+            FidelityCheck.CompileBackStatus.OpcodeDiff or FidelityCheck.CompileBackStatus.OperandDiff
+                => new FaultIsolationResult(
+                    FaultIsolationKind.ShellOrClosureDefect,
+                    control.SourceMember.SourcePath,
+                    $"authored body also produced {status} in the same RTS shell")
+                {
+                    Method = FaultIsolationMethod.FidelityControl,
+                },
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Forms an authored-body control verdict only when the Full-fidelity body
+    /// comparison itself is available. The general compile-back classifier can
+    /// still report an opcode difference without that comparison; attribution
+    /// cannot, because methodology v3 promises the existing Full contract.
+    /// </summary>
+    internal static FidelityCheck.CompileBackStatus? ClassifyFidelityControlStatus(
+        bool opcodesExact,
+        IlBodyDiffResult? fidelityDiff)
+    {
+        if (fidelityDiff is not { IsAvailable: true })
+            return null;
+
+        return FidelityCheck.ClassifyStatus(
+            isFull: true,
+            opcodesExact,
+            fidelityDiff);
+    }
+
+    sealed record AuthoredBodyCompilation(
+        ReturnToSenderSourceMember SourceMember,
+        string Source,
+        ImmutableArray<Diagnostic> Diagnostics,
+        byte[]? PeImage);
+
+    static AuthoredBodyCompilation? TryCompileAuthoredBody(
+        ProductArtifact artifact,
+        ReturnToSenderSourceIndex? sourceIndex,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions,
+        IReadOnlyList<MetadataReference> references)
+    {
+        var request = artifact.Request;
+        if (sourceIndex is null
+            || !sourceIndex.TryFindForAttribution(
                 new RequestedTarget(request.FullType, request.MethodName, request.Overload, Signature: null),
                 MetadataTokens.GetToken(request.TargetMethod),
                 out var sourceMember)
@@ -2285,49 +2478,24 @@ static class ReturnToSender
             return null;
         }
 
-        var authoredTargetBody = new ProductTargetBody(authoredBody, []);
         try
         {
-            var authoredArtifact = CompileBackSourceComposer.Compose(WithTargetBody(request, authoredTargetBody));
-            var tree = CSharpSyntaxTree.ParseText(authoredArtifact.Source, parseOptions);
-            var compilation = CSharpCompilation.Create("return-to-sender-source-oracle", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = compilation.Emit(ms);
-            if (emit.Success)
-            {
-                return new FaultIsolationResult(
-                    FaultIsolationKind.BodyDefect,
-                    sourceMember.SourcePath,
-                    "authored body compiled in the same RTS shell");
-            }
-
-            // Shell is broken: the substitution control is blind. Recover the
-            // additional signal by span attribution — but only credit a body
-            // defect for a provably shell-independent in-body error (syntax or
-            // body-intrinsic semantic).
-            if (BuildTargetIdentity(request) is { } identity
-                && SpanAttribution.IsolatingBodyError(
-                    decompiledSource,
-                    decompiledDiagnostics,
-                    authoredArtifact.Source,
-                    emit.Diagnostics,
-                    identity,
-                    parseOptions) is { } isolatingError)
-            {
-                return new FaultIsolationResult(
-                    FaultIsolationKind.BodyDefect,
-                    sourceMember.SourcePath,
-                    $"span-measured: shell-independent decompiled body error absent from authored body ({FormatDiagnostic(isolatingError)})")
-                {
-                    Method = FaultIsolationMethod.SpanMeasured,
-                };
-            }
-
-            var error = emit.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-            return new FaultIsolationResult(
-                FaultIsolationKind.ShellOrClosureDefect,
-                sourceMember.SourcePath,
-                FormatDiagnostic(error));
+            // The product froze both the compiled unit and its selected body range.
+            // Do not recompose the shell or rediscover the member in the harness.
+            string authoredSource = artifact.SourceArtifact.ReplaceBody(authoredBody);
+            var tree = CSharpSyntaxTree.ParseText(authoredSource, parseOptions);
+            var compilation = CSharpCompilation.Create(
+                CompilationAssemblyName,
+                [tree],
+                references,
+                compileOptions);
+            using var stream = new MemoryStream();
+            var emit = compilation.Emit(stream);
+            return new AuthoredBodyCompilation(
+                sourceMember,
+                authoredSource,
+                emit.Diagnostics,
+                emit.Success ? stream.ToArray() : null);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {

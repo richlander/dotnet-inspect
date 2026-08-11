@@ -720,12 +720,42 @@ public sealed class CSharpTypePrinterTests
         Assert.Equal(
             result.Source[..range.Start]
             + "            {\n"
-            + "                System.Console.WriteLine(42);\n"
-            + "                return;\n"
+            + "System.Console.WriteLine(42);\n"
+            + "return;\n"
             + "            }"
             + result.Source[range.End..],
             replacement);
         Assert.Contains("public class Peer", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceArtifactReplacementPreservesMultilineLiteralBytes()
+    {
+        var target = CreateMethod("Run");
+        var type = CreateEmptyType("Samples", "Literal");
+        type.Members.Add(target);
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    target,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody("return;") { IsReplacementTarget = true })
+            ]));
+        const string body = "return @\"alpha\r\n\r\nomega\";";
+
+        string replacement = result.SourceArtifact.ReplaceBody(body);
+        var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
+
+        Assert.Equal(
+            result.Source[..range.Start]
+            + "    {\n"
+            + body
+            + "\n"
+            + "    }"
+            + result.Source[range.End..],
+            replacement);
     }
 
     [Fact]

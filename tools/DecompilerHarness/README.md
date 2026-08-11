@@ -287,7 +287,7 @@ groups corpus rows by assembly, matches them to the supplied pinned assemblies b
 assembly name, feeds the vendored authored bodies into the same
 source-correspondence oracle the on-demand census uses (through an in-memory
 `ReturnToSenderSourceIndex`), and emits a taste card (`--json` for structured
-output). Before fault attribution is enabled, every row must match the supplied
+output). For fault attribution, every row must match the supplied
 assembly's module version ID, MethodDef token, type, method, overload, and
 normalized signature. A missing or inconsistent correlation fails the run
 instead of silently reducing the product-body-defect count. Each target is
@@ -308,7 +308,18 @@ PDB method spans.
 - **frontier, IL-exact (cosmetic)** — same semantics and identical IL; a pure
   surface-shape difference at the raise frontier.
 - **frontier, IL-diff (semantic)** — differs with an opcode/operand diff; worth
-  scrutiny.
+  scrutiny. Methodology v3 recompiles the exact authored body in the same final
+  RTS shell and compares it under the same Full-fidelity IL contract:
+  - authored IL exact: product body defect;
+  - authored IL also different, or authored body does not compile: harness shell
+    reconstruction;
+  - comparison unavailable: unclassified.
+
+  CompileBack-floor rows are a separate, explicit sub-bucket. The older
+  CompileBack result supplies their headline status, so neither its status nor
+  the superseded RTS failure attribution is counted as evidence from the
+  successful RTS fidelity control. IL-exact rows do not run the control because
+  there is no semantic IL difference to isolate.
 - **Not-Full (uncheckable at Full)** — the decompiler body could not be graded at
   Full fidelity (`fidelity-unavailable`/`NotFull`), so correspondence is not
   decidable. This is a decompiler limitation, not corpus drift, so it does not

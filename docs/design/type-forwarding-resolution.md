@@ -2692,13 +2692,21 @@ gates the compile-back harness's structured forwarder wiring.
 `ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and
 `ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
 gate candidate consistency when resolution tightens a signed forwarder hop.
+`ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure`
+gates the simple-name closure model's version unification for contracts older
+than the running inspector, while
+`ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform`
+gates that the replay never escapes the frozen reference slot to a different
+platform image.
 `CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling` and
 `CompileBackTargets_DeclinesDirectSignedInterfaceSpoof` apply the same check to
 the target assembly's initial platform-signed `AssemblyRef`; unsigned
 hand-authored references retain the prior closure scan. The structured engine
 replays the complete initial binding and forwarding walk through Roslyn's
-sibling-first closure and requires the same assembly identity, matching
-defining-image SHA-256 digest, and durable TypeDef address.
+simple-name-deduplicated closure, selecting the frozen reference occupying each
+requested name even when its metadata identity differs. It requires the same
+assembly identity, matching defining-image SHA-256 digest, and durable TypeDef
+address.
 `CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage` gates
 that Roslyn references and structured inspection share one frozen acquisition
 generation even when a dependency path is replaced afterward.

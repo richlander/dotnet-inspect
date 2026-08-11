@@ -2210,18 +2210,49 @@ public static class CompileBackSourceComposer
         return leftHash.AsSpan().SequenceEqual(rightHash);
     }
 
-    sealed class CompilationClosureBindingPolicy(
-        AssemblyDependencyResolver resolver) : IAssemblyBindingPolicy
+    sealed class CompilationClosureBindingPolicy : IAssemblyBindingPolicy
     {
+        readonly AssemblyDependencyResolver _resolver;
+        readonly Dictionary<string, ResolvedAssemblyReference> _references =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public CompilationClosureBindingPolicy(
+            AssemblyDependencyResolver resolver)
+        {
+            _resolver = resolver;
+            foreach (ResolvedAssemblyDependency dependency in resolver.ResolveAll())
+            {
+                ResolvedAssemblyReference? reference =
+                    resolver.Acquire(dependency);
+                if (reference is not null)
+                {
+                    _references.TryAdd(
+                        Path.GetFileNameWithoutExtension(dependency.Path),
+                        reference);
+                }
+            }
+        }
+
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            resolver.Select(
+        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        {
+            if (request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference)
+            {
+                return _references.TryGetValue(
+                    reference.Identity.Name,
+                    out ResolvedAssemblyReference? selected)
+                        ? AssemblyBindingSelection.Found(selected)
+                        : AssemblyBindingSelection.NotFound();
+            }
+
+            return _resolver.Select(
                 new AssemblyBindingRequest(
                     request.Target,
                     request.Origin,
                     AssemblyResolutionScope.Any));
+        }
     }
 
     static bool TryCollectRequiredInterfaceMethods(
