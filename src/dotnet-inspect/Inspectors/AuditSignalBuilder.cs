@@ -646,7 +646,23 @@ internal static class AuditSignalBuilder
     {
         if (inspection.HasSourceLink)
         {
-            return ("Present", FormatPdbEvidence(inspection, hasSourceLink: true));
+            string evidence = FormatPdbEvidence(inspection, hasSourceLink: true);
+            return inspection.SourceLinkMap?.Status switch
+            {
+                SourceLinkMapStatus.Unusable => (
+                    "Present (unusable)",
+                    FormatSourceLinkMapEvidence(
+                        inspection,
+                        inspection.SourceLinkMap,
+                        "unusable")),
+                SourceLinkMapStatus.PartiallyUsable => (
+                    "Present (partially usable)",
+                    FormatSourceLinkMapEvidence(
+                        inspection,
+                        inspection.SourceLinkMap,
+                        "partially usable")),
+                _ => ("Present", evidence),
+            };
         }
 
         if (!string.IsNullOrWhiteSpace(inspection.SourceLinkUnavailableReason))
@@ -677,6 +693,29 @@ internal static class AuditSignalBuilder
     }
 
     private static string FormatBool(bool value) => value ? "Yes" : "No";
+
+    private static string FormatSourceLinkMapEvidence(
+        LibraryInspection inspection,
+        SourceLinkMapInspection map,
+        string status)
+    {
+        string source = !string.IsNullOrWhiteSpace(inspection.SymbolServer)
+            ? inspection.SymbolServer
+            : !string.IsNullOrWhiteSpace(inspection.PdbLocation)
+                ? inspection.PdbLocation.ToLowerInvariant()
+                : "unknown";
+        string reason = map.Error is { Length: > 0 } error
+            ? $"{status}: {error}"
+            : status;
+        string evidence = $"SourceLink map in PDB from {source} is {reason}";
+        int rejectedCount = map.RejectedKeys?.Count ?? 0;
+        return rejectedCount > 0
+            ? $"{evidence}; {FormatCount(rejectedCount, "rejected mapping")}"
+            : evidence;
+    }
+
+    private static string FormatCount(int count, string singular)
+        => count == 1 ? $"1 {singular}" : $"{count} {singular}s";
 
     private static string FormatMemorySafetyModel(int? version) => version switch
     {
