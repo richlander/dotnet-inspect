@@ -847,6 +847,95 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void ContextualUnsignedComparisonCastPreservesOperandAndWrapperKinds()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var zero = new Constant(0, intType);
+        var comparison = new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: true,
+            new LoadArgument(0, "value", byteType),
+            zero);
+        var block = new Block(0);
+        block.Add(new Return(comparison));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                boolType,
+                [new Parameter("value", byteType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [zero] = [new Annotation(Alloc, 0)],
+            });
+
+        var literal = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "LiteralExpression"
+                && Text(map, node.Extent) == "0");
+        var conversion = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "(uint)0");
+        Assert.True(
+            SlotOf(ranges, zero)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "(uint)0",
+                "ConversionExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(literal.Id, fact.NodeId);
+        Assert.Equal("LiteralExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void FixedBufferPointerAddressPreservesElementAndAddressKinds()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.PointerReturn));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var address = Assert.Single(
+            function!.Descendants.OfType<FixedBufferElementAddress>());
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [address] = [new Annotation(Alloc, 0)],
+            });
+
+        var element = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ElementAccessExpression"
+                && Text(map, node.Extent) == "value.Data[index]");
+        var addressOf = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "AddressExpression"
+                && Text(map, node.Extent) == "&value.Data[index]");
+        Assert.True(element.Extent.StartColumn > addressOf.Extent.StartColumn);
+        Assert.Equal(element.Extent.EndColumn, addressOf.Extent.EndColumn);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(element.Id, fact.NodeId);
+        Assert.Equal("ElementAccessExpression", fact.Kind);
+    }
+
+    [Fact]
     public void IntegerTruthinessContainingPatternTextRecordsBinaryKind()
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");

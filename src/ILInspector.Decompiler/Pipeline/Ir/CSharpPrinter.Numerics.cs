@@ -1779,9 +1779,10 @@ public sealed partial class CSharpPrinter
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
         if (cast is null)
             return Operand(operand);
-        return checkedSafe
+        string text = checkedSafe
             ? CheckedSafeCast(() => $"({cast}){Operand(operand)}", force: IsOutOfRangeUnsignedConstant(operand))
             : $"({cast}){Operand(operand)}";
+        return CaptureContextualExpression(operand, text, "ConversionExpression");
     }
 
     /// <summary>
@@ -1804,7 +1805,10 @@ public sealed partial class CSharpPrinter
         // (e.g. (long)ulong.MaxValue), which is CS0221 without unchecked; the
         // unsigned value, not the peeled signed value, is what overflows, so wrap
         // any constant operand defensively (a no-op for a fitting constant).
-        return CheckedSafeCast(() => $"({TypeText(signed)}){Operand(operand)}", force: TryGetIntegerConstant(operand, out _));
+        string text = CheckedSafeCast(
+            () => $"({TypeText(signed)}){Operand(operand)}",
+            force: TryGetIntegerConstant(operand, out _));
+        return CaptureContextualExpression(operand, text, "ConversionExpression");
     }
 
     /// <summary>
@@ -1896,7 +1900,11 @@ public sealed partial class CSharpPrinter
             }
             && fixedBufferAddress.ElementType.Equals(target.ElementType))
         {
-            return new($"&{Deref(fixedBufferAddress)}", "AddressExpression");
+            string elementText = WithNodeKind(
+                fixedBufferAddress,
+                Deref(fixedBufferAddress),
+                "ElementAccessExpression");
+            return new($"&{elementText}", "AddressExpression");
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && value is Convert
