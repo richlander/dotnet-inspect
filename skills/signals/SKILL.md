@@ -43,16 +43,20 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members,P/Invoke Methods"
 ## SourceLink provenance
 
 Distinct from *fetching* source (the `sourcelink` skill), `-S @SourceLink`
-groups the provenance sections: `SourceLink: Availability` (is it wired up),
-`SourceLink: Integrity` (do the documents validate), and `SourceLink: Missing
-Files` (gaps). The same sections work on `library` and aggregate selected
-libraries on `package`. Availability and missing-file checks may send HEAD
-requests for uncached SourceLink URLs. The integrity pass fetches and hashes
-fetchable, non-embedded compiler-source documents, so request these networked
-checks explicitly.
+groups the provenance sections. Library `Signals` distinguishes a present
+usable map from a partially usable or unusable one; `SourceLink: Diagnostics`
+reports parse errors and rejected mappings without network access.
+`SourceLink: Availability` reports whether documents are embedded or reachable,
+`SourceLink: Integrity` validates their content, and `SourceLink: Missing Files`
+reports gaps. The document-check sections also aggregate selected libraries on
+`package`. Availability and missing-file checks may send HEAD requests for
+uncached SourceLink URLs. The integrity pass fetches and hashes fetchable,
+non-embedded compiler-source documents, so request these networked checks
+explicitly.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -D @SourceLink
+dnx dotnet-inspect -y -- library MyLib.dll -S "Signals,SourceLink: Diagnostics"
 dnx dotnet-inspect -y -- library System.Text.Json \
   -S "SourceLink: Availability,SourceLink: Missing Files"
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Integrity"
