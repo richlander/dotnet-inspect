@@ -35,6 +35,22 @@ Keep the peer-checkout `ProjectReference` edits local and unpushed. After
 Markout lands and releases, restore `PackageReference` and only then raise the
 dotnet-inspect PR.
 
+## User-directed workflow adjustments
+
+The workflow gates in this file establish the default safe sequencing. A user
+may explicitly adjust a process gate for a specific task or PR in the interests
+of speed, including directing work that normally waits on another step to run
+in parallel. Follow that direction rather than refusing solely because the
+default is described as a gate, and preserve every requirement the user did not
+adjust.
+
+An adjustment changes sequencing, not evidence. Record the scope of the
+adjustment and any consequence for what the result proves. Work tied to an
+exact head remains valid only for that head; if parallel validation or a later
+change moves it, apply the fixed-head rules to the new head. A user-directed
+adjustment does not turn failed validation into success or make an unmergeable
+change ready to merge.
+
 ## Before changing files
 
 - `main` is protected. Keep the primary repository checkout attached to
@@ -424,7 +440,14 @@ npx markdownlint-cli <file>
 conflicts. For changes other than documentation-only PRs, it must also be green
 on every check that runs for it — and for a stacked PR, every layer must meet
 the conditions that apply to it.** This is a gate, not a preference: hold the
-round until that state clears.
+round until that state clears unless the user explicitly adjusts the sequencing
+under [User-directed workflow adjustments](#user-directed-workflow-adjustments).
+
+In particular, an explicit user direction to run adversarial review in parallel
+with CI overrides the wait-for-green sequencing requirement. Do not refuse that
+direction because this section calls the default a gate. The review still
+applies only to its exact head, and CI must still pass before the change is
+ready to merge.
 
 Documentation-only PRs covered by the Markdown-only validation rule above are
 the exception to the CI portion of this gate. Their only validation is
