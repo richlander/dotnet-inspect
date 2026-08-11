@@ -9,16 +9,49 @@ namespace ILInspector.Decompiler.Pipeline;
 internal sealed class StructuringFlowFacts
 {
     public required Dictionary<int, int> OffsetToIndex { get; init; }
+    /// <summary>
+    /// Targets of unconditional transfers (goto and switch dispatch). A label is
+    /// needed only for one of these: conditional guards to a terminator are
+    /// inlined, so they impose no label.
+    /// </summary>
     public required HashSet<int> UnconditionalTargets { get; init; }
+    /// <summary>
+    /// Conditional branches per target. A terminator reached by two or more is a
+    /// genuine shared join that strict nesting cannot express, so it is the one
+    /// worth dissolving by inlining; a single-predecessor guard the standard
+    /// forms already raise cleanly stays untouched.
+    /// </summary>
     public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
+    /// <summary>Dispatch fact (see <see cref="Collect"/>): conditional-branch predecessors of each target offset, by source block index.</summary>
     public required Dictionary<int, List<int>> ConditionalPredecessorIndices { get; init; }
+    /// <summary>Dispatch fact (see <see cref="Collect"/>): unconditional-goto predecessors of each target offset, by source block index.</summary>
     public required Dictionary<int, List<int>> BranchPredecessorIndices { get; init; }
+    /// <summary>
+    /// Dispatch fact (see <see cref="Collect"/>): every jump-edge predecessor
+    /// (unconditional, conditional, or switch) of each target offset, by source
+    /// block index. Used to detect a sibling region interleaved between a shared
+    /// return's scattered guards (#2978).
+    /// </summary>
     public required Dictionary<int, List<int>> JumpPredecessorIndices { get; init; }
+    /// <summary>
+    /// Jump-edge predecessors plus nested-<see cref="Leave"/> owners of each
+    /// target offset — the blocks that must own a clone before the original past-
+    /// region target may be dropped.
+    /// </summary>
     public required Dictionary<int, List<int>> ClonePredecessorIndices { get; init; }
+    /// <summary>Dispatch fact (see <see cref="Collect"/>): offsets targeted by a switch dispatch.</summary>
     public required HashSet<int> SwitchTargets { get; init; }
+    /// <summary>Targets of every explicit control transfer, including descendant <see cref="Leave"/> nodes — the offsets whose labels structuring must preserve.</summary>
     public required HashSet<int> BranchTargets { get; init; }
 
-    public static StructuringFlowFacts Collect(IReadOnlyList<Block> blocks)
+    /// <summary>
+    /// Collects the facts in one walk. The dispatch facts (the predecessor-index
+    /// maps and <see cref="SwitchTargets"/>) feed only the scattered-dispatch
+    /// classification in <c>Structure</c>; a clone-inline probe never reads them,
+    /// so it passes <paramref name="includeDispatchFacts"/> false and gets empty
+    /// maps instead of paying per-probe collection cost.
+    /// </summary>
+    public static StructuringFlowFacts Collect(IReadOnlyList<Block> blocks, bool includeDispatchFacts = true)
     {
         var offsetToIndex = new Dictionary<int, int>();
         for (int i = 0; i < blocks.Count; i++)
@@ -40,10 +73,13 @@ internal sealed class StructuringFlowFacts
                 if (child is Branch branch)
                 {
                     unconditionalTargets.Add(branch.TargetOffset);
-                    AddPredecessor(branchPredecessorIndices, branch.TargetOffset, blockIndex);
                     branchTargets.Add(branch.TargetOffset);
-                    AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
                     AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
+                    if (includeDispatchFacts)
+                    {
+                        AddPredecessor(branchPredecessorIndices, branch.TargetOffset, blockIndex);
+                        AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
+                    }
                 }
                 else if (child is Leave leave)
                 {
@@ -53,20 +89,26 @@ internal sealed class StructuringFlowFacts
                 {
                     conditionalTargetCounts[conditional.TargetOffset] =
                         conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
-                    AddPredecessor(conditionalPredecessorIndices, conditional.TargetOffset, blockIndex);
                     branchTargets.Add(conditional.TargetOffset);
-                    AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
                     AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
+                    if (includeDispatchFacts)
+                    {
+                        AddPredecessor(conditionalPredecessorIndices, conditional.TargetOffset, blockIndex);
+                        AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
+                    }
                 }
                 else if (child is SwitchBranch switchBranch)
                 {
                     foreach (int target in switchBranch.TargetOffsets)
                     {
                         unconditionalTargets.Add(target);
-                        switchTargets.Add(target);
                         branchTargets.Add(target);
-                        AddPredecessor(jumpPredecessorIndices, target, blockIndex);
                         AddPredecessor(clonePredecessorIndices, target, blockIndex);
+                        if (includeDispatchFacts)
+                        {
+                            switchTargets.Add(target);
+                            AddPredecessor(jumpPredecessorIndices, target, blockIndex);
+                        }
                     }
                 }
             }
@@ -133,11 +175,7 @@ public sealed class StructuringPass : IIrPass
     sealed class Ctx
     {
         public required IReadOnlyList<Block> Blocks { get; init; }
-        public required Dictionary<int, int> OffsetToIndex { get; init; }
-        public required HashSet<int> UnconditionalTargets { get; init; }
-        public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
-        public required HashSet<int> BranchTargets { get; init; }
-        public required Dictionary<int, List<int>> ClonePredecessorIndices { get; init; }
+        public required StructuringFlowFacts FlowFacts { get; init; }
         public required HashSet<int> DroppableBlocks { get; init; }
         /// <summary>
         /// Past-region clone ownership by original block index. The original is
@@ -198,15 +236,6 @@ public sealed class StructuringPass : IIrPass
         if (blocks.Count <= 1)
             return;
 
-        // A label is needed only for an unconditional goto: conditional guards
-        // to a terminator are inlined, so they impose no label. Count the
-        // conditional branches per target: a terminator reached by two or more
-        // is a genuine shared join that strict nesting cannot express, so it
-        // is the one worth dissolving by inlining; a single-predecessor guard
-        // the standard forms already raise cleanly stays untouched.
-        // Every jump-edge predecessor (unconditional, conditional, or switch) of
-        // each target offset, by source block index. Used to detect a sibling
-        // region interleaved between a shared return's scattered guards (#2978).
         var flowFacts = StructuringFlowFacts.Collect(blocks);
 
         // A terminator whose only predecessors are inlined guards (no goto
@@ -299,11 +328,7 @@ public sealed class StructuringPass : IIrPass
         var ctx = new Ctx
         {
             Blocks = blocks,
-            OffsetToIndex = flowFacts.OffsetToIndex,
-            UnconditionalTargets = flowFacts.UnconditionalTargets,
-            ConditionalTargetCounts = flowFacts.ConditionalTargetCounts,
-            BranchTargets = flowFacts.BranchTargets,
-            ClonePredecessorIndices = flowFacts.ClonePredecessorIndices,
+            FlowFacts = flowFacts,
             DroppableBlocks = droppable,
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
@@ -352,7 +377,7 @@ public sealed class StructuringPass : IIrPass
     static bool Validate(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget, int? continueTarget, int? regionExitBreakTarget = null)
     {
         var blocks = ctx.Blocks;
-        var offsetToIndex = ctx.OffsetToIndex;
+        var offsetToIndex = ctx.FlowFacts.OffsetToIndex;
         int i = start;
         while (i < stop)
         {
@@ -619,7 +644,7 @@ public sealed class StructuringPass : IIrPass
     static WhileShape? FindWhileShape(Ctx ctx, int i, int conditionIndex, int stop)
     {
         var blocks = ctx.Blocks;
-        var offsetToIndex = ctx.OffsetToIndex;
+        var offsetToIndex = ctx.FlowFacts.OffsetToIndex;
         if (conditionIndex <= i + 1 || conditionIndex >= stop)
             return null;
         var conditionBlock = blocks[conditionIndex];
@@ -652,7 +677,7 @@ public sealed class StructuringPass : IIrPass
             || secondBlock.Children[0] is not ConditionalBranch backBranch
             || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out bodyStart)
             || bodyStart != i + 1
-            || ctx.BranchTargets.Contains(secondBlock.StartOffset))
+            || ctx.FlowFacts.BranchTargets.Contains(secondBlock.StartOffset))
         {
             return null;
         }
@@ -707,7 +732,7 @@ public sealed class StructuringPass : IIrPass
                 {
                     foreach (int targetOffset in switchBranch.TargetOffsets)
                     {
-                        if (ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                        if (ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
                             && target >= start && target < stop)
                             return true;  // switch dispatches into this arm
                     }
@@ -721,7 +746,7 @@ public sealed class StructuringPass : IIrPass
             // shell in this source block — scan descendants, not just children.
             foreach (var leave in blocks[source].Descendants.OfType<Leave>())
             {
-                if (ctx.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                if (ctx.FlowFacts.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && leaveTarget >= start && leaveTarget < stop)
                     return true;
             }
@@ -851,7 +876,7 @@ public sealed class StructuringPass : IIrPass
             if (node is Leave leave
                 && leave.TargetOffset != headOffset
                 && CanRaiseRetryLeave(leave)
-                && (!ctx.OffsetToIndex.TryGetValue(leave.TargetOffset, out int target) || target < head || target > latch))
+                && (!ctx.FlowFacts.OffsetToIndex.TryGetValue(leave.TargetOffset, out int target) || target < head || target > latch))
             {
                 return true;
             }
@@ -860,7 +885,7 @@ public sealed class StructuringPass : IIrPass
     }
 
     static bool BranchExitsRetrySpan(Ctx ctx, int targetOffset, int head, int latch)
-        => ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
+        => ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
             && (target < head || target > latch);
 
     static bool MayFallThroughAfterRetryReplacement(Block block, int retryTargetOffset)
@@ -925,7 +950,7 @@ public sealed class StructuringPass : IIrPass
     }
 
     static bool CanInlinePastRegionTarget(Ctx ctx, int target, int owningGuard)
-        => !ctx.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
+        => !ctx.FlowFacts.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
             && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
             && TryBuildPastRegionTarget(ctx, target, out var body, out int inlinedStop)
             && CanDuplicatePastRegionBody(ctx, target, inlinedStop, owningGuard, body);
@@ -995,7 +1020,7 @@ public sealed class StructuringPass : IIrPass
         Block body)
     {
         bool originalIsNeeded = Enumerable.Range(rangeStart, rangeEnd - rangeStart).Any(blockIndex =>
-            ctx.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors)
+            ctx.FlowFacts.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors)
             && predecessors.Any(index =>
                 index != owningGuard
                 && (index < rangeStart || index >= rangeEnd)));
@@ -1027,7 +1052,7 @@ public sealed class StructuringPass : IIrPass
 
     static Ctx CreateInlineCtx(IReadOnlyList<Block> blocks)
     {
-        var flowFacts = StructuringFlowFacts.Collect(blocks);
+        var flowFacts = StructuringFlowFacts.Collect(blocks, includeDispatchFacts: false);
 
         var fallenInto = new HashSet<int>();
         for (int i = 1; i < blocks.Count; i++)
@@ -1051,11 +1076,7 @@ public sealed class StructuringPass : IIrPass
         return new Ctx
         {
             Blocks = blocks,
-            OffsetToIndex = flowFacts.OffsetToIndex,
-            UnconditionalTargets = flowFacts.UnconditionalTargets,
-            ConditionalTargetCounts = flowFacts.ConditionalTargetCounts,
-            BranchTargets = flowFacts.BranchTargets,
-            ClonePredecessorIndices = flowFacts.ClonePredecessorIndices,
+            FlowFacts = flowFacts,
             DroppableBlocks = [],
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
@@ -1109,7 +1130,7 @@ public sealed class StructuringPass : IIrPass
         var children = ctx.Blocks[blockIndex].Children;
         return children.Count > 0
             && children[^1] is Branch branch
-            && ctx.OffsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget)
+            && ctx.FlowFacts.OffsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget)
             && branchTarget == targetIndex;
     }
 
@@ -1238,7 +1259,7 @@ public sealed class StructuringPass : IIrPass
         int rangeEnd,
         int owningGuard)
     {
-        if (!ctx.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors))
+        if (!ctx.FlowFacts.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors))
             return false;
         var owners = ctx.CloneOwnerIndices[blockIndex];
         return predecessors.Any(index =>
@@ -1486,7 +1507,7 @@ public sealed class StructuringPass : IIrPass
         bool suppressStartTargetLabel = false)
     {
         var blocks = ctx.Blocks;
-        var offsetToIndex = ctx.OffsetToIndex;
+        var offsetToIndex = ctx.FlowFacts.OffsetToIndex;
         var result = new Block(blocks[start].StartOffset);
         int i = start;
         while (i < stop)
@@ -1516,7 +1537,7 @@ public sealed class StructuringPass : IIrPass
                 if (fallthroughExits)
                     loopBody.Add(new Break());
                 var loop = new WhileLoop(TrueLiteral(), loopBody);
-                if (ctx.BranchTargets.Contains(blocks[i].StartOffset))
+                if (ctx.FlowFacts.BranchTargets.Contains(blocks[i].StartOffset))
                     loop.SetSourceOffset(blocks[i].StartOffset);
                 result.Add(loop);
                 i = latch + 1;
@@ -1615,7 +1636,7 @@ public sealed class StructuringPass : IIrPass
                             ReplaceRetryLeavesWithBreaks(body, regionExitTarget);
                         var condition = BuildWhileCondition(loop);
                         var whileLoop = new WhileLoop(condition, body);
-                        if (ctx.BranchTargets.Contains(blocks[branchTarget].StartOffset))
+                        if (ctx.FlowFacts.BranchTargets.Contains(blocks[branchTarget].StartOffset))
                             whileLoop.SetSourceOffset(blocks[branchTarget].StartOffset);
                         result.Add(whileLoop);
                         i = loop.ContinueAt;
@@ -1746,7 +1767,7 @@ public sealed class StructuringPass : IIrPass
                     break;
             }
             if (!(suppressStartTargetLabel && block.StartOffset == blocks[start].StartOffset)
-                && ctx.BranchTargets.Contains(block.StartOffset)
+                && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
                 && result.Children.Count > resultStart)
             {
                 result.Children[resultStart].SetSourceOffset(block.StartOffset);
