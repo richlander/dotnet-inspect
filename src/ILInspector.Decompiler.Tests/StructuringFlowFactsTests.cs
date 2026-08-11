@@ -51,4 +51,44 @@ public class StructuringFlowFactsTests
         Assert.Equal([0x70, 0x80], facts.SwitchTargets.Order());
         Assert.Equal([0x50, 0x60, 0x70, 0x80, 0x90], facts.BranchTargets.Order());
     }
+
+    [Fact]
+    public void Collect_WithoutDispatchFacts_PreservesInlineFacts()
+    {
+        var branch = new Block(0x00);
+        branch.Add(new Branch(0x50));
+
+        var conditional = new Block(0x08);
+        conditional.Add(new ConditionalBranch(new Constant(true, Boolean), 0x60));
+
+        var switchBlock = new Block(0x10);
+        switchBlock.Add(new SwitchBranch(new Constant(0, Int32), [0x70, 0x80]));
+
+        var nestedLeaveBody = new BlockContainer();
+        var nestedLeave = new Block(0x18);
+        nestedLeave.Add(new Leave(0x90));
+        nestedLeaveBody.Add(nestedLeave);
+        var nestedFinallyBody = new BlockContainer();
+        nestedFinallyBody.Add(new Block(0x1C));
+        var region = new Block(0x18);
+        region.Add(new TryFinally(nestedLeaveBody, nestedFinallyBody));
+
+        var facts = StructuringFlowFacts.Collect(
+            [branch, conditional, switchBlock, region],
+            includeDispatchFacts: false);
+
+        Assert.Equal(0, facts.OffsetToIndex[0x00]);
+        Assert.Equal(3, facts.OffsetToIndex[0x18]);
+        Assert.Equal([0x50, 0x70, 0x80], facts.UnconditionalTargets.Order());
+        Assert.Equal(1, facts.ConditionalTargetCounts[0x60]);
+        Assert.Empty(facts.ConditionalPredecessorIndices);
+        Assert.Empty(facts.BranchPredecessorIndices);
+        Assert.Empty(facts.JumpPredecessorIndices);
+        Assert.Empty(facts.SwitchTargets);
+        Assert.Equal([0], facts.ClonePredecessorIndices[0x50]);
+        Assert.Equal([1], facts.ClonePredecessorIndices[0x60]);
+        Assert.Equal([2], facts.ClonePredecessorIndices[0x70]);
+        Assert.Equal([3], facts.ClonePredecessorIndices[0x90]);
+        Assert.Equal([0x50, 0x60, 0x70, 0x80, 0x90], facts.BranchTargets.Order());
+    }
 }
