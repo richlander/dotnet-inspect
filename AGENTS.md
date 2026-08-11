@@ -420,18 +420,25 @@ npx markdownlint-cli <file>
 
 ### Do not start a round until the branch is settled
 
-**A review round does not begin until the PR is stable, free of merge conflicts,
-and green on every check that runs for it — and for a stacked PR, until every
-layer is.** This is a gate, not a preference: hold the round until that state
-clears.
+**A review round does not begin until the PR is stable and free of merge
+conflicts. For changes other than documentation-only PRs, it must also be green
+on every check that runs for it — and for a stacked PR, every layer must meet
+the conditions that apply to it.** This is a gate, not a preference: hold the
+round until that state clears.
+
+Documentation-only PRs covered by the Markdown-only validation rule above are
+the exception to the CI portion of this gate. Their only validation is
+Markdown linting, and waiting for that check to complete is orthogonal to
+adversarial review. Once the exact head is settled and conflict-free, its round
+may start while linting is pending; lint must still pass before merge.
 
 Adversarial review is the scarcest resource in this workflow — several models, a
 self-contained prompt, isolated worktrees, real runs. A branch whose head is
-unpushed or still moving, whose base is stale, whose CI is red, or whose PR
-reports a conflict has no single answer to "what am I reviewing?", so every
-finding it produces is provisional and every clean result is worthless. Reach
-this state before the first round, and reach it again before every subsequent
-round:
+unpushed or still moving, whose base is stale, whose required review-gating CI
+is red, or whose PR reports a conflict has no single answer to "what am I
+reviewing?", so every finding it produces is provisional and every clean result
+is worthless. Reach this state before the first round, and reach it again before
+every subsequent round:
 
 - **The head is pushed, named, and settled.** Reviewers get an exact base and
   head, not a branch that moves under them. Finish your own edits first.
@@ -442,8 +449,9 @@ round:
   where the resolution is itself unreviewed. Once the reviews *are* clean, this
   reverses: see [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
-- **The PR is mergeable and green** — two questions, one consolidated status
-  query. Use a single `gh api graphql` request that returns the PR's
+- **For changes other than documentation-only PRs, the PR is mergeable and
+  green** — two questions, one consolidated status query. Use a single
+  `gh api graphql` request that returns the PR's
   `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
   contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
   and reset time. Request enough contexts for the normal check matrix; if
@@ -481,18 +489,20 @@ round:
   yield until its reported reset time rather than sleeping or continuing to
   query. These intervals are minimums, not targets: wait longer when no
   decision depends on an immediate result.
-- **Every PR in a stack meets all of the above**, not only the slice under
-  review — a red or conflicted parent is a red or conflicted base for everything
-  above it. A slice rebases onto its parent, never onto `main`: only the stack's
-  bottom open slice takes `origin/main` as its base, and rebasing an upper slice
-  onto `main` pulls in work its parent has not landed and makes the slice's diff
-  report its parent's changes as its own. `ci.yml` applies no base-branch
-  filter, so every slice schedules the same CI wherever it targets; a slice
-  reporting *no* checks is therefore not green. Re-query after the registration
-  window, following the status-discovery cadence above, and verify the current
-  head; if no matching workflow run appears, that is a scheduling bug to
-  investigate, since a PR that triggers no workflow leaves `ci-required`
-  nothing to block on and displays as MERGEABLE and CLEAN (#3706).
+- **Every PR in a stack meets the applicable conditions above**, not only the
+  slice under review — a conflicted parent, or a non-documentation parent with
+  red CI, is an unsettled base for everything above it. A slice rebases onto its
+  parent, never onto `main`: only the stack's bottom open slice takes
+  `origin/main` as its base, and rebasing an upper slice onto `main` pulls in
+  work its parent has not landed and makes the slice's diff report its parent's
+  changes as its own. `ci.yml` applies no base-branch filter, so every
+  non-documentation slice schedules the same CI wherever it targets; a
+  non-documentation slice reporting *no* checks is therefore not green.
+  Re-query after the registration window, following the status-discovery
+  cadence above, and verify the current head; if no matching workflow run
+  appears, that is a scheduling bug to investigate, since a PR that triggers no
+  workflow leaves `ci-required` nothing to block on and displays as MERGEABLE
+  and CLEAN (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
@@ -681,7 +691,8 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   slice above. Use `--force-with-lease`, restack only your own slices, and post
   a `range-diff` proving the restack changed the base and nothing else.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
-- **Green and mergeable is checked stack-wide, before any slice's round** — see
+- **Review readiness is checked stack-wide before any slice's round**, using
+  the documentation-only CI exception where applicable — see
   [Adversarial review](#adversarial-review).
 - **A moved head — including one moved by a restack — needs a clean round at
   the new head**, and a restack never retires an open finding.
