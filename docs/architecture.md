@@ -667,9 +667,19 @@ Research overlay bridge, and the application layer:
   allocation, optimization, and resource-lifecycle result bundles rather than
   a flat omnibus tuple; independent judgments such as repeated-scan and
   generated-framework classification remain separate Analysis services over
-  those shared results. `LibraryBodyIndex` is the compatibility query facade,
-  not the owner of every analysis algorithm. The app unions the features
-  required by selected sections and owns one lazy
+  those shared results. Within acquisition, one
+  `MethodBodyAnalysisContext` carries the method identity, exception regions,
+  shared Layer-0 `MethodInstructions`, and Analysis-owned loop regions to topic
+  producers. Raw IL and reader-bound method bodies remain outside the context,
+  preventing producers from creating a second decode path. Allocation path
+  contexts, confidence, and
+  post-dominance remain producer-owned Layer-1 interpretations.
+  `BodySignalAnalysis` is the first producer on that context; metadata-dependent
+  box classification is supplied through a narrow callback, and
+  `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
+  analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
+  of every analysis algorithm. The app unions the features required by selected
+  sections and owns one lazy
   `MethodBodyInspectionSession` per command. Library body commands consume
   immutable content from the prefetched `PdbContext` image already opened for
   metadata/PDB inspection rather than reopening the target file or receiving

@@ -130,6 +130,9 @@ runtime-specific packages.
 - **Resolved SHA is wrong:** cancel the workflow; do not publish a nearby run.
 - **Publish-time tests fail:** fix the product on a new commit, obtain a new
   successful CI run, and dispatch again with that run ID.
+- **`ilasm`/`ildasm` restoration fails:** the remaining test suites still
+  report, but the terminal oracle check fails the test lane and blocks every
+  package job. Restore the pinned tools successfully before retrying.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
 - **A package version already exists:** advance `VersionPrefix`; published

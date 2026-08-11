@@ -1,13 +1,16 @@
 ---
 id: mermaid-output
-description: Mermaid diagram output for dependency graphs — standalone and embedded in markdown
-commands: [depends, --mermaid, --markdown]
-areas: [mermaid, output, diagrams, depends, visualization]
+description: Graph output as Markdown tables, trees, Mermaid diagrams, TSV, and JSONL
+commands: [depends, member, --mermaid, --markdown, --tree, --tsv, --jsonl]
+areas: [mermaid, output, diagrams, depends, call-graph, visualization]
 ---
 
-# Mermaid Output
+# Graph and Mermaid Output
 
-> The `--mermaid` flag produces Mermaid diagram syntax for dependency graphs. Two modes: standalone (`--mermaid`) for piping to `mmdc` or other tools, and embedded (`--markdown --mermaid`) for rendering in GitHub, VS Code, or any Markdown viewer.
+> The `--mermaid` flag produces standalone Mermaid syntax for graph-shaped
+> output and `--markdown --mermaid` embeds the diagram in Markdown. Member Call
+> Graphs default to Markdown edge tables and can instead lower the same ordered
+> edges to a standalone tree, Mermaid, TSV, or JSONL.
 
 ## Preconditions
 
@@ -189,7 +192,145 @@ graph TD
 MarkdownTable.Formatting
 ```
 
-## 5. Default output unchanged
+## 5. Member call graph format matrix
+
+> Goal: Read one bounded bidirectional Call Graph in the format that matches the
+> task without changing its ordered edge rows.
+
+### 5a. Default Markdown edge table
+
+```prompt
+Show the calls into and out of string.IndexOf(char).
+```
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --rows 2 --tips q
+```
+
+```expect
+## Call Graph
+```
+
+```expect
+| From |
+```
+
+```expect
+| To |
+```
+
+```expect-not
+graph TD
+```
+
+### 5b. Standalone tree
+
+```prompt
+Show the call paths around string.IndexOf(char) as a tree.
+```
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tree --rows 2 --tips q
+```
+
+```expect
+├─ string.IndexOf(char)
+```
+
+```expect-not
+## Call Graph
+```
+
+```expect-not
+graph TD
+```
+
+### 5c. Standalone Mermaid
+
+```prompt
+Show the call graph around string.IndexOf(char) as standalone Mermaid.
+```
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --mermaid --rows 2 --tips q
+```
+
+```expect
+graph TD
+```
+
+```expect
+classDef markoutFocus
+```
+
+```expect-not
+```mermaid
+```
+
+### 5d. Mermaid embedded in Markdown
+
+```prompt
+Show the call graph around string.IndexOf(char) in a Markdown document.
+```
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --markdown --mermaid --rows 2 --tips q
+```
+
+```expect
+# System.String.IndexOf
+```
+
+```expect
+## Call Graph
+```
+
+```expect
+```mermaid
+graph TD
+```
+
+### 5e. TSV edge rows
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tsv --rows 2 --tips q
+```
+
+```expect
+from
+```
+
+```expect-not
+## Call Graph
+```
+
+```query
+head -n 1 | cut -f1-2 | tr '\t' ','
+```
+
+```pipeline
+from,to
+```
+
+### 5f. JSONL edge rows
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --jsonl --rows 2 --tips q
+```
+
+```expect
+{"from":"
+```
+
+```expect
+"to":"
+```
+
+```expect-not
+## Call Graph
+```
+
+## 6. Default dependency output unchanged
 
 > Goal: Verify that `depends` without `--mermaid` still produces the standard tree output.
 
@@ -208,11 +349,11 @@ System.IDisposable
 graph TD
 ```
 
-## 6. Mermaid with other flags
+## 7. Mermaid with other flags
 
 > Goal: Verify `--mermaid` works alongside other output flags.
 
-### 6a. JSON takes precedence over mermaid
+### 7a. JSON takes precedence over Mermaid for `depends`
 
 ```bash
 dotnet-inspect depends Stream --mermaid --json
@@ -228,7 +369,7 @@ dotnet-inspect depends Stream --mermaid --json
 graph TD
 ```
 
-### 6b. Environment variable
+### 7b. Environment variable
 
 ```setup
 export DOTNET_INSPECT_FORMAT=mermaid
@@ -240,4 +381,14 @@ dotnet-inspect depends Stream
 
 ```expect
 graph TD
+```
+
+### 7c. Standalone member graph formats reject conflicts
+
+```bash
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --mermaid --json
+```
+
+```expect-error
+--mermaid is standalone unless paired with --markdown
 ```
