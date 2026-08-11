@@ -75,6 +75,11 @@ public sealed class SourceLinkService : IDisposable
         Action<string>? log = null)
         => new(PdbContext.OpenMetadataOnly(assemblyPath, log), DefaultCache, log);
 
+    public static SourceLinkService OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+        => new(PdbContext.OpenMetadataOnly(assembly, log), DefaultCache, log);
+
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null,

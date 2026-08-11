@@ -9,16 +9,23 @@ public sealed record DiffDiscoveryModel;
 public sealed class DiffQueryContext
 {
     readonly Func<BodySignalComparisonInput>? _createBodySignalComparisonInput;
+    readonly Func<ImplementationComparisonInput>?
+        _createImplementationComparisonInput;
     BodySignalComparisonInput? _bodySignalComparisonInput;
+    ImplementationComparisonInput? _implementationComparisonInput;
 
     public DiffQueryContext(
         ApiSurface fromSurface,
         ApiSurface toSurface,
-        Func<BodySignalComparisonInput>? createBodySignalComparisonInput = null)
+        Func<BodySignalComparisonInput>? createBodySignalComparisonInput = null,
+        Func<ImplementationComparisonInput>?
+            createImplementationComparisonInput = null)
     {
         FromSurface = fromSurface ?? throw new ArgumentNullException(nameof(fromSurface));
         ToSurface = toSurface ?? throw new ArgumentNullException(nameof(toSurface));
         _createBodySignalComparisonInput = createBodySignalComparisonInput;
+        _createImplementationComparisonInput =
+            createImplementationComparisonInput;
     }
 
     public ApiSurface FromSurface { get; }
@@ -29,6 +36,12 @@ public sealed class DiffQueryContext
             (_createBodySignalComparisonInput
                 ?? throw new InspectionQueryException(
                     "Body signal comparison input was not provided."))();
+
+    public ImplementationComparisonInput GetImplementationComparisonInput()
+        => _implementationComparisonInput ??=
+            (_createImplementationComparisonInput
+                ?? throw new InspectionQueryException(
+                    "Implementation comparison input was not provided."))();
 }
 
 public sealed record DiffSectionCatalog(
@@ -58,7 +71,7 @@ public static class DiffSections
             .UseQueryCosts(queryCost)
             .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
-            .Add<ImplementationDiff>()
+            .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
             .Add<FindingTransitions>();
     }
 
@@ -72,7 +85,11 @@ public static class DiffSections
             .Add(
                 BodySignalComparisonQuery.Definition,
                 static context => BodySignalComparisonQuery.Execute(
-                    context.GetBodySignalComparisonInput()));
+                    context.GetBodySignalComparisonInput()))
+            .Add(
+                ImplementationComparisonQuery.Definition,
+                static context => ImplementationComparisonQuery.Execute(
+                    context.GetImplementationComparisonInput()));
 
     public static DocumentSchema CreateSchema()
     {

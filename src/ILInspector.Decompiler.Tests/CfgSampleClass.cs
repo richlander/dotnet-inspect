@@ -2621,6 +2621,51 @@ public class CfgSampleClass
         }
     }
 
+    // #4008: a sparse jump table whose successful labels use `break;` to reach the
+    // method's final void return. csc places that ret after the throwing default,
+    // so switch raising must preserve it as the post-switch continuation rather
+    // than moving `return;` into the successful section.
+    public static void TerminalSwitchBreakToReturn(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                break;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
+    // #4008 close negative: source-level `return;` inside the same sparse case group
+    // places ret before the default and emits a branch over it. That return must
+    // remain in the section rather than being mistaken for a trailing join.
+    public static void TerminalSwitchReturnInCase(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                return;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
@@ -5189,6 +5234,19 @@ public sealed class JoinTypeProvider
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
+public enum CfgTerminalSwitchKind
+{
+    Value25 = 25,
+    Value30 = 30,
+    Value31 = 31,
+    Value32 = 32,
+    Value33 = 33,
+    Value35 = 35,
+    Value36 = 36,
+    Value37 = 37,
+    Value40 = 40,
+}
+
 public enum CfgLongPriority : long { Low = 0, High = 2 }
 public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
@@ -5894,60 +5952,6 @@ public static class EnumCastSamples
         => new[] { (System.StringComparison)4, System.StringComparison.OrdinalIgnoreCase };
 }
 
-
-// Issue #1759: a reference-typed value produced by `as`/isinst and tested for
-// truthiness in a branch (here the `?.Dispose()` null-conditional inside a
-// finally) must render `is null`/`is not null`, not `!S` — `!IDisposable` is
-// CS0023. IDisposable is a cross-assembly interface (TypeShape.Unknown), so the
-// reference classification comes from the isinst provenance.
-public static class FinallyDisposeSamples
-{
-    public static void DisposeEnumeratorInFinally(System.Collections.IDictionary dictionary)
-    {
-        System.Collections.IDictionaryEnumerator enumerator = dictionary.GetEnumerator();
-        try
-        {
-            while (enumerator.MoveNext())
-            {
-            }
-        }
-        finally
-        {
-            (enumerator as System.IDisposable)?.Dispose();
-        }
-    }
-}
-
-// Issue #1759 (review): a nested local function reusing the same stack-slot
-// number must not disable the isinst provenance for the outer finally-dispose
-// slot. Provenance is scoped to the current function body, so this still renders
-// `is null`, not `!S`.
-public static class FinallyDisposeNestedSamples
-{
-    public static int DisposeWithNestedLocalFunction(System.Collections.IDictionary dictionary, int x)
-    {
-        int seed = SquarePlusOne(x);
-        System.Collections.IDictionaryEnumerator enumerator = dictionary.GetEnumerator();
-        try
-        {
-            while (enumerator.MoveNext())
-            {
-            }
-        }
-        finally
-        {
-            (enumerator as System.IDisposable)?.Dispose();
-        }
-        return seed;
-
-        static int SquarePlusOne(int v)
-        {
-            int y = v + 1;
-            return y * y;
-        }
-    }
-}
-
 // Issue #1767: a value produced at a stack slot (the object-merged `cond ? null
 // : value` ternary) and consumed at a control-flow merge where the slot is typed
 // `string` (a field store) must share ONE local name. Keying slot names on
@@ -6229,187 +6233,5 @@ public static class FlagsEnumAccumulatorSamples
             | (server & FlagCaps64.MultiStatements)
             | FlagCaps64.MultiResults;
         return (int)caps;
-    }
-}
-
-// #3371 follow-up witnesses: a record `with` expression and an anonymous object
-// wide enough that the printer's brace-body width wrapper breaks them Allman-style
-// (one entry per line). New top-level types appended at end of file so they cannot
-// shift any existing CfgSampleClass generated-code ordinals.
-public sealed record MeasuredRecord(
-    int FirstMeasuredValue,
-    int SecondMeasuredValue,
-    int ThirdMeasuredValue,
-    int FourthMeasuredValue);
-
-public static class BraceBodyWrappingSamples
-{
-    // `source with { A = .., B = .., C = .., D = .. }` — flat form exceeds 120 cols.
-    public static MeasuredRecord WidenMeasuredRecord(MeasuredRecord source, int first, int second, int third, int fourth)
-        => source with
-        {
-            FirstMeasuredValue = first,
-            SecondMeasuredValue = second,
-            ThirdMeasuredValue = third,
-            FourthMeasuredValue = fourth,
-        };
-
-    // Anonymous types are reference types, so returning one as `object` needs no
-    // box/cast; the anonymous object stays the bare return value. Explicit
-    // `Name = value` form (value names differ from property names), flat > 120 cols.
-    public static object ProjectMeasuredValues(int first, int second, int third, int fourth)
-        => new
-        {
-            FirstMeasuredProjection = first,
-            SecondMeasuredProjection = second,
-            ThirdMeasuredProjection = third,
-            FourthMeasuredProjection = fourth,
-        };
-}
-
-// #3459: an object initializer used as a CALL ARGUMENT, where the enclosing call's
-// receiver (a non-volatile instance field off `this`) and a `default` struct
-// argument are the compiler's pure spills sitting on the stack beneath the dup
-// chain — the Azure.Data.Tables `TableClient.Create` shape. The importer materializes
-// them as `S = _rest;` and `V = default;` around the member store, which #3336's
-// member-value fold could not cross. The pass now skips those reorder-safe spills,
-// folds the construction into the call-argument position, and inlines each single-use
-// spill back into its operand, restoring the canonical stack-only spelling
-// `_rest.Create(new CallArgTarget { Name = Label }, default(CallArgFlag?), _options)`
-// — which recompiles byte-for-byte to the original IL. Appended at end of file so
-// these top-level types cannot shift any existing generated-code ordinal.
-public sealed class CallArgTarget
-{
-    public string? Name { get; set; }
-}
-
-public enum CallArgFlag { A, B }
-
-public sealed class CallArgRest
-{
-    public int Create(CallArgTarget target, CallArgFlag? flag, object options) => target.Name?.Length ?? 0;
-}
-
-public sealed class CallArgClient
-{
-    readonly CallArgRest _rest = new();
-    readonly object _options = new();
-    volatile CallArgRest _volatileRest = new();
-    public string Label = "n";
-
-    // Foldable: the receiver `_rest` (pure field-off-this) and the `default` struct
-    // argument are reorder-safe spills, so both are inlined into the folded call.
-    public int CreateViaField()
-        => _rest.Create(new CallArgTarget { Name = Label }, default, _options);
-
-    // Close negative for the inlining guard: a VOLATILE field receiver must NOT be
-    // inlined (reordering a volatile access is observable). The initializer still
-    // folds — the receiver ran before the `newobj`, an offset-guarded skip — but the
-    // volatile spill is left in place rather than hoisted into the call receiver.
-    public int CreateViaVolatileField()
-        => _volatileRest.Create(new CallArgTarget { Name = Label }, default, _options);
-}
-
-// Declaration placement (#3591). A local the source declared inside a nested block
-// is emitted as a bare declaration hoisted to the top of the method, because
-// MetadataSource.LocalNames reads the portable PDB's LocalScope table for names only
-// and drops each scope's StartOffset/EndOffset. These two shapes are the discriminator
-// the PDB records and the printer currently ignores: in CreateNarrow the local's scope
-// is the try block, in CreateHoisted it is the whole method, and both print the same
-// way. Modeled on Azure.Data.Tables `TableClient.Create`. Appended at end of file so
-// these top-level types cannot shift any existing generated-code ordinal.
-public sealed class DeclScopeGuard : IDisposable
-{
-    public void Failed(Exception e) { }
-
-    public void Dispose() { }
-}
-
-public sealed class DeclScopeResult
-{
-    public string Value = "v";
-    public int Raw;
-}
-
-public sealed class DeclScopeOps
-{
-    public DeclScopeResult Create(string name, int timeout) => new DeclScopeResult { Value = name, Raw = timeout };
-}
-
-public sealed class DeclScopeClient
-{
-    readonly DeclScopeOps _ops = new();
-
-    // The local is read twice (so it survives as a slot rather than inlining) and is
-    // never referenced outside the try, so the PDB scopes it to the try block alone.
-    public string CreateNarrow(string name, int timeout)
-    {
-        using (DeclScopeGuard scope = new DeclScopeGuard())
-        {
-            try
-            {
-                DeclScopeResult response = _ops.Create(name, timeout);
-                return response.Value + response.Raw;
-            }
-            catch (Exception ex)
-            {
-                new DeclScopeGuard().Failed(ex);
-                throw;
-            }
-        }
-    }
-
-    // Control for the same shape: the catch arm reads the local, so the source
-    // genuinely must declare it above the try and the PDB scopes it to the whole
-    // method. Today's hoisting emitter is accidentally right here, which is why
-    // placement alone cannot be read off the current output.
-    public string CreateHoisted(string name, int timeout)
-    {
-        DeclScopeResult? response = null;
-        try
-        {
-            response = _ops.Create(name, timeout);
-            return response.Value + response.Raw;
-        }
-        catch (Exception ex)
-        {
-            new DeclScopeGuard().Failed(ex);
-            return response is null ? "none" : response.Value;
-        }
-    }
-}
-
-public sealed class DeclScopeLoopClient
-{
-    readonly DeclScopeOps _ops = new();
-
-    // The source declares the local inside the loop body and every use stays there,
-    // so the PDB scope and the IR agree and the declaration sinks to its store.
-    public int SumNarrow(int count)
-    {
-        int total = 0;
-        for (int i = 0; i < count; i++)
-        {
-            DeclScopeResult step = _ops.Create("s", i);
-            total += step.Raw + step.Value.Length;
-        }
-        return total;
-    }
-
-    // Close negative for the same PDB evidence. The scope is again nested (the using
-    // block), but the first store sits inside one arm of the if while the read is
-    // after it, so sinking the declaration onto that store would not compile. The IR
-    // guard must decline and leave the hoisted declaration alone.
-    public string CreateBranched(string name, int timeout, bool flag)
-    {
-        using (DeclScopeGuard scope = new DeclScopeGuard())
-        {
-            DeclScopeResult response;
-            if (flag)
-                response = _ops.Create(name, timeout);
-            else
-                response = _ops.Create(name, timeout + 1);
-            return response.Value + response.Raw;
-        }
     }
 }

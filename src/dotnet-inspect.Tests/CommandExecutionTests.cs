@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
@@ -113,6 +114,169 @@ public partial class CommandExecutionTests
         pe.Serialize(image);
         File.WriteAllBytes(path, image.ToArray());
     }
+
+    private static void WriteBlankAssemblyNameAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(" "),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Azure.Test"),
+            metadata.GetOrAddString("ExampleClient"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteMalformedTypeNameAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedIntegrations"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Example"),
+            metadata.GetOrAddString("BrokenType"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int typeNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+            + reader.GetTableRowSize(TableIndex.TypeDef)
+            + sizeof(uint);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(typeNameOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static void WriteOverflowingMetadataStreamCountAssembly(
+        string sourcePath,
+        string destinationPath)
+    {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(destinationPath, bytes);
+    }
+
+    private static void WriteTruncatedMetadataTableAssembly(
+        string sourcePath,
+        string destinationPath)
+    {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        int metadataStart;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        }
+
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int cursor =
+            metadataStart + 16 + AlignTo4(versionLength);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            bytes.AsSpan(cursor + 2, sizeof(ushort)));
+        cursor += 4;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int sizeOffset = cursor + 4;
+            int nameStart = cursor + 8;
+            int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart);
+            string name = Encoding.ASCII.GetString(
+                bytes,
+                nameStart,
+                nameEnd - nameStart);
+            if (name is "#~" or "#-")
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    bytes.AsSpan(sizeOffset, sizeof(int)),
+                    sizeof(int));
+                File.WriteAllBytes(destinationPath, bytes);
+                return;
+            }
+
+            cursor = nameStart + AlignTo4(nameEnd - nameStart + 1);
+        }
+
+        throw new InvalidOperationException(
+            "The source assembly has no metadata table stream.");
+    }
+
+    private static int AlignTo4(int value)
+        => (value + 3) & ~3;
 
     private static void WriteHostileIlOperandAssembly(string path)
     {
@@ -1842,6 +2006,120 @@ public partial class CommandExecutionTests
         Assert.Contains("Deserialize<TValue>(System.IO.Stream utf8Json", output);
         Assert.DoesNotContain("Deserialize (40 overloads)", output);
         Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_MemberLimitRestrictsShapeMembers()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "property", Name = "First", Signature = "int First { get; }" },
+                new() { Kind = "property", Name = "Second", Signature = "int Second { get; }" },
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            Limit = 1,
+            MemberLimit = 1
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("int First { get; }", output);
+        Assert.DoesNotContain("Second", output);
+        Assert.DoesNotContain("Methods", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ZeroMemberLimitKeepsStructuralShape()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            BaseType = "Example.Base",
+            Members =
+            [
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            KindFilter = ["method"],
+            Limit = 0,
+            MemberLimit = 0
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Inherits", output);
+        Assert.Contains("Example.Base", output);
+        Assert.DoesNotContain("Methods", output);
+
+        var unmatchedOptions = options with { KindFilter = ["event"] };
+        var unmatched = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                unmatchedOptions));
+
+        Assert.Equal(0, unmatched.ExitCode);
+        Assert.Empty(unmatched.Output);
+        Assert.Contains("No matching members for filter: event", unmatched.Error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.MemoryStream",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Constructors", output);
+        Assert.Contains("Properties", output);
+        Assert.Contains("Methods", output);
     }
 
     [Fact]
@@ -6727,6 +7005,60 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("mermaid")]
+    public async Task Member_CallGraphTree_OverridesEnvironmentFormat(string environmentFormat)
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
+            var (exit, output, error) = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+            Assert.DoesNotContain("| From |", output);
+            Assert.DoesNotContain("graph TD", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Member_EnvironmentMermaid_AppliesOnlyToCallGraphSelection()
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var graph = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
+            var calls = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--tips", "q");
+
+            Assert.Equal(0, graph.Exit);
+            Assert.Empty(graph.Error);
+            Assert.StartsWith("graph TD", graph.Output, StringComparison.Ordinal);
+            Assert.Equal(0, calls.Exit);
+            Assert.Empty(calls.Error);
+            Assert.Contains("## Calls", calls.Output);
+            Assert.DoesNotContain("graph TD", calls.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
     [Fact]
     public async Task Member_BareNameCallGraph_AmbiguousOverloadReportsSelectorHint()
     {
@@ -9514,6 +9846,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Member_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = ["Calls"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task Assembly_LocalAssembly_ShowsInfo()
     {
         var options = new LibraryOptions { AssemblyName = TestAssemblyPath };
@@ -11132,6 +11509,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
         Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', all);
+        Assert.DoesNotContain('\r', windowed);
 
         static int DataRows(string output) =>
             output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
@@ -11139,6 +11518,137 @@ public partial class CommandExecutionTests
 
         Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
         Assert.Equal(2, DataRows(windowed));
+    }
+
+    /// <summary>
+    /// The <c>--all-libraries</c> document is assembled by hand, and every block boundary is
+    /// produced by one helper that appends a block plus its trailing blank line. That is easy to
+    /// break silently in either direction: #3963 doubled the blank before every section on Windows,
+    /// and a separator rewritten to emit one newline instead of two would run the sections
+    /// together. Neither produces a carriage return, so neither is visible to a line-ending
+    /// assertion.
+    /// <para>
+    /// The invariant asserted here is therefore two-sided -- each <c>##</c> heading is preceded by
+    /// exactly one blank line, so a missing blank and an extra blank both fail. The two ends of the
+    /// document are covered separately, because a heading loop cannot see them: it opens with the
+    /// package's title heading followed by one blank line, and it carries no trailing whitespace,
+    /// so the assembling <c>TrimEnd</c> cannot be dropped. All of these have teeth on every
+    /// platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the
+    /// complementary property, the line ending itself, over the per-library path; that assertion
+    /// has teeth only on the <c>test-windows</c> leg.
+    /// </para>
+    /// <para>
+    /// Both producers are covered, because they fail differently. The aggregated path (#3951, which
+    /// the per-library test does not reach) is exercised by <c>-S Switches,Dependencies</c> against
+    /// a real package. The per-library path appears there only as the document's last block, where
+    /// a trailing newline it emitted would be absorbed by the assembling <c>TrimEnd</c> and go
+    /// unnoticed; it is therefore also run against a local two-library package, so that a boundary
+    /// between two per-library blocks is measured directly.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
+    {
+        var (exit, aggregated, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,Dependencies");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Switches", aggregated, StringComparison.Ordinal);
+        AssertBlocksSeparatedByOneBlankLine(aggregated, "# system.text.json");
+
+        // The per-library producer, which the run above reaches only as the document's last block,
+        // where a trailing newline it emitted would be absorbed by the assembling TrimEnd. This
+        // package ships two libraries for the selected framework, so the boundary between two
+        // per-library blocks is measured rather than inferred.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (localExit, perLibrary, _) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+
+            Assert.Equal(0, localExit);
+            AssertBlocksSeparatedByOneBlankLine(perLibrary, "# test.libraryfiles");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
+    /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
+    /// line, and it carries no trailing whitespace.
+    /// </summary>
+    private static void AssertBlocksSeparatedByOneBlankLine(string output, string expectedTitlePrefix)
+    {
+        Assert.DoesNotContain('\r', output);
+
+        // The document's own end, not the harness's. OutputFormatter.WriteLfLine appends the
+        // terminating newline itself, so asserting output ends with one asserts WriteLfLine;
+        // strip it and require what the assembling TrimEnd is actually for -- that the document
+        // carries no trailing whitespace. Every block contributes a trailing blank line, so
+        // without that TrimEnd the document would end "\n\n\n".
+        Assert.EndsWith("\n", output, StringComparison.Ordinal);
+        var document = output[..^1];
+        Assert.Equal(document.TrimEnd(), document);
+
+        var lines = document.Split('\n');
+
+        // The document's start, which the heading loop cannot reach: the title block is one
+        // heading line naming the package, followed by exactly one blank line. A bare
+        // StartsWith("# ") would admit anything prepended above the title that is itself a heading.
+        Assert.StartsWith(expectedTitlePrefix, lines[0], StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            lines[1].Length == 0,
+            $"expected a blank line after the title, found '{lines[1]}'");
+
+        var headings = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].StartsWith("## ", StringComparison.Ordinal))
+                continue;
+
+            headings++;
+            Assert.True(i >= 2, $"'{lines[i]}' has no room for a preceding blank line");
+            Assert.True(
+                lines[i - 1].Length == 0,
+                $"expected a blank line before '{lines[i]}', found '{lines[i - 1]}'");
+            Assert.True(
+                lines[i - 2].Length != 0,
+                $"expected exactly one blank line before '{lines[i]}', found more than one");
+        }
+
+        Assert.True(
+            headings >= 2,
+            $"expected at least two section headings, so that separation between blocks is "
+                + $"exercised and not just the boundary below the title, got:\n{output}");
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+            var (windowedExit, windowed, windowedError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, windowedExit);
+            Assert.DoesNotContain("Tip:", error);
+            Assert.DoesNotContain("Tip:", windowedError);
+            Assert.Contains('\n', output);
+            Assert.Contains('\n', windowed);
+            Assert.DoesNotContain('\r', output);
+            Assert.DoesNotContain('\r', windowed);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -12752,6 +13262,73 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task PackageCommand_AllLibraries_TfmAllPreservesFrameworkFolder()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            var uap = Path.Combine(content, "lib", "uap10.0");
+            var portable = Path.Combine(
+                content,
+                "lib",
+                "portable-net45+win8");
+            Directory.CreateDirectory(uap);
+            Directory.CreateDirectory(portable);
+            var (configuration, _, _, configurationError) =
+                PlatformResolver.ResolveAssembly(
+                    "Microsoft.Extensions.Configuration");
+            var (json, _, _, jsonError) =
+                PlatformResolver.ResolveAssembly(
+                    "Microsoft.Extensions.Configuration.Json");
+            Assert.True(
+                configurationError is null && configuration is not null,
+                configurationError);
+            Assert.True(
+                jsonError is null && json is not null,
+                jsonError);
+            foreach (string framework in new[] { uap, portable })
+            {
+                File.Copy(
+                    configuration,
+                    Path.Combine(
+                        framework,
+                        "Microsoft.Extensions.Configuration.dll"));
+                File.Copy(
+                    json,
+                    Path.Combine(
+                        framework,
+                        "Microsoft.Extensions.Configuration.Json.dll"));
+            }
+            var packagePath = Path.Combine(
+                tempDir,
+                "Test.FrameworkFolders.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "--tfm",
+                "all",
+                "-S",
+                "Integration: Configuration",
+                "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("\tportable-net45+win8\t", output);
+            Assert.Contains("\tuap10.0\t", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--tree")]
     [InlineData("--table")]
@@ -13090,6 +13667,425 @@ public partial class CommandExecutionTests
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("", "1.0.0")]
+    [InlineData("Test.BlankIdentity", " ")]
+    public async Task PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack(
+        string packageId,
+        string packageVersion)
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry entry =
+                    archive.CreateEntry("Test.BlankIdentity.nuspec");
+                await using Stream stream = entry.Open();
+                await using var writer = new StreamWriter(stream);
+                await writer.WriteAsync($$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package>
+                      <metadata>
+                        <id>{{packageId}}</id>
+                        <version>{{packageVersion}}</version>
+                      </metadata>
+                    </package>
+                    """);
+            }
+
+            var (exit, output, _) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            string malformedPath = Path.Combine(tempDir, "BlankName.dll");
+            WriteBlankAssemblyNameAssembly(malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        "Microsoft.Extensions.Configuration.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}BlankName.dll");
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Value cannot be null or whitespace",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"blank-name-opportunity-{Guid.NewGuid():N}");
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string framework = Path.Combine(content, "lib", "net8.0");
+            Directory.CreateDirectory(framework);
+            WriteBlankAssemblyNameAssembly(
+                Path.Combine(framework, "BlankName.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "BlankName.Opportunity.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(
+                "Azure.Test.ExampleClient",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "matched sections have no data",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_BlankAssemblyNameSuppressesOpportunities()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"blank-name-opportunity-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            string path = Path.Combine(tempDir, "BlankName.dll");
+            WriteBlankAssemblyNameAssembly(path);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.DoesNotContain(
+                "Azure.Test.ExampleClient",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "produced no output",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailureAcrossOutputPaths()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            string malformedPath = Path.Combine(
+                tempDir,
+                "MalformedIntegrations.dll");
+            WriteMalformedTypeNameAssembly(malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        "Microsoft.Extensions.Configuration.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}MalformedIntegrations.dll");
+            }
+
+            string[][] outputOptions =
+            [
+                [],
+                ["--json"],
+                ["--count"],
+                ["--tsv"],
+            ];
+            foreach (string[] outputOption in outputOptions)
+            {
+                string[] arguments =
+                [
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    "Integration: Configuration",
+                    "--tips",
+                    "q",
+                    .. outputOption,
+                ];
+                var (exit, output, error) =
+                    await RunAppAsync(arguments);
+
+                Assert.Equal(1, exit);
+                switch (outputOption.FirstOrDefault())
+                {
+                    case null:
+                        Assert.Contains(
+                            "## Integration: Configuration",
+                            output,
+                            StringComparison.Ordinal);
+                        break;
+                    case "--json":
+                        Assert.StartsWith("[", output);
+                        break;
+                    case "--count":
+                        Assert.True(
+                            int.TryParse(
+                                output.Trim(),
+                                CultureInfo.InvariantCulture,
+                                out int count));
+                        Assert.True(count > 0);
+                        break;
+                    case "--tsv":
+                        Assert.Contains(
+                            "package\tversion\tlibrary\ttfm",
+                            output,
+                            StringComparison.Ordinal);
+                        break;
+                }
+                Assert.Contains(
+                    "Integrations inspection failed for",
+                    error,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "MalformedIntegrations.dll",
+                    error,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput()
+    {
+        const string HealthyAssembly =
+            "Microsoft.Extensions.Configuration";
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            HealthyAssembly);
+        try
+        {
+            var (sourcePath, _, _, error) =
+                PlatformResolver.ResolveAssembly(HealthyAssembly);
+            Assert.Null(error);
+            Assert.NotNull(sourcePath);
+            string malformedPath = Path.Combine(
+                tempDir,
+                "Overflow.dll");
+            WriteOverflowingMetadataStreamCountAssembly(
+                sourcePath,
+                malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        $"{HealthyAssembly}.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}Overflow.dll");
+            }
+
+            var (exit, output, commandError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Integrations inspection failed for",
+                commandError,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Overflow.dll",
+                commandError,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                nameof(OverflowException),
+                commandError,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MalformedMetadataPreflightIsIncompleteAcrossOutputPaths()
+    {
+        const string HealthyAssembly =
+            "Microsoft.Extensions.Configuration";
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            HealthyAssembly);
+        try
+        {
+            var (sourcePath, _, _, error) =
+                PlatformResolver.ResolveAssembly(HealthyAssembly);
+            Assert.Null(error);
+            Assert.NotNull(sourcePath);
+            string malformedPath = Path.Combine(
+                tempDir,
+                "MalformedMetadata.dll");
+            WriteTruncatedMetadataTableAssembly(
+                sourcePath,
+                malformedPath);
+            Assert.Throws<BadImageFormatException>(
+                () => ResolvedAssemblyReference
+                    .CreateFromPathIfManaged(
+                        malformedPath,
+                        AssemblyResolutionProvenance.Local(
+                            "malformed metadata preflight test")));
+
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        $"{HealthyAssembly}.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}MalformedMetadata.dll");
+            }
+
+            string[][] outputOptions =
+            [
+                [],
+                ["--json"],
+                ["--count"],
+                ["--tsv"],
+            ];
+            foreach (string[] outputOption in outputOptions)
+            {
+                string[] arguments =
+                [
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    "Integration: Configuration",
+                    "--tips",
+                    "q",
+                    .. outputOption,
+                ];
+                var (exit, output, commandError) =
+                    await RunAppAsync(arguments);
+
+                Assert.Equal(1, exit);
+                Assert.False(string.IsNullOrWhiteSpace(output));
+                if (outputOption.Length == 0)
+                    Assert.DoesNotContain('\r', output);
+                Assert.Contains(
+                    "Integrations inspection failed for",
+                    commandError,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "MalformedMetadata.dll",
+                    commandError,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {

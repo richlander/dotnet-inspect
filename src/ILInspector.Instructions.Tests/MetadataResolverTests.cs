@@ -68,6 +68,16 @@ public class MetadataResolverTests
         // a mid-instruction offset resolves to no boundary, and every offset maps to a block.
         Assert.Equal(call, mi.InstructionAt(call.Offset));
         Assert.Null(mi.InstructionAt(call.Offset + 1));
+        int callIndex = mi.Instructions.IndexOf(call);
+        Assert.Equal(
+            callIndex,
+            mi.InstructionIndexAtOrAfter(call.Offset));
+        Assert.Equal(
+            callIndex + 1,
+            mi.InstructionIndexAtOrAfter(call.Offset + 1));
+        Assert.Equal(
+            mi.Instructions.Length,
+            mi.InstructionIndexAtOrAfter(int.MaxValue));
         Assert.True(mi.BlockIndexAt(call.Offset) >= 0);
     }
 
