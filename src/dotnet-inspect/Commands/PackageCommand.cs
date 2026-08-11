@@ -582,6 +582,14 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
+                    target.IsLocalFile
+                        ? PackageIntegrationAcquisition.Local(
+                            nuspec?.PackageName,
+                            nuspec?.Version)
+                        : PackageIntegrationAcquisition.Remote(
+                            resolution,
+                            packageName,
+                            version),
                     options);
             }
 
@@ -2482,6 +2490,7 @@ public class PackageCommand
         string packageArg,
         string packageName,
         string version,
+        PackageIntegrationAcquisition acquisition,
         InspectionOptions options)
     {
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
@@ -2498,7 +2507,6 @@ public class PackageCommand
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
-        var groupQueryRegistry = catalog.GroupQueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2527,51 +2535,81 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        AssemblyContextIntegrationsBatch? integrations =
-            AssemblyContextIntegrationsRunner.RunIfRequested(
-                queries,
-                groupQueryRegistry,
-                selected.Select(selection =>
-                {
-                    string relativePath = Path.GetRelativePath(
-                        extractPath,
-                        selection.Path).Replace('\\', '/');
-                    return new AssemblyContextIntegrationsInput(
-                        selection.Path,
-                        AssemblyResolutionProvenance.Package(
-                            packageName,
-                            version,
-                            TfmResolver.ExtractTfmFromPath(relativePath),
-                            rid: null));
-                }));
+        using PackageIntegrationsWorkspace? integrationsWorkspace =
+            RequiresGroupedIntegrations(queries)
+                ? PackageIntegrationsWorkspace.Create(
+                    selected.Select(selection =>
+                    {
+                        string relativePath = Path.GetRelativePath(
+                                extractPath,
+                                selection.Path)
+                            .Replace('\\', '/');
+                        return CreatePackageIntegrationAssembly(
+                            selection.Path,
+                            relativePath);
+                    }),
+                    acquisition)
+                : null;
         List<LibraryInspection> inspections = [];
+        List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         foreach (var selection in selected)
         {
-            var inspection = await LibraryMetadataService.InspectAsync(
-                selection.Path,
-                libraryOptions,
-                logger,
-                packageName,
-                version,
-                context.HttpClient,
-                scanners: scanners,
-                scannerRegistry: scannerRegistry,
-                queries: queries,
-                queryRegistry: queryRegistry,
-                assemblyReference: integrations?.AssemblyForInspection(selection.Path),
-                integrationsEntry: integrations?.EntryFor(selection.Path));
+            string relativePath = Path.GetRelativePath(
+                    extractPath,
+                    selection.Path)
+                .Replace('\\', '/');
+
+            Task<LibraryInspection?> InspectAsync(
+                ResolvedAssemblyReference? assemblyReference,
+                AssemblyIntegrationsEntry? integrations)
+            {
+                return LibraryMetadataService.InspectAsync(
+                    selection.Path,
+                    libraryOptions,
+                    logger,
+                    packageName,
+                    version,
+                    context.HttpClient,
+                    scanners: scanners,
+                    scannerRegistry: scannerRegistry,
+                    queries: queries,
+                    queryRegistry: queryRegistry,
+                    assemblyReference: assemblyReference,
+                    integrationsEntry: integrations,
+                    integrationEvidenceUnavailable:
+                        integrationsWorkspace is not null
+                        && assemblyReference is null
+                        && integrations is null);
+            }
+
+            LibraryInspection? inspection =
+                integrationsWorkspace is null
+                    ? await InspectAsync(null, null)
+                    : await InspectGroupedAssemblyAsync(
+                        integrationsWorkspace,
+                        selection.Path,
+                        relativePath,
+                        groupedIntegrationsFailures,
+                        InspectAsync);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
                 continue;
             }
 
-            var relativePath = Path.GetRelativePath(extractPath, selection.Path).Replace('\\', '/');
             inspection.FileName = relativePath;
-            inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            inspection.Tfm =
+                TfmResolver.ExtractFrameworkFolderFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
             inspections.Add(inspection);
         }
+
+        bool integrationsIncomplete =
+            integrationsWorkspace is not null
+            && WriteGroupedIntegrationsFailures(
+                groupedIntegrationsFailures);
+        int completionExitCode =
+            AllLibrariesCompletionExitCode(integrationsIncomplete);
 
         if (inspections.Count == 0)
         {
@@ -2582,7 +2620,7 @@ public class PackageCommand
         if (libraryOptions.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
-            return 0;
+            return completionExitCode;
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
@@ -2593,14 +2631,14 @@ public class PackageCommand
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
                 CountOutput.WriteCount(0, options.OutputPath);
-            return 0;
+            return completionExitCode;
         }
 
         if (libraryOptions.TabularExplicitlySet)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
-            return 0;
+            return completionExitCode;
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
@@ -2608,8 +2646,92 @@ public class PackageCommand
             CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
             OutputFormatter.WriteLfLine(Console.Out, markdown);
-        return 0;
+        return completionExitCode;
     }
+
+    internal static Task<LibraryInspection?>
+        InspectGroupedAssemblyAsync(
+            PackageIntegrationsWorkspace workspace,
+            string path,
+            string relativePath,
+            ICollection<(string FileName, string Reason)> failures,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry?,
+                Task<LibraryInspection?>> inspectAsync)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        ArgumentNullException.ThrowIfNull(failures);
+        ArgumentNullException.ThrowIfNull(inspectAsync);
+
+        if (workspace.TryGetPreflightFailure(
+                path,
+                out string preflightFailure))
+        {
+            failures.Add((relativePath, preflightFailure));
+            return Task.FromResult<LibraryInspection?>(null);
+        }
+
+        return workspace.UseAssemblyAsync(
+            path,
+            (retainedAssembly, integrations) =>
+            {
+                switch (integrations)
+                {
+                    case AssemblyIntegrationsEntry.Rejected rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        return Task.FromResult<LibraryInspection?>(null);
+                    case AssemblyIntegrationsEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return inspectAsync(retainedAssembly, integrations);
+            });
+    }
+
+    internal static bool RequiresGroupedIntegrations(
+        HashSet<InspectionQueryDefinition> queries) =>
+        queries.Remove(AssemblyContextIntegrationsQuery.Definition);
+
+    internal static PackageIntegrationAssembly
+        CreatePackageIntegrationAssembly(
+            string path,
+            string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        return new PackageIntegrationAssembly(
+            path,
+            TfmResolver.ExtractFrameworkFolderFromPath(relativePath),
+            TfmResolver.ExtractAssetDirectoryFromPath(relativePath));
+    }
+
+    internal static bool WriteGroupedIntegrationsFailures(
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
+    {
+        ArgumentNullException.ThrowIfNull(groupedFailures);
+
+        var failures = groupedFailures
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Integrations inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    internal static int AllLibrariesCompletionExitCode(
+        bool integrationsIncomplete) =>
+        integrationsIncomplete ? 1 : 0;
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()
