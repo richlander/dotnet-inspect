@@ -1,6 +1,106 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
+/// The region-aware control-transfer facts consumed by <see cref="StructuringPass"/>.
+/// This is deliberately not the executable successor graph returned by <see cref="Cfg.Build"/>:
+/// structuring also tracks label preservation and clone ownership for transfers nested
+/// inside an already-raised region, including descendant <see cref="Leave"/> nodes.
+/// </summary>
+internal sealed class StructuringFlowFacts
+{
+    public required Dictionary<int, int> OffsetToIndex { get; init; }
+    public required HashSet<int> UnconditionalTargets { get; init; }
+    public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
+    public required Dictionary<int, List<int>> ConditionalPredecessorIndices { get; init; }
+    public required Dictionary<int, List<int>> BranchPredecessorIndices { get; init; }
+    public required Dictionary<int, List<int>> JumpPredecessorIndices { get; init; }
+    public required Dictionary<int, List<int>> ClonePredecessorIndices { get; init; }
+    public required HashSet<int> SwitchTargets { get; init; }
+    public required HashSet<int> BranchTargets { get; init; }
+
+    public static StructuringFlowFacts Collect(IReadOnlyList<Block> blocks)
+    {
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        var unconditionalTargets = new HashSet<int>();
+        var conditionalTargetCounts = new Dictionary<int, int>();
+        var conditionalPredecessorIndices = new Dictionary<int, List<int>>();
+        var branchPredecessorIndices = new Dictionary<int, List<int>>();
+        var jumpPredecessorIndices = new Dictionary<int, List<int>>();
+        var clonePredecessorIndices = new Dictionary<int, List<int>>();
+        var switchTargets = new HashSet<int>();
+        var branchTargets = new HashSet<int>();
+        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
+        {
+            var block = blocks[blockIndex];
+            foreach (var child in block.Children)
+            {
+                if (child is Branch branch)
+                {
+                    unconditionalTargets.Add(branch.TargetOffset);
+                    AddPredecessor(branchPredecessorIndices, branch.TargetOffset, blockIndex);
+                    branchTargets.Add(branch.TargetOffset);
+                    AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
+                    AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
+                }
+                else if (child is Leave leave)
+                {
+                    branchTargets.Add(leave.TargetOffset);
+                }
+                else if (child is ConditionalBranch conditional)
+                {
+                    conditionalTargetCounts[conditional.TargetOffset] =
+                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+                    AddPredecessor(conditionalPredecessorIndices, conditional.TargetOffset, blockIndex);
+                    branchTargets.Add(conditional.TargetOffset);
+                    AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
+                    AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
+                }
+                else if (child is SwitchBranch switchBranch)
+                {
+                    foreach (int target in switchBranch.TargetOffsets)
+                    {
+                        unconditionalTargets.Add(target);
+                        switchTargets.Add(target);
+                        branchTargets.Add(target);
+                        AddPredecessor(jumpPredecessorIndices, target, blockIndex);
+                        AddPredecessor(clonePredecessorIndices, target, blockIndex);
+                    }
+                }
+            }
+
+            foreach (var leave in block.Descendants.OfType<Leave>())
+            {
+                branchTargets.Add(leave.TargetOffset);
+                AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
+            }
+        }
+
+        return new StructuringFlowFacts
+        {
+            OffsetToIndex = offsetToIndex,
+            UnconditionalTargets = unconditionalTargets,
+            ConditionalTargetCounts = conditionalTargetCounts,
+            ConditionalPredecessorIndices = conditionalPredecessorIndices,
+            BranchPredecessorIndices = branchPredecessorIndices,
+            JumpPredecessorIndices = jumpPredecessorIndices,
+            ClonePredecessorIndices = clonePredecessorIndices,
+            SwitchTargets = switchTargets,
+            BranchTargets = branchTargets,
+        };
+    }
+
+    static void AddPredecessor(Dictionary<int, List<int>> map, int targetOffset, int predecessorIndex)
+    {
+        if (!map.TryGetValue(targetOffset, out var predecessors))
+            map[targetOffset] = predecessors = [];
+        predecessors.Add(predecessorIndex);
+    }
+}
+
+/// <summary>
 /// Raises forward branch regions into nested <see cref="IfStatement"/>s —
 /// the first structuring slice. Guard shapes (<c>if (c) goto M; …body…; M:</c>)
 /// and diamonds (<c>if (c) goto T; …false…; goto M; T: …true…; M:</c>) nest
@@ -98,76 +198,16 @@ public sealed class StructuringPass : IIrPass
         if (blocks.Count <= 1)
             return;
 
-        var offsetToIndex = new Dictionary<int, int>();
-        for (int i = 0; i < blocks.Count; i++)
-            offsetToIndex[blocks[i].StartOffset] = i;
-
         // A label is needed only for an unconditional goto: conditional guards
         // to a terminator are inlined, so they impose no label. Count the
         // conditional branches per target: a terminator reached by two or more
         // is a genuine shared join that strict nesting cannot express, so it
         // is the one worth dissolving by inlining; a single-predecessor guard
         // the standard forms already raise cleanly stays untouched.
-        var unconditionalTargets = new HashSet<int>();
-        var conditionalTargetCounts = new Dictionary<int, int>();
-        var conditionalPredecessorIndices = new Dictionary<int, List<int>>();
-        var branchPredecessorIndices = new Dictionary<int, List<int>>();
         // Every jump-edge predecessor (unconditional, conditional, or switch) of
         // each target offset, by source block index. Used to detect a sibling
         // region interleaved between a shared return's scattered guards (#2978).
-        var jumpPredecessorIndices = new Dictionary<int, List<int>>();
-        var clonePredecessorIndices = new Dictionary<int, List<int>>();
-        var switchTargets = new HashSet<int>();
-        var branchTargets = new HashSet<int>();
-        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
-        {
-            var block = blocks[blockIndex];
-            foreach (var child in block.Children)
-            {
-                if (child is Branch branch)
-                {
-                    unconditionalTargets.Add(branch.TargetOffset);
-                    if (!branchPredecessorIndices.TryGetValue(branch.TargetOffset, out var branchPreds))
-                        branchPredecessorIndices[branch.TargetOffset] = branchPreds = new List<int>();
-                    branchPreds.Add(blockIndex);
-                    branchTargets.Add(branch.TargetOffset);
-                    AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
-                    AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
-                }
-                else if (child is Leave leave)
-                {
-                    branchTargets.Add(leave.TargetOffset);
-                }
-                else if (child is ConditionalBranch conditional)
-                {
-                    conditionalTargetCounts[conditional.TargetOffset] =
-                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
-                    if (!conditionalPredecessorIndices.TryGetValue(conditional.TargetOffset, out var preds))
-                        conditionalPredecessorIndices[conditional.TargetOffset] = preds = new List<int>();
-                    preds.Add(blockIndex);
-                    branchTargets.Add(conditional.TargetOffset);
-                    AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
-                    AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
-                }
-                else if (child is SwitchBranch switchBranch)
-                {
-                    foreach (int target in switchBranch.TargetOffsets)
-                    {
-                        unconditionalTargets.Add(target);
-                        switchTargets.Add(target);
-                        branchTargets.Add(target);
-                        AddPredecessor(jumpPredecessorIndices, target, blockIndex);
-                        AddPredecessor(clonePredecessorIndices, target, blockIndex);
-                    }
-                }
-            }
-
-            foreach (var leave in block.Descendants.OfType<Leave>())
-            {
-                branchTargets.Add(leave.TargetOffset);
-                AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
-            }
-        }
+        var flowFacts = StructuringFlowFacts.Collect(blocks);
 
         // A terminator whose only predecessors are inlined guards (no goto
         // targets it and the preceding block does not fall into it) becomes
@@ -213,11 +253,12 @@ public sealed class StructuringPass : IIrPass
             var dispatchPredecessors = ScatteredDispatchPredecessors(
                 blocks,
                 offset,
-                conditionalPredecessorIndices,
-                branchPredecessorIndices,
-                jumpPredecessorIndices);
-            if ((unconditionalTargets.Contains(offset)
-                    && !UnconditionalPredecessorsAreDissolvableTrampolines(blocks, offset, branchPredecessorIndices, switchTargets))
+                flowFacts.ConditionalPredecessorIndices,
+                flowFacts.BranchPredecessorIndices,
+                flowFacts.JumpPredecessorIndices);
+            if ((flowFacts.UnconditionalTargets.Contains(offset)
+                    && !UnconditionalPredecessorsAreDissolvableTrampolines(
+                        blocks, offset, flowFacts.BranchPredecessorIndices, flowFacts.SwitchTargets))
                 || fallenInto.Contains(offset)
                 || dispatchPredecessors.Count < 2
                 || !IsTerminatorBlock(block)
@@ -225,12 +266,17 @@ public sealed class StructuringPass : IIrPass
             {
                 continue;
             }
-            if (IsScatteredDispatch(blocks, dispatchPredecessors, branchTargets, jumpPredecessorIndices))
+            if (IsScatteredDispatch(blocks, dispatchPredecessors, flowFacts.BranchTargets, flowFacts.JumpPredecessorIndices))
                 scatteredReturnDispatchTargets.Add(offset);
         }
 
         var snapshots = BuildTerminatorSnapshots(
-            blocks, unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets);
+            blocks,
+            flowFacts.UnconditionalTargets,
+            flowFacts.ConditionalTargetCounts,
+            fallenInto,
+            isComparisonTree,
+            scatteredReturnDispatchTargets);
         var droppable = new HashSet<int>();
         for (int i = 0; i < blocks.Count; i++)
         {
@@ -243,7 +289,7 @@ public sealed class StructuringPass : IIrPass
             // strand that path off the end of a non-void method (CS0161).
             if (i > 0 && !FallsThrough(blocks[i - 1])
                 && !(scatteredReturnDispatchTargets.Contains(blocks[i].StartOffset)
-                    && unconditionalTargets.Contains(blocks[i].StartOffset)))
+                    && flowFacts.UnconditionalTargets.Contains(blocks[i].StartOffset)))
             {
                 droppable.Add(i);
             }
@@ -253,11 +299,11 @@ public sealed class StructuringPass : IIrPass
         var ctx = new Ctx
         {
             Blocks = blocks,
-            OffsetToIndex = offsetToIndex,
-            UnconditionalTargets = unconditionalTargets,
-            ConditionalTargetCounts = conditionalTargetCounts,
-            BranchTargets = branchTargets,
-            ClonePredecessorIndices = clonePredecessorIndices,
+            OffsetToIndex = flowFacts.OffsetToIndex,
+            UnconditionalTargets = flowFacts.UnconditionalTargets,
+            ConditionalTargetCounts = flowFacts.ConditionalTargetCounts,
+            BranchTargets = flowFacts.BranchTargets,
+            ClonePredecessorIndices = flowFacts.ClonePredecessorIndices,
             DroppableBlocks = droppable,
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
@@ -268,7 +314,7 @@ public sealed class StructuringPass : IIrPass
             Recorder = recorder,
         };
 
-        var leaveTargetIndices = BackwardOrSelfLeaveTargetIndices(blocks, offsetToIndex);
+        var leaveTargetIndices = BackwardOrSelfLeaveTargetIndices(blocks, flowFacts.OffsetToIndex);
         if (leaveTargetIndices.Count > 0
             && leaveTargetIndices.Any(index => FindLeaveRetryLoopShape(ctx, index, blocks.Count) is null))
         {
@@ -981,53 +1027,7 @@ public sealed class StructuringPass : IIrPass
 
     static Ctx CreateInlineCtx(IReadOnlyList<Block> blocks)
     {
-        var offsetToIndex = new Dictionary<int, int>();
-        for (int i = 0; i < blocks.Count; i++)
-            offsetToIndex[blocks[i].StartOffset] = i;
-
-        var unconditionalTargets = new HashSet<int>();
-        var conditionalTargetCounts = new Dictionary<int, int>();
-        var branchTargets = new HashSet<int>();
-        var clonePredecessorIndices = new Dictionary<int, List<int>>();
-        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
-        {
-            var block = blocks[blockIndex];
-            foreach (var child in block.Children)
-            {
-                if (child is Branch branch)
-                {
-                    unconditionalTargets.Add(branch.TargetOffset);
-                    branchTargets.Add(branch.TargetOffset);
-                    AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
-                }
-                else if (child is Leave leave)
-                {
-                    branchTargets.Add(leave.TargetOffset);
-                }
-                else if (child is ConditionalBranch conditional)
-                {
-                    conditionalTargetCounts[conditional.TargetOffset] =
-                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
-                    branchTargets.Add(conditional.TargetOffset);
-                    AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
-                }
-                else if (child is SwitchBranch switchBranch)
-                {
-                    foreach (int target in switchBranch.TargetOffsets)
-                    {
-                        unconditionalTargets.Add(target);
-                        branchTargets.Add(target);
-                        AddPredecessor(clonePredecessorIndices, target, blockIndex);
-                    }
-                }
-            }
-
-            foreach (var leave in block.Descendants.OfType<Leave>())
-            {
-                branchTargets.Add(leave.TargetOffset);
-                AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
-            }
-        }
+        var flowFacts = StructuringFlowFacts.Collect(blocks);
 
         var fallenInto = new HashSet<int>();
         for (int i = 1; i < blocks.Count; i++)
@@ -1041,16 +1041,21 @@ public sealed class StructuringPass : IIrPass
         var isComparisonTree = false;
         var scatteredReturnDispatchTargets = new HashSet<int>();
         var snapshots = BuildTerminatorSnapshots(
-            blocks, unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets);
+            blocks,
+            flowFacts.UnconditionalTargets,
+            flowFacts.ConditionalTargetCounts,
+            fallenInto,
+            isComparisonTree,
+            scatteredReturnDispatchTargets);
 
         return new Ctx
         {
             Blocks = blocks,
-            OffsetToIndex = offsetToIndex,
-            UnconditionalTargets = unconditionalTargets,
-            ConditionalTargetCounts = conditionalTargetCounts,
-            BranchTargets = branchTargets,
-            ClonePredecessorIndices = clonePredecessorIndices,
+            OffsetToIndex = flowFacts.OffsetToIndex,
+            UnconditionalTargets = flowFacts.UnconditionalTargets,
+            ConditionalTargetCounts = flowFacts.ConditionalTargetCounts,
+            BranchTargets = flowFacts.BranchTargets,
+            ClonePredecessorIndices = flowFacts.ClonePredecessorIndices,
             DroppableBlocks = [],
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
@@ -1217,13 +1222,6 @@ public sealed class StructuringPass : IIrPass
                     || scatteredReturnDispatchTargets.Contains(block.StartOffset)),
             _ => false,
         };
-    }
-
-    static void AddPredecessor(Dictionary<int, List<int>> map, int targetOffset, int predecessorIndex)
-    {
-        if (!map.TryGetValue(targetOffset, out var preds))
-            map[targetOffset] = preds = new List<int>();
-        preds.Add(predecessorIndex);
     }
 
     static void RecordCloneOwner(Ctx ctx, int blockIndex, int ownerIndex)
