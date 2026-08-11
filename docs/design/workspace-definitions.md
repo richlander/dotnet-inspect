@@ -306,16 +306,19 @@ definition never states (the resolver-source labels on `PlatformAsset` and
 path). No field-level round-trip between coordinates and provenance records
 is implied.
 
-One context must lower to one target framework/runtime binding universe. Its
-optional `framework` and `rid` are context-wide constraints. A member
+One context must lower to one target framework/runtime binding universe. This
+is a loader-owned **acquisition target**, distinct from
+`AssemblyBindingTarget`, which continues to describe an assembly reference or
+intrinsic core-library request inside the already established context. The
+context's optional `framework` and `rid` are context-wide constraints. A member
 coordinate may repeat either value or inherit it from the context; every
 non-null declaration in the context, its subscription, and its members must
 agree. A subscribed catalog group is either target-neutral or declares a
 compatible target. The loader rejects a missing target required by an
 acquisition kind, conflicting target declarations, and resolved assets that do
-not match the effective target before it creates an `AssemblyContextGroup`.
-It never splits an inconsistent context or silently chooses one member's
-target.
+not match the effective acquisition target before it creates an
+`AssemblyContextGroup`. It never splits an inconsistent context or silently
+chooses one member's target.
 
 `embedded` members reference artifact bytes shipped in an inspection bundle:
 `contentRef` is a bundle-relative content identifier, `digest` is the
@@ -509,14 +512,15 @@ Each definition record serializes to a standalone `.json` file (including a
 CLI `--workspace <file>` and a site file loader) or registers as a peer record
 in an inspection bundle. Serialization follows the repository's
 `CorpusManifest` precedent: a source-generated `JsonSerializerContext` and an
-explicit `schemaVersion`, trim- and NativeAOT-compatible. Deserialization first
-uses `HardenedJson` to reject duplicate properties, then binds through that
-context. A file is limited to 1 MiB of UTF-8 JSON, nesting depth 32, 4096 JSON
-values, and 1024 coordinates; a bundle applies the same per-record limits and
-its own aggregate byte/record budget. Stream reads and multi-record bundle
-loads honor cancellation before each record. Limit, cancellation, malformed
-input, and duplicate-key failures remain typed and distinct from an empty
-definition.
+explicit `schemaVersion`, trim- and NativeAOT-compatible. That precedent does
+not supply duplicate-key hardening — current `CorpusManifest.FromJson`
+deserializes directly. The new workspace loader first uses `HardenedJson` to
+reject duplicate properties, then binds through the generated context. A file
+is limited to 1 MiB of UTF-8 JSON, nesting depth 32, 4096 JSON values, and 1024
+coordinates; a bundle applies the same per-record limits and its own aggregate
+byte/record budget. Stream reads and multi-record bundle loads honor
+cancellation before each record. Limit, cancellation, malformed input, and
+duplicate-key failures remain typed and distinct from an empty definition.
 
 `CorpusManifest` remains the corpus-specific persisted recipe; workspace
 definitions subsume neither its corpus ordering nor its population API. The
