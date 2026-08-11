@@ -218,14 +218,14 @@ internal partial class MemberFindResultJsonlContext : JsonSerializerContext { }
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<BodyShapeMatch>))]
+[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
 internal partial class BodyShapeJsonContext : JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<BodyShapeMatch>))]
+[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
 internal partial class BodyShapeCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper

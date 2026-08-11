@@ -120,6 +120,9 @@ public sealed class BodyShapeCommandTests
         var match = document.RootElement.EnumerateArray().Single(element =>
             element.GetProperty("type_name").GetString() == typeof(BodyShapeFixture).FullName
             && element.GetProperty("method_name").GetString() == nameof(BodyShapeFixture.Branch));
+        Assert.Equal(
+            $"0x{typeof(BodyShapeFixture).GetMethod(nameof(BodyShapeFixture.Branch))!.MetadataToken:X8}",
+            match.GetProperty("method_token").GetString());
         Assert.Contains('\n', match.GetProperty("text").GetString()!);
         Assert.True(
             match.GetProperty("extent").GetProperty("end_line").GetInt32()

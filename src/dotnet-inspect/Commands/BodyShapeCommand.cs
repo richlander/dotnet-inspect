@@ -65,10 +65,21 @@ public static class BodyShapeCommand
             }
             else if (options.JsonOutput)
             {
+                var matches = result.Matches
+                    .Select(match => new BodyShapeJsonMatch(
+                        match.AssemblyName,
+                        match.Member,
+                        match.TypeName,
+                        match.MethodName,
+                        $"0x{match.MethodToken:X8}",
+                        match.Kind,
+                        match.Extent,
+                        match.Text))
+                    .ToList();
                 JsonOutputHelper.Write(
-                    result.Matches.ToList(),
-                    BodyShapeJsonContext.Default.ListBodyShapeMatch,
-                    BodyShapeCompactJsonContext.Default.ListBodyShapeMatch,
+                    matches,
+                    BodyShapeJsonContext.Default.ListBodyShapeJsonMatch,
+                    BodyShapeCompactJsonContext.Default.ListBodyShapeJsonMatch,
                     options.CompactJson);
             }
             else
