@@ -1982,7 +1982,8 @@ public class SectionPipelineTests
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
                 PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath });
+                new InspectionOptions { Count = true, OutputPath = outputPath },
+                PackageSectionDescriptors.CreatePipeline());
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
