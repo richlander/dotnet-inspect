@@ -176,6 +176,8 @@
              Link="TypeBindCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryCard.cs"
              Link="AuthoredCorpusHistoryCard.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryStore.cs"
+             Link="AuthoredCorpusHistoryStore.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\IlDifficultyScorer.cs"
              Link="IlDifficultyScorer.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\RealMethodTargetEnumerator.cs"
