@@ -1006,12 +1006,12 @@ public sealed class UnionSwitchExpression : IrExpression
         if (nullValue is not null)
         {
             _hasNullArm = true;
-            AddChild(nullValue);
+            AddChild(new SynthesizedSwitchExpressionArm(isNull: true, nullValue));
         }
         if (defaultValue is not null)
         {
             _hasDefault = true;
-            AddChild(defaultValue);
+            AddChild(new SynthesizedSwitchExpressionArm(isNull: false, defaultValue));
         }
     }
 
@@ -1020,8 +1020,12 @@ public sealed class UnionSwitchExpression : IrExpression
     public bool HasNullArm => _hasNullArm;
     public IReadOnlyList<UnionSwitchExpressionArm> Arms
         => Children.Skip(1).Take(Children.Count - 1 - (_hasNullArm ? 1 : 0) - (_hasDefault ? 1 : 0)).Cast<UnionSwitchExpressionArm>().ToList();
-    public IrExpression? NullValue => _hasNullArm ? (IrExpression)Children[Children.Count - 1 - (_hasDefault ? 1 : 0)] : null;
-    public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
+    internal SynthesizedSwitchExpressionArm? NullArm
+        => _hasNullArm ? (SynthesizedSwitchExpressionArm)Children[Children.Count - 1 - (_hasDefault ? 1 : 0)] : null;
+    internal SynthesizedSwitchExpressionArm? DefaultArm
+        => _hasDefault ? (SynthesizedSwitchExpressionArm)Children[^1] : null;
+    public IrExpression? NullValue => NullArm?.Value;
+    public IrExpression? DefaultValue => DefaultArm?.Value;
     public override TypeRef? ResultType
         => Arms.Select(a => a.Value.ResultType).Append(NullValue?.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
 
@@ -1055,6 +1059,29 @@ public sealed class UnionSwitchExpressionArm : IrNode
     public override string Describe() => LocalIndex is { } index
         ? $"arm {PatternType.ToDisplayString()} V_{index}"
         : $"arm {PatternType.ToDisplayString()}";
+}
+
+internal sealed class SynthesizedSwitchExpressionArm : IrNode
+{
+    public SynthesizedSwitchExpressionArm(bool isNull, IrExpression value)
+    {
+        IsNull = isNull;
+        AddChild(value);
+    }
+
+    public bool IsNull { get; }
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => IsNull ? "null arm" : "default arm";
+}
+
+internal sealed class SynthesizedRenderedExpression : IrNode
+{
+    public SynthesizedRenderedExpression(string kind) => Kind = kind;
+
+    public string Kind { get; }
+
+    public override string Describe() => $"rendered {Kind}";
 }
 
 /// <summary>
@@ -1158,7 +1185,7 @@ public sealed class PatternSwitchExpression : IrExpression
         if (defaultValue is not null)
         {
             _hasDefault = true;
-            AddChild(defaultValue);
+            AddChild(new SynthesizedSwitchExpressionArm(isNull: false, defaultValue));
         }
     }
 
@@ -1166,7 +1193,9 @@ public sealed class PatternSwitchExpression : IrExpression
     public bool HasDefault => _hasDefault;
     public IReadOnlyList<PatternSwitchExpressionArm> Arms
         => Children.Skip(1).Take(Children.Count - 1 - (_hasDefault ? 1 : 0)).Cast<PatternSwitchExpressionArm>().ToList();
-    public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
+    internal SynthesizedSwitchExpressionArm? DefaultArm
+        => _hasDefault ? (SynthesizedSwitchExpressionArm)Children[^1] : null;
+    public IrExpression? DefaultValue => DefaultArm?.Value;
     public override TypeRef? ResultType
         => Arms.Select(a => a.Value.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
 

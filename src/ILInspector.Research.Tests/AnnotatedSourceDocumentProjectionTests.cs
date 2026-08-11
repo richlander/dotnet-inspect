@@ -224,15 +224,14 @@ public class AnnotatedSourceDocumentProjectionTests
 
         Assert.Equal(
             [
-                "Call",
-                "Comparison",
-                "Constant",
-                "ForLoop",
-                "LoadArgument",
-                "LoadLocal",
-                "NewObject",
-                "Return",
-                "StoreLocal",
+                "AssignmentStatement",
+                "BinaryExpression",
+                "ForStatement",
+                "InvocationExpression",
+                "LiteralExpression",
+                "NameExpression",
+                "ObjectCreationExpression",
+                "ReturnStatement",
             ],
             document.Nodes
                 .Where(node => node.Medium == SourceLineKind.CSharp)
@@ -259,7 +258,7 @@ public class AnnotatedSourceDocumentProjectionTests
     {
         var document = LoopDocument();
 
-        var loop = Assert.Single(document.Nodes, node => node.Kind == "ForLoop");
+        var loop = Assert.Single(document.Nodes, node => node.Kind == "ForStatement");
         var body = Assert.Single(document.Regions, region => region.Role == PrintedRegionRole.Body);
 
         // A construct printed across lines with IL woven between them is
