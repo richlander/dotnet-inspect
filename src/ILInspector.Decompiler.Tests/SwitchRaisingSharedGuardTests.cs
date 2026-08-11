@@ -7,6 +7,7 @@ enum SharedGuardAlgorithm
     Low6 = 6,
     Low7 = 7,
     Dense24 = 24,
+    Dense24Alias = Dense24,
     Dense25 = 25,
     Dense30 = 30,
     Dense31 = 31,
@@ -17,6 +18,34 @@ enum SharedGuardAlgorithm
     Dense37 = 37,
     Dense40 = 40,
     Dense41 = 41,
+}
+
+enum NegativeOffsetAlgorithm
+{
+    Minus3 = -3,
+    Minus2 = -2,
+    Minus1 = -1,
+    Zero = 0,
+    One = 1,
+    Two = 2,
+}
+
+enum HighOffsetAlgorithm : uint
+{
+    First = 0x80000000u,
+    Second = 0x80000001u,
+    Third = 0x80000002u,
+    Fourth = 0x80000003u,
+    Fifth = 0x80000004u,
+}
+
+enum ArrayOffsetAlgorithm
+{
+    First = 24,
+    Second = 25,
+    Third = 26,
+    Fourth = 27,
+    Fifth = 28,
 }
 
 static class SharedGuardSwitchFixture
@@ -127,6 +156,53 @@ static class SharedGuardSwitchFixture
     Done:
         return result;
     }
+
+    public static int ClassifyNegativeOffset(NegativeOffsetAlgorithm algorithm)
+    {
+        switch (algorithm)
+        {
+            case NegativeOffsetAlgorithm.Minus3: return 3;
+            case NegativeOffsetAlgorithm.Minus2: return 2;
+            case NegativeOffsetAlgorithm.Minus1: return 1;
+            case NegativeOffsetAlgorithm.Zero: return 0;
+            case NegativeOffsetAlgorithm.One: return 10;
+            case NegativeOffsetAlgorithm.Two: return 20;
+            default: return -1;
+        }
+    }
+
+    public static int ClassifyHighOffset(HighOffsetAlgorithm algorithm) => algorithm switch
+    {
+        HighOffsetAlgorithm.First => 1,
+        HighOffsetAlgorithm.Second => 2,
+        HighOffsetAlgorithm.Third => 3,
+        HighOffsetAlgorithm.Fourth => 4,
+        HighOffsetAlgorithm.Fifth => 5,
+        _ => -1,
+    };
+
+    public static int ClassifyArrayElement(ArrayOffsetAlgorithm[] values, int index)
+    {
+        switch (values[index])
+        {
+            case ArrayOffsetAlgorithm.First: return 1;
+            case ArrayOffsetAlgorithm.Second: return 2;
+            case ArrayOffsetAlgorithm.Third: return 3;
+            case ArrayOffsetAlgorithm.Fourth: return 4;
+            case ArrayOffsetAlgorithm.Fifth: return 5;
+            default: return -1;
+        }
+    }
+
+    public static int ClassifyArrayElementExpression(ArrayOffsetAlgorithm[] values, int index) => values[index] switch
+    {
+        ArrayOffsetAlgorithm.First => 1,
+        ArrayOffsetAlgorithm.Second => 2,
+        ArrayOffsetAlgorithm.Third => 3,
+        ArrayOffsetAlgorithm.Fourth => 4,
+        ArrayOffsetAlgorithm.Fifth => 5,
+        _ => -1,
+    };
 }
 
 [Trait("Area", "Pass")]
@@ -155,11 +231,325 @@ public class SwitchRaisingSharedGuardTests
 
         Assert.Single(function.Descendants.OfType<Switch>());
         Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("switch (algorithm - 24)", output);
+        Assert.Contains("switch (algorithm)", output);
+        Assert.Contains("case SharedGuardAlgorithm.Low6:", output);
+        Assert.Contains("case SharedGuardAlgorithm.Low7:", output);
+        Assert.Contains("case SharedGuardAlgorithm.Dense24:", output);
+        Assert.Contains("case SharedGuardAlgorithm.Dense41:", output);
+        Assert.DoesNotContain("Dense24Alias", output);
+        Assert.DoesNotContain("case (SharedGuardAlgorithm)", output);
+        Assert.DoesNotContain("algorithm - 24", output);
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void CompilerProducedNegativeEnumSwitch_RestoresAddedOffset()
+    {
+        var function = Import(nameof(SharedGuardSwitchFixture.ClassifyNegativeOffset));
+        var lowered = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.IsType<Binary>(lowered.Value);
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<LoadArgument>(node.Value);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("switch (algorithm)", output);
+        Assert.Contains("case NegativeOffsetAlgorithm.Minus3:", output);
+        Assert.Contains("case NegativeOffsetAlgorithm.Two:", output);
+        Assert.DoesNotContain("algorithm +", output);
+    }
+
+    [Fact]
+    public void CompilerProducedHighUIntEnumSwitch_RestoresWrappedLabels()
+    {
+        var function = Import(nameof(SharedGuardSwitchFixture.ClassifyHighOffset));
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("algorithm switch", output);
+        Assert.Contains("HighOffsetAlgorithm.First => 1", output);
+        Assert.Contains("HighOffsetAlgorithm.Fifth => 5", output);
+        Assert.DoesNotContain("algorithm -", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(SharedGuardSwitchFixture.ClassifyArrayElement), false)]
+    [InlineData(nameof(SharedGuardSwitchFixture.ClassifyArrayElementExpression), true)]
+    public void CompilerProducedEnumArraySwitch_RestoresElementType(string methodName, bool isExpression)
+    {
+        var function = Import(methodName);
+        var lowered = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.IsType<Binary>(lowered.Value);
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output!;
+        if (isExpression)
+            Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        else
+            Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Contains("ArrayOffsetAlgorithm.First", output);
+        Assert.Contains("ArrayOffsetAlgorithm.Fifth", output);
+        Assert.DoesNotContain(" - 24", output);
+    }
+
+    [Fact]
+    public void EnumArrayElementOffset_RestoresSemanticElementType()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            s_int,
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var function = BuildSharedGuardSwitch(enumType, switchValue: arrayElement);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = s_int,
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<LoadElement>(node.Value);
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NarrowEnumArrayElementWithOutOfRangeLabels_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            TypeRef.CoreLib("System", "Byte"),
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 300, switchValue: arrayElement);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        var selector = Assert.IsType<Binary>(node.Value);
+        Assert.IsType<LoadElement>(selector.Left);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumArrayElementWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 252, switchValue: arrayElement);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        var selector = Assert.IsType<Binary>(node.Value);
+        Assert.IsType<LoadElement>(selector.Left);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumIndirectLoadWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteIndirectAlgorithm");
+        var indirect = new LoadIndirect(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "value", TypeRef.ByRef(enumType)));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 252, switchValue: indirect);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        var selector = Assert.IsType<Binary>(node.Value);
+        Assert.IsType<LoadIndirect>(selector.Left);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void WrappedEnumIndirectLoadWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteIndirectAlgorithm");
+        var indirect = new LoadIndirect(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "value", TypeRef.ByRef(enumType)));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            indirect,
+            new Constant(0, enumType));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void WrappedEnumIndirectLoadWithMatchingStorageOpcode_RestoresEnumSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteIndirectAlgorithm");
+        var indirect = new LoadIndirect(
+            TypeRef.CoreLib("System", "Byte"),
+            new LoadArgument(0, "value", TypeRef.ByRef(enumType)));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            indirect,
+            new Constant(0, enumType));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([128, 129, 130, 131], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void WrappedEnumArrayLoadWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            arrayElement,
+            new Constant(0, enumType));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void WrappedDifferentEnumStorageLoad_RemainsOnArithmeticSelector()
+    {
+        var sourceEnum = TypeRef.Definition("Synthetic", "", "SignedSourceAlgorithm");
+        var targetEnum = TypeRef.Definition("Synthetic", "", "ByteTargetAlgorithm");
+        var source = new LoadElement(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "values", TypeRef.SzArray(sourceEnum)),
+            new Constant(0, s_int));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            source,
+            new Constant(0, targetEnum));
+        var function = BuildSharedGuardSwitch(targetEnum, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [sourceEnum] = TypeShape.Enum,
+            [targetEnum] = TypeShape.Enum,
+        };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [sourceEnum] = TypeRef.CoreLib("System", "SByte"),
+            [targetEnum] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void ExternalEnumArrayLabelsRemainEnumTyped()
+    {
+        var enumType = TypeRef.Definition("External", "Synthetic", "UnknownAlgorithm");
+        var sectionBody = new BlockContainer();
+        var returnBlock = new Block();
+        returnBlock.Add(new Return(null));
+        sectionBody.Add(returnBlock);
+        var body = new BlockContainer();
+        var entry = new Block();
+        entry.Add(new Switch(
+            new LoadElement(
+                s_int,
+                new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+                new Constant(0, s_int)),
+            [new SwitchSection([new Constant(1, s_int)], isDefault: false, sectionBody)]));
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [new Parameter("values", TypeRef.SzArray(enumType))],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("case (UnknownAlgorithm)1:", output);
+        Assert.DoesNotContain("case 1:", output);
     }
 
     [Fact]
@@ -186,6 +576,249 @@ public class SwitchRaisingSharedGuardTests
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void EnumRangeGuardSharingContinuation_IsAbsorbedIntoSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, useEnumRangeGuard: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(
+            [6, 7, 24, 25],
+            node.Sections.SelectMany(section => section.Labels).Select(label => label.Value).Order());
+    }
+
+    [Fact]
+    public void OverlappingEnumRangeGuard_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            switchOffset: 6,
+            useEnumRangeGuard: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([6, 7, 8, 9], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void SignedEnumRangeGuard_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            guardIsUnsigned: false);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumRangeGuardWithInterveningMutation_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            mutateBeforeSwitch: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Single(function.Descendants.OfType<StoreArgument>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumRangeGuardOverDifferentVariable_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            guardUsesOtherArgument: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void OutOfRangeNarrowEnumGuard_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteGuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            switchOffset: 252,
+            useEnumRangeGuard: true,
+            guardOffset: 300);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([252, 253, 254, 255], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumRangeGuardWithExternalDispatchEntry_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            externalDispatchEntry: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void CheckedEnumOffset_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "CheckedAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, switchIsChecked: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumWithUnknownBacking_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("External", "Synthetic", "UnknownAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void LongBackedEnumOffset_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "LongAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Int64"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NativeBackedEnumOffset_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "NativeAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "IntPtr"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NarrowEnumWithRepresentableTranslatedLabels_RestoresEnumSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 252);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<LoadArgument>(node.Value);
+        Assert.Equal([252, 253, 254, 255], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NarrowEnumWithOutOfRangeTranslatedLabels_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 300);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
     }
 
     [Fact]
@@ -580,36 +1213,79 @@ public class SwitchRaisingSharedGuardTests
             [s_int],
             body);
 
+    static IrFunction Import(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(SharedGuardSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SharedGuardSwitchFixture).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        return function;
+    }
+
     static IrFunction BuildSharedGuardSwitch(
+        TypeRef? governingType = null,
+        bool switchIsChecked = false,
+        int switchOffset = 24,
         bool guardTargetsCaseBody = false,
         bool defaultExitsToContinuation = false,
-        bool defaultContainsNestedLoopBreak = false)
+        bool defaultContainsNestedLoopBreak = false,
+        IrExpression? switchValue = null,
+        bool useEnumRangeGuard = false,
+        bool guardIsUnsigned = true,
+        bool mutateBeforeSwitch = false,
+        bool guardUsesOtherArgument = false,
+        int guardOffset = 6,
+        bool externalDispatchEntry = false)
     {
+        governingType ??= s_int;
         var body = new BlockContainer();
+
+        if (externalDispatchEntry)
+        {
+            var externalDispatch = new Block(-0x10);
+            externalDispatch.Add(new SwitchBranch(
+                new Constant(0, s_int),
+                [0x0D]));
+            body.Add(externalDispatch);
+        }
 
         var guard = new Block(0);
         guard.Add(new ConditionalBranch(
-            new Comparison(
-                ComparisonKind.LessThanOrEqual,
-                isUnsigned: true,
-                new Binary(
-                    BinaryKind.Subtract,
-                    isChecked: false,
-                    isUnsigned: false,
-                    new LoadArgument(0, "algorithm", s_int),
-                    new Constant(6, s_int)),
-                new Constant(1, s_int)),
+            useEnumRangeGuard
+                ? new Comparison(
+                    ComparisonKind.LessThanOrEqual,
+                    isUnsigned: guardIsUnsigned,
+                    new Binary(
+                        BinaryKind.Subtract,
+                        isChecked: false,
+                        isUnsigned: false,
+                        guardUsesOtherArgument
+                            ? new LoadArgument(2, "otherAlgorithm", governingType)
+                            : new LoadArgument(0, "algorithm", governingType),
+                        new Constant(guardOffset, s_int)),
+                    new Constant(1, s_int))
+                : new LoadArgument(1, "skip", s_bool),
             guardTargetsCaseBody ? 0x20 : 0x30));
         body.Add(guard);
 
         var dispatch = new Block(0x0D);
+        if (mutateBeforeSwitch)
+        {
+            dispatch.Add(new StoreArgument(
+                0,
+                "algorithm",
+                governingType,
+                new Constant(24, governingType)));
+        }
         dispatch.Add(new SwitchBranch(
             new Binary(
                 BinaryKind.Subtract,
-                isChecked: false,
+                isChecked: switchIsChecked,
                 isUnsigned: false,
-                new LoadArgument(0, "algorithm", s_int),
-                new Constant(24, s_int)),
+                switchValue ?? new LoadArgument(0, "algorithm", governingType),
+                new Constant(switchOffset, s_int)),
             [0x30, 0x30, 0x20, 0x20]));
         body.Add(dispatch);
 
@@ -640,7 +1316,11 @@ public class SwitchRaisingSharedGuardTests
             TypeRef.Definition("Synthetic", "", "T"),
             new MethodSignature(
                 s_void,
-                [new Parameter("algorithm", s_int)],
+                [
+                    new Parameter("algorithm", governingType),
+                    new Parameter("skip", s_bool),
+                    new Parameter("otherAlgorithm", governingType),
+                ],
                 HasThis: false,
                 GenericParameterCount: 0),
             defaultExitsToContinuation ? [s_int] : [],

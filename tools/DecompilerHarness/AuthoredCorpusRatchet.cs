@@ -60,11 +60,12 @@ static class AuthoredCorpusRatchet
         /// rows — while keeping the row count and the pool left the key intact, so a
         /// wholly different measurement compared clean.</para>
         ///
-        /// <para>Methodology deliberately is <em>not</em> part of this key. It governs
-        /// how <c>productBodyDefect</c> is computed and nothing else, so folding it in
-        /// here discarded three perfectly comparable metrics at every version bump —
-        /// which is what made the tracked-store gate vacuous. It is applied per metric
-        /// in <see cref="Build"/> instead.</para>
+        /// <para>Methodology deliberately is <em>not</em> part of this key. The
+        /// invalid-attribution lineage governs <c>productBodyDefect</c>, while
+        /// valid/correct/raw invalid remain comparable. Folding the global stamp into
+        /// the run key discarded those independent metrics at every version bump.
+        /// Attribution lineage is therefore applied per metric in
+        /// <see cref="Build"/>.</para>
         /// </summary>
         public bool IsComparableTo(RunKey other, out string mismatch)
         {
@@ -106,9 +107,9 @@ static class AuthoredCorpusRatchet
     /// same meaning with none of the rounding.</para>
     ///
     /// <para><see cref="ProductBodyDefect"/> is nullable because rows predating the
-    /// invalid breakdown did not record it; absent means <em>not measured</em>, never
-    /// zero. <see cref="Methodology"/> travels with it because it defines how that one
-    /// number was computed.</para>
+    /// invalid attribution did not record it; absent means <em>not measured</em>,
+    /// never zero. <see cref="Methodology"/> identifies the lineage that defines the
+    /// number.</para>
     /// </summary>
     internal sealed record RunMetrics(
         int? Valid,
@@ -128,6 +129,9 @@ static class AuthoredCorpusRatchet
                 run.Methodology,
                 run.MethodologyVersion is not null,
                 run.PoolSha256 is not null || run.CorpusSha256 is not null);
+
+        public int? InvalidAttributionLineage
+            => AuthoredCorpusMethodology.InvalidAttributionLineage(Methodology);
     }
 
     /// <summary>
@@ -234,8 +238,8 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
-    /// Names the first row carrying an identity no run could have produced, or
-    /// <see langword="null"/> when every row is well formed.
+    /// Names the first row carrying a malformed or internally inconsistent run
+    /// identity, or <see langword="null"/> when every row is well formed.
     ///
     /// <para>This condemns the <em>whole</em> baseline, which is the point. Comparability
     /// compares digests as opaque ordinal strings, so <c>""</c> is not read as "no
@@ -246,6 +250,12 @@ static class AuthoredCorpusRatchet
     /// and reports <c>RATCHET OK</c> with exit 0 on a run that genuinely regressed. That
     /// is the same fallthrough that made an unidentified baseline dangerous in the first
     /// place. A file containing a malformed row is corrupt, not partially usable.</para>
+    ///
+    /// <para>The unstamped v1 fallback belongs only to rows that predate run identity.
+    /// Once a row records a pool or corpus digest, deleting <c>methodologyVersion</c>
+    /// cannot make a newer measurement historical; accepting that shape would silently
+    /// change its invalid-attribution lineage and remove <c>productBodyDefect</c> from
+    /// the comparison.</para>
     /// </summary>
     internal static string? RefuseMalformedIdentities(IReadOnlyList<HistoryRun> runs)
     {
@@ -258,6 +268,47 @@ static class AuthoredCorpusRatchet
                 return $"{where}: poolSha256 '{run.PoolSha256}' is not a digest a run could record";
             if (!IdentityIsWellFormed(run.CorpusSha256))
                 return $"{where}: corpusSha256 '{run.CorpusSha256}' is not a digest a run could record";
+            if ((run.PoolSha256 is not null || run.CorpusSha256 is not null)
+                && run.MethodologyVersion is null)
+            {
+                return $"{where}: an identified run must state methodologyVersion";
+            }
+        }
+
+        return null;
+    }
+
+    internal static string? RefuseUnknownMethodologies(IReadOnlyList<HistoryRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        foreach (var run in runs)
+        {
+            if (run.MethodologyVersion is { } methodology
+                && !AuthoredCorpusMethodology.IsKnownVersion(methodology))
+            {
+                return $"{run.Date ?? "(undated)"}: methodologyVersion {methodology} is not defined";
+            }
+        }
+
+        return null;
+    }
+
+    internal static string? RefuseFrontierAttributionMethodologyMismatch(IReadOnlyList<HistoryRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        foreach (var run in runs)
+        {
+            var frontierAttribution = run.ValidDifferent?.FrontierIlDiffAttribution;
+            if (run.Methodology < 3 && frontierAttribution is not null)
+            {
+                return $"{run.Date ?? "(undated)"}: frontierIlDiffAttribution was not produced before methodology v3";
+            }
+            if (run.Methodology >= 3 && frontierAttribution is null)
+            {
+                return $"{run.Date ?? "(undated)"}: frontierIlDiffAttribution is required from methodology v3 onward";
+            }
         }
 
         return null;
@@ -301,7 +352,18 @@ static class AuthoredCorpusRatchet
         if (run.ValidDifferent is not { } validDifferent || validDifferent.SubBucketSum != validDifferent.Total)
             return false;
 
-        return run.InvalidBreakdown is not { } breakdown || breakdown.Sum == run.Invalid;
+        if (run.InvalidBreakdown is { } breakdown && breakdown.Sum != run.Invalid)
+            return false;
+
+        var frontierAttribution = validDifferent.FrontierIlDiffAttribution;
+        if (run.Methodology < 3 && frontierAttribution is not null)
+            return false;
+        if (run.Methodology >= 3 && frontierAttribution is null)
+            return false;
+
+        return frontierAttribution is null
+            || (frontierAttribution.Sum == frontierAttribution.Total
+                && frontierAttribution.Total == validDifferent.FrontierIlDiff);
     }
 
     /// <summary>
@@ -321,6 +383,15 @@ static class AuthoredCorpusRatchet
         // the comparison to an older, weaker threshold.
         if (RefuseMalformedIdentities(baselines) is { } malformed)
             return Comparison.Skip($"baseline is malformed ({malformed})");
+        if (RefuseUnknownMethodologies(baselines) is { } unknown)
+            return Comparison.Skip($"baseline is malformed ({unknown})");
+        if (current.Identified && !current.MethodologyStated)
+            return Comparison.Skip("current run is identified but does not state methodologyVersion");
+        if (!AuthoredCorpusMethodology.IsKnownVersion(current.Methodology))
+        {
+            return Comparison.Skip(
+                $"current methodologyVersion {current.Methodology} is not defined");
+        }
 
         HistoryRun? baseline = null;
         string? newestMismatch = null;
@@ -369,6 +440,8 @@ static class AuthoredCorpusRatchet
         ArgumentNullException.ThrowIfNull(runs);
         if (runs.Count < 2)
             return Comparison.Skip("store holds fewer than two runs");
+        if (RefuseMalformedIdentities(runs) is { } malformed)
+            return Comparison.Skip($"store is malformed ({malformed})");
 
         var newest = runs[^1];
         if (!IsTrustworthy(newest))
@@ -404,9 +477,10 @@ static class AuthoredCorpusRatchet
         // and omitting the metric is malformed, not historical. Only rows recorded
         // before the metric existed — which carry no methodologyVersion at all — may
         // omit it, and that is a structural fact about the row rather than a value it
-        // chose. Comparing methodology *values* instead let a reviewer shed the metric
-        // by writing an arbitrary version (999) into an otherwise comparable baseline;
-        // a narrower value comparison would still admit the same trick one version down.
+        // chose. Before unknown methodologies were rejected at the file boundary,
+        // comparing methodology *values* let a reviewer shed the metric by writing an
+        // arbitrary version (999) into an otherwise comparable baseline; a narrower
+        // value comparison would still admit the same trick one version down.
         //
         // The rule holds for *both* rows. Guarding only the baseline left the shorter
         // path open: a reviewer dropped invalidBreakdown from the appended row itself,
@@ -455,14 +529,11 @@ static class AuthoredCorpusRatchet
         if (baseline.Valid is { } baselineValid && current.Valid is { } currentValid)
             metrics.Insert(0, new("valid", baselineValid, currentValid, HigherIsBetter: true));
 
-        // productBodyDefect is the product signal (raw invalid is ~92% harness
-        // shell-reconstruction noise), but it is a *lower bound* whose meaning is
-        // defined by the methodology version, so it ratchets only when both sides
-        // measured it the same way. The other three metrics are methodology-
-        // independent and keep ratcheting across a version bump.
+        // Product-defect counts are lower bounds and ratchet only when both sides
+        // measured that specific metric under the same explicit attribution lineage.
         if (baseline.ProductBodyDefect is { } baselineDefects
             && current.ProductBodyDefect is { } currentDefects
-            && baseline.Methodology == current.Methodology)
+            && baseline.InvalidAttributionLineage == current.InvalidAttributionLineage)
         {
             metrics.Add(new("productBodyDefect", baselineDefects, currentDefects, HigherIsBetter: false));
         }
@@ -611,9 +682,9 @@ static class AuthoredCorpusRatchet
             output.WriteLine($"    {(metric.Regressed ? "REGRESSED" : "held     ")}  {metric.Describe()}");
 
         output.WriteLine(
-            "    note: productBodyDefect is a lower bound on decompiler-caused body");
+            "    note: invalid product-defect attribution is a sound lower bound, so");
         output.WriteLine(
-            "    defects (~5.9% oracle coverage), so read its movement as a floor.");
+            "    read productBodyDefect movement as a floor.");
     }
 }
 

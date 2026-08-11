@@ -60,10 +60,12 @@
     <EmbeddedResource Include="release-notes.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/SKILL.md" LogicalName="dotnet-inspect.SKILL.md" />
     <EmbeddedResource Include="../../skills/query/SKILL.md" LogicalName="dotnet-inspect.skills.query.md" />
+    <EmbeddedResource Include="../../skills/private-feeds/SKILL.md" LogicalName="dotnet-inspect.skills.private-feeds.md" />
     <EmbeddedResource Include="../../skills/compatibility/SKILL.md" LogicalName="dotnet-inspect.skills.compatibility.md" />
     <EmbeddedResource Include="../../skills/correctness/SKILL.md" LogicalName="dotnet-inspect.skills.correctness.md" />
     <EmbeddedResource Include="../../skills/signals/SKILL.md" LogicalName="dotnet-inspect.skills.signals.md" />
     <EmbeddedResource Include="../../skills/sourcelink/SKILL.md" LogicalName="dotnet-inspect.skills.sourcelink.md" />
+    <EmbeddedResource Include="../../skills/metadata/SKILL.md" LogicalName="dotnet-inspect.skills.metadata.md" />
     <EmbeddedResource Include="../../skills/decompiler/SKILL.md" LogicalName="dotnet-inspect.skills.decompiler.md" />
     <EmbeddedResource Include="../../skills/deep-inspect/SKILL.md" LogicalName="dotnet-inspect.skills.deep-inspect.md" />
     <EmbeddedResource Include="../../skills/performance/SKILL.md" LogicalName="dotnet-inspect.skills.performance.md" />
@@ -92,6 +94,7 @@
     <ProjectReference Include="..\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />

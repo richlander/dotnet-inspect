@@ -5568,20 +5568,7 @@ public sealed partial class CSharpPrinter
     /// char, or enum, so a non-primitive named governing type is an enum.
     /// </summary>
     TypeRef? SwitchLabelEnumType(IrExpression value)
-    {
-        var type = value is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } pointee } }
-            ? pointee
-            : value.ResultType;
-        if (type is null)
-            return null;
-        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
-            return type;
-        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
-            && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
-            && !TypeFamilies.IsNumericPrimitive(type)
-            ? type
-            : null;
-    }
+        => SwitchTypeFacts.EnumType(_function, value);
 
     /// <summary>
     /// Renders a <c>switch</c> case label. When the governing expression is an

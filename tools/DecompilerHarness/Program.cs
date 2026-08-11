@@ -2195,7 +2195,8 @@ static class Program
                                 With it, the run fails only on a regression in
                                 valid (the exact row count, not the rounded
                                 percentage), correct, invalid, or
-                                productBodyDefect — strictly, no tolerance band. A baseline that is
+                                invalid productBodyDefect — strictly, no
+                                tolerance band. A baseline that is
                                 missing or unparseable is a hard error; a baseline
                                 that parses but holds no comparable row is a loud
                                 skip, never a silent pass.
@@ -2213,9 +2214,9 @@ static class Program
                                 EVIL run-history trend store: every run as a trend
                                 table plus a pivoted movement table over the last N
                                 runs with per-metric goal/step glyphs. Headline
-                                metric is product defects (#3079), not raw invalid
-                                (~92% harness noise). Reads no assemblies and runs
-                                no decompiler.
+                                metrics are attributed invalid/frontier product
+                                defects (#3079), not their raw populations. Reads
+                                no assemblies and runs no decompiler.
           --history-path <file>  with --history-card: read a specific history.jsonl
                                 instead of the committed default
                                 (tools/DecompilerHarness/corpus/evil-runs/history.jsonl).

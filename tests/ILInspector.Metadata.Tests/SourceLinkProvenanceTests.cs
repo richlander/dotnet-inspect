@@ -151,12 +151,11 @@ public class SourceLinkProvenanceTests
     /// The threat model's fourth case: <see cref="Uri"/> preserves percent-encoded separators
     /// verbatim, so <c>..%2f</c> and <c>..%5c</c> survive canonicalization. A canonicalize-then-
     /// check step passes while a server that percent-decodes before resolving dot segments still
-    /// traverses out, so encoded separators and encoded dot segments are rejected outright.
+    /// traverses out, so encoded separators are rejected outright.
     /// </summary>
     [Theory]
     [InlineData("..%2f..%2f..%2fattacker")]
     [InlineData("..%5c..%5c..%5cattacker")]
-    [InlineData("%2e%2e/%2e%2e/attacker")]
     [InlineData("..%2F..%2Fattacker")]
     public void TheThreatModelsCase_OfEncodedSeparators_ReportsNoRepository(string traversal)
     {
@@ -166,6 +165,100 @@ public class SourceLinkProvenanceTests
 
         Assert.False(result.IsEstablished);
         Assert.Contains("canonicalization does not resolve", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <see cref="Uri"/> resolves an encoded parent segment before provenance reads the path, so
+    /// traversal that leaves no valid owner/repository/revision still reports no repository.
+    /// </summary>
+    [Theory]
+    [InlineData("%2e%2e/%2e%2e/attacker")]
+    [InlineData(".%2e/.%2e/attacker")]
+    [InlineData("%2e./%2e./attacker")]
+    public void AnEncodedParentSegmentLeavingNoOrigin_ReportsNoRepository(string traversal)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/dotnet/runtime/{{{Sha}}}/{{{traversal}}}/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("names no owner, repository, and revision", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Encoded parent segments follow the same final-URL invariant as literal <c>..</c>: when
+    /// they traverse to a complete origin in a different repository, report that origin rather
+    /// than the raw mapping prefix.
+    /// </summary>
+    [Theory]
+    [InlineData("%2e%2e/%2e%2e/%2e%2e")]
+    [InlineData(".%2e/.%2e/.%2e")]
+    [InlineData("%2e./%2e./%2e.")]
+    public void AnEncodedParentSegment_ReportsWhereContentIsReallyServedFrom(string traversal)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/A.cs":"https://raw.githubusercontent.com/dotnet/runtime/{{{Sha}}}/{{{traversal}}}/attacker/evil/{{{OtherSha}}}/A.cs"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
+        Assert.Equal("attacker", result.Origin!.Value.Organization);
+        Assert.Equal("evil", result.Origin!.Value.Repository);
+        Assert.Equal(OtherSha, result.Origin!.Value.Revision);
+    }
+
+    /// <summary>
+    /// A percent-encoded dot is punctuation, not traversal, unless decoding makes its whole path
+    /// segment <c>..</c>. GitHub serves <c>README%2Emd</c> as the same file as
+    /// <c>README.md</c>, and <see cref="Uri"/> removes a <c>%2e</c> current-directory segment
+    /// without changing the established repository or revision.
+    /// </summary>
+    /// <remarks>
+    /// Measured against <c>dotnet/runtime</c> commit
+    /// <c>9904b9343c89c898fea3a9dfa68a6aba7fa8f3c1</c>: both README spellings return 200,
+    /// 4800 bytes, and SHA-256 <c>bcd0ca8841408b85528eb4f91a610c072eb46df2a0e89ba5ab38a60270286057</c>.
+    /// A raw request-line capture through <see cref="HttpClient"/> sends the encoded spelling as
+    /// <c>GET /src/README.md</c>, so this is the product transport path rather than a raw-curl
+    /// assumption.
+    /// </remarks>
+    [Theory]
+    [InlineData("README%2Emd")]
+    [InlineData("%2e/README.md")]
+    [InlineData("%2e%2e%2e/README.md")]
+    public void AnEncodedDotOutsideAParentSegment_RemainsAttributable(string path)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/A.cs":"https://raw.githubusercontent.com/dotnet/runtime/{{{Sha}}}/{{{path}}}"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
+        Assert.Equal("dotnet", result.Origin!.Value.Organization);
+        Assert.Equal("runtime", result.Origin!.Value.Repository);
+        Assert.Equal(Sha, result.Origin!.Value.Revision);
+    }
+
+    /// <summary>
+    /// Azure's content-selecting query value does not establish the repository or revision.
+    /// Encoded dots there therefore remain attributable; malformed or missing paths fail visibly
+    /// at the host rather than becoming an attribution refusal.
+    /// </summary>
+    /// <remarks>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>:
+    /// <c>/README%2Emd</c> returns the same 985-byte response as <c>/README.md</c>, while all
+    /// three parent-segment spellings below return 404.
+    /// </remarks>
+    [Theory]
+    [InlineData("/src/System%2EObject.cs")]
+    [InlineData("/src/%2e%2e/README.md")]
+    [InlineData("/src/.%2e/README.md")]
+    [InlineData("/src/%2e./README.md")]
+    public void AnEncodedDotInAnAzureContentPath_RemainsAttributable(string path)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/A.cs":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path={{{path}}}"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
     }
 
     /// <summary>

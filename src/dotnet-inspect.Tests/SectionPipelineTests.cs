@@ -1650,6 +1650,260 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffQueryRegistry_RegistrationMatchesDeclaration()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> closure =
+            catalog.QueryRegistry.ExpandRequired(catalog.Pipeline.DeclaredQueries);
+
+        Assert.Equal(
+            closure.OrderBy(query => query.Name, StringComparer.Ordinal),
+            catalog.QueryRegistry.RegisteredQueries.OrderBy(
+                query => query.Name,
+                StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
+            ],
+            catalog.Pipeline.DeclaredQueries);
+    }
+
+    [Fact]
+    public void DiffComparisonSections_DemandTheirProducerQueriesAndCosts()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var changes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.Changes.Name,
+        };
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+        var implementation = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.ImplementationDiff.Name,
+        };
+
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, changes));
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal));
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis));
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                implementation));
+        Assert.Equal(
+            SectionCost.NetworkFree,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.Changes.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.AnalysisDiff.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name
+                    == DiffSections.ImplementationDiff.Name).Cost);
+    }
+
+    [Fact]
+    public void DiffQueryRegistry_RunsOnlySelectedSectionDemand()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+        int analysisInputsCreated = 0;
+        var analysisContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> analysisExecuted = [];
+
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
+            analysisContext,
+            (query, _) => analysisExecuted.Add(query));
+
+        Assert.Equal([BodySignalComparisonQuery.Definition], analysisExecuted);
+        Assert.Equal(1, analysisInputsCreated);
+
+        var changesContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Analysis indexes."),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Implementation inputs."));
+        List<InspectionQueryDefinition> changesExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                }),
+            changesContext,
+            (query, _) => changesExecuted.Add(query));
+
+        Assert.Equal([ApiComparisonQuery.Definition], changesExecuted);
+
+        int implementationInputsCreated = 0;
+        var implementationContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            createImplementationComparisonInput: () =>
+            {
+                implementationInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> implementationExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            implementationContext,
+            (query, _) => implementationExecuted.Add(query));
+
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationExecuted);
+        Assert.Equal(1, implementationInputsCreated);
+
+        int analysisComposedInputsCreated = 0;
+        int implementationComposedInputsCreated = 0;
+        var composedContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisComposedInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            },
+            () =>
+            {
+                implementationComposedInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> composedExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                    DiffSections.AnalysisDiff.Name,
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            composedContext,
+            (query, _) => composedExecuted.Add(query));
+
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
+            ],
+            composedExecuted);
+        Assert.Equal(1, analysisComposedInputsCreated);
+        Assert.Equal(1, implementationComposedInputsCreated);
+    }
+
+    [Fact]
+    public void DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> singleSection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> composedDocument =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                        DiffSections.AnalysisDiff.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> implementationSelection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> implementationOnly =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
+
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            singleSection);
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            implementationSelection);
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationOnly);
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+            ],
+            composedDocument);
+    }
+
+    [Fact]
     public void PackageIntegrityExitCode_FailsOnlyForMismatches()
     {
         var clean = new InspectionResult
@@ -3175,6 +3429,9 @@ public class SectionPipelineTests
             LibrarySections.ScannerClassifiedMethods,
             LibrarySections.ScannerResources,
             LibrarySections.ScannerTypeForwarders,
+            // workspace-backed library inspection must not reopen its package path
+            LibrarySections.ScannerUnionTypes,
+            LibrarySections.ScannerSwitches,
             LibrarySections.ScannerIntegrationOpportunities,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
@@ -3482,7 +3739,7 @@ public class SectionPipelineTests
         // populate. Found by review: a single shared model let a typed failure written by an
         // earlier scanner satisfy an assertion nominally about a later one -- deleting
         // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
-        // green, because ScanIntegrations had already set the same two fields and the mapping uses
+        // green, because the group query had already set the same two fields and the mapping uses
         // ??=.
         var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
@@ -3789,14 +4046,17 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
-    /// so the three action-based scanners are covered, not just the four that return a value.
+    /// Every remaining scanner that must stay coherent with the command-owned
+    /// image. Both retarget gates drive this whole set so action-based and
+    /// value-returning scanners are covered.
     /// </summary>
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
         LibrarySections.ScannerResources,
         LibrarySections.ScannerTypeForwarders,
+        LibrarySections.ScannerUnionTypes,
+        LibrarySections.ScannerSwitches,
         LibrarySections.ScannerIntegrationOpportunities,
         LibrarySections.ScannerAuditSignals,
     ];
@@ -3806,6 +4066,8 @@ public class SectionPipelineTests
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
         $"resources={PayloadCount(model.ResourceInspection)}",
         $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        $"unions={PayloadCount(model.UnionTypeInspection)}",
+        $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
 
     /// <summary>

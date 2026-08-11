@@ -86,6 +86,30 @@ with a temporary NuGet config that includes both the .NET 11 daily feed and
 nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
 projects still target stable `net10.0` packs.
 
+### Refreshing an older Windows checkout
+
+`.gitattributes` pins tracked text files to LF, but Git may leave CRLF bytes in
+a Windows working tree created before that policy was added. The tree still
+appears clean because Git compares normalized content. Check the effective
+working-tree endings with:
+
+```powershell
+git ls-files --eol | Select-String 'w/(crlf|mixed).*eol=lf'
+```
+
+No output means the checkout follows the policy. If files are listed, run the
+following commands from the repository root. First commit or stash any work and
+confirm `git status --short` is empty, because the final command discards
+working-tree changes:
+
+```powershell
+git rm --cached -r .
+git reset --hard HEAD
+```
+
+`RepositoryLineEndingTests.TrackedLfFilesHaveLfWorkingTreeEndings` enforces the
+same check and prints this repair when a stale checkout reaches the test suite.
+
 ## What it inspects
 
 | Source | Examples | Notes |
@@ -190,7 +214,9 @@ library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
 require one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
 `@Integrations`. Add `--count` to a category selector for per-section row counts,
-or to bare `-S` for the same map over the fixed overview.
+or to bare `-S` for the same map over the fixed overview. For Integrations,
+all-library mode scans selected managed assemblies together within each target
+framework; `--tfm all` keeps each framework in a separate inspection group.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
@@ -248,7 +274,10 @@ of post-processing. `--top` limits the ranked data before rendering; `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`.
+`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--rows` selects the same ordered relationships in every rendering. Markdown
+defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
+standalone diagram, or `--markdown --mermaid` for an embedded diagram.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -460,7 +489,12 @@ renders its coverage as a caveat.
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`--rows 2..10` names them), `--count` to reduce a selected section/vector to a single row count, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`--rows 2..10` names them), `--count` to reduce a selected section/vector to a single row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+
+Call Graph edge rows use the machine field names `from`, `from_group`,
+`to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
+`--table` retain the human headings `From`, `From Group`, `To`, `To Group`, and
+`Label`.
 
 Sections and fields are queryable without a template language:
 
@@ -523,6 +557,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S C
 dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --tree
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --markdown --mermaid
 dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
 dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
