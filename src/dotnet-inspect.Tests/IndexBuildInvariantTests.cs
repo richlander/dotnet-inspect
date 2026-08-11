@@ -3,6 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.Findings;
 
 namespace DotnetInspector.Tests;
 
@@ -100,6 +101,53 @@ public class IndexBuildInvariantTests
         }));
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public void DiffCommand_AnalysisInputs_OpenOneSessionPerEndpointAssembly()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        var input = DiffCommand.CreateBodySignalComparisonInput(
+            [FixtureAssembly],
+            [FixtureAssembly],
+            new DiffOptions());
+
+        Assert.Single(input.OldIndexes);
+        Assert.Single(input.NewIndexes);
+        Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public void DiffCommand_ImplementationInputs_OpenOneSessionPerEndpointAssembly()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        var input = DiffCommand.CreateImplementationComparisonInput(
+            [FixtureAssembly],
+            [FixtureAssembly],
+            new DiffOptions());
+
+        Assert.Single(input.OldAssemblies);
+        Assert.Single(input.NewAssemblies);
+        Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public void TimelineCommand_AnalysisInspection_OpensTargetedSession()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        FindingInspection<ILInspector.Analysis.UnsafetyOccurrence> inspection =
+            TimelineCommand.InspectUnsafetyAssemblies(
+                [FixtureAssembly],
+                typeof(IndexBuildGuardFixture).FullName!,
+                nameof(IndexBuildGuardFixture.Work));
+
+        Assert.IsType<
+            FindingInspection<ILInspector.Analysis.UnsafetyOccurrence>.Complete>(
+                inspection.Value);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
 

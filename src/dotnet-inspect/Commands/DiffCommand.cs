@@ -931,8 +931,14 @@ public class DiffCommand
                 options.TypeFilter,
                 requireBodyTargets: true).MemberIdentities;
         return new BodySignalComparisonInput(
-            fromPaths.Select(LibraryBodyIndex.Open).ToArray(),
-            toPaths.Select(LibraryBodyIndex.Open).ToArray(),
+            fromPaths
+                .Select(path =>
+                    MethodBodyInspectionSession.Open(path).BodyIndex)
+                .ToArray(),
+            toPaths
+                .Select(path =>
+                    MethodBodyInspectionSession.Open(path).BodyIndex)
+                .ToArray(),
             options.TypeFilter,
             memberTargetIdentities);
     }
@@ -989,13 +995,17 @@ public class DiffCommand
 
     static ImplementationAssemblyInput CreateImplementationAssemblyInput(
         string path)
-        => new(
-            ResolvedAssemblyReference.CreateFromPath(
-                path,
-                AssemblyResolutionProvenance.Local(
-                    "diff implementation comparison")),
+    {
+        var assembly = ResolvedAssemblyReference.CreateFromPath(
+            path,
+            AssemblyResolutionProvenance.Local(
+                "diff implementation comparison"));
+        var session = MethodBodyInspectionSession.Open(assembly);
+        return new(
+            assembly,
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            LibraryBodyIndex.Open(path));
+            session.BodyIndex);
+    }
 
     internal static async Task<ImplementationDiffResult> BuildImplementationDiffWithSourceAsync(
         IReadOnlyList<string> fromPaths,
@@ -1085,10 +1095,11 @@ public class DiffCommand
             LibraryBodyIndex index;
             try
             {
-                index = LibraryBodyIndex.Open(
-                    path,
-                    includeAllocations: false,
-                    includeOpportunities: false);
+                index = MethodBodyInspectionSession.Open(
+                        path,
+                        includeAllocations: false,
+                        includeOpportunities: false)
+                    .BodyIndex;
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException

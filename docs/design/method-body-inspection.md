@@ -346,6 +346,10 @@ Move in reviewable slices.
    above the owner queries, and adopt the shared PE owner when that pending seam
    lands.
 
+`diff` and `timeline` follow step 2 for path-backed Analysis acquisition: they
+open `MethodBodyInspectionSession` with their command-selected capabilities and
+scope, then pass its neutral `BodyIndex` to the comparison and Finding queries.
+
 ## Acceptance tests for the architecture
 
 - Adding a new method-body fact requires changing one producer/service, not both

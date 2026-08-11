@@ -1,9 +1,11 @@
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Queries;
 
@@ -89,5 +91,29 @@ public sealed class LayeringTests
         Assert.DoesNotContain(
             "System.Reflection.Metadata.MetadataReader",
             referencedTypes);
+    }
+
+    [Theory]
+    [InlineData("DiffCommand.cs")]
+    [InlineData("TimelineCommand.cs")]
+    public void BodyComparisonCommands_UseMethodBodyInspectionSession(
+        string commandFile)
+    {
+        string path = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "dotnet-inspect",
+            "Commands",
+            commandFile);
+        string source = File.ReadAllText(path);
+        string directIndexOpen =
+            $@"\b(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*\.\s*"
+            + $@"{nameof(LibraryBodyIndex.Open)}\s*\(";
+        string sessionOpen =
+            $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
+            + $@"{nameof(MethodBodyInspectionSession.Open)}\s*\(";
+
+        Assert.DoesNotMatch(directIndexOpen, source);
+        Assert.Matches(sessionOpen, source);
     }
 }
