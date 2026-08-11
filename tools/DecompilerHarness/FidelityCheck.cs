@@ -3885,7 +3885,16 @@ static class FidelityCheck
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
         string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
-        string instanceModifier = isAbstractStub ? "virtual " : slotModifier;
+        // A same-type call to a source-declarable new-slot virtual method binds as
+        // callvirt only when the reconstructed sibling keeps that declaration.
+        // Override-shaped methods need an override declaration to preserve their
+        // symbolic target, so the shared metadata classifier deliberately excludes
+        // them rather than inventing a new slot.
+        bool emitClassVirtual = ShapeOf(reader, typeDef) == TypeKind.Class
+            && MetadataDeclarationQuery.IsVirtualMethod(method);
+        string instanceModifier = slotModifier.Length != 0
+            ? slotModifier
+            : (isAbstractStub || emitClassVirtual ? "virtual " : "");
         if (!IsStaticClass(typeDef)
             && name.StartsWith("op_", StringComparison.Ordinal)
             && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
