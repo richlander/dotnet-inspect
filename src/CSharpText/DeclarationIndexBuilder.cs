@@ -749,7 +749,7 @@ internal static class DeclarationIndexBuilder
                 // onto the enclosing static class, so the index makes it transparent and lets them
                 // land there too. Giving it a row of its own would put every extension member
                 // inside a parent that has no metadata counterpart.
-                if (DeclaresAnExtensionBlock(pending, Text))
+                if (DeclaresAnExtensionBlock(pending, Enclosing(), Text))
                 {
                     int startLine = triviaStart >= 0 ? triviaStart : pending[0].Line + 1;
                     bool membersKnown = tok.DepthKnown && triviaKnown && headerKnown
@@ -1610,7 +1610,7 @@ internal static class DeclarationIndexBuilder
     /// <para>
     /// <em>After</em> the <c>=</c> counting is unsound, because a relational <c>&lt;</c> never
     /// closes and would swallow every later comma. Instead a <c>&lt;</c> that follows a name is
-    /// matched speculatively by <see cref="TypeArgumentListEnd"/>, and the matched region is
+    /// matched speculatively by <see cref="TypeArgumentListEnds"/>, and the matched region is
     /// skipped. What separates the two readings is that the region must be type-shaped all the way
     /// to its <c>&gt;</c>: <c>new Action&lt;int, int, int&gt;()</c> is, and is skipped, while
     /// <c>a &lt; b, y = c &gt; d</c> contains an <c>=</c>, which no type argument list does, so it
@@ -1627,6 +1627,7 @@ internal static class DeclarationIndexBuilder
     private static List<string> DeclaratorNames(List<ScanToken> pending, Func<ScanToken, string> text)
     {
         var names = new List<string>();
+        int[]? typeArgumentEnds = null;
         int start = 0;
         int depth = 0;
         int angle = 0;
@@ -1652,7 +1653,8 @@ internal static class DeclarationIndexBuilder
                     else if (sawEquals && depth == 0 && c == "<"
                         && i > 0 && pending[i - 1].Kind == ScanTokenKind.Word)
                     {
-                        int close = TypeArgumentListEnd(pending, i, text);
+                        typeArgumentEnds ??= TypeArgumentListEnds(pending, text);
+                        int close = typeArgumentEnds[i];
                         if (close >= 0)
                         {
                             i = close;
@@ -1682,11 +1684,10 @@ internal static class DeclarationIndexBuilder
     }
 
     /// <summary>
-    /// The index of the <c>&gt;</c> closing a type argument list that starts at
-    /// <paramref name="start"/>, or <c>-1</c> if the tokens from there are not shaped like one.
-    /// Only tokens that can appear inside a type argument list are accepted, which is what makes a
-    /// relational <c>&lt;</c> distinguishable: <c>x = a &lt; b, y = c &gt; d</c> contains an
-    /// <c>=</c>, and no type argument list does.
+    /// For every <c>&lt;</c>, the index of the <c>&gt;</c> that closes a type-shaped argument
+    /// list, or <c>-1</c>. Only tokens that can appear inside a type argument list are accepted,
+    /// which is what makes a relational <c>&lt;</c> distinguishable:
+    /// <c>x = a &lt; b, y = c &gt; d</c> contains an <c>=</c>, and no type argument list does.
     /// </summary>
     /// <remarks>
     /// The closing <c>&gt;</c> must also leave every <c>(</c> and <c>[</c> opened inside the region
@@ -1695,30 +1696,40 @@ internal static class DeclarationIndexBuilder
     /// region that swallows the <c>(</c> and leaves the matching <c>)</c> behind to drive the
     /// caller's group depth negative, after which no later comma can ever separate a declarator.
     /// </remarks>
-    private static int TypeArgumentListEnd(List<ScanToken> pending, int start, Func<ScanToken, string> text)
+    private static int[] TypeArgumentListEnds(
+        List<ScanToken> pending,
+        Func<ScanToken, string> text)
     {
-        int angle = 0;
+        var ends = new int[pending.Count];
+        Array.Fill(ends, -1);
+        var angles = new List<(int Index, int GroupDepth)>();
         int group = 0;
-        for (int i = start; i < pending.Count; i++)
+        for (int i = 0; i < pending.Count; i++)
         {
             var t = pending[i];
             if (t.Kind == ScanTokenKind.Word)
                 continue;
             if (t.Kind != ScanTokenKind.Punctuator)
-                return -1;
+            {
+                angles.Clear();
+                continue;
+            }
 
             var c = text(t);
             if (c == "<")
             {
-                angle++;
+                angles.Add((i, group));
                 continue;
             }
 
             if (c == ">")
             {
-                angle--;
-                if (angle <= 0)
-                    return angle == 0 && group == 0 ? i : -1;
+                if (angles.Count == 0)
+                    continue;
+                var open = angles[^1];
+                angles.RemoveAt(angles.Count - 1);
+                if (group == open.GroupDepth)
+                    ends[open.Index] = i;
                 continue;
             }
 
@@ -1740,10 +1751,10 @@ internal static class DeclarationIndexBuilder
 
             if (c is "," or "." or "?" or "*" or ":")
                 continue;
-            return -1;
+            angles.Clear();
         }
 
-        return -1;
+        return ends;
     }
 
     private static bool IsDeclaratorBoundary(List<ScanToken> pending, int comma, Func<ScanToken, string> text)
@@ -1885,9 +1896,17 @@ internal static class DeclarationIndexBuilder
     /// punctuation is expression syntax, so a relational <c>&gt;</c> there cannot close the outer
     /// type-parameter list.
     /// </summary>
-    private static bool DeclaresAnExtensionBlock(List<ScanToken> pending, Func<ScanToken, string> text)
+    private static bool DeclaresAnExtensionBlock(
+        List<ScanToken> pending,
+        Row? enclosing,
+        Func<ScanToken, string> text)
     {
-        if (pending.Count < 2 || !IsKeyword(pending, 0, "extension", text))
+        // Extension blocks are legal only directly inside static classes. Requiring that context
+        // also preserves C# 13 source such as "class extension { extension() { } }", where the
+        // same contextual word names a constructor rather than a C# 14 extension block.
+        if (enclosing is not { Kind: DeclarationKind.Class, IsStatic: true }
+            || pending.Count < 2
+            || !IsKeyword(pending, 0, "extension", text))
             return false;
         if (text(pending[1]) == "(")
             return true;

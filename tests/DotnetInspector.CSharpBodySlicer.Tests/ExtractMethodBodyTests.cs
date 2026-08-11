@@ -1472,6 +1472,23 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ConstructorNamedExtension_RemainsSliceable()
+    {
+        var source = Lines(
+            "class extension",        // 1
+            "{",                      // 2
+            "    extension()",        // 3
+            "    {",                  // 4
+            "        Use();",         // 5
+            "    }",                  // 6
+            "}");                     // 7
+
+        Assert.Equal(
+            "extension()\n{\n    Use();\n}",
+            BodySlicer.ExtractMethodBody(source, 3, 6, ".ctor"));
+    }
+
+    [Fact]
     public void OneLineConstructorInitializerWithBracesAndAnotherArgument_RemainsSliceable()
     {
         var source = Lines(

@@ -1,9 +1,11 @@
 using ILInspector.Metadata;
+using System.Text;
 using System.Text.RegularExpressions;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace DotnetInspector.CSharpBodySlicer.Tests;
 
@@ -580,6 +582,82 @@ public class AuthoredSourceValidityTests
 
         Assert.Equal(SliceOutcome.NotSliceable, slice.Outcome);
         Assert.Empty(slice.Text);
+    }
+
+    [Fact]
+    public void ExtensionNamedConstructor_CSharp13PdbRangeRemainsSliceable()
+    {
+        const string source = """
+            class extension
+            {
+                extension()
+                {
+                    int value = 1;
+                }
+            }
+            """;
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-extension-constructor-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string sourcePath = Path.Combine(directory, "ExtensionConstructor.cs");
+            string assemblyPath = Path.Combine(directory, "ExtensionConstructor.dll");
+            string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            File.WriteAllText(sourcePath, source, Encoding.UTF8);
+
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var tree = CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.CSharp13),
+                path: sourcePath,
+                encoding: Encoding.UTF8,
+                cancellationToken: cancellationToken);
+            var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                .Where(File.Exists)
+                .Select(path => MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "ExtensionConstructor",
+                [tree],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            using (var pdb = File.Create(pdbPath))
+            {
+                var result = compilation.Emit(
+                    assembly,
+                    pdb,
+                    options: new EmitOptions(
+                        debugInformationFormat: DebugInformationFormat.PortablePdb,
+                        pdbFilePath: pdbPath),
+                    cancellationToken: cancellationToken);
+                Assert.True(
+                    result.Success,
+                    string.Join("\n", result.Diagnostics));
+            }
+
+            using var context = PdbContext.Open(assemblyPath);
+            var constructor = Assert.Single(
+                context.EnumerateMemberDocuments(),
+                member => member.Anchor.MemberName is "#ctor" or ".ctor");
+            Assert.Equal(
+                "extension()\n{\n    int value = 1;\n}",
+                BodySlicer.ExtractMethodBody(
+                    source,
+                    constructor.StartLine,
+                    constructor.EndLine,
+                    constructor.Anchor.MemberName));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

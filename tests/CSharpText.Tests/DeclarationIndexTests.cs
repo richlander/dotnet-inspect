@@ -125,6 +125,29 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void RelationalInitializerChain_DoesNotRescanEachRemainingSuffix()
+    {
+        var source = new StringBuilder("class C { static dynamic f = a");
+        for (int i = 0; i < 32_000; i++)
+            source.Append(" < a");
+        source.Append("; }");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"indexing 32,000 relational operators took {timer.Elapsed}");
+        Assert.True(
+            allocated < 128 * 1024 * 1024,
+            $"indexing 32,000 relational operators allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void TheBodySlicerCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
@@ -476,6 +499,29 @@ public class DeclarationIndexTests
         // A field's line selects the field, which is what a static constructor synthesized from
         // field initializers reports its sequence point against.
         Assert.Equal(DeclarationKind.Field, index.FindByLine(3)?.Kind);
+    }
+
+    [Fact]
+    public void AConstructorNamedExtension_IsNotAnExtensionBlock()
+    {
+        var index = DeclarationIndex.Build("""
+            class extension
+            {
+                extension()
+                {
+                    void Local() { }
+                }
+            }
+            """);
+
+        var constructor = Assert.Single(
+            index.Declarations,
+            declaration => declaration.Kind == DeclarationKind.Constructor);
+        Assert.Equal("extension", constructor.Name);
+        Assert.Equal(3, constructor.SignatureStartLine);
+        Assert.Equal(6, constructor.EndLine);
+        Assert.DoesNotContain(index.Declarations, declaration => declaration.Name == "Local");
+        Assert.Empty(index.TransparentScopes);
     }
 
     [Theory]
@@ -1004,11 +1050,12 @@ public class DeclarationIndexTests
                 public object F = Foo<int, string>.Bar, G = null;
                 public bool X = 1 < 2, Y = 3 > 2;
                 public bool P = A2 < B2, Q = C2 > D2;
+                public dynamic H = a < Broken + Foo<int, string, float>.Bar, I = null;
             }
             """);
 
         Assert.Equal(
-            ["A", "B", "F", "G", "X", "Y", "P", "Q"],
+            ["A", "B", "F", "G", "X", "Y", "P", "Q", "H", "I"],
             index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
     }
 
