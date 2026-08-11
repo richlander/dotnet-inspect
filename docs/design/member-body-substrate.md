@@ -372,10 +372,13 @@ self-describing row. What it does *not* leave implicit is the join:
 nullable `NodeId` it was actually anchored to. That id is minted while `IrNode`
 identity is still alive. Recovering the same join afterwards by matching kind
 and extent is ambiguous the moment two nodes print the same characters, so the
-document form below normalizes on the id rather than re-deriving it. Node ids
-are cut from a canonical order — extent, then kind, then the original
-`PrintedRangeMap` slot — because that map promises only descendants-before-
-ancestors, and ids taken from emission order would be reproducible by accident.
+document form below normalizes on the id rather than re-deriving it. Several IR
+wrappers can print the same surface-syntax element; identical `(kind, extent)`
+pairs become one portable node, and every contributing IR identity maps to that
+id. The remaining rows are cut from a canonical order — extent, then kind, then
+the original `PrintedRangeMap` slot — because that map promises only
+descendants-before-ancestors, and ids taken from emission order would be
+reproducible by accident.
 
 #### The portable document: text, nodes, regions, facts, targets
 
@@ -420,6 +423,32 @@ of rows that happen to be lines.
   AnnotationConditionality Conditionality, string? Detail, int SourceOffset,
   AnnotatedSourceFactOrigin Origin)`. A fact carries **no coordinates**.
 - **`Targets`** — `AnnotatedSourceTarget(int FactId, int NodeId)`.
+
+**Node kinds are rendered-syntax vocabulary, not IR class names.**
+`AnnotatedSourceNodeKinds` is the catalog emitted by this producer. The mapping
+is explicit and exhaustively gated over every concrete `IrNode`, so adding an IR
+class requires a deliberate wire decision rather than leaking its CLR type
+name. Internal forms normalize to syntax a reader can ask about:
+`ForLoop → ForStatement`, `NewObject → ObjectCreationExpression`,
+`StoreStackSlot → AssignmentStatement`, and
+`Coerce → ConversionExpression`. Several implementation forms may share one
+syntax kind — all switch-expression raisers are `SwitchExpression`, for
+example — because the document describes the text, not how the decompiler
+reached it. A type-level mapping is refined from node state when one IR class
+prints different syntax: an indexed `LoadProperty` is
+`ElementAccessExpression`, while an ordinary property read is
+`MemberAccessExpression`. Renderer-only decisions such as operator-spelled
+calls and rectangular-array pseudo-members are captured beside the printer's
+range at emission time, so the portable kind follows the syntax that actually
+won rather than reconstructing that choice from IR afterwards.
+
+The strictness is intentionally one-way. Producers emit only cataloged values;
+consumers **must tolerate unknown kinds** so an additive vocabulary change does
+not make a newer document unreadable by an older client.
+`AnnotatedSourceNodeKinds.IsKnown` lets a consumer distinguish "known here"
+from "invalid document" without conflating the two. `Instruction` remains the
+one reserved value with cross-field semantics, because it is exactly the IL
+nodes carrying an `IlOffset`.
 
 **One coordinate currency: the absolute span.** `AnnotatedSourceSpan(int Start,
 int Length)` is an end-exclusive range of **UTF-16 code units** over the decoded
