@@ -259,18 +259,20 @@ public class ApiCommand
         // same shape for a 250-member class and an 8-member enum, where the member sections it used
         // to render varied from one section to eight.
         //
-        // Two neighbours are deliberately left alone. `member` shares this preamble but is a
-        // different command with its own overview (decompiled source, signature, learn order), so it
-        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
-        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
-        // convert. See #3547.
+        // Selected member details join the fixed overview here: Signature is bounded, while the
+        // former info preset also included Decompiled Source and therefore grew with the method
+        // body. Broad member lists and member-name overload inventories retain their own compact
+        // summary presets; they need separate bounded overview designs. The deprecated `api` shim
+        // reaches this preamble too but renders nothing at all -- it prints a migration notice and
+        // returns -- so it has no bare -S to convert. See #3547.
         //
         // Type listing joins here as of this slice. It previously had no Fixed section to offer --
         // every section it published was a per-kind member table that grows with the assembly -- so
         // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
         // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
         // mean the same thing here that it means everywhere else.
-        var usesFixedOverview = options is TypeOptions;
+        var usesFixedOverview = options is TypeOptions
+            || ApiMemberSectionPipelines.UsesDetailPipeline(options);
         var bareSelectSections = usesFixedOverview
             ? singleTypeMode
                 ? memberPipeline.FixedOverviewSectionNames
