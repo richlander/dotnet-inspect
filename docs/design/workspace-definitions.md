@@ -95,8 +95,11 @@ is the point:
 3. a **terse demo reference** — the one record a demo link names, terse
    precisely because every asset it references is registered on the
    product side. (A share link is the deliberate contrast: a live session
-   references no registered *records*, so its packet carries the whole
-   composition inline — see [Projections](#projections).)
+   names no pre-registered scenario-composition records, so its packet
+   carries that packet-local composition rather than their ids. It is not
+   registry-free: group expressions and facet ids still resolve through host
+   registries, which is why share links prefer well-known groups. See
+   [Projections](#projections).)
 
 First, the product-side registration. A bundle registers this catalog
 entry curating the Extensions family; consumers only ever subscribe to
