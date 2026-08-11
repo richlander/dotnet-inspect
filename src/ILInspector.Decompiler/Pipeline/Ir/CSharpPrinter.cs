@@ -2910,7 +2910,7 @@ public sealed partial class CSharpPrinter
             => ConstructorChainText(callee, call),
         ExpressionStatement e => e.Expression switch
         {
-            UnsupportedNode u => $"/* {u.Describe()} */",
+            UnsupportedNode u => UnsupportedStatement(e, u),
             // A user-defined checked ++/-- as a statement spells checked(x++),
             // which is CS0201 in statement position; use a checked { ... } block.
             IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(e, id),
@@ -5555,6 +5555,12 @@ public sealed partial class CSharpPrinter
         {
             _checkedContext = saved;
         }
+    }
+
+    string UnsupportedStatement(ExpressionStatement owner, UnsupportedNode unsupported)
+    {
+        _printedRanges?.SetNodeKind(owner, "UnsupportedExpression");
+        return Expression(unsupported);
     }
 
     string ConvertText(Convert convert)

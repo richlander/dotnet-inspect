@@ -159,11 +159,14 @@ public class PrintedBodyMapTests
 
         Assert.True(ranges.TryGetRange(node, out var range));
         Assert.Equal(expectedText, ranges.Output[range]);
-        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(node));
         var map = PrintedBodyMap.Create(ranges);
         Assert.Contains(
             map.Nodes,
             candidate => candidate.Kind == "UnsupportedExpression"
+                && Text(map, candidate.Extent) == expectedText.TrimEnd());
+        Assert.DoesNotContain(
+            map.Nodes,
+            candidate => candidate.Kind == "ExpressionStatement"
                 && Text(map, candidate.Extent) == expectedText.TrimEnd());
     }
 
@@ -181,6 +184,11 @@ public class PrintedBodyMapTests
                     new Constant(0, TypeRef.CoreLib("System", "Int32")),
                     new Constant(1, TypeRef.CoreLib("System", "Int32"))),
                 "/* unsupported cpblk */\n"
+            },
+            {
+                new ExpressionStatement(
+                    new UnsupportedNode(0x05, "calli", "unsupported call site")),
+                "/* Unsupported IL_0005 calli: unsupported call site */\n"
             },
         };
 
