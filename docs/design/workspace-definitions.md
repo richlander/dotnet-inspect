@@ -173,10 +173,17 @@ Field semantics:
   shape this note pins (`lens`, `type`, `memberAnchor` or `memberSignature`,
   `section`, and `library` — each field individually optional; member
   selectors require `type`, `memberAnchor` and `memberSignature` are
-  mutually exclusive, `section` requires a member selector, and an empty
-  view is the context's default view), and an optional `query`, for which
-  this note pins only the slot — the query-plan owner defines its shape,
-  and that owner must itself sit at or below the dependency boundary.
+  mutually exclusive, and an empty view is the context's default view), and
+  an optional `query`, for which this note pins only the slot — the
+  query-plan owner defines its shape, and that owner must itself sit at or
+  below the dependency boundary. The selected query and view-facet
+  descriptors declare the context, library, type, and member inputs they
+  require and which facet combinations are valid. Activating a scenario
+  resolves those descriptors and validates the supplied selectors against
+  their contracts. Missing, ambiguous, or incompatible inputs are typed
+  failures; a consumer never invents an undeclared selector or silently
+  broadens the query. A section is not intrinsically member-scoped: its
+  descriptor may operate at package, library, type, or member scope.
   `library` scopes the view to one or more of the context's libraries — a
   view concern, because scoping is a lens on a context, not a different
   context. The packet spells the single-library platform case `l` today
@@ -333,13 +340,16 @@ bundle contract. `local` and `project` members are meaningful only to hosts
 with filesystem access; a browser host rejects them with a typed outcome
 rather than silently skipping them.
 
-A member or subscription without a version **floats** ("resolve latest at
-load"). Floating is the share-link norm and wrong for preserved demos, so
-authored definitions pin every coordinate they declare — the implicit
-platform context is the sanctioned exception, declaring nothing and
-floating by design. Bundle validation has one trigger list, defined here:
-it warns on floating declared coordinates and on the absent-`contexts`
-form (which floats by construction).
+A member or subscription without a version **floats**. When a consumer
+realizes that coordinate, it uses the normal source and version policy to
+determine the latest acceptable version and then loads it; a fully bound
+coordinate goes directly to loading the stated version. Loading the
+definition itself leaves a floating coordinate unresolved. Floating is the
+share-link norm and wrong for preserved demos, so authored definitions pin
+every coordinate they declare — the implicit platform context is the
+sanctioned exception, declaring nothing and floating by design. Bundle
+validation has one trigger list, defined here: it warns on floating declared
+coordinates and on the absent-`contexts` form (which floats by construction).
 
 ### What a definition never contains
 
@@ -466,10 +476,16 @@ required by this design:
   bundle instead. Which authored context shapes are projectable is bounded
   by the context-to-tuple mapping question in
   [Open questions](#open-questions).
-- **A format discriminator is required.** Today's two wire forms are
-  distinguished by shape; the next revision adds an explicit version so
-  future changes (including optional compression, should payloads ever grow)
-  do not break old links.
+- **A format discriminator and strict validation are required.** The
+  redesigned packet is the first supported wire contract; today's unversioned
+  prototype forms have no compatibility requirement. Readers accept only a
+  supported explicit version and decode all-or-nothing: the complete query
+  value must be canonical base64url, decode to one complete JSON value with no
+  trailing content, and satisfy that version's schema and bounds. Unsupported
+  versions, truncated or appended input, malformed encoding or JSON, invalid
+  tuple shapes, and out-of-range indexes are typed invalid-packet outcomes;
+  none restores partial workspace state. The explicit version lets later
+  formats evolve without breaking links issued under this supported contract.
 - **Member selection moves to anchor digests.** The positional overload
   index (`o`) is replaced by the `MemberAnchor` fingerprint the UI already
   displays and the call-graph demo already matches on. With that, every
@@ -503,11 +519,13 @@ NativeAOT-compatible.
 
 ## Known gaps this design requires
 
-- **A production no-resolution binding policy.** The only
-  `IAssemblyBindingPolicy` for "these bytes, no filesystem resolution" is a
-  pair of duplicated test-only `MissingBindingPolicy` stubs; self-contained
-  embedded-bytes definitions need a product equivalent, since
-  `AssemblyDependencyResolutionOptions` is path-rooted.
+- **A shared no-resolver binding policy.** Inspection paths require an
+  `IAssemblyBindingPolicy` even when no `IAssemblyReferenceResolver` is
+  available. Product and test code currently carry several private
+  implementations of the resulting failure-only policy. They need one
+  substrate-owned implementation outside the CLI: it performs no filesystem
+  or network resolution and returns a non-success typed selection for every
+  binding request, including intrinsic core-library requests.
 - **A fifth provenance case.** `AssemblyResolutionProvenance` is
   deliberately closed (private-protected constructor and discriminator), so
   the `embedded` coordinate requires a new case added in
@@ -558,14 +576,15 @@ answer; each needs a decision before or during implementation.
   unambiguous — the pin is the runtime-pack version. What
   `:Extensions@<version>` means for a custom group whose members carry their
   own versions (override, constraint, or error) is unresolved.
-- **View facet registry binding.** Package-root lenses, type lenses, and
-  member sections are three presentation token spaces today, and they
-  collide across scopes (`overview`, `source`, `metadata`) — precisely
-  because they are consumer vocabularies, not contract ones. The direction
-  is settled (view preset values are product-owned registry ids that CLI
-  commands and browser lenses abstract; see the `scenarios` field
-  semantics), but the binding is not, and the seemingly obvious candidate
-  is disqualified unless frozen: section descriptor names are *declared
+- **View facet registry binding.** Package-root and type lenses, together
+  with package-, library-, type-, and member-scope section pipelines, are
+  presentation token spaces today, and they collide across scopes
+  (`overview`, `source`, `metadata`) — precisely because they are consumer
+  vocabularies, not contract ones. The direction is settled (view preset
+  values are product-owned registry ids that CLI commands and browser lenses
+  abstract; see the `scenarios` field semantics), but the binding is not, and
+  the seemingly obvious candidate is disqualified unless frozen: section
+  descriptor names are *declared
   display names* (`ISectionDescriptor.Name` documents itself as "Section
   display name"), are simultaneously the CLI's `-S` token space, are
   unique per *pipeline* only by convention (thirteen `SectionNames`
@@ -587,16 +606,17 @@ answer; each needs a decision before or during implementation.
   inspection-layers already anticipates as a project move), so the real
   discriminator between them is stability, not location. Also unresolved:
   how ids are spelled
-  (author-facing, so human-writable and documented); and how the `lens`
-  field distinguishes package-root from type scope — today scope is
-  inferred from `type`-presence, the inference pattern the `kind`
-  discriminator eliminated for documents, so the registry decision must
-  either mint scope-unique ids or add an explicit scope field to the view
-  preset. The stability disciplines also differ by mechanism and need
-  different gates: minted ids are additive — never reused, never renamed —
-  while the anchor digest is derived, guarded by fixed derivation; both
-  are compatibility surfaces, but "append-only" applies only to the
-  former.
+  (author-facing, so human-writable and documented); how the `lens` field
+  distinguishes package-root from type scope; and how `section`
+  distinguishes package, library, type, and member scopes. Today those
+  scopes are inferred from `type` presence, pipeline, or command shape —
+  the inference pattern the `kind` discriminator eliminated for documents —
+  so the registry decision must either mint scope-unique ids or add explicit
+  scope to the view preset. The stability disciplines also differ by
+  mechanism and need different gates: minted ids are additive — never reused,
+  never renamed — while the anchor digest is derived, guarded by fixed
+  derivation; both are compatibility surfaces, but "append-only" applies only
+  to the former.
 - **Anonymous transposed scenarios.** The URL projection emits one unnamed
   scenario while `scenarios` are otherwise named; whether `name` is
   optional-for-single or the transposition synthesizes a reserved name is a
@@ -620,10 +640,21 @@ Unverified, all of it. Implementation must add, at minimum:
   for the terse projection, including active-index remapping under dedup,
   and asserting the definition → packet direction refuses non-projectable
   definitions rather than silently flattening them;
+- a packet-validity gate rejecting unsupported or absent versions, malformed
+  or non-canonical base64url, incomplete or trailing JSON, truncated or
+  appended input, invalid field shapes, and out-of-range indexes without
+  restoring partial workspace state;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable session state — the known current exception the
   redesign must close is library scope over non-platform packages, which
   `l` never encodes;
+- a no-resolver-policy gate asserting every binding-target kind receives a
+  non-success typed selection and that the shared policy has no filesystem or
+  network resolution path;
+- a preset-input gate derived from the registered query and view-facet
+  descriptors, with positive cases for sufficient selectors and close
+  negative cases proving missing, ambiguous, and incompatible inputs fail
+  closed;
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
