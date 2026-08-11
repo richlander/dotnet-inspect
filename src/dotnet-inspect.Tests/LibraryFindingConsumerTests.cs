@@ -220,10 +220,6 @@ public class LibraryFindingConsumerTests
             new CustomAttributesResult.Failed(
                 new FileNotFoundException("Custom attribute input was not found.", missingPath)));
         inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
-        LibraryMetadataService.ScanIntegrationOpportunities(
-            missingPath,
-            inspection,
-            logger);
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
@@ -232,9 +228,7 @@ public class LibraryFindingConsumerTests
         AssertFailure(inspection.TypeForwarderInspection, MetadataFindings.TypeForwarderDescriptor);
         AssertFailure(inspection.UnionTypeInspection, MetadataFindings.UnionTypeDescriptor);
         AssertFailure(inspection.SwitchInspection, MetadataFindings.SwitchDescriptor);
-        AssertFailure(inspection.EcosystemIntegrationInspection, MetadataFindings.EcosystemIntegrationDescriptor);
-        AssertFailure(inspection.OpenTelemetryInspection, MetadataFindings.OpenTelemetrySignalDescriptor);
-        Assert.Equal(9, inspection.InspectionFailures!.Count);
+        Assert.Equal(7, inspection.InspectionFailures!.Count);
     }
 
     [Fact]
@@ -280,12 +274,57 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_ExecutesOpportunityClosureOnce()
+    {
+        string path = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition];
+        var trace = new DotnetInspector.Sections.InspectionTrace();
+
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "opportunity closure test")),
+                    ],
+                    trace));
+
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(path));
+        var opportunities = Assert.IsType<
+            AssemblyIntegrationOpportunitiesEntry.Available>(
+                batch.OpportunitiesEntryFor(path));
+        var inspection = new LibraryInspection();
+        LibraryMetadataService.ApplyAssemblyIntegrationOpportunitiesEntry(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            opportunities);
+
+        Assert.Same(
+            opportunities,
+            inspection.AssemblyIntegrationOpportunitiesEntry);
+        Assert.Empty(queries);
+        Assert.Equal(
+            [
+                AssemblyContextIntegrationsQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            ],
+            trace.QueryExecutions.Select(execution => execution.Query));
+    }
+
+    [Fact]
     public void AssemblyContextIntegrationsRunner_ProjectsBudgetFailureBesideAvailableEntry()
     {
         string firstPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
         string secondPath = typeof(LibraryInspection).Assembly.Location;
         HashSet<InspectionQueryDefinition> queries =
-            [AssemblyContextIntegrationsQuery.Definition];
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
@@ -309,6 +348,9 @@ public class LibraryFindingConsumerTests
             batch.EntryFor(firstPath));
         var rejected = Assert.IsType<AssemblyIntegrationsEntry.Rejected>(
             batch.EntryFor(secondPath));
+        var rejectedOpportunities = Assert.IsType<
+            AssemblyIntegrationOpportunitiesEntry.Rejected>(
+                batch.OpportunitiesEntryFor(secondPath));
         Assert.Equal(CandidateOpenFailureKind.ResourceBudget, rejected.Failure.Kind);
 
         var inspection = new LibraryInspection();
@@ -319,12 +361,74 @@ public class LibraryFindingConsumerTests
             rejected);
 
         Assert.Same(rejected, inspection.AssemblyIntegrationsEntry);
+        LibraryMetadataService.ApplyAssemblyIntegrationOpportunitiesEntry(
+            secondPath,
+            inspection,
+            new VerboseLogger(enabled: false),
+            rejectedOpportunities);
         Assert.Equal(
             [
                 LibraryIntegrationCatalog.RollupName,
                 EcosystemIntegrationNames.OpenTelemetry,
+                IntegrationSectionNames.Opportunities,
             ],
             inspection.InspectionFailures!.Select(failure => failure.Section));
+    }
+
+    [Fact]
+    public void AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection()
+    {
+        string path = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "opportunity failure projection test")),
+                    ]));
+        var integrations = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(path));
+        var error = new BadImageFormatException("opportunity scan failed");
+        var failed = new AssemblyIntegrationOpportunitiesEntry.Failed(
+            integrations.Subject,
+            error);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyAssemblyIntegrationOpportunitiesEntry(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            failed);
+
+        Assert.Same(failed, inspection.AssemblyIntegrationOpportunitiesEntry);
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(IntegrationSectionNames.Opportunities, failure.Section);
+        Assert.Equal(error.Message, failure.Reason);
+
+        string json = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement jsonFailure = Assert.Single(
+            document.RootElement
+                .GetProperty("inspection_failures")
+                .EnumerateArray());
+        Assert.Equal(
+            IntegrationSectionNames.Opportunities,
+            jsonFailure.GetProperty("section").GetString());
+        Assert.Equal(
+            error.Message,
+            jsonFailure.GetProperty("reason").GetString());
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "integration_opportunities",
+                out _));
     }
 
     [Fact]
@@ -334,7 +438,7 @@ public class LibraryFindingConsumerTests
         try
         {
             HashSet<InspectionQueryDefinition> queries =
-                [AssemblyContextIntegrationsQuery.Definition];
+                [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
@@ -367,7 +471,7 @@ public class LibraryFindingConsumerTests
         try
         {
             HashSet<InspectionQueryDefinition> queries =
-                [AssemblyContextIntegrationsQuery.Definition];
+                [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
@@ -546,7 +650,7 @@ public class LibraryFindingConsumerTests
         try
         {
             HashSet<InspectionQueryDefinition> queries =
-                [AssemblyContextIntegrationsQuery.Definition];
+                [AssemblyContextIntegrationOpportunitiesQuery.Definition];
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
                     AssemblyContextIntegrationsRunner.RunIfRequested(
@@ -561,6 +665,10 @@ public class LibraryFindingConsumerTests
             AssemblyIntegrationsEntry entry =
                 Assert.IsAssignableFrom<AssemblyIntegrationsEntry>(
                     batch.EntryFor(targetPath));
+            AssemblyIntegrationOpportunitiesEntry opportunitiesEntry =
+                Assert.IsAssignableFrom<
+                    AssemblyIntegrationOpportunitiesEntry>(
+                        batch.OpportunitiesEntryFor(targetPath));
 
             File.Copy(replacementPath, targetPath, overwrite: true);
             File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
@@ -577,7 +685,8 @@ public class LibraryFindingConsumerTests
                     httpClient,
                     assemblyReference: Assert.IsType<ResolvedAssemblyReference>(
                         batch.AssemblyForInspection(targetPath)),
-                    integrationsEntry: entry));
+                    integrationsEntry: entry,
+                    integrationOpportunitiesEntry: opportunitiesEntry));
 
             Assert.Equal(
                 entry.Subject.Identity.Name,
@@ -587,6 +696,9 @@ public class LibraryFindingConsumerTests
                 inspection.AssemblyInfo.AssemblyName);
             Assert.Equal(originalTimestamp, inspection.LastModified);
             Assert.Same(entry, inspection.AssemblyIntegrationsEntry);
+            Assert.Same(
+                opportunitiesEntry,
+                inspection.AssemblyIntegrationOpportunitiesEntry);
         }
         finally
         {
