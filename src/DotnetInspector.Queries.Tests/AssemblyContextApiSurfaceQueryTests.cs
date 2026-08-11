@@ -40,7 +40,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void PublicWithNonPublicTypes_AddsNonPublicTypesAndKeepsPublicMemberLists()
+    public void PublicWithNonPublicTypes_AddsOnlyNonPublicTypesAndKeepsPublicMemberLists()
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
@@ -56,6 +56,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         Assert.Contains(
             composed.Surface.Types,
             type => type.Name == nameof(ApiSurfaceInternalProbe));
+        Assert.DoesNotContain(
+            composed.Surface.Types,
+            type => type.FullName == typeof(ApiSurfaceHiddenPublicProbe).FullName);
 
         // A public type keeps the member list the default surface gave it, so asking for
         // non-public types never silently adds private members to a public type.
@@ -356,4 +359,13 @@ public sealed class ApiSurfacePublicProbe
 internal sealed class ApiSurfaceInternalProbe
 {
     public int Visible => 3;
+}
+
+/// <summary>A public probe the default consumer surface deliberately suppresses.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class ApiSurfaceHiddenPublicProbe
+{
+    public int Visible => 4;
+
+    private int HiddenSecret => 5;
 }

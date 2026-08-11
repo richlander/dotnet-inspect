@@ -22,12 +22,11 @@ public enum ApiSurfaceScope
     IncludeAll,
 
     /// <summary>
-    /// The default consumer surface, plus the types only the include-all surface reaches. A type
+    /// The default consumer surface, plus non-public types from the include-all surface. A type
     /// present in both keeps its default-surface member list, so asking for non-public types never
-    /// silently adds private members to a public type. The include-all surface is not a superset
-    /// filtered by accessibility — it also unhides types the default surface suppresses — so this
-    /// composition is a product decision rather than something a consumer can reconstruct by
-    /// filtering one surface.
+    /// silently adds private members to a public type. Public types the extractor deliberately
+    /// suppresses remain suppressed rather than re-entering the default public bucket with their
+    /// include-all member list.
     /// </summary>
     PublicWithNonPublicTypes,
 }
@@ -209,8 +208,11 @@ public static class AssemblyContextApiSurfaceQuery
             .ToHashSet(StringComparer.Ordinal);
         foreach (ApiType type in all.Types)
         {
-            if (projected.Add(type.FullName))
+            if (ApiAccessibility.Classify(type.Accessibility).Id != "public"
+                && projected.Add(type.FullName))
+            {
                 surface.Types.Add(type);
+            }
         }
 
         // Both extractions observed the same image, so an inspection failure either surface

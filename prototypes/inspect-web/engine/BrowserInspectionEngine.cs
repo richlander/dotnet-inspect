@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text;
@@ -889,7 +890,7 @@ public static partial class BrowserInspectionEngine
         foreach (CallGraphNode node in projection.Nodes)
         {
             builder.Append("  n").Append(node.Id).Append("[\"")
-                .Append(node.Label.Replace("\"", "&quot;", StringComparison.Ordinal))
+                .Append(MermaidLabel(node.Label))
                 .Append("\"]:::")
                 .Append(node.Kind.ToString().ToLowerInvariant())
                 .Append('\n');
@@ -900,6 +901,52 @@ public static partial class BrowserInspectionEngine
             builder.Append("  n").Append(edge.From)
                 .Append(edge.LoopLabel is null ? " --> " : " -- loop --> ")
                 .Append('n').Append(edge.To).Append('\n');
+        }
+
+        return builder.ToString();
+    }
+
+    internal static string MermaidLabel(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (char character in value)
+        {
+            switch (character)
+            {
+                case '&':
+                    builder.Append("&amp;");
+                    break;
+                case '<':
+                    builder.Append("&lt;");
+                    break;
+                case '>':
+                    builder.Append("&gt;");
+                    break;
+                case '"':
+                    builder.Append("&quot;");
+                    break;
+                case '\\':
+                    builder.Append("&#92;");
+                    break;
+                case '\u2028':
+                case '\u2029':
+                    builder.Append("&#92;u")
+                        .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
+                    break;
+                default:
+                    if (char.IsControl(character))
+                    {
+                        builder.Append("&#92;u")
+                            .Append(((int)character).ToString(
+                                "X4",
+                                CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        builder.Append(character);
+                    }
+                    break;
+            }
         }
 
         return builder.ToString();

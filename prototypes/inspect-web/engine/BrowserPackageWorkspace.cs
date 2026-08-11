@@ -36,6 +36,10 @@ namespace InspectWeb.Engine;
 /// participant's availability for the whole group, so it is only correct for a group that is
 /// discarded immediately afterwards.
 /// </para>
+/// <para>
+/// <c>BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures</c>
+/// gates the aggregate package-cache and scope-retention budget.
+/// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWorkspace
@@ -53,10 +57,17 @@ internal static class BrowserPackageWorkspace
 
     sealed record CacheEntry(byte[] Bytes, long LastAccess);
 
-    sealed record ScopeEntry(BrowserInspectionScope Scope, long LastAccess);
+    sealed record ScopeEntry(
+        BrowserInspectionScope Scope,
+        ImmutableHashSet<string> PackageKeys,
+        long LastAccess);
 
     public static BrowserPackageCacheStats Stats() =>
-        new(Downloaded.Count, Cache.Count, Scopes.Count);
+        new(
+            Downloaded.Count,
+            Cache.Count,
+            Scopes.Count,
+            Cache.Values.Sum(entry => entry.Bytes.LongLength));
 
     /// <summary>Acquires one package's content at an exact resolved version.</summary>
     public static async Task<BrowserPackage> AcquireAsync(string packageId, string? version)
@@ -67,11 +78,15 @@ internal static class BrowserPackageWorkspace
         string resolvedVersion = await ResolveVersionAsync(normalizedId, version);
         string normalizedVersion = resolvedVersion.ToLowerInvariant();
         string key = $"{normalizedId}@{normalizedVersion}";
-        byte[] bytes = await GetBytesAsync(normalizedId, normalizedVersion, key);
+        (byte[] bytes, bool fromCache) = await GetBytesAsync(
+            normalizedId,
+            normalizedVersion,
+            key);
         return new BrowserPackage(
             packageId,
             resolvedVersion,
-            new InMemoryPackageContent(bytes, Downloaded.Contains(key), "nuget.org"));
+            bytes,
+            fromCache);
     }
 
     /// <summary>
@@ -127,9 +142,11 @@ internal static class BrowserPackageWorkspace
         if (Scopes.TryGetValue(key, out ScopeEntry? entry))
         {
             Scopes[key] = entry with { LastAccess = ++_clock };
+            TouchPackages(entry.PackageKeys);
             return entry.Scope;
         }
 
+        ImmutableHashSet<string> packageKeys = RetainCoordinatePackages(coordinates);
         var scope = new BrowserInspectionScope(coordinates);
         while (Scopes.Count >= MaxOpenScopes)
         {
@@ -143,7 +160,7 @@ internal static class BrowserPackageWorkspace
             Scopes.Remove(oldest);
         }
 
-        Scopes[key] = new ScopeEntry(scope, ++_clock);
+        Scopes[key] = new ScopeEntry(scope, packageKeys, ++_clock);
         return scope;
     }
 
@@ -186,12 +203,15 @@ internal static class BrowserPackageWorkspace
         ?? throw new InvalidOperationException(
             "nuget.org exposes no flat-container endpoint.");
 
-    static async Task<byte[]> GetBytesAsync(string normalizedId, string normalizedVersion, string key)
+    static async Task<(byte[] Bytes, bool FromCache)> GetBytesAsync(
+        string normalizedId,
+        string normalizedVersion,
+        string key)
     {
         if (Cache.TryGetValue(key, out CacheEntry? cached))
         {
             Cache[key] = cached with { LastAccess = ++_clock };
-            return cached.Bytes;
+            return (cached.Bytes, true);
         }
 
         string url = await PackageExtractor.GetPackageDownloadUrlAsync(
@@ -208,22 +228,99 @@ internal static class BrowserPackageWorkspace
             $"Package '{normalizedId}' {normalizedVersion}");
         Downloaded.Add(key);
 
-        while (Cache.Count >= MaxCachedPackages
-            || Cache.Values.Sum(entry => entry.Bytes.LongLength) + bytes.LongLength
+        MakeCacheRoom(
+            bytes.LongLength,
+            additionalEntries: 1,
+            ImmutableHashSet<string>.Empty);
+
+        Cache[key] = new CacheEntry(bytes, ++_clock);
+        return (bytes, false);
+    }
+
+    static ImmutableHashSet<string> RetainCoordinatePackages(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates)
+    {
+        Dictionary<string, BrowserPackage> packages = coordinates
+            .GroupBy(PackageKey, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().Package,
+                StringComparer.Ordinal);
+        long retainedBytes = packages.Values.Sum(package => package.RetainedBytes.LongLength);
+        if (packages.Count > MaxCachedPackages || retainedBytes > MaxCachedPackageBytes)
+        {
+            throw new InvalidOperationException(
+                "The requested workspace's package archives exceed the browser package-cache "
+                + "limit.");
+        }
+
+        ImmutableHashSet<string> packageKeys =
+            packages.Keys.ToImmutableHashSet(StringComparer.Ordinal);
+        foreach (string packageKey in packageKeys)
+            Cache.Remove(packageKey);
+        MakeCacheRoom(retainedBytes, packages.Count, packageKeys);
+        foreach ((string packageKey, BrowserPackage package) in packages)
+            Cache[packageKey] = new CacheEntry(package.RetainedBytes, ++_clock);
+        return packageKeys;
+    }
+
+    static void MakeCacheRoom(
+        long additionalBytes,
+        int additionalEntries,
+        IReadOnlySet<string> protectedKeys)
+    {
+        while (Cache.Count + additionalEntries > MaxCachedPackages
+            || Cache.Values.Sum(entry => entry.Bytes.LongLength) + additionalBytes
                 > MaxCachedPackageBytes)
         {
             string? oldest = Cache
+                .Where(entry => !protectedKeys.Contains(entry.Key))
                 .OrderBy(entry => entry.Value.LastAccess)
                 .Select(entry => entry.Key)
                 .FirstOrDefault();
             if (oldest is null)
-                break;
-            Cache.Remove(oldest);
+            {
+                throw new InvalidOperationException(
+                    "The browser package-cache limit cannot accommodate the requested workspace.");
+            }
+
+            EvictPackage(oldest);
+        }
+    }
+
+    static void EvictPackage(string packageKey)
+    {
+        string[] retainedScopes =
+        [
+            .. Scopes
+                .Where(entry => entry.Value.PackageKeys.Contains(packageKey))
+                .Select(entry => entry.Key),
+        ];
+        foreach (string scopeKey in retainedScopes)
+        {
+            Scopes[scopeKey].Scope.Dispose();
+            Scopes.Remove(scopeKey);
         }
 
-        Cache[key] = new CacheEntry(bytes, ++_clock);
-        return bytes;
+        Cache.Remove(packageKey);
     }
+
+    static void TouchPackages(IEnumerable<string> packageKeys)
+    {
+        foreach (string packageKey in packageKeys)
+        {
+            if (!Cache.TryGetValue(packageKey, out CacheEntry? entry))
+            {
+                throw new InvalidOperationException(
+                    "An open browser workspace lost its retained package-cache entry.");
+            }
+
+            Cache[packageKey] = entry with { LastAccess = ++_clock };
+        }
+    }
+
+    static string PackageKey(BrowserPackageCoordinate coordinate) =>
+        $"{coordinate.PackageId.ToLowerInvariant()}@{coordinate.Version.ToLowerInvariant()}";
 
     static async Task<byte[]> DownloadBytesAsync(
         string url,
@@ -253,16 +350,33 @@ internal static class BrowserPackageWorkspace
 
 /// <summary>One acquired package: its exact identity and its content.</summary>
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserPackage(string packageId, string version, InMemoryPackageContent content)
+internal sealed class BrowserPackage
 {
     const long MaxAssemblyEntryBytes = BrowserInspectionScope.MaxRetainedImageBytes;
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
 
-    public string PackageId { get; } = packageId;
+    public BrowserPackage(
+        string packageId,
+        string version,
+        byte[] retainedBytes,
+        bool fromCache)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentNullException.ThrowIfNull(retainedBytes);
+        PackageId = packageId;
+        Version = version;
+        RetainedBytes = retainedBytes;
+        Content = new InMemoryPackageContent(retainedBytes, fromCache, "nuget.org");
+    }
 
-    public string Version { get; } = version;
+    public string PackageId { get; }
 
-    public InMemoryPackageContent Content { get; } = content;
+    public string Version { get; }
+
+    public InMemoryPackageContent Content { get; }
+
+    internal byte[] RetainedBytes { get; }
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
@@ -375,39 +489,38 @@ internal sealed class BrowserPackage(string packageId, string version, InMemoryP
         TryRead(path, MaxTextEntryBytes, out bytes);
 
     /// <summary>
-    /// Mints one typed acquisition participant for a package entry, or <see langword="null"/> when
-    /// the entry carries no managed assembly metadata. The workspace validates every image it
-    /// acquires against its descriptor, so acquisition must state the entry's real metadata
-    /// identity; <see cref="ResolvedAssemblyReference.CreateFromPathIfManaged"/> does this for a
-    /// filesystem path and has no content-shaped sibling, so identity is decoded here — at
-    /// acquisition, not during inspection.
+    /// Mints one typed acquisition participant for a selected package entry. A healthy image uses
+    /// its real metadata identity. A malformed, native, or module image uses its selected asset
+    /// name only as a rejection carrier, so the workspace query reports that participant's typed
+    /// acquisition failure instead of silently shortening the selected assembly set.
     /// </summary>
-    internal ResolvedAssemblyReference? TryCreateReference(
+    internal ResolvedAssemblyReference CreateReference(
         string path,
         AssemblyResolutionProvenance provenance)
     {
-        AssemblyReferenceIdentity identity;
+        AssemblyReferenceIdentity? identity = null;
         try
         {
             using var peReader = new PEReader(
                 ImmutableCollectionsMarshal.AsImmutableArray(
                     Read(path, MaxAssemblyEntryBytes)));
-            if (!peReader.HasMetadata)
-                return null;
-
-            MetadataReader reader = peReader.GetMetadataReader();
-            if (!reader.IsAssembly)
-                return null;
-
-            identity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            if (peReader.HasMetadata)
+            {
+                MetadataReader reader = peReader.GetMetadataReader();
+                if (reader.IsAssembly)
+                    identity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            }
         }
         catch (BadImageFormatException)
         {
-            return null;
         }
 
         return ResolvedAssemblyReference.Create(
-            identity,
+            identity ?? new AssemblyReferenceIdentity(
+                Path.GetFileNameWithoutExtension(path),
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null),
             path: null,
             () => OpenEntry(path, MaxAssemblyEntryBytes),
             provenance);

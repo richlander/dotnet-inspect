@@ -133,6 +133,39 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public void Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup()
+    {
+        ImmutableArray<byte> image = SelfImage();
+        int outsiderOpens = 0;
+        ResolvedAssemblyReference outsider = ResolvedAssemblyReference.Create(
+            ContentIdentity(image),
+            path: null,
+            () =>
+            {
+                outsiderOpens++;
+                return new MemoryStream(
+                    ImmutableCollectionsMarshal.AsArray(image)!,
+                    writable: false);
+            },
+            AssemblyResolutionProvenance.Package(
+                "outsider",
+                "1.0.0",
+                "net11.0",
+                rid: null));
+        var policy = new SelectingBindingPolicy(outsider);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.BoxInt))));
+
+        Assert.NotEmpty(policy.Requests);
+        Assert.Equal(0, outsiderOpens);
+    }
+
+    [Fact]
     public void Execute_CarriesRejectedParticipantBesideLaterResultsInGroupOrder()
     {
         ImmutableArray<byte> image = SelfImage();
@@ -273,6 +306,22 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable));
+        }
+    }
+
+    sealed class SelectingBindingPolicy(ResolvedAssemblyReference selection)
+        : IAssemblyBindingPolicy
+    {
+        readonly List<AssemblyBindingRequest> _requests = [];
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        internal IReadOnlyList<AssemblyBindingRequest> Requests => _requests;
+
+        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        {
+            _requests.Add(request);
+            return AssemblyBindingSelection.Found(selection);
         }
     }
 }

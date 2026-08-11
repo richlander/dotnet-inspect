@@ -272,8 +272,8 @@ internal static class AssemblyContextResearchSource
     /// <summary>
     /// Answers reference resolution from the participant's binding policy — the same
     /// source-relative snapshot the group is consistent with — rather than by matching simple
-    /// names. A selected sibling participant is returned as a snapshot-backed descriptor so its
-    /// content stays workspace-owned.
+    /// names. Only a selected sibling participant is returned, as a snapshot-backed descriptor,
+    /// so resolution cannot acquire content outside the group's ownership and byte budget.
     /// </summary>
     sealed class BindingPolicyResolver(
         AssemblyContextGroup group,
@@ -299,7 +299,7 @@ internal static class AssemblyContextResearchSource
                     candidate.Assembly.Registration,
                     selected.Assembly.Registration));
             if (!isParticipant)
-                return selected.Assembly;
+                return null;
 
             return group.RetainAssemblyReference(selected.Assembly)
                 is AssemblyImageAccessResult<ResolvedAssemblyReference>.Available retained

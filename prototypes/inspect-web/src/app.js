@@ -1,4 +1,11 @@
-import { lenses, packageLenses, rootCommands } from "./data.js";
+import {
+  lenses,
+  packageIdentityKey,
+  packageLenses,
+  rootCommands,
+  spotlightCandidateKey,
+  spotlightCandidateSignature
+} from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
 import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
@@ -493,6 +500,7 @@ const app = document.querySelector("#app");
 let mermaidModule;
 let markdownModule;
 let depGraphRenderSeq = 0;
+let callGraphRenderSeq = 0;
 document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value) {
@@ -647,13 +655,6 @@ function defaultAccessibilityFilter(pkg) {
   return new Set((pkg?.accessibility ?? [])
     .filter(descriptor => descriptor.isDefault)
     .map(descriptor => descriptor.id));
-}
-
-function packageIdentityKey(pkg) {
-  if (!pkg) return "";
-  return [pkg.id, pkg.version, pkg.activeFramework]
-    .map(value => encodeURIComponent(String(value || "").toLowerCase()))
-    .join("|");
 }
 
 function packageIdentityEquals(left, right) {
@@ -1190,7 +1191,7 @@ function render() {
             <span class="diag" title="Initial package query precomputed during load">⚡ precompute ${fmtMs(state.diag.precomputeMs)}</span>
             <span class="diag diag-total" title="Total time from navigation start to interactive">Σ ${fmtMs(state.diag.totalMs)}</span>` : ""}
             ${state.packageCacheStats && state.packageCacheStats.packages > 0 ? `
-            <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache${state.packageCacheStats.packages > state.packageCacheStats.resident ? ` (${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the LRU limit of 12 packages / 128 MB)` : ""}; ${state.packageCacheStats.workspaces} open workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"} (LRU limit 4)">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache · ${state.packageCacheStats.workspaces} workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"}</span>` : ""}
+            <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache (${(state.packageCacheStats.residentBytes / 1048576).toFixed(1)} MB, including archives retained by open workspaces)${state.packageCacheStats.packages > state.packageCacheStats.resident ? `; ${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the aggregate LRU limit of 12 packages / 128 MB` : ""}; ${state.packageCacheStats.workspaces} open workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"} (LRU limit 4)">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache · ${state.packageCacheStats.workspaces} workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"}</span>` : ""}
           <span class="status-spacer"></span>
           <span>${escapeHtml(current.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
@@ -1228,6 +1229,11 @@ function render() {
   maybeAutoLoadPackageOpportunities();
   maybeAutoLoadPackagePerformance();
   maybeAutoLoadPackageMetadata();
+  if (scope() === "member"
+    && state.memberSection === "call-graph"
+    && currentCallGraph()?.mermaid) {
+    renderMermaidCallGraph();
+  }
 }
 
 function maybeAutoLoadTypeSource() {
@@ -4009,7 +4015,7 @@ function spotlightPool() {
   for (const pkg of pkgs) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
-      const key = `${pkg.id}\u0000${type.id}`;
+      const key = spotlightCandidateKey(pkg, type.id);
       if (seen.has(key)) continue;
       seen.add(key);
       pool.push({ pkg, type });
@@ -4019,15 +4025,13 @@ function spotlightPool() {
 }
 
 function spotlightCandidates() {
-  const signature = `${state.package?.id ?? ""}#${state.packages
-    .map(pkg => `${pkg.id}:${pkg.types?.length ?? 0}`)
-    .join("|")}`;
+  const signature = spotlightCandidateSignature(state.package, state.packages);
   if (spotlightCache && spotlightCache.signature === signature) return spotlightCache;
 
   const pool = spotlightPool();
   const keyMap = new Map();
   const candidates = pool.map(item => {
-    const key = `${item.pkg.id}\u0000${item.type.id}`;
+    const key = spotlightCandidateKey(item.pkg, item.type.id);
     keyMap.set(key, item);
     const full = `${item.type.namespace ? `${item.type.namespace}.` : ""}${item.type.name}`;
     return { key, name: item.type.name, full };
@@ -4915,7 +4919,8 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
 }
 
 function pickSpotlightLoadedPackage(pkg) {
-  const target = state.packages.find(item => packageIdentityEquals(item, pkg)) || pkg;
+  const target = state.packages.find(item => packageIdentityEquals(item, pkg));
+  if (!target) { closeSpotlight(); return; }
   state.home = false;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
@@ -4930,8 +4935,7 @@ function pickSpotlightLoadedPackage(pkg) {
 }
 
 function pickSpotlightMember(result) {
-  const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg))
-    || result.pkg;
+  const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!type) { closeSpotlight(); return; }
   state.home = false;
@@ -4954,9 +4958,7 @@ function pickSpotlightMember(result) {
 }
 
 function pickSpotlight(packageResult, typeId) {
-  const pkg = state.packages.find(item => packageIdentityEquals(item, packageResult))
-    || packageResult
-    || state.package;
+  const pkg = state.packages.find(item => packageIdentityEquals(item, packageResult));
   const type = pkg?.types?.find(item => item.id === typeId);
   if (!type) {
     closeSpotlight();
@@ -6360,9 +6362,15 @@ async function renderMermaidCallGraph() {
   const container = document.querySelector("#call-graph-diagram");
   const active = currentCallGraph();
   if (!container || !active?.mermaid) return;
+  if (container.dataset.graphDef === active.mermaid
+    && container.querySelector(".graph-viewport")) return;
+  if (container.dataset.graphPending === active.mermaid) return;
+  container.dataset.graphPending = active.mermaid;
+  const seq = ++callGraphRenderSeq;
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
+    if (seq !== callGraphRenderSeq) return;
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
@@ -6370,14 +6378,16 @@ async function renderMermaidCallGraph() {
       themeVariables: { fontSize: "17px" },
       flowchart: { htmlLabels: false, curve: "basis" }
     });
-    const id = `call-graph-${Date.now().toString(36)}`;
+    const id = `call-graph-${Date.now().toString(36)}-${seq}`;
     const rootStyle = getComputedStyle(document.documentElement);
     const definition = active.mermaid.replace(
       /var\((--[\w-]+)\)/g,
       (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, definition);
-    if (document.querySelector("#call-graph-diagram") === container) {
+    if (seq === callGraphRenderSeq
+      && document.querySelector("#call-graph-diagram") === container
+      && currentCallGraph()?.mermaid === active.mermaid) {
       container.innerHTML =
         '<div class="graph-viewport"></div>'
         + '<div class="graph-controls">'
@@ -6387,11 +6397,19 @@ async function renderMermaidCallGraph() {
         + '</div>';
       const viewport = container.querySelector(".graph-viewport");
       viewport.innerHTML = svg;
+      container.dataset.graphDef = active.mermaid;
       attachGraphPanZoom(container, viewport, true, active);
     }
   } catch (error) {
-    if (document.querySelector("#call-graph-diagram") === container) {
+    if (seq === callGraphRenderSeq
+      && document.querySelector("#call-graph-diagram") === container
+      && !container.querySelector(".graph-viewport")) {
+      container.dataset.graphDef = "";
       container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+    }
+  } finally {
+    if (container.dataset.graphPending === active.mermaid) {
+      delete container.dataset.graphPending;
     }
   }
 }

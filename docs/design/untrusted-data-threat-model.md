@@ -287,6 +287,12 @@ assembly entry, and 16 MB for one expanded Markdown or XML entry.
 the caller's limit before allocating that length, then verifies the observed
 expansion against the declaration. `InMemoryPackageContentTests` gates the
 pre-expansion rejection and bounded declared/unknown-length stream reads.
+The host's 128 MB package-cache budget is aggregate: an open inspection scope's
+nupkg remains represented in the same LRU, and evicting that package disposes
+every retaining scope before removing the cache entry. Scope reuse therefore
+cannot keep an evicted archive alive outside the advertised budget.
+`BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
+gates that aggregate ownership and eviction relationship.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry

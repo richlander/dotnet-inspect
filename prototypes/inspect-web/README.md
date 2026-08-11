@@ -20,11 +20,12 @@ The rule is enforced by the compiler, not by a convention.
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, and the group's image and
 retained-descriptor accessors in this project, and `Directory.Build.targets`
 already escalates `RS0030` to an error for every project.
-`BrowserEngineLayeringTests` in `src/dotnet-inspect.Tests` pins that wiring,
+`BrowserEngineLayeringTests` in `src/dotnet-inspect.Tests` pins that wiring and
 checks that every banned identifier still resolves — a renamed entry bans
-nothing — and pins the one deliberate exception: acquisition still decodes an
-entry's real metadata identity, because the workspace refuses a participant
-minted with a placeholder one.
+nothing. Acquisition still decodes a healthy entry's real metadata identity.
+A selected malformed entry receives a path-derived identity only as a rejection
+carrier, so the workspace returns its typed failure instead of silently
+shortening the selected assembly set.
 
 ## How a workspace is opened
 
@@ -32,9 +33,11 @@ minted with a placeholder one.
    framework — never "whatever the package happens to ship".
 2. **Mint typed participants.** Centralized acquisition downloads the package,
    selects compile assets with `PackageCompileAssetSelector`, decodes each
-   entry's real metadata identity, and creates one `ResolvedAssemblyReference`
-   per selected compile asset and, when the roles differ, per matching
-   implementation asset. Acquisition never inspects one.
+   healthy entry's real metadata identity, and creates one
+   `ResolvedAssemblyReference` per selected compile asset and, when the roles
+   differ, per matching implementation asset. Malformed selected entries remain
+   participants so queries report their rejection. Acquisition never inspects
+   one.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -47,17 +50,19 @@ Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
-A scope carries a 64 MB aggregate retained-image budget; split
-compile/implementation roles receive 32 MB each. Exhausting a group budget
-surfaces as a typed `ResourceBudget` rejection beside the results rather than
-as a silently shorter list.
+A scope carries a 64 MB aggregate retained-image budget. Two distinct
+compile/implementation groups receive 32 MB each; a shared or reference-only
+single group receives the full 64 MB. Exhausting a group budget surfaces as a
+typed `ResourceBudget` rejection beside the results rather than as a silently
+shorter list.
 
-Because a scope is reused, nothing here runs
-`AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` ([#3932]): its release
-is terminal for the released participant, so a later whole-group query over the
+Because a scope is reused, nothing here runs the terminal participant-streaming
+forms of `AssemblyContextIntegrationsQuery` or
+`AssemblyContextIntegrationOpportunitiesQuery` ([#3932]): their release is
+terminal for the released participant, so a later whole-group query over the
 same group would find that participant unavailable. Bounded retained bytes come
-from scope eviction instead, which disposes a group rather than half-emptying it.
-The banned-symbol list makes that a compile error rather than a comment.
+from scope eviction instead, which disposes a group rather than half-emptying
+it. The banned-symbol list makes that a compile error rather than a comment.
 
 A workspace may also span several package coordinates on purpose:
 `MemberCallGraphSession` can only see callers in a sibling package when that
@@ -84,8 +89,10 @@ graph opens one workspace over every package the site currently has open.
 Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
 single-threaded, and both caches are written for that host: at most 12 packages
-or 128 MB of package content, and at most four open workspaces, each evicting the
-least recently used entry.
+or 128 MB of package content in aggregate, including nupkg arrays retained by
+open scopes, and at most four open workspaces. Evicting a package first disposes
+every scope that retains it, so cache eviction actually releases the archive
+bytes instead of removing only the cache's reference.
 
 Acquisition is bounded before content enters either cache or workspace. A
 version-index response may contain at most 1 MB, one downloaded nupkg at most
@@ -101,8 +108,9 @@ compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
 Integrations, and call graphs. Opportunities use the compile group because they
 classify the package's reference-preferred public surface. Packages without
-`ref/` assets share one group for both roles. When the roles differ, they split
-the scope's 64 MB retained image budget rather than doubling it.
+`ref/` assets share one group for both roles. When both roles exist and differ, they split the scope's 64 MB retained image
+budget rather than doubling it. A reference-only package has one group and uses
+the full budget.
 
 ## Supported
 
@@ -118,9 +126,10 @@ the scope's 64 MB retained image budget rather than doubling it.
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
 them. It asks the API-surface query for the composed scope — the default consumer
-surface plus the types only the include-all surface reaches — so a public type
+surface plus non-public types from the include-all surface — so a public type
 keeps its public member list while non-public types remain reachable through the
-accessibility filter. Every accessibility
+accessibility filter. Public types hidden by the extractor stay hidden rather
+than re-entering the default bucket with private members. Every accessibility
 bucket's id, label, order, default, and count comes from the query's own
 `ApiAccessibilityBucket` values; the browser classifies nothing and orders no
 label. Member identity is likewise product-owned: the stable selector, digest,
@@ -180,7 +189,9 @@ rows and groups them by the returned integration name.
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
 [`docs/design/call-graph-projection.md`](../../docs/design/call-graph-projection.md)
 makes that split on purpose: the projection owns identity, direction, cycles,
-and boundaries, and each front end spells them for itself.
+and boundaries, and each front end spells them for itself. The Mermaid renderer
+HTML-encodes delimiters and visibly encodes control and line-separator
+characters before artifact labels enter the grammar.
 
 ## Unsupported
 
@@ -253,18 +264,18 @@ Emscripten `tools` directory.
 ## Test
 
 ```bash
+dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 cd prototypes/inspect-web
 npm test
 ```
 
-`test/annotated-source-view.test.js` gates the annotated view helper against the
-shared sample document: medium filtering, fact selection across media, multi-span
-highlighting, unanchored facts, offset-to-node selection, and the refusal of an
-invalid document.
+`BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
+malformed selected-participant visibility, reference-only retained-image budget,
+duplicate XML parameter handling, and Mermaid label containment.
+The JavaScript tests gate the annotated view helper against the shared sample
+document and keep Spotlight candidate/cache identity coordinate-complete.
 
-There is no browser host test project, so the `[JSExport]` surface itself is
-gated by compilation plus the banned-symbol rule. Four product test classes gate
-the paths this engine depends on:
+The shared product paths are gated by:
 
 - `AssemblyContextApiSurfaceQueryTests` in `src/DotnetInspector.Queries.Tests`
   gates the surface query: the public and composed scopes, the accessibility
@@ -289,7 +300,7 @@ rule described above.
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job compiles the platform-index generator, publishes the Release
-Wasm bundle, and runs both JavaScript suites.
+Wasm bundle, runs the browser-engine tests, and runs both JavaScript suites.
 `eng/test-ci-change-detection.cs` gates the path classification, and
 `ci-required` includes the job's result.
 

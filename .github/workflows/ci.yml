@@ -564,6 +564,12 @@ jobs:
           prototypes/inspect-web/engine/InspectWeb.Engine.csproj
           -c Release
 
+      - name: Test browser engine
+        run: >
+          dotnet run
+          --project prototypes/inspect-web/engine.Tests
+          -c Release
+
       - name: Test inspect-web
         working-directory: prototypes/inspect-web
         run: npm test

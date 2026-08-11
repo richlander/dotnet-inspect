@@ -22,3 +22,20 @@ export const rootCommands = [
   ["clear", "clear the current filter"],
   ["share", "copy a link to this selection"]
 ];
+
+export function packageIdentityKey(pkg) {
+  if (!pkg) return "";
+  return [pkg.id, pkg.version, pkg.activeFramework]
+    .map(value => encodeURIComponent(String(value || "").toLowerCase()))
+    .join("|");
+}
+
+export function spotlightCandidateKey(pkg, typeId) {
+  return `${packageIdentityKey(pkg)}\u0000${typeId}`;
+}
+
+export function spotlightCandidateSignature(activePackage, packages) {
+  return `${packageIdentityKey(activePackage)}#${packages
+    .map(pkg => `${packageIdentityKey(pkg)}:${pkg.types?.length ?? 0}`)
+    .join("|")}`;
+}

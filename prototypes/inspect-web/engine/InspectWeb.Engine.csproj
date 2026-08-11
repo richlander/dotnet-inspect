@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
     <!--
       Every browser interaction that inspects an assembly runs inside a workspace, through a public
       product query that owns the session. BannedSymbols.txt makes the compiler enforce that;

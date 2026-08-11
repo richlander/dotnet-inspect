@@ -75,9 +75,10 @@ internal sealed class BrowserInspectionScope : IDisposable
         ];
 
         bool shared = SameAssets(surfaceAssets, implementationAssets);
-        long groupBudget = shared
-            ? MaxRetainedImageBytes
-            : MaxRetainedImageBytes / 2;
+        bool hasSeparateImplementation = !shared && implementationAssets.Length > 0;
+        long groupBudget = hasSeparateImplementation
+            ? MaxRetainedImageBytes / 2
+            : MaxRetainedImageBytes;
         _surface = new BrowserWorkspaceGroup(_workspace, surfaceAssets, groupBudget);
         _implementation = shared
             ? _surface
@@ -211,15 +212,13 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
         var participants = ImmutableArray.CreateBuilder<BrowserWorkspaceParticipant>();
         foreach ((BrowserPackageCoordinate coordinate, PackageCompileAsset asset) in assets)
         {
-            ResolvedAssemblyReference? reference = coordinate.Package.TryCreateReference(
+            ResolvedAssemblyReference reference = coordinate.Package.CreateReference(
                 asset.Path,
                 AssemblyResolutionProvenance.Package(
                     coordinate.PackageId,
                     coordinate.Version,
                     asset.TargetFramework,
                     rid: null));
-            if (reference is null)
-                continue;
 
             participants.Add(new BrowserWorkspaceParticipant(
                 coordinate,

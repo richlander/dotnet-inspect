@@ -140,7 +140,8 @@ public sealed record BrowserTypeSearchHit(
 public sealed record BrowserPackageCacheStats(
     int Packages,
     int Resident,
-    int Workspaces);
+    int Workspaces,
+    long ResidentBytes);
 
 /// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the

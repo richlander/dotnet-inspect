@@ -29,15 +29,18 @@ internal static class BrowserXmlDocumentation
         if (element is null)
             return Empty;
 
+        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (XElement parameter in element.Elements("param"))
+        {
+            string? name = parameter.Attribute("name")?.Value;
+            if (name is not null)
+                parameters[name] = Text(parameter) ?? "";
+        }
+
         return new BrowserMemberDocumentation(
             Text(element.Element("summary")),
             Text(element.Element("returns")),
-            element.Elements("param")
-                .Where(parameter => parameter.Attribute("name") is not null)
-                .ToDictionary(
-                    parameter => parameter.Attribute("name")!.Value,
-                    parameter => Text(parameter) ?? "",
-                    StringComparer.Ordinal),
+            parameters,
             [
                 .. element.Elements("exception").Select(exception => new BrowserExceptionSurface(
                     Reference(exception.Attribute("cref")?.Value),
