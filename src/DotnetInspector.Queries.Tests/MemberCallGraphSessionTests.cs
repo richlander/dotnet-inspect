@@ -5,7 +5,10 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.CallGraph;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Queries.Tests;
@@ -82,6 +85,153 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             Analysis.CallTreeStatus.DepthLimited,
             Child(view.CalleeRoot!, "Run").Status);
+    }
+
+    [Fact]
+    public void AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int runTwice = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunTwice");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            runTwice,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+            });
+        MemberCallGraphView view = graph.Callees();
+        Assert.Equal(2, view.FocusCallSites.Length);
+
+        using var source = MetadataSource.Open(CallerPath);
+        AnnotatedMemberDocumentResult result =
+            AnnotatedMemberDocumentQuery.Execute(
+                new AnnotatedMemberDocumentInput(
+                    source,
+                    view));
+
+        var complete =
+            Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+                result);
+        AnnotatedMemberDocument document = complete.Document;
+        Assert.Equal(CallGraphTier.Callees, document.CallGraph.Tier);
+        Assert.Single(document.CallGraph.Projection.Rows);
+        Assert.Equal(2, document.CallGraph.Occurrences.Length);
+        Assert.All(
+            document.CallGraph.Occurrences,
+            occurrence => Assert.Equal(1, occurrence.EdgeRow));
+        Assert.Equal(
+            2,
+            document.CallGraph.Occurrences
+                .Select(occurrence => occurrence.FactId)
+                .Distinct()
+                .Count());
+
+        foreach (AnnotatedCallGraphOccurrence occurrence
+            in document.CallGraph.Occurrences)
+        {
+            AnnotatedSourceFact fact =
+                document.Source.Facts[occurrence.FactId];
+            Assert.Equal(
+                ResearchFactRegistry.CallRelationshipDescriptorId,
+                fact.Descriptor);
+            Assert.Equal(occurrence.ILOffset, fact.SourceOffset);
+
+            AnnotatedSourceNode[] targets =
+            [
+                .. document.Source.Targets
+                    .Where(target =>
+                        target.FactId == occurrence.FactId)
+                    .Select(target =>
+                        document.Source.Nodes[target.NodeId]),
+            ];
+            Assert.Contains(
+                targets,
+                node => node.Medium == SourceLineKind.CSharp);
+            Assert.Contains(
+                targets,
+                node => node.Medium == SourceLineKind.Il
+                    && node.IlOffset == occurrence.ILOffset);
+        }
+
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 0, 0),
+            graph.BuildCounts);
+        Assert.Equal(1, context.Sources[0].OpenCount);
+        Assert.Equal(0, context.Sources[1].OpenCount);
+    }
+
+    [Fact]
+    public void AnnotatedMemberDocument_RejectsSourceFromAnotherModule()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int runTwice = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunTwice");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            runTwice);
+        MemberCallGraphView view = graph.Callees();
+
+        using var source = MetadataSource.Open(TargetPath);
+        AnnotatedMemberDocumentResult result =
+            AnnotatedMemberDocumentQuery.Execute(
+                new AnnotatedMemberDocumentInput(
+                    source,
+                    view));
+
+        Assert.IsType<AnnotatedMemberDocumentResult.Failed>(result);
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 0, 0),
+            graph.BuildCounts);
+    }
+
+    [Fact]
+    public void AnnotatedMemberDocument_HonorsACalleeNodeBudget()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int runTwice = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunTwice");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            runTwice,
+            new MemberCallGraphOptions
+            {
+                MaxNodes = 1,
+            });
+        MemberCallGraphView view = graph.Callees();
+        Assert.Equal(
+            Analysis.CallTreeStatus.Truncated,
+            view.CalleeRoot!.Status);
+
+        using var source = MetadataSource.Open(CallerPath);
+        var complete =
+            Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+                AnnotatedMemberDocumentQuery.Execute(
+                    new AnnotatedMemberDocumentInput(
+                        source,
+                        view)));
+
+        Assert.Empty(complete.Document.CallGraph.Occurrences);
+        Assert.DoesNotContain(
+            complete.Document.Source.Facts,
+            fact => fact.Descriptor
+                == ResearchFactRegistry.CallRelationshipDescriptorId);
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 0, 0),
+            graph.BuildCounts);
     }
 
     [Fact]

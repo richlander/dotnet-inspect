@@ -100,6 +100,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   directed edge. `Rows` numbers those edges from one in deterministic edge order
   and retains those numbers when a host filters them. Counts and row windows
   therefore bind to the projection rather than to a rendered tree's node lines.
+  `FindFocusCalleeRow` maps a physical call occurrence from the selected member
+  to that stable logical edge row. Exact catalog call-site storage wins; the
+  assembly-local fallback uses the same typed structural identity as projection.
+  A missing and an ambiguous mapping are distinct outcomes.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
@@ -189,8 +193,11 @@ acquisition is a capability of that session, not a separate call-graph kind.
 The layer names name the tier that was unlocked, not a direction: at `depth > 1`
 the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
-`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`, `Diagnostics`), so a
-host renders them directly or projects them with
+`MemberCallGraphView` (`Tier`, focus MVID/token, `CalleeRoot`, `CallerRoot`,
+`FocusCallSites`, `Diagnostics`). `FocusCallSites` retains every physical
+outbound operand occurrence from the same scoped or full index that produced
+the roots; it is not reconstructed from logical graph edges. A host renders the
+roots directly or projects them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 `Diagnostics` is a stable count summary of incomplete correspondence and exact
 bindings to a different identity of the primary assembly, distilled before any
@@ -226,6 +233,24 @@ group-owned release, including disposal of the catalog scope.
 `CatalogCallGraphScopeTests` pins the single-generation,
 single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
+
+`DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
+non-rendering consumer of this progressive seam. It accepts an already-acquired
+view and an already-open `MetadataSource`, projects the graph once, and returns
+portable source plus an `AnnotatedCallGraphOverlay`. Each overlay occurrence
+names both its stable edge row and its `call.edge` fact id. Two calls at
+different IL offsets therefore remain two physical occurrences and two source
+facts even when they share one logical edge row. A node budget limits both the
+projection and the supplied relationship facts; omission under a
+`DepthLimited` or `Truncated` focus is not reported as a mapping failure.
+Caller-only views are rejected because they contain no outbound topology to
+which body-local call sites could map.
+
+The query declares no graph or Analysis acquisition. The
+`AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test
+gates that claim by asserting unchanged session build/source-open counts and
+the two-occurrences/one-edge shape. Requirement tests pin the call-only Research
+profile to `ResearchFactRequirements.None`.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then

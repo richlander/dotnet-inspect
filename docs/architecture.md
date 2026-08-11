@@ -212,10 +212,17 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact
-ids, dependency names, and a `Produce(ResearchFactContext)` method. The registry
-orders producers by dependencies, invokes them for an imported method, and merges
-their annotations by IL offset and descriptor id. The default registry currently
-includes:
+ids, dependency names, declared `ResearchFactRequirements`, and a
+`Produce(ResearchFactContext)` method. Requirements name the Analysis feature
+set and whether it is body-local or assembly-wide; the registry unions them
+before acquisition. A body-local index can satisfy one member without decoding
+every body, while a compatible full index can satisfy a later narrower request.
+Assembly projections on `ResearchAssemblyContext` remain lazy. A producer that
+declares no Analysis requirement receives no assembly context.
+
+The registry orders producers by dependencies, invokes them for an imported
+method, and merges their annotations by IL offset and descriptor id. The default
+registry currently includes:
 
 | Producer | Source | Facts |
 | -------- | ------ | ----- |
@@ -225,6 +232,12 @@ includes:
 | `CallSiteSemanticsFactProducer` | Analysis call-site Findings joined with callee semantics | `semantics.callee`, `safety.callee` |
 | `MethodHeaderLeverageFactProducer` | Analysis method-signal and leverage aggregates | `cost.method` |
 | `DecompilerLifetimeFactProducer` | existing decompiler lifetime classifier | `lifetime.*` |
+
+`ResearchFactRegistry.CallRelationships` is a separate, focused profile. Its
+`DirectCallFactProducer` turns already-acquired physical `DirectCall` values
+into `call.edge` facts; it declares no Analysis requirement and fails if the
+caller omits the supplied evidence. This lets a graph-owning query annotate
+source without opening a second body index.
 
 The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
 Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or

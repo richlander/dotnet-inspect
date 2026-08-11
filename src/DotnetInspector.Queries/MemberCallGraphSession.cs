@@ -69,6 +69,20 @@ public sealed record MemberCallGraphView(
     Analysis.CallTreeNode? CalleeRoot,
     Analysis.CallTreeNode? CallerRoot)
 {
+    /// <summary>The selected member's module identity.</summary>
+    public Guid FocusModuleVersionId { get; init; }
+
+    /// <summary>The selected member's MethodDef token.</summary>
+    public int FocusMethodToken { get; init; }
+
+    /// <summary>
+    /// Every physical call site originating in the selected member, retained
+    /// from the same index that produced the graph roots. The annotated-member
+    /// integration test gates this reuse boundary.
+    /// </summary>
+    public ImmutableArray<Analysis.DirectCall> FocusCallSites { get; init; } =
+        [];
+
     public Analysis.CatalogCallGraphDiagnostics Diagnostics { get; init; } =
         Analysis.CatalogCallGraphDiagnostics.Empty;
 }
@@ -228,13 +242,14 @@ public sealed class MemberCallGraphSession : IDisposable
         if (_fullRoot is not null)
         {
             IndexBuildResult.Available full = Require(_fullRoot);
-            return new(
+            return View(
                 CallGraphTier.Callees,
+                full.Index,
                 full.Index.BuildCallTree(
                     _memberToken,
                     _options.Depth,
                     _options.MaxNodes),
-                CallerRoot: null);
+                callerRoot: null);
         }
 
         IndexBuildResult.Available scoped = Require(
@@ -247,10 +262,11 @@ public sealed class MemberCallGraphSession : IDisposable
             _memberToken,
             maxDepth: 1,
             maxNodes: _options.MaxNodes);
-        return new(
+        return View(
             CallGraphTier.Callees,
+            scoped.Index,
             MarkImmediateCalleesBounded(root),
-            CallerRoot: null);
+            callerRoot: null);
     }
 
     static Analysis.CallTreeNode MarkImmediateCalleesBounded(
@@ -274,8 +290,9 @@ public sealed class MemberCallGraphSession : IDisposable
     MemberCallGraphView CallersCore()
     {
         IndexBuildResult.Available root = Require(GetFullRoot());
-        return new(
+        return View(
             CallGraphTier.Callers,
+            root.Index,
             root.Index.BuildCallTree(
                 _memberToken,
                 _options.Depth,
@@ -291,8 +308,9 @@ public sealed class MemberCallGraphSession : IDisposable
         IndexBuildResult.Available root = Require(GetFullRoot());
         EnsureCrossLibraryScope();
         ThrowIfCrossLibraryFailed();
-        return new MemberCallGraphView(
+        return View(
             CallGraphTier.CrossLibrary,
+            root.Index,
             root.Index.BuildCallTree(
                 _memberToken,
                 _catalogScope!,
@@ -302,11 +320,33 @@ public sealed class MemberCallGraphSession : IDisposable
                 _memberToken,
                 _catalogScope!,
                 _options.Depth,
-                _options.MaxNodes))
-        {
-            Diagnostics = _catalogScope!.Diagnostics,
-        };
+                _options.MaxNodes),
+            _catalogScope!.Diagnostics);
     }
+
+    MemberCallGraphView View(
+        CallGraphTier tier,
+        Analysis.LibraryBodyIndex index,
+        Analysis.CallTreeNode? calleeRoot,
+        Analysis.CallTreeNode? callerRoot,
+        Analysis.CatalogCallGraphDiagnostics? diagnostics = null) =>
+        new(tier, calleeRoot, callerRoot)
+        {
+            FocusModuleVersionId = index.Methods.First(method =>
+                method.MetadataToken == _memberToken).ModuleVersionId,
+            FocusMethodToken = _memberToken,
+            FocusCallSites =
+            [
+                .. index.DirectCalls
+                    .Where(call =>
+                        call.Caller.MetadataToken == _memberToken)
+                    .OrderBy(call => call.ILOffset)
+                    .ThenBy(call => call.OperandToken),
+            ],
+            Diagnostics =
+                diagnostics
+                ?? Analysis.CatalogCallGraphDiagnostics.Empty,
+        };
 
     void EnsureCrossLibraryScope()
     {
