@@ -75,6 +75,35 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    public void StackallocFactKeepsItsDeclarationLineCaretAfterStatementRangeNarrowing()
+    {
+        using var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(LifetimeSampleClass).FullName!,
+            nameof(LifetimeSampleClass.EscapingStackPointer));
+        Assert.NotNull(function);
+        var annotations = ResearchViews.CollectFacts(source, function!);
+        var annotation = Assert.Single(
+            annotations,
+            candidate => candidate.Descriptor.Id == "unsafe.stackalloc");
+
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation],
+            AnnotationAnchor.ComputeSpans(function!),
+            ranges);
+        var extent = Assert.Single(extents).Value;
+        var owner = Assert.Single(
+            AnnotationAnchor.Anchor(function!, annotations),
+            pair => pair.Value.Contains(annotation)).Key;
+
+        Assert.True(AnnotationAnchor.TryGetPrintedLine(owner, ranges, out int line));
+        string text = ranges.Output.Split('\n')[line];
+        Assert.Equal("stackalloc byte[16]", text.Substring(extent.Column, extent.Length));
+    }
+
+    [Fact]
     public void Array_AnchorsToAStatementThatStillContainsTheNewArray()
     {
         // The array survives the raise, so its fact should land on the very

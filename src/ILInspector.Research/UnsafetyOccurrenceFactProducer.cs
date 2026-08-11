@@ -13,6 +13,9 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
     public string Name => "unsafety-occurrences";
     public IReadOnlyList<string> Produces { get; } = ["unsafe.*"];
     public IReadOnlyList<string> DependsOn => [];
+    public ResearchFactRequirements Requirements { get; } =
+        ResearchFactRequirements.ForMember(
+            LibraryBodyAnalysisFeatures.MethodEvidence);
 
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
