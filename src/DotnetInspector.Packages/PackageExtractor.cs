@@ -1893,7 +1893,9 @@ public static class PackageExtractor
         }
     }
 
-    internal static async Task<List<PackageVersionResolution>?> GetVersionCandidatesAsync(
+    internal static async Task<(
+        List<PackageVersionResolution>? Candidates,
+        bool HasIncompleteMetadata)> GetVersionCandidatesAsync(
         HttpClient client,
         string packageName,
         bool includePrerelease,
@@ -1911,9 +1913,9 @@ public static class PackageExtractor
             sources,
             log).ConfigureAwait(false);
         if (perSource is null)
-            return null;
+            return (null, HasIncompleteMetadata: false);
         if (perSource.Any(candidate => !candidate.Authoritative))
-            return null;
+            return (null, HasIncompleteMetadata: true);
 
         var candidates = new Dictionary<
             string,
@@ -1948,14 +1950,15 @@ public static class PackageExtractor
             }
         }
 
-        return
-        [
-            .. candidates.Values
-                .OrderBy(candidate => candidate.Parsed)
-                .Select(candidate => new PackageVersionResolution(
-                    candidate.Original,
-                    candidate.Reporters)),
-        ];
+        return (
+            [
+                .. candidates.Values
+                    .OrderBy(candidate => candidate.Parsed)
+                    .Select(candidate => new PackageVersionResolution(
+                        candidate.Original,
+                        candidate.Reporters)),
+            ],
+            HasIncompleteMetadata: false);
     }
 
     /// <summary>

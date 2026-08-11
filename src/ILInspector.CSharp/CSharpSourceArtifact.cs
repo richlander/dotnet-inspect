@@ -75,7 +75,9 @@ public sealed class CSharpSourceArtifact
                 "The C# source artifact does not contain a replaceable body.");
         }
 
-        string replacement = CSharpSourceLayout.RenderBlock(body, _replaceableBodyIndent);
+        string replacement = CSharpSourceLayout.RenderReplacementBlock(
+            body,
+            _replaceableBodyIndent);
         return Source[..range.Start] + replacement + Source[range.End..];
     }
 }
@@ -96,5 +98,15 @@ static class CSharpSourceLayout
 
         string bodyIndent = indent + "    ";
         return $"{indent}{{\n{string.Join('\n', lines.Select(line => bodyIndent + line))}\n{indent}}}";
+    }
+
+    internal static string RenderReplacementBlock(string source, string indent)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(indent);
+
+        return source.Length == 0
+            ? $"{indent}{{\n{indent}}}"
+            : $"{indent}{{\n{source}\n{indent}}}";
     }
 }

@@ -230,6 +230,7 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            using var failureScope = FeedFailureTelemetry.Scope();
             PackageVersionRange? range = null;
             string? rangeError = null;
             bool isRange = !File.Exists(packageArgs[0])
@@ -258,7 +259,9 @@ public class PackageCommand
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
-                            CommandError.Write($"Package '{range.PackageId}' not found on eligible configured sources.");
+                            WriteVersionLookupFailure(
+                                range.PackageId,
+                                $"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -293,7 +296,12 @@ public class PackageCommand
                     or InvalidOperationException
                     or ArgumentException)
                 {
-                    CommandError.Write(ex);
+                    WriteVersionLookupFailure(
+                        range!.PackageId,
+                        ex is PackageVersionsUnavailableException
+                            { HasIncompleteMetadata: false }
+                            ? $"Package '{range.PackageId}' not found."
+                            : ex.Message);
                     return 1;
                 }
             }
@@ -353,8 +361,17 @@ public class PackageCommand
                     return 0;
                 }
 
-                if (knownVersions == null || knownVersions.Count == 0)
-                    CommandError.Write($"Package '{normalizedName}' not found.");
+                if (FeedFailureTelemetry.Current?.Failures.Any(
+                        failure => failure.Phase is
+                            NetworkTrafficKind.PackageSourceDiscovery
+                            or NetworkTrafficKind.PackageVersionList) == true)
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Version '{versionQueryPinned}' of package '{normalizedName}' not found.");
+                else if (knownVersions == null || knownVersions.Count == 0)
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{normalizedName}' not found.");
                 else
                     CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
@@ -374,7 +391,9 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -409,7 +428,8 @@ public class PackageCommand
                     options.SourceOptions);
                 if (singleVersions is null)
                 {
-                    CommandError.Write(
+                    WriteVersionLookupFailure(
+                        normalizedName,
                         $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
@@ -440,7 +460,9 @@ public class PackageCommand
                     options.IncludeUnlisted, options.Limit, logger.Log, options.SourceOptions);
                 if (versionFeeds == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found.");
                     return 1;
                 }
 
@@ -457,7 +479,9 @@ public class PackageCommand
                     includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -470,7 +494,9 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                WriteVersionLookupFailure(
+                    normalizedName,
+                    $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -594,6 +620,14 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
+                    target.IsLocalFile
+                        ? PackageIntegrationAcquisition.Local(
+                            nuspec?.PackageName,
+                            nuspec?.Version)
+                        : PackageIntegrationAcquisition.Remote(
+                            resolution,
+                            packageName,
+                            version),
                     options);
             }
 
@@ -860,6 +894,15 @@ public class PackageCommand
             options.Tsv,
             options.Jsonl,
             Console.Out);
+
+    private static void WriteVersionLookupFailure(
+        string packageName,
+        string notFoundMessage)
+    {
+        var sourceFailure =
+            FeedFailureTelemetry.Current?.DescribeFailure(packageName);
+        CommandError.Write(sourceFailure?.ToString() ?? notFoundMessage);
+    }
 
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
@@ -2707,6 +2750,7 @@ public class PackageCommand
         string packageArg,
         string packageName,
         string version,
+        PackageIntegrationAcquisition acquisition,
         InspectionOptions options)
     {
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
@@ -2723,7 +2767,6 @@ public class PackageCommand
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
-        var groupQueryRegistry = catalog.GroupQueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2763,51 +2806,81 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        AssemblyContextIntegrationsBatch? integrations =
-            AssemblyContextIntegrationsRunner.RunIfRequested(
-                queries,
-                groupQueryRegistry,
-                selected.Select(selection =>
-                {
-                    string relativePath = Path.GetRelativePath(
-                        extractPath,
-                        selection.Path).Replace('\\', '/');
-                    return new AssemblyContextIntegrationsInput(
-                        selection.Path,
-                        AssemblyResolutionProvenance.Package(
-                            packageName,
-                            version,
-                            TfmResolver.ExtractTfmFromPath(relativePath),
-                            rid: null));
-                }));
+        using PackageIntegrationsWorkspace? integrationsWorkspace =
+            RequiresGroupedIntegrations(queries)
+                ? PackageIntegrationsWorkspace.Create(
+                    selected.Select(selection =>
+                    {
+                        string relativePath = Path.GetRelativePath(
+                                extractPath,
+                                selection.Path)
+                            .Replace('\\', '/');
+                        return CreatePackageIntegrationAssembly(
+                            selection.Path,
+                            relativePath);
+                    }),
+                    acquisition)
+                : null;
         List<LibraryInspection> inspections = [];
+        List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         foreach (var selection in selected)
         {
-            var inspection = await LibraryMetadataService.InspectAsync(
-                selection.Path,
-                libraryOptions,
-                logger,
-                packageName,
-                version,
-                context.HttpClient,
-                scanners: scanners,
-                scannerRegistry: scannerRegistry,
-                queries: queries,
-                queryRegistry: queryRegistry,
-                assemblyReference: integrations?.AssemblyForInspection(selection.Path),
-                integrationsEntry: integrations?.EntryFor(selection.Path));
+            string relativePath = Path.GetRelativePath(
+                    extractPath,
+                    selection.Path)
+                .Replace('\\', '/');
+
+            Task<LibraryInspection?> InspectAsync(
+                ResolvedAssemblyReference? assemblyReference,
+                AssemblyIntegrationsEntry? integrations)
+            {
+                return LibraryMetadataService.InspectAsync(
+                    selection.Path,
+                    libraryOptions,
+                    logger,
+                    packageName,
+                    version,
+                    context.HttpClient,
+                    scanners: scanners,
+                    scannerRegistry: scannerRegistry,
+                    queries: queries,
+                    queryRegistry: queryRegistry,
+                    assemblyReference: assemblyReference,
+                    integrationsEntry: integrations,
+                    integrationEvidenceUnavailable:
+                        integrationsWorkspace is not null
+                        && assemblyReference is null
+                        && integrations is null);
+            }
+
+            LibraryInspection? inspection =
+                integrationsWorkspace is null
+                    ? await InspectAsync(null, null)
+                    : await InspectGroupedAssemblyAsync(
+                        integrationsWorkspace,
+                        selection.Path,
+                        relativePath,
+                        groupedIntegrationsFailures,
+                        InspectAsync);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
                 continue;
             }
 
-            var relativePath = Path.GetRelativePath(extractPath, selection.Path).Replace('\\', '/');
             inspection.FileName = relativePath;
-            inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            inspection.Tfm =
+                TfmResolver.ExtractFrameworkFolderFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
             inspections.Add(inspection);
         }
+
+        bool integrationsIncomplete =
+            integrationsWorkspace is not null
+            && WriteGroupedIntegrationsFailures(
+                groupedIntegrationsFailures);
+        int completionExitCode =
+            AllLibrariesCompletionExitCode(integrationsIncomplete);
 
         if (inspections.Count == 0)
         {
@@ -2818,7 +2891,7 @@ public class PackageCommand
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
-            return 0;
+            return completionExitCode;
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
@@ -2837,26 +2910,110 @@ public class PackageCommand
                 libraryOptions.Format,
                 libraryOptions.NoHeader,
                 options.OutputPath);
-            return 0;
+            return completionExitCode;
         }
 
         if (sections.Count == 0)
         {
             CommandError.WriteNote("matched sections have no data across all libraries.");
-            return 0;
+            return completionExitCode;
         }
 
         if (libraryOptions.TabularExplicitlySet)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
-            return 0;
+            return completionExitCode;
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         OutputFormatter.WriteLfLine(Console.Out, markdown);
-        return 0;
+        return completionExitCode;
     }
+
+    internal static Task<LibraryInspection?>
+        InspectGroupedAssemblyAsync(
+            PackageIntegrationsWorkspace workspace,
+            string path,
+            string relativePath,
+            ICollection<(string FileName, string Reason)> failures,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry?,
+                Task<LibraryInspection?>> inspectAsync)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        ArgumentNullException.ThrowIfNull(failures);
+        ArgumentNullException.ThrowIfNull(inspectAsync);
+
+        if (workspace.TryGetPreflightFailure(
+                path,
+                out string preflightFailure))
+        {
+            failures.Add((relativePath, preflightFailure));
+            return Task.FromResult<LibraryInspection?>(null);
+        }
+
+        return workspace.UseAssemblyAsync(
+            path,
+            (retainedAssembly, integrations) =>
+            {
+                switch (integrations)
+                {
+                    case AssemblyIntegrationsEntry.Rejected rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        return Task.FromResult<LibraryInspection?>(null);
+                    case AssemblyIntegrationsEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return inspectAsync(retainedAssembly, integrations);
+            });
+    }
+
+    internal static bool RequiresGroupedIntegrations(
+        HashSet<InspectionQueryDefinition> queries) =>
+        queries.Remove(AssemblyContextIntegrationsQuery.Definition);
+
+    internal static PackageIntegrationAssembly
+        CreatePackageIntegrationAssembly(
+            string path,
+            string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        return new PackageIntegrationAssembly(
+            path,
+            TfmResolver.ExtractFrameworkFolderFromPath(relativePath),
+            TfmResolver.ExtractAssetDirectoryFromPath(relativePath));
+    }
+
+    internal static bool WriteGroupedIntegrationsFailures(
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
+    {
+        ArgumentNullException.ThrowIfNull(groupedFailures);
+
+        var failures = groupedFailures
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Integrations inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    internal static int AllLibrariesCompletionExitCode(
+        bool integrationsIncomplete) =>
+        integrationsIncomplete ? 1 : 0;
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()
@@ -3188,7 +3345,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.Append("# ").Append(title).Append('\n').Append('\n');
+        AppendBlock(sb, $"# {title}");
 
         foreach (var section in sections)
         {
@@ -3200,6 +3357,29 @@ public class PackageCommand
 
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// Appends one rendered block, separated from whatever precedes it by exactly one blank line.
+    /// </summary>
+    /// <remarks>
+    /// Written once rather than at each of the three call sites, which restated it and so had to
+    /// keep three copies of the separator agreeing on a line ending. When a copy disagreed the
+    /// result was silent: #3963 read a CRLF tail as "no blank line yet" and doubled the blank
+    /// before every section on Windows.
+    /// <para>
+    /// Those call sites also guarded the trailing newlines with
+    /// <c>!sb.ToString().EndsWith("\n\n")</c> -- the two section sites did; the title site, which
+    /// runs first, never had it. That guard is unreachable and is not carried over.
+    /// Every append to the buffer goes through this method, and this method always leaves exactly
+    /// <c>"\n\n"</c> at the tail, so the guard was false for every block after the first and the
+    /// length test excluded the first. It was load-bearing only while the tail could be CRLF,
+    /// which is what #3981 removed. Keeping it would leave two mechanisms for one property and
+    /// gate neither; the separation is asserted from the rendered document instead, by
+    /// <c>PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine</c>.
+    /// </para>
+    /// </remarks>
+    private static void AppendBlock(StringBuilder sb, string rendered)
+        => sb.Append(rendered).Append('\n').Append('\n');
 
     /// <summary>
     /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
@@ -3222,9 +3402,7 @@ public class PackageCommand
         if (rendered.Length == 0)
             return;
 
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.Append('\n');
-        sb.Append(rendered).Append('\n').Append('\n');
+        AppendBlock(sb, rendered);
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3393,9 +3571,7 @@ public class PackageCommand
             if (rendered.Length == 0)
                 continue;
 
-            if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.Append('\n');
-            sb.Append(rendered).Append('\n').Append('\n');
+            AppendBlock(sb, rendered);
         }
     }
 
