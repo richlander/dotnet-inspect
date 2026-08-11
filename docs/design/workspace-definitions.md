@@ -60,8 +60,18 @@ normally, separate documents. A **group catalog** defines named assembly
 groups: the product ships the catalog of well-known groups (the `:Platform`
 family), and a bundle may ship a catalog of curated custom groups that
 several workspace definitions reuse. A **workspace definition** describes one
-workspace — its context groups and scenarios — and subscribes to groups by
+workspace — its contexts and scenarios — and subscribes to groups by
 reference; it defines none.
+
+The vocabulary is deliberate: **catalogs define groups; workspaces declare
+contexts; a context subscribes to groups.** A context is a binding-consistent
+set of assemblies in scope, and holding a single library (Markout, say) is
+perfectly ordinary — which is why the schema says `contexts`, not
+`contextGroups`, even though each context lowers to one runtime
+`AssemblyContextGroup` and the bundle contract's prose calls these
+"context-group definitions". The runtime type keeps its name; the schema
+drops "group" so the word means exactly one thing here: a named entry in a
+group catalog.
 
 A group catalog document:
 
@@ -89,7 +99,7 @@ needs only the platform and one package — no custom group at all:
   "id": "stj-serializer-tour",
   "title": "System.Text.Json serializer tour",
   "description": "JsonSerializer surface with the platform in scope.",
-  "contextGroups": [
+  "contexts": [
     {
       "name": "workspace",
       "subscribe": ":Platform@10.0.10",
@@ -102,7 +112,7 @@ needs only the platform and one package — no custom group at all:
   "scenarios": [
     {
       "name": "serializer",
-      "contextGroup": "workspace",
+      "context": "workspace",
       "view": { "lens": "api", "type": "System.Text.Json.JsonSerializer" }
     }
   ]
@@ -110,9 +120,9 @@ needs only the platform and one package — no custom group at all:
 ```
 
 A call-graph demo over the Extensions family is the composition case: its
-context group subscribes `:Platform+Extensions`, referencing the catalog's
-group rather than restating it, and its scenario selects the target overload
-by anchor digest (`"memberAnchor": "74b6b4b321"`, `"section": "call-graph"`).
+context subscribes `:Platform+Extensions`, referencing the catalog's group
+rather than restating it, and its scenario selects the target overload by
+anchor digest (`"memberAnchor": "74b6b4b321"`, `"section": "call-graph"`).
 
 Field semantics:
 
@@ -124,17 +134,40 @@ Field semantics:
   document-local group definitions. Inlining is a portability convenience,
   not the model; bundles register groups in a catalog so definitions reuse
   them. In either home, redefining a well-known group name is invalid.
-- `contextGroups` — one entry per context-group definition, matching the
-  bundle contract's vocabulary. Each lowers to one `AssemblyContextGroup`.
-  `subscribe` is a group expression (see the grammar below); `members` are
-  additional inline coordinates overlaid on the subscription. A context group
-  must have at least one of the two.
-- `scenarios` — named compositions of a context group with view and query
-  presets, per the bundle contract's separation of workspace definition,
-  query preset, and view preset. Selection state uses portable identities:
-  `type` is a metadata type name, and members are addressed by
-  `memberAnchor` (a `MemberAnchor` fingerprint) or `memberSignature` (a
-  canonical signature), never by overload index.
+- `contexts` — one entry per context (the bundle contract's "context-group
+  definitions"). Each lowers to one `AssemblyContextGroup`. `subscribe` is a
+  group expression (see the grammar below); `members` are additional inline
+  coordinates overlaid on the subscription. A context must have at least one
+  of the two.
+- `scenarios` — named compositions of a context with view and query presets,
+  per the bundle contract's separation of workspace definition, query
+  preset, and view preset. Selection state uses portable identities: `type`
+  is a metadata type name, and members are addressed by `memberAnchor` (a
+  `MemberAnchor` fingerprint) or `memberSignature` (a canonical signature),
+  never by overload index.
+
+### Scenario activation
+
+A workspace definition is inert: nothing in it is "active". A scenario is
+the record of what would be active — it names its context (which is also how
+focus among several contexts is expressed) and its view. Hosts apply one
+rule:
+
+- **No scenarios**: a plain workspace. The host loads the contexts and lands
+  on its own default view.
+- **Exactly one scenario**: the host activates it. This is the demo-link
+  case.
+- **Several scenarios**: the document is an authored menu (several tours over
+  one workspace). The consumer selects — an in-app picker, or an out-of-band
+  name such as a `?scenario=` parameter. The document itself never marks one
+  active.
+
+The URL projection makes the single-scenario rule principled rather than a
+convenience: transposing a live session produces a definition with exactly
+one anonymous scenario — the current view — so a share link round-trips
+through auto-activation by construction. The browser never produces a
+multi-scenario document; those are authored, and they are the form a "several
+System.Text.Json tours" demo page would take.
 
 ### Member coordinates
 
