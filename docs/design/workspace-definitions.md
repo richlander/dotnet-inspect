@@ -166,14 +166,20 @@ Field semantics:
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
-  Lens and section values are short bare tokens (`api`, `call-graph`)
-  drawn from a product-owned registry — the same collision defense as
-  well-known group names, with an unknown token a typed outcome. Bare
-  tokens are sufficient in the canonical form because the field and object
-  they sit in scope them; qualified spellings (the packet's
-  `pkg:dependencies`) belong to flat projections, where no structure does
-  that job. Qualification-in-names is the projection's tool, never the
-  schema's.
+  Lens and section values are **registry identities, not display labels or
+  CLI spellings**: stable ids from a product-owned registry of view facets,
+  in the pattern #3486 (style-tier registry) and #3865 (accessibility
+  facets) establish — the producer owns identity, labels, ordering, and
+  defaults; consumers render descriptors and submit ids. CLI commands and
+  browser lenses are projections that abstract these ids and may rename
+  their own surfaces freely. This is load-bearing because definitions
+  persist: a bundled demo must resolve years after a flag or chip label
+  changed, which makes every id in this schema a compatibility surface
+  like the anchor digest below, with an unknown id a typed outcome. Bare
+  ids suffice in the canonical form because the field and object they sit
+  in scope them; qualified spellings (the packet's `pkg:dependencies`)
+  belong to flat projections, where no structure does that job.
+  Qualification-in-names is the projection's tool, never the schema's.
 
 ### The implicit platform context
 
@@ -459,13 +465,19 @@ answer; each needs a decision before or during implementation.
   unambiguous — the pin is the runtime-pack version. What
   `:Extensions@<version>` means for a custom group whose members carry their
   own versions (override, constraint, or error) is unresolved.
-- **Lens token registries.** Package-root lenses, type lenses, and member
-  sections are three token spaces today, and they collide across scopes
-  (`overview`, `source`). The packet disambiguates with a `pkg:` prefix; the
-  canonical view preset currently implies scope from shape (`type` present →
-  type view), the inference pattern the `kind` discriminator eliminated for
-  documents. Whether the registries unify into one collision-free token
-  space or the view preset carries an explicit scope field is unresolved.
+- **View facet registry binding.** Package-root lenses, type lenses, and
+  member sections are three presentation token spaces today, and they
+  collide across scopes (`overview`, `source`) — precisely because they are
+  consumer vocabularies, not contract ones. The direction is settled (view
+  preset values are product-owned registry ids that CLI commands and
+  browser lenses abstract; see the `scenarios` field semantics), but the
+  binding is not: whether the registry reuses the section/schema model's
+  existing identities (section descriptor names and schema coordinates,
+  which are per-scope and cannot collide by construction) or fronts them
+  with a view-facet descriptor registry in the #3486/#3865 mold; how ids
+  are spelled; and the registry-stability gate preserved definitions need
+  (ids are append-only compatibility surfaces, like the anchor digest) are
+  all unresolved.
 - **Anonymous transposed scenarios.** The URL projection emits one unnamed
   scenario while `scenarios` are otherwise named; whether `name` is
   optional-for-single or the transposition synthesizes a reserved name is a
