@@ -233,6 +233,14 @@ jobs:
                         and (.filename | length) > 0
                         and (.filename | index("\u0000")) == null
                         and (
+                          (.previous_filename? == null)
+                          or (
+                            (.previous_filename | type) == "string"
+                            and (.previous_filename | length) > 0
+                            and (.previous_filename | index("\u0000")) == null
+                          )
+                        )
+                        and (
                           .status == "added"
                           or .status == "removed"
                           or .status == "modified"

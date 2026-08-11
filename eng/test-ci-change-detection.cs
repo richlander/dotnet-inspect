@@ -85,6 +85,15 @@ AssertAll(
         outputs,
         nulFileRecord: true),
     "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        nulPreviousFileRecord: true),
+    "true");
 
 Dictionary<string, string> readme =
     RunDetection(repository, body, "pull_request", "README.md", outputs);
@@ -299,13 +308,15 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "uses",
         "actions/checkout@v6",
         "jobs.changes checkout step");
-    RequireScalarValue(
+    RequireExactScalarValues(
         GetRequiredMapping(
             checkoutStep,
             "with",
             "jobs.changes checkout step"),
-        "fetch-depth",
-        "0",
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["fetch-depth"] = "0",
+        },
         "jobs.changes checkout step.with");
 
     List<(int Index, YamlMappingNode Step)> detectionSteps = [];
@@ -651,6 +662,7 @@ static Dictionary<string, string> RunDetection(
     bool malformedFileRecord = false,
     bool objectShapedFilePage = false,
     bool nulFileRecord = false,
+    bool nulPreviousFileRecord = false,
     string fileStatus = "modified")
 {
     const string Before = "1111111111111111111111111111111111111111";
@@ -694,6 +706,8 @@ static Dictionary<string, string> RunDetection(
               printf '8\n'
               elif [ "$NUL_FILE_RECORD" = "true" ]; then
               printf '1\n'
+              elif [ "$NUL_PREVIOUS_FILE_RECORD" = "true" ]; then
+              printf '1\n'
               elif [ -n "$PREVIOUS_FILES" ]; then
               printf '1\n'
               elif [ -z "$CHANGED_FILES" ]; then
@@ -730,6 +744,9 @@ static Dictionary<string, string> RunDetection(
                 elif [ "$NUL_FILE_RECORD" = "true" ]; then
                   printf '%s\n' \
                     '[{"status":"modified","filename":"s\u0000rc/Program.cs"}]'
+                elif [ "$NUL_PREVIOUS_FILE_RECORD" = "true" ]; then
+                  printf '%s\n' \
+                    '[{"status":"modified","previous_filename":"sr\u0000c/Program.cs","filename":"notes/payload.bin"}]'
                 elif [ -n "$PREVIOUS_FILES" ]; then
                   jq -cn \
                     --arg previous "$PREVIOUS_FILES" \
@@ -812,6 +829,8 @@ static Dictionary<string, string> RunDetection(
             objectShapedFilePage.ToString().ToLowerInvariant();
         startInfo.Environment["NUL_FILE_RECORD"] =
             nulFileRecord.ToString().ToLowerInvariant();
+        startInfo.Environment["NUL_PREVIOUS_FILE_RECORD"] =
+            nulPreviousFileRecord.ToString().ToLowerInvariant();
         startInfo.Environment["PATH"] =
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
         startInfo.Environment["PREVIOUS_FILES"] = previousFiles;
