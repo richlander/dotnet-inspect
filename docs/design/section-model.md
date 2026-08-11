@@ -362,7 +362,7 @@ The library command's current authored ownership is:
 | --- | --- |
 | `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
-| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `Signals`, `Symbols` |
+| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |
 | `@SourceLink` | All `SourceLink:*` sections |
 | `@Integrations` | All integration sections |
