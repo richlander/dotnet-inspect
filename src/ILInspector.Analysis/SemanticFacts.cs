@@ -77,11 +77,15 @@ public static class SemanticFactProjection
                 FormatEscapeKind(occurrence.EscapeKind),
                 occurrence.EstimatedSizeBytes,
                 occurrence.SizeTier == AllocationSizeTier.Unknown ? null : occurrence.SizeTier.ToString(),
-                LibraryBodyIndex.FormatPathContext(occurrence.PathContext),
-                LibraryBodyIndex.FormatPathConfidence(occurrence.PathConfidence),
-                LibraryBodyIndex.FormatPostDominance(occurrence.PostDominance),
+                OptimizationOpportunityAnalysis.FormatPathContext(
+                    occurrence.PathContext),
+                OptimizationOpportunityAnalysis.FormatPathConfidence(
+                    occurrence.PathConfidence),
+                OptimizationOpportunityAnalysis.FormatPostDominance(
+                    occurrence.PostDominance),
                 occurrence.Detail ?? FormatSource(occurrence.Source),
-                LibraryBodyIndex.FormatMultiplicity(occurrence.Multiplicity),
+                OptimizationOpportunityAnalysis.FormatMultiplicity(
+                    occurrence.Multiplicity),
                 occurrence.ChurnedType))];
 
     public static ImmutableArray<SafetyFact> SafetyFacts(

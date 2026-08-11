@@ -139,25 +139,25 @@ public static class CSharpMemberShellProducer
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    PropertyBody(spec, CSharpAccessorBody.Block(RequiredBody(spec)))),
+                    PropertyBody(spec, TargetAccessorBody(RequiredBody(spec)))),
             CSharpShellBodyKind.TargetInitBody
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    PropertyBody(spec, CSharpAccessorBody.Block(RequiredBody(spec)))),
+                    PropertyBody(spec, TargetAccessorBody(RequiredBody(spec)))),
             CSharpShellBodyKind.TargetBody
                 when spec.Kind is CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    EventBody(spec, CSharpAccessorBody.Block(RequiredBody(spec)))),
+                    EventBody(spec, TargetAccessorBody(RequiredBody(spec)))),
             CSharpShellBodyKind.TargetEventAccessorWithSibling
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
                     EventBody(
                         spec,
-                        CSharpAccessorBody.Block(RequiredBody(spec)),
+                        TargetAccessorBody(RequiredBody(spec)),
                         CSharpAccessorBody.Block(RequiredSiblingBody(spec)))),
             CSharpShellBodyKind.TargetBody
                 when spec.Kind == CSharpShellMemberKind.Constructor
@@ -165,7 +165,7 @@ public static class CSharpMemberShellProducer
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    new CSharpBlockBody(
+                    TargetBlockBody(
                         RequiredBody(spec),
                         new CSharpConstructorInitializer(
                             CSharpConstructorInitializerKind.This,
@@ -176,16 +176,16 @@ public static class CSharpMemberShellProducer
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    new CSharpBlockBody(RequiredBody(spec), initializer)),
+                    TargetBlockBody(RequiredBody(spec), initializer)),
             CSharpShellBodyKind.TargetBody
-                => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(RequiredBody(spec))),
+                => new(member, CSharpBodyPolicy.Full, TargetBlockBody(RequiredBody(spec))),
             CSharpShellBodyKind.TargetGetterWithSetter
                 or CSharpShellBodyKind.TargetGetterWithInitSetter
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
                     new CSharpPropertyBody(
-                        CSharpAccessorBody.Block(RequiredBody(spec)),
+                        TargetAccessorBody(RequiredBody(spec)),
                         CSharpAccessorBody.Throw)),
             CSharpShellBodyKind.TargetSetterWithGetter
                 or CSharpShellBodyKind.TargetInitSetterWithGetter
@@ -194,7 +194,7 @@ public static class CSharpMemberShellProducer
                     CSharpBodyPolicy.Full,
                     new CSharpPropertyBody(
                         CSharpAccessorBody.Throw,
-                        CSharpAccessorBody.Block(RequiredBody(spec)))),
+                        TargetAccessorBody(RequiredBody(spec)))),
             CSharpShellBodyKind.FieldInitializer
                 => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(RequiredBody(spec))),
             _ => throw new NotSupportedException(
@@ -365,6 +365,14 @@ public static class CSharpMemberShellProducer
         => spec.Kind == CSharpShellMemberKind.EventAdd
             ? new CSharpEventBody(body, siblingBody ?? CSharpAccessorBody.Throw)
             : new CSharpEventBody(siblingBody ?? CSharpAccessorBody.Throw, body);
+
+    static CSharpBlockBody TargetBlockBody(
+        string source,
+        CSharpConstructorInitializer? constructorInitializer = null)
+        => new(source, constructorInitializer) { IsReplacementTarget = true };
+
+    static CSharpAccessorBody TargetAccessorBody(string source)
+        => CSharpAccessorBody.Block(source) with { IsReplacementTarget = true };
 
     static bool RequiresUnsafe(CSharpMemberShellSpec spec)
         => (spec.ReturnType is { } returnType

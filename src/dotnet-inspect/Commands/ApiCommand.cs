@@ -11,6 +11,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using Markout;
+using Markout.Formatting;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -248,18 +249,20 @@ public class ApiCommand
         // same shape for a 250-member class and an 8-member enum, where the member sections it used
         // to render varied from one section to eight.
         //
-        // Two neighbours are deliberately left alone. `member` shares this preamble but is a
-        // different command with its own overview (decompiled source, signature, learn order), so it
-        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
-        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
-        // convert. See #3547.
+        // Selected member details join the fixed overview here: Signature is bounded, while the
+        // former info preset also included Decompiled Source and therefore grew with the method
+        // body. Broad member lists and member-name overload inventories retain their own compact
+        // summary presets; they need separate bounded overview designs. The deprecated `api` shim
+        // reaches this preamble too but renders nothing at all -- it prints a migration notice and
+        // returns -- so it has no bare -S to convert. See #3547.
         //
         // Type listing joins here as of this slice. It previously had no Fixed section to offer --
         // every section it published was a per-kind member table that grows with the assembly -- so
         // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
         // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
         // mean the same thing here that it means everywhere else.
-        var usesFixedOverview = options is TypeOptions;
+        var usesFixedOverview = options is TypeOptions
+            || ApiMemberSectionPipelines.UsesDetailPipeline(options);
         var bareSelectSections = usesFixedOverview
             ? singleTypeMode
                 ? memberPipeline.FixedOverviewSectionNames
@@ -373,6 +376,15 @@ public class ApiCommand
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
+        if (options is MemberOptions memberFormat
+            && options.Discover is null)
+        {
+            memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
+            options = memberFormat;
+            if (!ValidateMemberGraphFormat(memberFormat, selectionSections))
+                return (null!, 1);
+        }
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -427,6 +439,79 @@ public class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static bool ValidateMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree)
+        {
+            if (options.FormatFlagExplicitlySet)
+            {
+                CommandError.Write(
+                    "--tree is a standalone output format and cannot combine with another output format.");
+                return false;
+            }
+
+            if (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "--tree requires exactly one selected tree shape.",
+                    "Use -S \"Call Graph\" --tree.");
+                return false;
+            }
+        }
+
+        if (options.MermaidOutput
+            && (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--mermaid requires exactly one selected graph.",
+                "Use -S \"Call Graph\" --mermaid.");
+            return false;
+        }
+
+        if (options.EmbeddedMermaid
+            && (sections is null
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--markdown --mermaid requires the Call Graph section.",
+                "Select it with -S \"Call Graph\"; other Markdown sections may be selected with it.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static MemberOptions NormalizeMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree && !options.FormatFlagExplicitlySet)
+        {
+            return options with
+            {
+                JsonOutput = false,
+                Tabular = false,
+                Tsv = false,
+                Jsonl = false,
+                TabularExplicitlySet = false,
+                PlainText = false,
+                MermaidOutput = false,
+            };
+        }
+
+        bool onlyCallGraph =
+            sections is { Count: 1 }
+            && sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase);
+        if (options.MermaidOutput && !options.FormatFlagExplicitlySet && !onlyCallGraph)
+            return options with { MermaidOutput = false };
+
+        return options;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -1318,8 +1403,8 @@ public class ApiCommand
         if (options.Count)
         {
             // A call graph declares edge rows in its projection. Count those rows directly
-            // rather than scanning the rendered tree, which has a different node-shaped
-            // lowering and therefore cannot answer the row question.
+            // rather than scanning any rendered lowering, whose syntax cannot answer the
+            // row question.
             if (options.IncludeSections is { Count: 1 } sections
                 && sections.Contains(SectionNames.CallGraph)
                 && view.MemberCode?.CallGraphRowCount is { } graphRows)
@@ -1338,6 +1423,35 @@ public class ApiCommand
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+        }
+
+        if (options is MemberOptions { Tree: true } or { MermaidOutput: true })
+        {
+            var graph = view.MemberCode?.CallGraph;
+            if (graph is null)
+            {
+                CommandError.Write(
+                    "Call Graph output requires exactly one selected method overload.",
+                    "Select an overload by Name:N, Name~digest, or --index N.");
+                return 1;
+            }
+
+            if (graph.IsEmpty)
+            {
+                sink.WriteLine("No inbound callers or outbound calls found for this method.");
+            }
+            else
+            {
+                IMarkoutFormatter formatter = options.Tree
+                    ? new PlainTextFormatter()
+                    : new MermaidFormatter();
+                var graphWriter = new MarkoutWriter(sink, formatter);
+                graphWriter.WriteGraph(graph);
+                graphWriter.Flush();
+            }
+
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -1409,7 +1523,7 @@ public class ApiCommand
 
                 writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);

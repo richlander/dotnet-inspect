@@ -170,7 +170,9 @@ public sealed class TypeShellProducerTests
             setter => Assert.Equal("init", setter.Kind));
 
         var body = Assert.IsType<CSharpPropertyBody>(policy.Body);
-        Assert.Equal(CSharpAccessorBody.Block("return _value;"), body.Getter);
+        Assert.Equal(
+            CSharpAccessorBody.Block("return _value;") with { IsReplacementTarget = true },
+            body.Getter);
         Assert.Equal(CSharpAccessorBody.Throw, body.Setter);
     }
 
@@ -199,8 +201,27 @@ public sealed class TypeShellProducerTests
             remover => Assert.Equal("remove", remover.Kind));
 
         var body = Assert.IsType<CSharpEventBody>(policy.Body);
-        Assert.Equal(CSharpAccessorBody.Block("_changed += value;"), body.Adder);
+        Assert.Equal(
+            CSharpAccessorBody.Block("_changed += value;") with { IsReplacementTarget = true },
+            body.Adder);
         Assert.Equal(CSharpAccessorBody.Block("_changed -= value;"), body.Remover);
+    }
+
+    [Fact]
+    public void MemberShellProducer_MarksTargetMethodBodyForReplacement()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;"));
+
+        var body = Assert.IsType<CSharpBlockBody>(policy.Body);
+        Assert.True(body.IsReplacementTarget);
     }
 
     [Fact]

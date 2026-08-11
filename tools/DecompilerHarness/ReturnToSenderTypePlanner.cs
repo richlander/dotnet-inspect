@@ -183,13 +183,15 @@ internal sealed record EventAccessorArtifactRequest(
 internal sealed record ProductArtifact(
     ArtifactRequest Request,
     ProductTargetBody TargetBody,
-    string Source,
+    CSharpSourceArtifact SourceArtifact,
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics,
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
     CompileBackReconstructionPlan Plan,
     IReadOnlyList<FullBodyProduction> FullBodies)
 {
+    internal string Source => SourceArtifact.Source;
+
     internal static ProductArtifact From(
         ArtifactRequest request,
         CompileBackSourceResult result,
@@ -198,7 +200,7 @@ internal sealed record ProductArtifact(
         => new(
             request,
             request.TargetBody,
-            result.Source,
+            result.SourceArtifact,
             result.Plan.Types
                 .SelectMany(type => type.SourceFacts
                     .Concat(type.PrimaryConstructor?.FieldInitializers.SelectMany(member => member.SourceFacts) ?? [])
@@ -216,7 +218,12 @@ public sealed record FullBodyProduction(
     MemberBodyProductionStatus Status,
     string? Failure);
 
-public sealed record CompileBackSourceResult(CompileBackReconstructionPlan Plan, string Source);
+public sealed record CompileBackSourceResult(
+    CompileBackReconstructionPlan Plan,
+    CSharpSourceArtifact SourceArtifact)
+{
+    public string Source => SourceArtifact.Source;
+}
 
 public sealed record CompileBackReconstructionPlan(
     string AssemblyPath,
@@ -2203,18 +2210,49 @@ public static class CompileBackSourceComposer
         return leftHash.AsSpan().SequenceEqual(rightHash);
     }
 
-    sealed class CompilationClosureBindingPolicy(
-        AssemblyDependencyResolver resolver) : IAssemblyBindingPolicy
+    sealed class CompilationClosureBindingPolicy : IAssemblyBindingPolicy
     {
+        readonly AssemblyDependencyResolver _resolver;
+        readonly Dictionary<string, ResolvedAssemblyReference> _references =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public CompilationClosureBindingPolicy(
+            AssemblyDependencyResolver resolver)
+        {
+            _resolver = resolver;
+            foreach (ResolvedAssemblyDependency dependency in resolver.ResolveAll())
+            {
+                ResolvedAssemblyReference? reference =
+                    resolver.Acquire(dependency);
+                if (reference is not null)
+                {
+                    _references.TryAdd(
+                        Path.GetFileNameWithoutExtension(dependency.Path),
+                        reference);
+                }
+            }
+        }
+
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            resolver.Select(
+        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        {
+            if (request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference)
+            {
+                return _references.TryGetValue(
+                    reference.Identity.Name,
+                    out ResolvedAssemblyReference? selected)
+                        ? AssemblyBindingSelection.Found(selected)
+                        : AssemblyBindingSelection.NotFound();
+            }
+
+            return _resolver.Select(
                 new AssemblyBindingRequest(
                     request.Target,
                     request.Origin,
                     AssemblyResolutionScope.Any));
+        }
     }
 
     static bool TryCollectRequiredInterfaceMethods(
@@ -3004,7 +3042,7 @@ public static class CompileBackSourceComposer
         return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
 
-    static string ComposeCompilationUnit(CompileBackReconstructionPlan plan)
+    static CSharpSourceArtifact ComposeCompilationUnit(CompileBackReconstructionPlan plan)
         => new CSharpTypePrinter().PrintBatch(
             plan.PrintRequests,
             new CSharpTypePrintOptions
@@ -3014,7 +3052,7 @@ public static class CompileBackSourceComposer
                 AssemblyAttributes = plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
                 ModuleAttributes = plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
                 Usings = plan.Module.Usings,
-            }).Source;
+            }).SourceArtifact;
 
     static CSharpMemberPolicy ToMemberPolicy(
         CompileBackMemberRequirement requirement,

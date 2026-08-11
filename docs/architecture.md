@@ -458,7 +458,8 @@ The layers cooperate as follows:
 
 1. `PdbContext` extracts named documents, checksums, sequence-point ranges,
    type/member/token relationships, and raw CDI blobs.
-2. `ILInspector.SourceLink` extracts and parses the SourceLink map.
+2. `ILInspector.SourceLink` extracts and parses the SourceLink map, retaining
+   map-level errors and individually rejected document keys for audit output.
 3. The high-level resolver combines raw PDB correlation with document-name
    fallback and canonical path selection.
 4. SourceLinkFetch applies the winning map entry and establishes provenance.
@@ -659,7 +660,32 @@ Research overlay bridge, and the application layer:
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
-- **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading. `LibraryBodyIndex` runs selected producers in one metadata-ordered assembly acquisition; the app unions the features required by selected sections and owns one lazy `MethodBodyInspectionSession` per command. Library body commands consume immutable content from the prefetched `PdbContext` image already opened for metadata/PDB inspection rather than reopening the target file or receiving Metadata's raw reader. Producers may still perform their own instruction interpretation over the acquired bodies.
+- **Analysis** owns R1 whole-assembly evidence and must not depend on the
+  decompiler IR, Roslyn, or inspected-assembly loading. One
+  `LibraryBodyAnalysisPlan` normalizes producer dependencies and scope before
+  `LibraryBodyIndex` runs the selected producers in one metadata-ordered
+  assembly acquisition. The acquisition returns cohesive method, safety,
+  allocation, optimization, and resource-lifecycle result bundles rather than
+  a flat omnibus tuple; independent judgments such as repeated-scan and
+  generated-framework classification remain separate Analysis services over
+  those shared results. Within acquisition, one
+  `MethodBodyAnalysisContext` carries the method identity, exception regions,
+  shared Layer-0 `MethodInstructions`, and Analysis-owned loop regions to topic
+  producers. Raw IL and reader-bound method bodies remain outside the context,
+  preventing producers from creating a second decode path. Allocation path
+  contexts, confidence, and
+  post-dominance remain producer-owned Layer-1 interpretations.
+  `BodySignalAnalysis` is the first producer on that context; metadata-dependent
+  box classification is supplied through a narrow callback, and
+  `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
+  analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
+  of every analysis algorithm. The app unions the features required by selected
+  sections and owns one lazy
+  `MethodBodyInspectionSession` per command. Library body commands consume
+  immutable content from the prefetched `PdbContext` image already opened for
+  metadata/PDB inspection rather than reopening the target file or receiving
+  Metadata's raw reader. Producers may still perform their own instruction
+  interpretation over the acquired bodies.
 - **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
 - **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
 - **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.

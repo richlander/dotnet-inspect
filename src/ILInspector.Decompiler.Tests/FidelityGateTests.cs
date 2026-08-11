@@ -502,6 +502,9 @@ public class FidelityGateTests
         "StatementBodyLambdaInsideIf",
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
+        // #4008: the terminal bare return is preserved as the switch join, so
+        // recompilation restores csc's direct table-to-final-ret layout.
+        "TerminalSwitchBreakToReturn",
         "TwoLocalFunctionQuadrants",
     };
 
