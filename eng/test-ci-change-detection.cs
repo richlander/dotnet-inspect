@@ -317,11 +317,46 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             $"found {detectionSteps.Count}.");
     }
 
-    if (detectionSteps[0].Index != 1)
+    if (detectionSteps[0].Index != 3)
     {
         throw new InvalidOperationException(
-            "Detect changes must run immediately after checkout.");
+            "Detect changes must run after checkout, .NET setup, and EVIL provenance validation.");
     }
+
+    YamlMappingNode setupStep = RequireMapping(
+        steps.Children[1],
+        "jobs.changes .NET setup step");
+    RequireScalarValue(
+        setupStep,
+        "uses",
+        "actions/setup-dotnet@v5",
+        "jobs.changes .NET setup step");
+
+    YamlMappingNode provenanceStep = RequireMapping(
+        steps.Children[2],
+        "jobs.changes EVIL provenance step");
+    RequireScalarValue(
+        provenanceStep,
+        "name",
+        "Check EVIL history provenance",
+        "jobs.changes EVIL provenance step");
+    RequireScalarValue(
+        provenanceStep,
+        "shell",
+        "bash",
+        "jobs.changes EVIL provenance step");
+    RequireAbsent(
+        provenanceStep,
+        "if",
+        "jobs.changes EVIL provenance step");
+    RequireAbsent(
+        provenanceStep,
+        "continue-on-error",
+        "jobs.changes EVIL provenance step");
+    RequireAbsent(
+        provenanceStep,
+        "working-directory",
+        "jobs.changes EVIL provenance step");
 
     if (selfTestSteps.Count != 1 ||
         selfTestSteps[0].Index <= detectionSteps[0].Index)
