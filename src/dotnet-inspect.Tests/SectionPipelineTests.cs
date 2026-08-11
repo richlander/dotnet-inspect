@@ -3610,6 +3610,9 @@ public class SectionPipelineTests
             // was ScanInfoCounts's fan-out
             LibrarySections.ScannerClassifiedMethods,
             LibrarySections.ScannerTypeForwarders,
+            // workspace-backed library inspection must not reopen its package path
+            LibrarySections.ScannerUnionTypes,
+            LibrarySections.ScannerSwitches,
             LibrarySections.ScannerIntegrationOpportunities,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
@@ -3894,7 +3897,7 @@ public class SectionPipelineTests
         // populate. Found by review: a single shared model let a typed failure written by an
         // earlier scanner satisfy an assertion nominally about a later one -- deleting
         // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
-        // green, because ScanIntegrations had already set the same two fields and the mapping uses
+        // green, because the group query had already set the same two fields and the mapping uses
         // ??=.
         var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
@@ -4196,13 +4199,16 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
-    /// so the three action-based scanners are covered, not just the two that return a value.
+    /// Every remaining scanner that must stay coherent with the command-owned
+    /// image. Both retarget gates drive this whole set so action-based and
+    /// value-returning scanners are covered.
     /// </summary>
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
         LibrarySections.ScannerTypeForwarders,
+        LibrarySections.ScannerUnionTypes,
+        LibrarySections.ScannerSwitches,
         LibrarySections.ScannerIntegrationOpportunities,
         LibrarySections.ScannerAuditSignals,
     ];
@@ -4211,6 +4217,8 @@ public class SectionPipelineTests
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
         $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        $"unions={PayloadCount(model.UnionTypeInspection)}",
+        $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
 
     /// <summary>

@@ -76,10 +76,13 @@ selection into that same registry. Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
 `--all-libraries` route focused Integrations demand through the first workspace
-query across every participant in one binding-consistent assembly context
-group. The command projects per-participant evidence or failure into
-compatibility models and continues each library inspection over the same
-retained immutable image.
+query across every participant in binding-consistent assembly context groups.
+The command projects per-participant evidence or failure into compatibility
+models and continues each library inspection over the same retained immutable
+image. Package `--all-libraries` partitions those groups by package asset
+directory, preserving non-`net*` framework and runtime contexts, and releases
+each participant after inspection; direct `library` and package `--library`
+retain their existing controls.
 The `extensions`, `implements`, and `find` CLIs resolve their assembly sets in
 the host, then execute content-shaped L1 queries through an ephemeral
 workspace. Ordinary independent scans use sequential one-participant groups so

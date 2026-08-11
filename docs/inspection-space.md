@@ -24,10 +24,13 @@ retaining Metadata-owned Finding correspondence and compatibility
 classification without coupling the query to endpoint acquisition or output.
 The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
-demand. One binding-consistent assembly context group scans every selected
-participant sequentially, preserves per-assembly identity, provenance, and
-failures, and retains each available immutable snapshot for the rest of that
-library inspection without reopening the source path. Progressive member call
+demand. One binding-consistent assembly context group per binding universe
+scans selected participants sequentially, preserves per-assembly identity,
+provenance, and failures, and retains each available immutable snapshot for the
+rest of that library inspection without reopening the source path. Package
+`--all-libraries` partitions binding universes by package asset directory,
+preserving non-`net*` framework and runtime contexts, and releases each
+participant before advancing. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. The `extensions`,
@@ -282,20 +285,30 @@ under a cumulative group budget reserved before snapshot allocation. Metadata
 exposes that bounded immutable snapshot acquisition as a narrow public
 capability; raw PE and metadata readers remain private, and Queries receives no
 friend access to Metadata. Callback access receives a scoped stack-only image
-view; direct access returns a stack-only read-only span result. Disposing the
-group prevents new access and releases its retained references after active
-callbacks complete, but it never attempts to revoke or recycle an already
-returned span.
+view; direct access returns a stack-only read-only span result. Asynchronous
+host work receives a descriptor whose opener retains that same immutable image,
+so suspension does not reopen a mutable path. Disposing the group prevents new
+access and releases its retained references after active callbacks complete,
+but it never attempts to revoke or recycle an already returned span or retained
+descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
 `InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
 derived-resource-before-snapshot disposal order.
+`InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`
+gates that order when asynchronous host work releases its participant.
+`InspectionWorkspaceTests.ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder`
+gates the disposal race after callback completion but before participant
+release.
 `InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
 all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+`PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+gates asynchronous host work over a retained descriptor without reopening its
+source.
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
 production Metadata friends.
 
@@ -309,14 +322,76 @@ Partial inspection is therefore explicit and meaningful. The query is
 `Unbounded`: the group byte budget bounds retained content, but participant
 count and metadata scanning work still require explicit demand. The baseline
 executor remains sequential; cancellation-aware and concurrent group executors
-are later policy work. Late malformed-metadata mapping is implemented but not
-yet independently gated.
+are later policy work. Late malformed-metadata mapping and preflight
+metadata-overflow isolation are gated by the package command tests named
+below.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
 and
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
 gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
+
+Package `--all-libraries` constructs one
+`SourceRelativeAssemblyGroupBindingPolicy` per selected package asset directory
+and passes that shared policy snapshot to every participant in that group.
+`--tfm all` therefore creates separate groups for distinct framework, asset-kind,
+and runtime directories rather than mixing binding universes. The host executes
+the group query only for explicit Integrations demand, including demand
+introduced by scanner prerequisites, correlates entries by acquisition
+registration, and projects them into the existing per-library Finding model.
+Query production and the asynchronous library pipeline consume one
+participant's retained snapshot before the group releases it and advances, so
+the group keeps its complete binding universe without retaining the package's
+cumulative image bytes. The legacy Integrations scanner recognizes populated
+Findings and does not rescan. The dependent integration-opportunity scanner
+consumes available findings unchanged and emits no gap rows when its
+prerequisite failed or a blank assembly identity made the participant a
+compatibility skip. Direct `library` and package `--library` remain
+single-assembly controls.
+Ecosystem and OpenTelemetry evidence form one grouped query outcome, so
+malformed participant metadata fails that grouped unit.
+Remote package participants carry the coordinate selected by acquisition rather
+than package-controlled nuspec identity. Local archives carry a valid,
+normalized nuspec coordinate when one exists and local-archive provenance
+otherwise. A grouped failure preserves successful rows but emits a warning for
+the affected library and returns a nonzero incomplete result.
+`PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+and `Create_PartitionsNonNetFrameworkFolders` gate framework partitioning.
+`Create_PartitionsSameFrameworkAcrossAssetContexts` gates package asset context
+partitioning. Together they gate participant correlation, package provenance,
+and same-generation host inspection.
+`PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
+gates streaming image release.
+`PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
+and
+`PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
+gate prerequisite activation and failure-safe opportunity composition.
+`PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities` and
+`LibraryCommand_BlankAssemblyNameSuppressesOpportunities` gate compatibility
+skip suppression across grouped package and single-library hosts.
+`PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
+and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition provenance.
+`GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
+composition and the shared nonzero completion status used after Markdown,
+count, tabular, or JSON output.
+`PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailureAcrossOutputPaths`
+gates that status independently of later host inspection across Markdown,
+JSON, count, and tabular output.
+`PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
+and
+`InspectionAcquisitionPlanTests.PathFactories_BlankAssemblyName_ReturnNoDescriptor`
+gate malformed participant isolation.
+`PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput` gates
+preflight decoder-failure isolation.
+`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsEntry_PopulatesFindings`
+and `GroupedEvidence_SuppliesIntegrationPresence` gate the Finding projection
+and duplicate-scan boundary.
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`
+gates preservation of presence flags that are broader than rendered evidence
+rows. Existing
+`PackageCommand_AllLibraries_*` tests gate Markdown and structured output
+compatibility.
 
 `MemberCallGraphSession` is the first group-owned derived Analysis resource.
 It builds one scoped target index only for first paint, one full target index
@@ -336,8 +411,8 @@ malformed-image failure caching, and
 gates the complete metadata-decoder exception classification.
 
 Other domain catalogs, query authorization, integration-opportunity
-composition, concurrent execution, and broader command migration remain later
-slices.
+composition migration, concurrent execution, and broader command migration
+remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
