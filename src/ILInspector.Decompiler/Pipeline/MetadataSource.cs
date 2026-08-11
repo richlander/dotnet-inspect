@@ -66,6 +66,10 @@ public sealed class MetadataSource : IDisposable
     /// <summary>Simple assembly name (no version/culture).</summary>
     public string AssemblyName { get; }
 
+    /// <summary>The opened module's stable metadata identity.</summary>
+    public Guid ModuleVersionId =>
+        Reader.GetGuid(Reader.GetModuleDefinition().Mvid);
+
     /// <summary>
     /// Optimistic ("simulate") rendering: when set, the importer treats the
     /// module as if it opted into the updated memory-safety rules even when it
