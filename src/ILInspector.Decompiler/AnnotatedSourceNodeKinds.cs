@@ -97,7 +97,6 @@ public static class AnnotatedSourceNodeKinds
             "ElementAccessExpression",
             "EventAssignmentStatement",
             "CaughtExceptionExpression",
-            "ControlTransferStatement",
             "AddressExpression",
             "IndirectAccessExpression",
             "CopyBlockStatement",

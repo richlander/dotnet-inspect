@@ -112,6 +112,9 @@ public class PrintedBodyMapTests
                 new MethodRef(objectType, "Target", intType, [], HasThis: false),
                 isVirtual: false,
                 instance: null)));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(new EndFinally()));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new EndFilter(new Constant(1, intType))));
     }
 
     [Fact]
@@ -125,6 +128,49 @@ public class PrintedBodyMapTests
 
         Assert.False(AnnotatedSourceNodeKinds.IsKnown(Assert.Single(map.Nodes).Kind));
     }
+
+    [Theory]
+    [MemberData(nameof(UnsupportedControlTransferComments))]
+    public void UnsupportedControlTransferCommentsRecordUnsupportedKind(
+        IrNode node,
+        string expectedText)
+    {
+        var block = new Block(0);
+        block.Add(node);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        Assert.True(ranges.TryGetRange(node, out var range));
+        Assert.Equal(expectedText, ranges.Output[range]);
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(node));
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.Contains(
+            map.Nodes,
+            candidate => candidate.Kind == "UnsupportedExpression"
+                && Text(map, candidate.Extent) == expectedText.TrimEnd());
+    }
+
+    public static TheoryData<IrNode, string> UnsupportedControlTransferComments =>
+        new()
+        {
+            { new EndFinally(), "// endfinally\n" },
+            {
+                new EndFilter(new Constant(1, TypeRef.CoreLib("System", "Int32"))),
+                "// endfilter(1)\n"
+            },
+        };
 
     [Theory]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "-(a + b)", "UnaryExpression")]
