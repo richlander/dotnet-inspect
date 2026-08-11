@@ -244,6 +244,29 @@ public sealed record BrowserIntegrationCategory(
 public sealed record BrowserIntegrationSignal(string Kind, string Name, string Shape);
 
 /// <summary>
+/// Integration opportunities for one package workspace, composed by
+/// <c>AssemblyContextIntegrationOpportunitiesQuery</c> from its typed Integrations prerequisite.
+/// The host groups and deduplicates rows for display; it does not infer opportunity evidence.
+/// </summary>
+public sealed record BrowserPackageOpportunities(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserOpportunityCategory[] Categories,
+    int TotalOpportunities,
+    bool IsComplete,
+    string? InspectionError);
+
+public sealed record BrowserOpportunityCategory(
+    string Integration,
+    BrowserOpportunityItem[] Items);
+
+public sealed record BrowserOpportunityItem(
+    string Api,
+    string IntegrationType,
+    string LookFor);
+
+/// <summary>
 /// One progressively acquired member call graph, projected through
 /// <c>ILInspector.CallGraph.CallGraphProjection</c>. Graph identity, direction, cycles,
 /// boundaries, and escaping belong to the projection; this record carries it across the Wasm
@@ -296,6 +319,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
+[JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]

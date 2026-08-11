@@ -413,6 +413,96 @@ public static partial class BrowserInspectionEngine
     }
 
     /// <summary>
+    /// Missing ecosystem integration opportunities for one package/version/framework workspace.
+    /// The product query composes them from its typed Integrations prerequisite; the browser only
+    /// groups and deduplicates the returned evidence for presentation.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageOpportunities(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        BrowserPackageCoordinate requested = await BrowserPackageWorkspace.ResolveAsync(
+            packageId,
+            version,
+            targetFramework);
+        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope([requested]);
+        BrowserPackageCoordinate coordinate = scope.Coordinate(requested);
+
+        var registry = new InspectionQueryRegistry<AssemblyContextGroup>()
+            .Add(
+                AssemblyContextIntegrationsQuery.Definition,
+                AssemblyContextIntegrationsQuery.Execute)
+            .Add(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                AssemblyContextIntegrationsQuery.Definition);
+        AssemblyContextIntegrationOpportunitiesResult result =
+            scope.UseSurface(group =>
+                registry.Run(
+                        [AssemblyContextIntegrationOpportunitiesQuery.Definition],
+                        group)
+                    .Get(AssemblyContextIntegrationOpportunitiesQuery.Definition));
+
+        var failures = new List<string>();
+        var opportunities = new List<IntegrationOpportunityInfo>();
+        foreach (AssemblyIntegrationOpportunitiesEntry entry in result.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyIntegrationOpportunitiesEntry.Available available:
+                    opportunities.AddRange(available.Opportunities);
+                    break;
+                case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
+                    failures.Add(
+                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})");
+                    break;
+                case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                    failures.Add($"{failed.Subject.Identity.Name}: {failed.Error.Message}");
+                    break;
+            }
+        }
+
+        IntegrationOpportunityInfo[] distinctOpportunities =
+        [
+            .. opportunities.DistinctBy(opportunity =>
+                (opportunity.Integration,
+                    opportunity.Api,
+                    opportunity.IntegrationType)),
+        ];
+        return JsonSerializer.Serialize(
+            new BrowserPackageOpportunities(
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                [
+                    .. distinctOpportunities
+                        .GroupBy(
+                            opportunity => opportunity.Integration,
+                            StringComparer.Ordinal)
+                        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(group => new BrowserOpportunityCategory(
+                            group.Key,
+                            [
+                                .. group
+                                    .OrderBy(
+                                        opportunity => opportunity.Api,
+                                        StringComparer.OrdinalIgnoreCase)
+                                    .Select(opportunity => new BrowserOpportunityItem(
+                                        opportunity.Api,
+                                        opportunity.IntegrationType,
+                                        opportunity.LookFor)),
+                            ])),
+                ],
+                distinctOpportunities.Length,
+                result.IsComplete,
+                failures.Count == 0 ? null : string.Join("; ", failures)),
+            BrowserJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    /// <summary>
     /// A progressively acquired member call graph, produced by <see cref="MemberCallGraphSession"/>
     /// over one workspace spanning every package the site currently has open. Callers in a sibling
     /// package are only visible when that package is a participant of the same binding-consistent

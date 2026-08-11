@@ -97,9 +97,10 @@ product-wide archive-budget policy.
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
-Integrations, and call graphs. Packages without `ref/` assets share one group
-for both roles. When the roles differ, they split the scope's 64 MB retained
-image budget rather than doubling it.
+Integrations, and call graphs. Opportunities use the compile group because they
+classify the package's reference-preferred public surface. Packages without
+`ref/` assets share one group for both roles. When the roles differ, they split
+the scope's 64 MB retained image budget rather than doubling it.
 
 ## Supported
 
@@ -109,6 +110,7 @@ image budget rather than doubling it.
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
+| `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 
 `QueryPackage` is the site's default path. It runs against the product-selected
@@ -166,6 +168,12 @@ participant through the non-terminal participant query. The reusable group
 remains intact; `ExecuteParticipant_DoesNotReleaseTheReusableGroup` gates that
 lifetime contract.
 
+`QueryPackageOpportunities` asks the query registry for the typed Opportunities
+query, which runs its declared Integrations prerequisite over the same retained
+surface group. The product owns opportunity classification, existing-integration
+suppression, and participant failures. The browser only deduplicates identical
+rows and groups them by the returned integration name.
+
 `QueryMemberCallGraph` projects `MemberCallGraphView` through
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
 [`docs/design/call-graph-projection.md`](../../docs/design/call-graph-projection.md)
@@ -175,7 +183,7 @@ and boundaries, and each front end spells them for itself.
 ## Unsupported
 
 Each remaining gap is a missing public query that takes an `AssemblyContextGroup`
-(or a group participant) and owns its own session, the way the five supported
+(or a group participant) and owns its own session, the way the six supported
 queries do. Each export keeps the signature the browser bridge binds and throws a
 `NotSupportedException` naming the gap, so the site reports the engine's refusal
 rather than fixture results or success-shaped empty output.
@@ -186,7 +194,6 @@ rather than fixture results or success-shaped empty output.
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackageDependencies` | direct assembly references over a group (`AssemblyReferencesQuery` binds to a host-opened session today), plus a declared-dependency-group projection |
-| `QueryPackageOpportunities` | integration-opportunity projection over a group |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
 | every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
 

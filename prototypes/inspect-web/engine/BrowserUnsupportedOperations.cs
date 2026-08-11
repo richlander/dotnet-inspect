@@ -107,15 +107,6 @@ public static partial class BrowserInspectionEngine
         throw Unavailable("Platform integrations", NoPlatformWorkspace);
 
     [JSExport]
-    public static Task<string> QueryPackageOpportunities(
-        string packageId,
-        string version,
-        string targetFramework) =>
-        throw Unavailable(
-            "Package opportunities",
-            "no group-scoped query projects integration opportunities");
-
-    [JSExport]
     public static Task<string> QueryPlatformOpportunities(
         string targetFramework,
         string assemblyFileName,
