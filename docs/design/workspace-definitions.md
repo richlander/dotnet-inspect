@@ -159,6 +159,14 @@ Field semantics:
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
+  Lens and section values are short bare tokens (`api`, `call-graph`)
+  drawn from a product-owned registry — the same collision defense as
+  well-known group names, with an unknown token a typed outcome. Bare
+  tokens are sufficient in the canonical form because the field and object
+  they sit in scope them; qualified spellings (the packet's
+  `pkg:dependencies`) belong to flat projections, where no structure does
+  that job. Qualification-in-names is the projection's tool, never the
+  schema's.
 
 ### The implicit platform context
 
@@ -424,6 +432,13 @@ answer; each needs a decision before or during implementation.
   unambiguous — the pin is the runtime-pack version. What
   `:Extensions@<version>` means for a custom group whose members carry their
   own versions (override, constraint, or error) is unresolved.
+- **Lens token registries.** Package-root lenses, type lenses, and member
+  sections are three token spaces today, and they collide across scopes
+  (`overview`, `source`). The packet disambiguates with a `pkg:` prefix; the
+  canonical view preset currently implies scope from shape (`type` present →
+  type view), the inference pattern the `kind` discriminator eliminated for
+  documents. Whether the registries unify into one collision-free token
+  space or the view preset carries an explicit scope field is unresolved.
 - **Anonymous transposed scenarios.** The URL projection emits one unnamed
   scenario while `scenarios` are otherwise named; whether `name` is
   optional-for-single or the transposition synthesizes a reserved name is a
