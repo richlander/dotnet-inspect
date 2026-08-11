@@ -144,6 +144,23 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageDocumentDiscovery_UsesOneCachedEntryManifestAtTheLimit()
+    {
+        var package = new BrowserPackage(
+            "Document.Limit",
+            "1.0.0",
+            PackageDocuments(BrowserPackageArchiveValidator.MaxEntries),
+            fromCache: false);
+
+        IReadOnlyList<BrowserPackageDocument> documents = package.Documents();
+
+        Assert.Equal(BrowserPackageArchiveValidator.MaxEntries, documents.Count);
+        Assert.Same(
+            package.Content.EnumerateEntriesWithLengths(),
+            package.Content.EnumerateEntriesWithLengths());
+    }
+
+    [Fact]
     public void XmlDocumentation_DuplicateParametersUseTheLastCompilerEntry()
     {
         const string xml = """
@@ -309,6 +326,22 @@ public sealed class BrowserEngineBoundaryTests
         {
             for (int index = 0; index < entryCount; index++)
                 archive.CreateEntry($"content/{index:D5}.txt", CompressionLevel.NoCompression);
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] PackageDocuments(int entryCount)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(content, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            for (int index = 0; index < entryCount; index++)
+            {
+                archive.CreateEntry(
+                    $"skills/skill-{index:D5}.md",
+                    CompressionLevel.NoCompression);
+            }
         }
 
         return content.ToArray();

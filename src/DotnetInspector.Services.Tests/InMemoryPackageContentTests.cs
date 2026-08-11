@@ -32,6 +32,24 @@ public sealed class InMemoryPackageContentTests
     }
 
     [Fact]
+    public void EntryManifest_IsCachedWithDeclaredLengths()
+    {
+        InMemoryPackageContent content = Content(new byte[32]);
+
+        IReadOnlyList<PackageContentEntry> first =
+            content.EnumerateEntriesWithLengths();
+        IReadOnlyList<PackageContentEntry> second =
+            content.EnumerateEntriesWithLengths();
+
+        Assert.Same(first, second);
+        PackageContentEntry entry = Assert.Single(first);
+        Assert.Equal("payload.bin", entry.Path);
+        Assert.Equal(32, entry.Length);
+        Assert.True(content.TryGetEntryLength("PAYLOAD.BIN", out long length));
+        Assert.Equal(32, length);
+    }
+
+    [Fact]
     public async Task BoundedReader_RejectsDeclaredOversizeWithoutReading()
     {
         var source = new ThrowOnReadStream();

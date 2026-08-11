@@ -577,9 +577,9 @@ internal sealed class BrowserPackage
     public IReadOnlyList<BrowserPackageDocument> Documents()
     {
         var documents = new List<BrowserPackageDocument>();
-        foreach (string entry in Content.EnumerateEntries())
+        foreach (PackageContentEntry entry in Content.EnumerateEntriesWithLengths())
         {
-            string[] segments = entry.Split('/');
+            string[] segments = entry.Path.Split('/');
             string fileName = segments[^1];
             bool isRoot = segments.Length == 1;
             string? kind =
@@ -590,9 +590,7 @@ internal sealed class BrowserPackage
                 : null;
             if (kind is null)
                 continue;
-            if (!Content.TryGetEntryLength(entry, out long length))
-                throw new InvalidOperationException("A listed package document disappeared.");
-            if (length > MaxTextEntryBytes || length > int.MaxValue)
+            if (entry.Length > MaxTextEntryBytes || entry.Length > int.MaxValue)
             {
                 throw new InvalidOperationException(
                     $"A browsable document in {PackageId} {Version} exceeds the browser byte "
@@ -602,8 +600,8 @@ internal sealed class BrowserPackage
             documents.Add(new BrowserPackageDocument(
                 kind,
                 kind == "skill" ? SkillDisplayName(segments) : fileName,
-                entry,
-                (int)length));
+                entry.Path,
+                (int)entry.Length));
         }
 
         return

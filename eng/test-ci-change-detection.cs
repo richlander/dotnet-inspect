@@ -79,6 +79,20 @@ if (webDependency["code"] != "true" || webDependency["web"] != "true")
         $"Web dependency canary did not select code and web: {FormatValues(webDependency)}");
 }
 
+Dictionary<string, string> sharedWebCompileInput = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/UnionPolyfill.cs",
+    outputs);
+if (sharedWebCompileInput["code"] != "true"
+    || sharedWebCompileInput["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Shared web compile-input canary did not select code and web: "
+        + FormatValues(sharedWebCompileInput));
+}
+
 Dictionary<string, string> web = RunDetection(
     repository,
     body,

@@ -309,7 +309,7 @@ jobs:
               # The browser engine is a real product consumer, so changes in its product dependency
               # graph must compile it as well as the solution. Test hosts, CLI-only projects, and
               # unrelated tools stay on the regular code lane.
-              src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
+              src/UnionPolyfill.cs|src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
               src/*) CODE=true ;;
               tests/*) CODE=true ;;
               # SkillCommandTests enforces equality among focused skill files,

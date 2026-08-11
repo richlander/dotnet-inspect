@@ -13,6 +13,7 @@ namespace DotnetInspector.Packages;
 public sealed class InMemoryPackageContent : IPackageContent
 {
     private readonly byte[] _nupkgBytes;
+    private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
 
     public InMemoryPackageContent(
         byte[] nupkgBytes,
@@ -22,6 +23,7 @@ public sealed class InMemoryPackageContent : IPackageContent
         ArgumentNullException.ThrowIfNull(nupkgBytes);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
         _nupkgBytes = nupkgBytes;
+        _entries = new(ReadEntries);
         FromCache = fromCache;
         ProducerKey = producerKey;
     }
@@ -94,22 +96,32 @@ public sealed class InMemoryPackageContent : IPackageContent
     public bool TryGetEntryLength(string relativePath, out long length)
     {
         ArgumentException.ThrowIfNullOrEmpty(relativePath);
-        using var archive = OpenArchive();
-        ZipArchiveEntry? entry = FindEntry(archive, relativePath);
+        PackageContentEntry? entry = FindEntry(
+            EnumerateEntriesWithLengths(),
+            relativePath);
         length = entry?.Length ?? 0;
         return entry is not null;
     }
 
+    /// <summary>
+    /// Returns one cached snapshot of package entry paths and declared expanded lengths.
+    /// Directory placeholders are omitted.
+    /// </summary>
+    public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
+        => _entries.Value;
+
     /// <inheritdoc />
-    public IEnumerable<string> EnumerateEntries()
+    public IEnumerable<string> EnumerateEntries() =>
+        EnumerateEntriesWithLengths().Select(entry => entry.Path);
+
+    private IReadOnlyList<PackageContentEntry> ReadEntries()
     {
         using var archive = OpenArchive();
-        // Materialize before the archive is disposed. Directory placeholder
-        // entries (trailing '/') carry no content and are skipped.
         return archive.Entries
             .Where(entry => !string.IsNullOrEmpty(entry.Name))
-            .Select(entry => entry.FullName)
-            .ToList();
+            .Select(entry => new PackageContentEntry(entry.FullName, entry.Length))
+            .ToList()
+            .AsReadOnly();
     }
 
     private ZipArchive OpenArchive()
@@ -124,4 +136,24 @@ public sealed class InMemoryPackageContent : IPackageContent
                     entry.FullName,
                     relativePath,
                     StringComparison.OrdinalIgnoreCase));
+
+    static PackageContentEntry? FindEntry(
+        IReadOnlyList<PackageContentEntry> entries,
+        string relativePath)
+    {
+        foreach (PackageContentEntry entry in entries)
+        {
+            if (entry.Path.Equals(relativePath, StringComparison.Ordinal))
+                return entry;
+        }
+        foreach (PackageContentEntry entry in entries)
+        {
+            if (entry.Path.Equals(relativePath, StringComparison.OrdinalIgnoreCase))
+                return entry;
+        }
+        return null;
+    }
 }
+
+/// <summary>One package entry's path and declared expanded length.</summary>
+public readonly record struct PackageContentEntry(string Path, long Length);
