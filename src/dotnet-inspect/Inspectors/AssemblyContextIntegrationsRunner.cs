@@ -198,7 +198,9 @@ internal static class AssemblyContextIntegrationsRunner
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             // The owning per-library inspection path reports the artifact
             // failure; it must not prevent valid group participants from

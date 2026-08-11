@@ -183,13 +183,15 @@ internal sealed record EventAccessorArtifactRequest(
 internal sealed record ProductArtifact(
     ArtifactRequest Request,
     ProductTargetBody TargetBody,
-    string Source,
+    CSharpSourceArtifact SourceArtifact,
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics,
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
     CompileBackReconstructionPlan Plan,
     IReadOnlyList<FullBodyProduction> FullBodies)
 {
+    internal string Source => SourceArtifact.Source;
+
     internal static ProductArtifact From(
         ArtifactRequest request,
         CompileBackSourceResult result,
@@ -198,7 +200,7 @@ internal sealed record ProductArtifact(
         => new(
             request,
             request.TargetBody,
-            result.Source,
+            result.SourceArtifact,
             result.Plan.Types
                 .SelectMany(type => type.SourceFacts
                     .Concat(type.PrimaryConstructor?.FieldInitializers.SelectMany(member => member.SourceFacts) ?? [])
@@ -216,7 +218,12 @@ public sealed record FullBodyProduction(
     MemberBodyProductionStatus Status,
     string? Failure);
 
-public sealed record CompileBackSourceResult(CompileBackReconstructionPlan Plan, string Source);
+public sealed record CompileBackSourceResult(
+    CompileBackReconstructionPlan Plan,
+    CSharpSourceArtifact SourceArtifact)
+{
+    public string Source => SourceArtifact.Source;
+}
 
 public sealed record CompileBackReconstructionPlan(
     string AssemblyPath,
@@ -3004,7 +3011,7 @@ public static class CompileBackSourceComposer
         return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
 
-    static string ComposeCompilationUnit(CompileBackReconstructionPlan plan)
+    static CSharpSourceArtifact ComposeCompilationUnit(CompileBackReconstructionPlan plan)
         => new CSharpTypePrinter().PrintBatch(
             plan.PrintRequests,
             new CSharpTypePrintOptions
@@ -3014,7 +3021,7 @@ public static class CompileBackSourceComposer
                 AssemblyAttributes = plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
                 ModuleAttributes = plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
                 Usings = plan.Module.Usings,
-            }).Source;
+            }).SourceArtifact;
 
     static ApiMember ToApiMember(CompileBackMemberRequirement member)
     {
@@ -3209,31 +3216,31 @@ public static class CompileBackSourceComposer
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+                    PropertyBody(requirement, TargetAccessorBody(requirement.TargetBody!))),
             CompileBackStubBodyKind.TargetInitBody
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+                    PropertyBody(requirement, TargetAccessorBody(requirement.TargetBody!))),
             CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    EventBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+                    EventBody(requirement, TargetAccessorBody(requirement.TargetBody!))),
             CompileBackStubBodyKind.TargetEventAccessorWithSibling
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
                     EventBody(
                         requirement,
-                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        TargetAccessorBody(requirement.TargetBody!),
                         CSharpAccessorBody.Block(requirement.SiblingTargetBody!))),
             CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
                 && primaryConstructorParameterCount > 0
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    new CSharpBlockBody(
+                    TargetBlockBody(
                         requirement.TargetBody!,
                         new CSharpConstructorInitializer(
                             CSharpConstructorInitializerKind.This,
@@ -3243,22 +3250,22 @@ public static class CompileBackSourceComposer
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
-                    new CSharpBlockBody(requirement.TargetBody!, capturedInitializer)),
+                    TargetBlockBody(requirement.TargetBody!, capturedInitializer)),
             CompileBackStubBodyKind.TargetBody
-                => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(requirement.TargetBody!)),
+                => new(member, CSharpBodyPolicy.Full, TargetBlockBody(requirement.TargetBody!)),
             CompileBackStubBodyKind.TargetGetterWithSetter
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
                     new CSharpPropertyBody(
-                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        TargetAccessorBody(requirement.TargetBody!),
                         CSharpAccessorBody.Throw)),
             CompileBackStubBodyKind.TargetGetterWithInitSetter
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
                     new CSharpPropertyBody(
-                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        TargetAccessorBody(requirement.TargetBody!),
                         CSharpAccessorBody.Throw)),
             CompileBackStubBodyKind.TargetSetterWithGetter
                 => new(
@@ -3266,20 +3273,28 @@ public static class CompileBackSourceComposer
                     CSharpBodyPolicy.Full,
                     new CSharpPropertyBody(
                         CSharpAccessorBody.Throw,
-                        CSharpAccessorBody.Block(requirement.TargetBody!))),
+                        TargetAccessorBody(requirement.TargetBody!))),
             CompileBackStubBodyKind.TargetInitSetterWithGetter
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
                     new CSharpPropertyBody(
                         CSharpAccessorBody.Throw,
-                        CSharpAccessorBody.Block(requirement.TargetBody!))),
+                        TargetAccessorBody(requirement.TargetBody!))),
             CompileBackStubBodyKind.FieldInitializer
                 => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(requirement.TargetBody!)),
             _ => throw new NotSupportedException(
                 $"Unsupported RTS member body shape '{requirement.StubBody}'."),
         };
     }
+
+    static CSharpBlockBody TargetBlockBody(
+        string source,
+        CSharpConstructorInitializer? constructorInitializer = null)
+        => new(source, constructorInitializer) { IsReplacementTarget = true };
+
+    static CSharpAccessorBody TargetAccessorBody(string source)
+        => CSharpAccessorBody.Block(source) with { IsReplacementTarget = true };
 
     static CSharpPropertyBody PropertyBody(
         CompileBackMemberRequirement requirement,
