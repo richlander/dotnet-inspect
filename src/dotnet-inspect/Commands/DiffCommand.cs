@@ -1602,12 +1602,12 @@ public class DiffCommand
             yield break;
         }
 
-        var complete = retained.Comparison.Value switch
+        var complete = retained.Comparison switch
         {
-            FindingComparison<T>.Complete value => value,
+            FindingComparison<T>.Complete
+                => (FindingComparison<T>.Complete)retained.Comparison.Value,
             FindingComparison<T>.Failed => throw new InvalidOperationException(
                 "Failed comparisons are handled before completed comparisons."),
-            _ => throw new InvalidOperationException("Unknown finding comparison value."),
         };
         if (complete.Pairs.IsEmpty)
         {
@@ -1638,21 +1638,20 @@ public class DiffCommand
 
     static string InspectionState<T>(FindingInspection<T> inspection)
         where T : notnull
-        => inspection.Value switch
+        => inspection switch
         {
             FindingInspection<T>.Complete => "complete",
             FindingInspection<T>.Absent => "absent",
             FindingInspection<T>.Failed => "failed",
-            _ => throw new InvalidOperationException("Unknown finding inspection value."),
         };
 
     static IReadOnlyList<PairFinding<T>> CompletePairs<T>(FindingComparison<T> comparison)
         where T : notnull
-        => comparison.Value switch
+        => comparison switch
         {
-            FindingComparison<T>.Complete complete => complete.Pairs,
+            FindingComparison<T>.Complete
+                => ((FindingComparison<T>.Complete)comparison.Value).Pairs,
             FindingComparison<T>.Failed => throw new InvalidOperationException("Finding comparison did not complete."),
-            _ => throw new InvalidOperationException("Unknown finding comparison value."),
         };
 
     static bool MatchesMemberPair(
@@ -1840,24 +1839,22 @@ public class DiffCommand
 
     static Finding<T>? OldSide<T>(PairFinding<T> pair)
         where T : notnull
-        => pair.Value switch
+        => pair switch
         {
             PairFinding<T>.Added => null,
-            PairFinding<T>.Removed removed => removed.Old,
-            PairFinding<T>.Present present => present.Old,
-            PairFinding<T>.Changed changed => changed.Old,
-            _ => throw new InvalidOperationException("Unknown pair finding value."),
+            PairFinding<T>.Removed => ((PairFinding<T>.Removed)pair.Value!).Old,
+            PairFinding<T>.Present => ((PairFinding<T>.Present)pair.Value!).Old,
+            PairFinding<T>.Changed => ((PairFinding<T>.Changed)pair.Value!).Old,
         };
 
     static Finding<T>? NewSide<T>(PairFinding<T> pair)
         where T : notnull
-        => pair.Value switch
+        => pair switch
         {
-            PairFinding<T>.Added added => added.New,
+            PairFinding<T>.Added => ((PairFinding<T>.Added)pair.Value!).New,
             PairFinding<T>.Removed => null,
-            PairFinding<T>.Present present => present.New,
-            PairFinding<T>.Changed changed => changed.New,
-            _ => throw new InvalidOperationException("Unknown pair finding value."),
+            PairFinding<T>.Present => ((PairFinding<T>.Present)pair.Value!).New,
+            PairFinding<T>.Changed => ((PairFinding<T>.Changed)pair.Value!).New,
         };
 
     internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)

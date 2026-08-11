@@ -641,28 +641,26 @@ public static class TimelineCommand
     static TimelineEvaluationRow BuildCensusEvaluationRow<T>(
         VersionedFindingInspection<T> evaluation)
         where T : notnull
-        => evaluation.Inspection.Value switch
+        => evaluation.Inspection switch
         {
-            FindingInspection<T>.Complete complete => new TimelineEvaluationRow(
+            FindingInspection<T>.Complete => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
                 "Complete",
-                complete.Findings.Length,
+                ((FindingInspection<T>.Complete)evaluation.Inspection.Value!).Findings.Length,
                 null),
-            FindingInspection<T>.Absent absent => new TimelineEvaluationRow(
+            FindingInspection<T>.Absent => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
                 "SubjectAbsent",
                 0,
-                absent.Detail),
-            FindingInspection<T>.Failed failed => new TimelineEvaluationRow(
+                ((FindingInspection<T>.Absent)evaluation.Inspection.Value!).Detail),
+            FindingInspection<T>.Failed => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
                 "Failed",
                 null,
-                failed.Error.Reason),
-            _ => throw new InvalidOperationException(
-                "Finding inspection returned an unknown value."),
+                ((FindingInspection<T>.Failed)evaluation.Inspection.Value!).Error.Reason),
         };
 
     static TimelineEvaluationRow BuildIdentityEvaluationRow<T>(

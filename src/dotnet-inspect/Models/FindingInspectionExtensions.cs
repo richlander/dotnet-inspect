@@ -8,14 +8,16 @@ internal static class FindingInspectionExtensions
     public static ImmutableArray<Finding<T>> Findings<T>(
         this FindingInspection<T>? inspection)
         where T : notnull
-        => inspection?.Value switch
+        => inspection switch
         {
             null => [],
-            FindingInspection<T>.Complete complete => complete.Findings,
+            FindingInspection<T>.Complete
+                => ((FindingInspection<T>.Complete)inspection.Value!).Findings,
             FindingInspection<T>.Absent => [],
-            FindingInspection<T>.Failed failed => throw new InvalidOperationException(
-                $"Finding inspection failed for {failed.Error.Subject.Display}: {failed.Error.Reason}"),
-            _ => throw new InvalidOperationException("Unknown finding inspection value."),
+            FindingInspection<T>.Failed => throw new InvalidOperationException(
+                $"Finding inspection failed for " +
+                $"{((FindingInspection<T>.Failed)inspection.Value!).Error.Subject.Display}: " +
+                $"{((FindingInspection<T>.Failed)inspection.Value!).Error.Reason}"),
         };
 
     public static IEnumerable<T> Payloads<T>(
@@ -26,7 +28,7 @@ internal static class FindingInspectionExtensions
     public static bool HasFindings<T>(
         this FindingInspection<T>? inspection)
         where T : notnull
-        => inspection?.Value is FindingInspection<T>.Complete { Findings.Length: > 0 };
+        => inspection is FindingInspection<T>.Complete { Findings.Length: > 0 };
 
     public static int FindingCount<T>(
         this FindingInspection<T>? inspection)
@@ -51,7 +53,7 @@ internal static class FindingInspectionExtensions
         this FindingInspection<T>? inspection,
         bool hasPresence)
         where T : notnull
-        => inspection?.Value is FindingInspection<T>.Failed
+        => inspection is FindingInspection<T>.Failed
             ? false
             : inspection.HasFindings() || hasPresence;
 }

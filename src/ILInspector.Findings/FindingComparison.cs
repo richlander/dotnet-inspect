@@ -24,28 +24,25 @@ public sealed record FindingComparison<T> where T : notnull
 
     public object Value { get; }
 
-    public FindingInspection<T> OldInspection => Value switch
+    public FindingInspection<T> OldInspection => this switch
     {
-        Complete complete => complete.OldInspection,
-        Failed failed => failed.OldInspection,
-        _ => throw new InvalidOperationException("Unknown finding comparison value."),
+        Complete => ((Complete)Value).OldInspection,
+        Failed => ((Failed)Value).OldInspection,
     };
 
-    public FindingInspection<T> NewInspection => Value switch
+    public FindingInspection<T> NewInspection => this switch
     {
-        Complete complete => complete.NewInspection,
-        Failed failed => failed.NewInspection,
-        _ => throw new InvalidOperationException("Unknown finding comparison value."),
+        Complete => ((Complete)Value).NewInspection,
+        Failed => ((Failed)Value).NewInspection,
     };
 
-    public string? Failure => Value switch
+    public string? Failure => this switch
     {
         Complete => null,
-        Failed failed => failed.Failure,
-        _ => throw new InvalidOperationException("Unknown finding comparison value."),
+        Failed => ((Failed)Value).Failure,
     };
 
-    public bool IsExact => Value is Complete { IsExact: true };
+    public bool IsExact => this is Complete { IsExact: true };
 
     /// <summary>
     /// Applies producer-owned classification to a completed comparison while preserving the
@@ -55,11 +52,10 @@ public sealed record FindingComparison<T> where T : notnull
         Func<ImmutableArray<PairFinding<T>>, ImmutableArray<PairFinding<T>>> transform)
     {
         ArgumentNullException.ThrowIfNull(transform);
-        var complete = Value switch
+        var complete = this switch
         {
-            Complete value => value,
+            Complete => (Complete)Value,
             Failed => null,
-            _ => throw new InvalidOperationException("Unknown finding comparison value."),
         };
         if (complete is null)
             return this;
@@ -231,8 +227,8 @@ public static class FindingComparison
         ArgumentNullException.ThrowIfNull(oldInspection);
         ArgumentNullException.ThrowIfNull(newInspection);
 
-        if (oldInspection.Value is FindingInspection<T>.Failed
-            || newInspection.Value is FindingInspection<T>.Failed)
+        if (oldInspection is FindingInspection<T>.Failed
+            || newInspection is FindingInspection<T>.Failed)
         {
             return new FindingComparison<T>.Failed(oldInspection, newInspection);
         }
@@ -251,12 +247,12 @@ public static class FindingComparison
     internal static ImmutableArray<Finding<T>> InspectionAtoms<T>(
         FindingInspection<T> inspection)
         where T : notnull
-        => inspection.Value switch
+        => inspection switch
         {
-            FindingInspection<T>.Complete complete => complete.Findings,
+            FindingInspection<T>.Complete
+                => ((FindingInspection<T>.Complete)inspection.Value!).Findings,
             FindingInspection<T>.Absent => [],
             FindingInspection<T>.Failed => throw new InvalidOperationException(
                 "A failed inspection cannot be matched."),
-            _ => throw new InvalidOperationException("Unknown finding inspection value."),
         };
 }
