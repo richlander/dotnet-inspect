@@ -19,6 +19,7 @@ public class AuthoredCorpusHistoryCardTests
     /// predate the commit field.
     /// </summary>
     static readonly string[] GrandfatheredIncompleteRows = ["2026-07-20"];
+    static readonly string[] GrandfatheredCommitlessRows = ["2026-07-20"];
 
     static IReadOnlyList<HistoryRun> Parse()
         => AuthoredCorpusHistoryCard.ParseHistory(SampleHistory.Split('\n'));
@@ -172,6 +173,55 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void ParseHistory_RequiresMethodologyWhenRunIdentityIsPresent()
+    {
+        string poolSha = new('a', 64);
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                $$"""{"date":"2026-08-02","validPct":57.1,"correct":1620,"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"poolSha256":"{{poolSha}}"}""",
+            ]));
+
+        Assert.Contains("must state methodologyVersion", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseHistory_RejectsUnknownMethodologyVersion()
+    {
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                """{"date":"2026-08-02","validPct":57.1,"correct":1620,"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"methodologyVersion":999}""",
+            ]));
+
+        Assert.Contains("methodologyVersion 999 is not defined", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseHistory_RejectsFrontierAttributionBeforeMethodologyV3()
+    {
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                """{"date":"2026-08-02","validPct":57.1,"correct":1620,"validDifferent":{"total":5160,"frontierIlExact":5159,"frontierIlDiff":1,"lowering":0,"knownTaste":0,"frontierIlNoVerdict":0,"frontierIlDiffAttribution":{"total":1,"productBodyDefect":1,"harnessShellReconstruction":0,"compileBackFloor":0,"unclassified":0}},"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"methodologyVersion":2}""",
+            ]));
+
+        Assert.Contains("frontierIlDiffAttribution was not produced before methodology v3", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseHistory_RequiresFrontierAttributionFromMethodologyV3()
+    {
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                """{"date":"2026-08-02","validPct":57.1,"correct":1620,"validDifferent":{"total":5160,"frontierIlExact":5159,"frontierIlDiff":1,"lowering":0,"knownTaste":0,"frontierIlNoVerdict":0},"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"methodologyVersion":3}""",
+            ]));
+
+        Assert.Contains("frontierIlDiffAttribution is required from methodology v3 onward", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Render_RunsTableReportsMethodologyVersionColumn()
     {
         string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 0);
@@ -201,6 +251,22 @@ public class AuthoredCorpusHistoryCardTests
         Assert.DoesNotContain("| Product defects \u2193 |", card, StringComparison.Ordinal);
         Assert.DoesNotContain("471 \u2713", card, StringComparison.Ordinal);
         Assert.DoesNotContain("471 \u2717", card, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Render_MovementAddsFrontierProductDefectsOnlyForMethodologyV3()
+    {
+        var runs = AuthoredCorpusHistoryCard.ParseHistory(
+        [
+            """{"date":"2026-08-05","commit":"v2","validPct":56.8,"correct":1576,"validDifferent":{"total":5244,"frontierIlExact":3122,"frontierIlDiff":2112,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0},"invalid":5180,"invalidBreakdown":{"productBodyDefect":325,"harnessShellReconstruction":4807,"unclassified":48},"methodologyVersion":2}""",
+            """{"date":"2026-08-06","commit":"v3","validPct":56.9,"correct":1577,"validDifferent":{"total":5243,"frontierIlExact":3122,"frontierIlDiff":2111,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0,"frontierIlDiffAttribution":{"total":2111,"productBodyDefect":200,"harnessShellReconstruction":1300,"compileBackFloor":500,"unclassified":111}},"invalid":5180,"invalidBreakdown":{"productBodyDefect":325,"harnessShellReconstruction":4807,"unclassified":48},"methodologyVersion":3}""",
+        ]);
+
+        string card = AuthoredCorpusHistoryCard.Render(runs, window: 0);
+
+        Assert.Contains("| Frontier product defects (attributed) | - | 200 |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects (v2 span-measured lower bound) \u2193 | 325 | - |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects (v3 final-shell lower bound) \u2193 | - | 325 |", card, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -263,6 +329,32 @@ public class AuthoredCorpusHistoryCardTests
             GrandfatheredIncompleteRows.OrderBy(date => date, StringComparer.Ordinal),
             incomplete.OrderBy(date => date, StringComparer.Ordinal));
     }
+
+    /// <summary>
+    /// The original run alone predates commit recording. New rows must carry an
+    /// immutable hexadecimal commit ID; the named CI provenance gate then proves that
+    /// ID landed on <c>origin/main</c> and implemented the recorded methodology.
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_OnlyTheOriginalRowOmitsACommit()
+    {
+        var runs = TrackedHistory();
+        var commitless = runs
+            .Where(run => run.Commit is null)
+            .Select(run => run.Date!)
+            .ToArray();
+
+        Assert.Equal(
+            GrandfatheredCommitlessRows.OrderBy(date => date, StringComparer.Ordinal),
+            commitless.OrderBy(date => date, StringComparer.Ordinal));
+        Assert.All(
+            runs.Where(run => run.Commit is not null),
+            run => Assert.True(IsBareCommitId(run.Commit!), run.Commit));
+    }
+
+    static bool IsBareCommitId(string commit)
+        => commit.Length is >= 8 and <= 40
+            && commit.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     /// <summary>
     /// The tracked trend store, parsed. Internal so the ratchet gate

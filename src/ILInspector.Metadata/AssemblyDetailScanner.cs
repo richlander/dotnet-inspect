@@ -322,7 +322,34 @@ public static class AssemblyDetailScanner
     /// Cheap presence flags for section discovery. Uses metadata table scans
     /// and short-circuits at first match for each flag where practical.
     /// </summary>
-    public static PresenceFlags ScanPresenceFlags(PEReader peReader)
+    public static PresenceFlags ScanPresenceFlags(PEReader peReader) =>
+        ScanPresenceFlagsCore(
+            peReader,
+            integrationPresence: null,
+            scanIntegrationPresence: true);
+
+    public static PresenceFlags ScanPresenceFlags(
+        PEReader peReader,
+        EcosystemIntegrationPresence integrationPresence)
+    {
+        ArgumentNullException.ThrowIfNull(integrationPresence);
+        return ScanPresenceFlagsCore(
+            peReader,
+            integrationPresence,
+            scanIntegrationPresence: false);
+    }
+
+    public static PresenceFlags ScanPresenceFlagsWithoutIntegrations(
+        PEReader peReader) =>
+        ScanPresenceFlagsCore(
+            peReader,
+            integrationPresence: null,
+            scanIntegrationPresence: false);
+
+    static PresenceFlags ScanPresenceFlagsCore(
+        PEReader peReader,
+        EcosystemIntegrationPresence? integrationPresence,
+        bool scanIntegrationPresence)
     {
         var reader = peReader.GetMetadataReader();
         var flags = new PresenceFlags();
@@ -332,21 +359,29 @@ public static class AssemblyDetailScanner
         var switches = SwitchScanner.Scan(peReader);
         flags.SwitchCount = switches.Count;
         flags.HasSwitches = switches.Count > 0;
-        var integrationPresence = EcosystemIntegrationScanner.ScanPresence(reader);
-        flags.IntegrationCount = integrationPresence.IntegrationCount;
-        flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
-        flags.HasAspNetCoreSupport = integrationPresence.HasAspNetCoreSupport;
-        flags.HasAspireSupport = integrationPresence.HasAspireSupport;
-        flags.HasAISupport = integrationPresence.HasAISupport;
-        flags.HasAuthenticationSupport = integrationPresence.HasAuthenticationSupport;
-        flags.HasConfigurationSupport = integrationPresence.HasConfigurationSupport;
-        flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
-        flags.HasLoggingSupport = integrationPresence.HasLoggingSupport;
-        flags.HasOptionsSupport = integrationPresence.HasOptionsSupport;
-        flags.HasHostingSupport = integrationPresence.HasHostingSupport;
-        flags.HasHealthChecksSupport = integrationPresence.HasHealthChecksSupport;
-        flags.HasHttpClientSupport = integrationPresence.HasHttpClientSupport;
-        flags.HasOpenApiSupport = integrationPresence.HasOpenApiSupport;
+        if (scanIntegrationPresence)
+        {
+            integrationPresence =
+                EcosystemIntegrationScanner.ScanPresence(reader);
+        }
+
+        if (integrationPresence is not null)
+        {
+            flags.IntegrationCount = integrationPresence.IntegrationCount;
+            flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
+            flags.HasAspNetCoreSupport = integrationPresence.HasAspNetCoreSupport;
+            flags.HasAspireSupport = integrationPresence.HasAspireSupport;
+            flags.HasAISupport = integrationPresence.HasAISupport;
+            flags.HasAuthenticationSupport = integrationPresence.HasAuthenticationSupport;
+            flags.HasConfigurationSupport = integrationPresence.HasConfigurationSupport;
+            flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
+            flags.HasLoggingSupport = integrationPresence.HasLoggingSupport;
+            flags.HasOptionsSupport = integrationPresence.HasOptionsSupport;
+            flags.HasHostingSupport = integrationPresence.HasHostingSupport;
+            flags.HasHealthChecksSupport = integrationPresence.HasHealthChecksSupport;
+            flags.HasHttpClientSupport = integrationPresence.HasHttpClientSupport;
+            flags.HasOpenApiSupport = integrationPresence.HasOpenApiSupport;
+        }
 
         // Type forwarders: iterate ExportedTypes, stop at first forwarder
         foreach (var handle in reader.ExportedTypes)

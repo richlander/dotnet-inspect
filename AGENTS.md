@@ -249,13 +249,13 @@ The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
 `ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
 directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
 Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Its install step is `continue-on-error` so that a feed
-outage does not cost every other result in the lane, but `Check
-ilasm/ildasm/mdv result` runs after the suites and fails the lane if
-acquisition failed: losing oracle coverage is red, not a quietly shorter skip
-list. `deep-inspect.yml` and `release.yml` still degrade to skips, so read
-their step logs before treating a green decompiler or IL-diff leg as
-oracle-backed.
+metadata oracle suite. Each install step is `continue-on-error` so that a feed
+outage does not cost every other result in the lane, but a terminal
+`Check ilasm/ildasm[/mdv] result` step fails the lane if acquisition failed:
+losing oracle coverage is red, not a quietly shorter skip list. In
+`release.yml`, that failed test lane blocks every package build and publish
+job. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
+gates the Deep Inspect and publish wiring.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
@@ -351,6 +351,12 @@ switch the suite to Debug.
 Test harnesses own orchestration, fixtures, independent oracles, comparison,
 and reporting. When behavior belongs to the product, a harness must exercise
 the product-owned capability rather than reconstructing or replacing it.
+
+Harnesses may parse source or diagnostics to observe and measure independent
+evidence. They must not use that parsed representation to construct, normalize,
+repair, or rewrite C# that the harness later compiles as product evidence. The
+product must own that artifact construction and expose typed identities, ranges,
+or replacement operations so the harness never becomes a second C# producer.
 
 Do not add harness-side adaptive mechanisms, fallback resolvers, special-case
 shape recognition, or normalization that compensates for missing, incomplete,
