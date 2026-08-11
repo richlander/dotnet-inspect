@@ -153,7 +153,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
-    public void TimelineCommand_AnalysisSession_HonorsAllocationAndBodyScope()
+    public void TimelineCommand_AnalysisSession_HonorsCapabilitiesAndBodyScope()
     {
         Analysis.MethodIdentity target = Analysis.LibraryBodyIndex
             .Open(
@@ -183,7 +183,18 @@ public class IndexBuildInvariantTests
         Assert.Equal(
             [target.MetadataToken],
             session.BodyIndex.GetDirectCallsByCaller().Keys);
-        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+
+        MethodBodyInspectionSession unsafetySession =
+            TimelineCommand.OpenAnalysisSession(
+                FixtureAssembly,
+                Analysis.AnalysisFindings.UnsafetyDescriptor,
+                target.MetadataToken);
+
+        Assert.Equal(
+            Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+            unsafetySession.BodyIndex.Features);
+        Assert.Empty(unsafetySession.BodyIndex.GetAllocationOccurrences());
+        Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
     }
 
     [Fact]

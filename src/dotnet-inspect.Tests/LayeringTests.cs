@@ -109,6 +109,10 @@ public sealed class LayeringTests
         string directIndexAccess =
             $@"\b(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*\.\s*"
             + $@"{nameof(LibraryBodyIndex.Open)}\w*\b";
+        string obscuredIndexImport =
+            $@"\b(?:global\s+)?using\s+"
+            + $@"(?:(?:\w+)\s*=\s*|static\s+)"
+            + $@"(?:global::)?(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*;";
         string sessionOpen =
             $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
             + $@"{nameof(MethodBodyInspectionSession.Open)}\w*\b";
@@ -117,7 +121,16 @@ public sealed class LayeringTests
             directIndexAccess,
             $"indexes.Select({nameof(LibraryBodyIndex)}."
                 + $"{nameof(LibraryBodyIndex.Open)})");
+        Assert.Matches(
+            obscuredIndexImport,
+            $"using BodyIndex = ILInspector.Analysis."
+                + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredIndexImport,
+            $"global using static ILInspector.Analysis."
+                + $"{nameof(LibraryBodyIndex)};");
         Assert.DoesNotMatch(directIndexAccess, source);
+        Assert.DoesNotMatch(obscuredIndexImport, source);
         Assert.Matches(sessionOpen, source);
     }
 }
