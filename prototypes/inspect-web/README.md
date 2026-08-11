@@ -33,7 +33,8 @@ minted with a placeholder one.
 2. **Mint typed participants.** Centralized acquisition downloads the package,
    selects compile assets with `PackageCompileAssetSelector`, decodes each
    entry's real metadata identity, and creates one `ResolvedAssemblyReference`
-   per implementation assembly. Acquisition never inspects one.
+   per selected compile asset and, when the roles differ, per matching
+   implementation asset. Acquisition never inspects one.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -41,14 +42,15 @@ minted with a placeholder one.
    accessor for a session, an image, or a descriptor.
 
 A workspace is **keyed by its complete exact coordinate set and reused**. The
-package surface, a type projection, an annotated member, Integrations, and a
-composite call-graph workspace over several packages all reach the same open
-group rather than reacquiring every image. `BrowserPackageWorkspace` keeps at
-most four scopes and disposes the least recently used one on eviction, which is
-what returns its retained image bytes. A scope carries a 64 MB aggregate
-retained-image budget; split compile/implementation roles receive 32 MB each.
-Exhausting a group budget surfaces as a typed `ResourceBudget` rejection beside
-the results rather than as a silently shorter list.
+package surface, a type projection, an annotated member, Integrations,
+Opportunities, and a composite call-graph workspace over several packages all
+reach the same open group rather than reacquiring every image.
+`BrowserPackageWorkspace` keeps at most four scopes and disposes the least
+recently used one on eviction, which is what returns its retained image bytes.
+A scope carries a 64 MB aggregate retained-image budget; split
+compile/implementation roles receive 32 MB each. Exhausting a group budget
+surfaces as a typed `ResourceBudget` rejection beside the results rather than
+as a silently shorter list.
 
 Because a scope is reused, nothing here runs
 `AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` ([#3932]): its release
