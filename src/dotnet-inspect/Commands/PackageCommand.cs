@@ -218,6 +218,7 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            using var failureScope = FeedFailureTelemetry.Scope();
             PackageVersionRange? range = null;
             string? rangeError = null;
             bool isRange = !File.Exists(packageArgs[0])
@@ -246,7 +247,9 @@ public class PackageCommand
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
-                            CommandError.Write($"Package '{range.PackageId}' not found on eligible configured sources.");
+                            WriteVersionLookupFailure(
+                                range.PackageId,
+                                $"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -281,7 +284,12 @@ public class PackageCommand
                     or InvalidOperationException
                     or ArgumentException)
                 {
-                    CommandError.Write(ex);
+                    WriteVersionLookupFailure(
+                        range!.PackageId,
+                        ex is PackageVersionsUnavailableException
+                            { HasIncompleteMetadata: false }
+                            ? $"Package '{range.PackageId}' not found."
+                            : ex.Message);
                     return 1;
                 }
             }
@@ -341,8 +349,17 @@ public class PackageCommand
                     return 0;
                 }
 
-                if (knownVersions == null || knownVersions.Count == 0)
-                    CommandError.Write($"Package '{normalizedName}' not found.");
+                if (FeedFailureTelemetry.Current?.Failures.Any(
+                        failure => failure.Phase is
+                            NetworkTrafficKind.PackageSourceDiscovery
+                            or NetworkTrafficKind.PackageVersionList) == true)
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Version '{versionQueryPinned}' of package '{normalizedName}' not found.");
+                else if (knownVersions == null || knownVersions.Count == 0)
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{normalizedName}' not found.");
                 else
                     CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
@@ -362,7 +379,9 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -397,7 +416,8 @@ public class PackageCommand
                     options.SourceOptions);
                 if (singleVersions is null)
                 {
-                    CommandError.Write(
+                    WriteVersionLookupFailure(
+                        normalizedName,
                         $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
@@ -428,7 +448,9 @@ public class PackageCommand
                     options.IncludeUnlisted, options.Limit, logger.Log, options.SourceOptions);
                 if (versionFeeds == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found.");
                     return 1;
                 }
 
@@ -445,7 +467,9 @@ public class PackageCommand
                     includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -458,7 +482,9 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                WriteVersionLookupFailure(
+                    normalizedName,
+                    $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -856,6 +882,15 @@ public class PackageCommand
             options.Tsv,
             options.Jsonl,
             Console.Out);
+
+    private static void WriteVersionLookupFailure(
+        string packageName,
+        string notFoundMessage)
+    {
+        var sourceFailure =
+            FeedFailureTelemetry.Current?.DescribeFailure(packageName);
+        CommandError.Write(sourceFailure?.ToString() ?? notFoundMessage);
+    }
 
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
