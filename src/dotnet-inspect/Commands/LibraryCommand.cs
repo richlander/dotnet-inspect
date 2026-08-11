@@ -588,7 +588,7 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
-                    queries: queries, queryRegistry: queryRegistry,
+                    queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
@@ -801,7 +801,7 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
-                    queries: queries, queryRegistry: queryRegistry,
+                    queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:

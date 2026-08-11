@@ -76,6 +76,12 @@ public sealed class AssemblyContextIntegrationsQueryTests
                 == EcosystemIntegrationNames.DependencyInjection);
         Assert.Empty(
             dependencyInjectionResult.OpenTelemetrySignals);
+        Assert.True(
+            dependencyInjectionResult.Presence
+                .HasDependencyInjectionSupport);
+        Assert.Equal(
+            1,
+            dependencyInjectionResult.Presence.IntegrationCount);
 
         var loggingResult =
             Assert.IsType<AssemblyIntegrationsEntry.Available>(
@@ -90,6 +96,10 @@ public sealed class AssemblyContextIntegrationsQueryTests
             loggingResult.OpenTelemetrySignals,
             signal =>
                 signal.Name == "OpenTelemetry.CustomTracer");
+        Assert.True(loggingResult.Presence.HasLoggingSupport);
+        Assert.True(
+            loggingResult.Presence.HasOpenTelemetrySupport);
+        Assert.Equal(2, loggingResult.Presence.IntegrationCount);
     }
 
     [Fact]
@@ -198,7 +208,8 @@ public sealed class AssemblyContextIntegrationsQueryTests
                             "Injected",
                             "Injected.Registration"),
                     ],
-                    []),
+                    [],
+                    new EcosystemIntegrationPresence()),
             ]);
         var registry =
             new InspectionQueryRegistry<AssemblyContextGroup>()
@@ -347,6 +358,66 @@ public sealed class AssemblyContextIntegrationsQueryTests
                 == EcosystemIntegrationNames.HealthChecks);
         Assert.Equal(1, rejected.OpenCount);
         Assert.Equal(1, available.OpenCount);
+    }
+
+    [Fact]
+    public void Execute_CarriesBroadPresenceBeyondEvidenceRows()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly dependencyInjection = TestAssembly.Create(
+            "DependencyInjectionPresence",
+            "Microsoft.Extensions.DependencyInjection.CustomThing",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [dependencyInjection.Participant]);
+
+        AssemblyContextIntegrationsResult result =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        var available =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                Assert.Single(result.Assemblies));
+        Assert.DoesNotContain(
+            available.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.True(
+            available.Presence.HasDependencyInjectionSupport);
+        Assert.Equal(0, available.Presence.IntegrationCount);
+    }
+
+    [Fact]
+    public void Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly internalTelemetry = TestAssembly.Create(
+            "InternalTelemetryPresence",
+            "OpenTelemetry.Internal.CustomTracer",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [internalTelemetry.Participant]);
+
+        AssemblyContextIntegrationsResult result =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        var available =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                Assert.Single(result.Assemblies));
+        Assert.Contains(
+            available.OpenTelemetrySignals,
+            signal =>
+                signal.Name
+                == "OpenTelemetry.Internal.CustomTracer");
+        Assert.False(
+            available.Presence.HasOpenTelemetrySupport);
+        Assert.Equal(0, available.Presence.IntegrationCount);
     }
 
     static void AssertSubject(

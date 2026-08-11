@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -582,6 +583,54 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_SkipsMetadataOverflowBesideManagedInput()
+    {
+        string malformedPath = Path.GetTempFileName();
+        string managedPath =
+            typeof(LibraryFindingConsumerTests).Assembly.Location;
+        try
+        {
+            File.WriteAllBytes(
+                malformedPath,
+                CorruptMetadataStreamCount(
+                    File.ReadAllBytes(managedPath)));
+            Assert.Throws<OverflowException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    malformedPath,
+                    AssemblyResolutionProvenance.Local(
+                        "metadata overflow compatibility test")));
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                malformedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "metadata overflow compatibility test")),
+                            new AssemblyContextIntegrationsInput(
+                                managedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "managed compatibility test")),
+                        ]));
+
+            Assert.Null(batch.EntryFor(malformedPath));
+            Assert.Null(batch.AssemblyForInspection(malformedPath));
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                batch.EntryFor(managedPath));
+            Assert.NotNull(batch.AssemblyForInspection(managedPath));
+        }
+        finally
+        {
+            File.Delete(malformedPath);
+        }
+    }
+
+    [Fact]
     public async Task AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection()
     {
         string tempDir = Path.Combine(
@@ -836,6 +885,24 @@ public class LibraryFindingConsumerTests
 
         throw new InvalidOperationException(
             "The test assembly has no metadata table stream.");
+    }
+
+    static byte[] CorruptMetadataStreamCount(byte[] bytes)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return bytes;
     }
 
     static int AlignTo4(int value)

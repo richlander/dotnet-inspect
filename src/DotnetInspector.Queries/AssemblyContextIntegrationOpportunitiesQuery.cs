@@ -104,39 +104,72 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
             entries.MoveToImmutable());
     }
 
+    /// <summary>
+    /// Runs the Integrations prerequisite and this dependent query for one
+    /// streaming participant before releasing its retained image.
+    /// </summary>
+    public static async Task<TResult> ExecuteParticipantAsync<TResult>(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        Func<
+            ResolvedAssemblyReference?,
+            AssemblyIntegrationsEntry,
+            AssemblyIntegrationOpportunitiesEntry,
+            Task<TResult>> callback)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyImageAccessResult<TResult> access =
+            await group.UseAndReleaseAssemblySessionAsync(
+                    participant.Assembly,
+                    async (session, retained) =>
+                    {
+                        AssemblyIntegrationsEntry integrations =
+                            AssemblyContextIntegrationsQuery.Inspect(
+                                subject,
+                                session);
+                        AssemblyIntegrationOpportunitiesEntry opportunities =
+                            Inspect(participant, integrations, session);
+                        return await callback(
+                                retained,
+                                integrations,
+                                opportunities)
+                            .ConfigureAwait(false);
+                    })
+                .ConfigureAwait(false);
+
+        return access switch
+        {
+            AssemblyImageAccessResult<TResult>.Available available =>
+                available.Value,
+            AssemblyImageAccessResult<TResult>.Rejected rejected =>
+                await callback(
+                        null,
+                        new AssemblyIntegrationsEntry.Rejected(
+                            subject,
+                            rejected.Failure),
+                        new AssemblyIntegrationOpportunitiesEntry.Rejected(
+                            subject,
+                            rejected.Failure))
+                    .ConfigureAwait(false),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly image access result."),
+        };
+    }
+
     static AssemblyIntegrationOpportunitiesEntry Inspect(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
-        AssemblyIntegrationsEntry.Available integrations)
+        AssemblyIntegrationsEntry integrations)
     {
-        var existing = new HashSet<string>(
-            integrations.EcosystemSignals.Select(
-                static signal => signal.Integration),
-            StringComparer.Ordinal);
-        if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
-            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
-
         AssemblyImageAccessResult<
             AssemblyIntegrationOpportunitiesEntry> access =
-            group.UseAssemblySession<
-                AssemblyIntegrationOpportunitiesEntry>(
+            group.UseAssemblySession(
                 participant.Assembly,
-                session =>
-                {
-                    try
-                    {
-                        return new AssemblyIntegrationOpportunitiesEntry.Available(
-                            integrations.Subject,
-                            session.IntegrationOpportunities(existing)
-                                .ToImmutableArray());
-                    }
-                    catch (BadImageFormatException ex)
-                    {
-                        return new AssemblyIntegrationOpportunitiesEntry.Failed(
-                            integrations.Subject,
-                            ex);
-                    }
-                });
+                session => Inspect(participant, integrations, session));
 
         return access switch
         {
@@ -151,6 +184,49 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
             _ => throw new InvalidOperationException(
                 "Unknown assembly image access result."),
         };
+    }
+
+    static AssemblyIntegrationOpportunitiesEntry Inspect(
+        AssemblyContextParticipant participant,
+        AssemblyIntegrationsEntry integrations,
+        AssemblyInspectionSession session)
+    {
+        EnsureSameParticipant(participant, integrations.Subject);
+        if (integrations is AssemblyIntegrationsEntry.Rejected rejected)
+        {
+            return new AssemblyIntegrationOpportunitiesEntry.Rejected(
+                rejected.Subject,
+                rejected.Failure);
+        }
+        if (integrations is AssemblyIntegrationsEntry.Failed failed)
+        {
+            return new AssemblyIntegrationOpportunitiesEntry.Failed(
+                failed.Subject,
+                failed.Error);
+        }
+
+        var available =
+            (AssemblyIntegrationsEntry.Available)integrations;
+        var existing = new HashSet<string>(
+            available.EcosystemSignals.Select(
+                static signal => signal.Integration),
+            StringComparer.Ordinal);
+        if (!available.OpenTelemetrySignals.IsDefaultOrEmpty)
+            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+
+        try
+        {
+            return new AssemblyIntegrationOpportunitiesEntry.Available(
+                available.Subject,
+                session.IntegrationOpportunities(existing)
+                    .ToImmutableArray());
+        }
+        catch (BadImageFormatException ex)
+        {
+            return new AssemblyIntegrationOpportunitiesEntry.Failed(
+                available.Subject,
+                ex);
+        }
     }
 
     static void EnsureSameParticipant(

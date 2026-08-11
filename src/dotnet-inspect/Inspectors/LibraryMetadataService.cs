@@ -52,9 +52,11 @@ internal static class LibraryMetadataService
         {
             // Expand declared scanner prerequisites before narrowing body-analysis features, so a
             // prerequisite that needs the body index is not missed by the narrowing.
-            var requiredScanners = scannerRegistry is not null && scanners is not null
-                ? scannerRegistry.ExpandRequired(scanners)
-                : scanners;
+            var requiredScanners =
+                scannerRegistry is not null
+                    && scanners is not null
+                    ? scannerRegistry.ExpandRequired(scanners)
+                    : scanners;
             if (requiredScanners is not null)
                 trace?.RecordClosure(requiredScanners);
             var requiredQueries = queryRegistry is not null && queries is not null
@@ -109,6 +111,7 @@ internal static class LibraryMetadataService
                     using var queryContext = new Sections.ScannerContext
                     {
                         AssemblyPath = path,
+                        AssemblyReference = assemblyReference,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -157,7 +160,17 @@ internal static class LibraryMetadataService
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
 
             // Populate cheap presence flags for fast -s discovery
-            var presenceFlags = pdbContext.ScanPresenceFlags();
+            PresenceFlags presenceFlags = integrationsEntry switch
+            {
+                AssemblyIntegrationsEntry.Available available =>
+                    pdbContext.ScanPresenceFlags(available.Presence),
+                AssemblyIntegrationsEntry.Rejected
+                    or AssemblyIntegrationsEntry.Failed =>
+                    pdbContext.ScanPresenceFlagsWithoutIntegrations(),
+                null => pdbContext.ScanPresenceFlags(),
+                _ => throw new InvalidOperationException(
+                    $"Unknown assembly Integrations result '{integrationsEntry.GetType().Name}'."),
+            };
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
@@ -236,6 +249,7 @@ internal static class LibraryMetadataService
                 using var scannerContext = new Sections.ScannerContext
                 {
                     AssemblyPath = path,
+                    AssemblyReference = assemblyReference,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -263,7 +277,8 @@ internal static class LibraryMetadataService
                 // Fallback for non-pipeline callers — open the assembly once for all bounded scans.
                 try
                 {
-                    using var session = AssemblyInspectionSession.Open(path);
+                    using var session =
+                        AssemblyInspectionSession.Borrow(pdbContext);
                     ApplyExtensionMethodsResult(
                         path,
                         inspection,
@@ -279,6 +294,7 @@ internal static class LibraryMetadataService
                     inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
                     inspection.TypeForwarderInspection = ScanTypeForwarders(session, path, logger);
                 }
+
                 catch (Exception ex)
                 {
                     logger.LogWarning($"Error opening {path} for scanning: {ex.Message}");
@@ -1572,12 +1588,30 @@ internal static class LibraryMetadataService
         try
         {
             using var session = AssemblyInspectionSession.Open(path);
+            return ScanSwitches(session, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
+            return FailedInspection<SwitchInfo>(
+                path, MetadataFindings.SwitchDescriptor, ex);
+        }
+    }
+
+    internal static FindingInspection<SwitchInfo> ScanSwitches(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
+    {
+        try
+        {
             HashSet<SwitchInfo> switches = [.. session.Switches()];
             if (session.HasMetadata)
             {
                 AddAppContextSwitches(
                     switches,
-                    AppContextSwitchProjectionProducer.Produce(session.MethodBodies));
+                    AppContextSwitchProjectionProducer.Produce(
+                        session.MethodBodies));
             }
 
             var orderedSwitches = switches
@@ -1591,9 +1625,12 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
+            logger.LogWarning(
+                $"Error scanning switches in {path}: {ex.Message}");
             return FailedInspection<SwitchInfo>(
-                path, MetadataFindings.SwitchDescriptor, ex);
+                path,
+                MetadataFindings.SwitchDescriptor,
+                ex);
         }
     }
 

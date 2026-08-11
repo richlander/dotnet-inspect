@@ -2621,6 +2621,51 @@ public class CfgSampleClass
         }
     }
 
+    // #4008: a sparse jump table whose successful labels use `break;` to reach the
+    // method's final void return. csc places that ret after the throwing default,
+    // so switch raising must preserve it as the post-switch continuation rather
+    // than moving `return;` into the successful section.
+    public static void TerminalSwitchBreakToReturn(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                break;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
+    // #4008 close negative: source-level `return;` inside the same sparse case group
+    // places ret before the default and emits a branch over it. That return must
+    // remain in the section rather than being mistaken for a trailing join.
+    public static void TerminalSwitchReturnInCase(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                return;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
@@ -5189,6 +5234,19 @@ public sealed class JoinTypeProvider
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
+public enum CfgTerminalSwitchKind
+{
+    Value25 = 25,
+    Value30 = 30,
+    Value31 = 31,
+    Value32 = 32,
+    Value33 = 33,
+    Value35 = 35,
+    Value36 = 36,
+    Value37 = 37,
+    Value40 = 40,
+}
+
 public enum CfgLongPriority : long { Low = 0, High = 2 }
 public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
@@ -6211,47 +6269,4 @@ public static class BraceBodyWrappingSamples
             ThirdMeasuredProjection = third,
             FourthMeasuredProjection = fourth,
         };
-}
-
-// #3459: an object initializer used as a CALL ARGUMENT, where the enclosing call's
-// receiver (a non-volatile instance field off `this`) and a `default` struct
-// argument are the compiler's pure spills sitting on the stack beneath the dup
-// chain — the Azure.Data.Tables `TableClient.Create` shape. The importer materializes
-// them as `S = _rest;` and `V = default;` around the member store, which #3336's
-// member-value fold could not cross. The pass now skips those reorder-safe spills,
-// folds the construction into the call-argument position, and inlines each single-use
-// spill back into its operand, restoring the canonical stack-only spelling
-// `_rest.Create(new CallArgTarget { Name = Label }, default(CallArgFlag?), _options)`
-// — which recompiles byte-for-byte to the original IL. Appended at end of file so
-// these top-level types cannot shift any existing generated-code ordinal.
-public sealed class CallArgTarget
-{
-    public string? Name { get; set; }
-}
-
-public enum CallArgFlag { A, B }
-
-public sealed class CallArgRest
-{
-    public int Create(CallArgTarget target, CallArgFlag? flag, object options) => target.Name?.Length ?? 0;
-}
-
-public sealed class CallArgClient
-{
-    readonly CallArgRest _rest = new();
-    readonly object _options = new();
-    volatile CallArgRest _volatileRest = new();
-    public string Label = "n";
-
-    // Foldable: the receiver `_rest` (pure field-off-this) and the `default` struct
-    // argument are reorder-safe spills, so both are inlined into the folded call.
-    public int CreateViaField()
-        => _rest.Create(new CallArgTarget { Name = Label }, default, _options);
-
-    // Close negative for the inlining guard: a VOLATILE field receiver must NOT be
-    // inlined (reordering a volatile access is observable). The initializer still
-    // folds — the receiver ran before the `newobj`, an offset-guarded skip — but the
-    // volatile spill is left in place rather than hoisted into the call receiver.
-    public int CreateViaVolatileField()
-        => _volatileRest.Create(new CallArgTarget { Name = Label }, default, _options);
 }

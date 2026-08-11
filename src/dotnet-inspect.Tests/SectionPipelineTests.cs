@@ -3447,6 +3447,9 @@ public class SectionPipelineTests
             LibrarySections.ScannerClassifiedMethods,
             LibrarySections.ScannerResources,
             LibrarySections.ScannerTypeForwarders,
+            // workspace-backed library inspection must not reopen its package path
+            LibrarySections.ScannerUnionTypes,
+            LibrarySections.ScannerSwitches,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
         ];
@@ -4041,14 +4044,17 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
-    /// so the three action-based scanners are covered, not just the four that return a value.
+    /// Every remaining scanner that must stay coherent with the command-owned
+    /// image. Both retarget gates drive this whole set so action-based and
+    /// value-returning scanners are covered.
     /// </summary>
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
         LibrarySections.ScannerResources,
         LibrarySections.ScannerTypeForwarders,
+        LibrarySections.ScannerUnionTypes,
+        LibrarySections.ScannerSwitches,
         LibrarySections.ScannerAuditSignals,
     ];
 
@@ -4057,6 +4063,8 @@ public class SectionPipelineTests
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
         $"resources={PayloadCount(model.ResourceInspection)}",
         $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        $"unions={PayloadCount(model.UnionTypeInspection)}",
+        $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
 
     /// <summary>
