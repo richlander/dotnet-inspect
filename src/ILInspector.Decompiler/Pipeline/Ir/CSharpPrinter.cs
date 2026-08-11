@@ -1808,7 +1808,14 @@ public sealed partial class CSharpPrinter
         RecordExpressionRanges(sb, node, start);
         if (statementStartOverride is not null)
             _printedRanges.SetLineAnchor(node, start);
-        _printedRanges.Record(node, statementStartOverride ?? start, sb.Length);
+        int statementStart = statementStartOverride ?? start;
+        // The wrapper contributes only the inner comment, not its indentation.
+        if (node is ExpressionStatement { Expression: UnsupportedNode unsupported }
+            && _printedRanges.TryGetRange(unsupported, out var unsupportedRange))
+        {
+            statementStart = unsupportedRange.Start.GetOffset(sb.Length);
+        }
+        _printedRanges.Record(node, statementStart, sb.Length);
         if (HasNamedRegions(node))
             _printedRanges.RecordRegion(PrintedRegionRole.Construct, start, sb.Length);
     }
@@ -2997,7 +3004,7 @@ public sealed partial class CSharpPrinter
         SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(t => $"IL_{t:X4}"))}];",
         Leave l => $"goto IL_{l.TargetOffset:X4}; // leave",
         EndFinally => "// endfinally",
-        EndFilter f => $"// endfilter({Expression(f.Value)})",
+        EndFilter f => $"// endfilter({CommentExpressionText(f.Value)})",
         _ => $"/* {node.Describe()} */",
     };
 
@@ -3350,6 +3357,10 @@ public sealed partial class CSharpPrinter
         // long-backed enum keeps its `long` payload.
         Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
             => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
+        Constant { Value: float value } c when !float.IsFinite(value)
+            => WithNodeKind(c, SingleText(value), "MemberAccessExpression"),
+        Constant { Value: double value } c when !double.IsFinite(value)
+            => WithNodeKind(c, DoubleText(value), "MemberAccessExpression"),
         Constant c => ConstantText(c),
         LoadField f => MemberTargetText(f, FieldTarget(f.Field, f.Instance)),
         Binary b => BinaryText(b),
@@ -5561,6 +5572,24 @@ public sealed partial class CSharpPrinter
     {
         _printedRanges?.SetNodeKind(owner, "UnsupportedExpression");
         return Expression(unsupported);
+    }
+
+    /// <summary>Renders a diagnostic comment payload without publishing it as surface syntax.</summary>
+    string CommentExpressionText(IrExpression expression)
+    {
+        var printedRanges = _printedRanges;
+        var expressionText = _expressionText;
+        _printedRanges = null;
+        _expressionText = null;
+        try
+        {
+            return Expression(expression);
+        }
+        finally
+        {
+            _printedRanges = printedRanges;
+            _expressionText = expressionText;
+        }
     }
 
     string ConvertText(Convert convert)

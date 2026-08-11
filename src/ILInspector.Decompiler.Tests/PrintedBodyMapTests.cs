@@ -192,6 +192,150 @@ public class PrintedBodyMapTests
             },
         };
 
+    [Fact]
+    public void NestedUnsupportedStatementCanonicalizesWrapperAndExpression()
+    {
+        var unsupported = new UnsupportedNode(0x05, "calli", "unsupported call site");
+        var statement = new ExpressionStatement(unsupported);
+        var nested = new Block();
+        nested.Add(statement);
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            nested,
+            null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [statement] = [new Annotation(Alloc, 0, "wrapper")],
+                [unsupported] = [new Annotation(Alloc, 0, "expression")],
+            });
+
+        var node = Assert.Single(
+            map.Nodes,
+            candidate => candidate.Kind == "UnsupportedExpression");
+        Assert.Equal(
+            "/* Unsupported IL_0005 calli: unsupported call site */",
+            Text(map, node.Extent));
+        Assert.Equal(2, map.Annotations.Count);
+        Assert.All(map.Annotations, annotation => Assert.Equal(node.Id, annotation.NodeId));
+    }
+
+    [Fact]
+    public void EndFilterCommentDoesNotPublishOperandSyntax()
+    {
+        var value = new LoadStackSlot(6, TypeRef.CoreLib("System", "Int32"));
+        var endFilter = new EndFilter(value);
+        var block = new Block(0);
+        block.Add(endFilter);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(
+            map.Nodes,
+            node => node.Kind == "UnsupportedExpression"
+                && Text(map, node.Extent) == "// endfilter(S_6)");
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "NameExpression"
+                && Text(map, node.Extent) == "S_6");
+    }
+
+    [Theory]
+    [MemberData(nameof(NonFiniteConstants))]
+    public void NonFiniteConstantsRecordMemberAccessKind(
+        Constant constant,
+        string expectedText)
+    {
+        var block = new Block(0);
+        block.Add(new Return(constant));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                constant.Type!,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        AssertSurfaceKind(ranges, constant, expectedText, "MemberAccessExpression");
+    }
+
+    public static TheoryData<Constant, string> NonFiniteConstants =>
+        new()
+        {
+            {
+                new Constant(
+                    float.NaN,
+                    TypeRef.CoreLib("System", "Single")),
+                "float.NaN"
+            },
+            {
+                new Constant(
+                    float.PositiveInfinity,
+                    TypeRef.CoreLib("System", "Single")),
+                "float.PositiveInfinity"
+            },
+            {
+                new Constant(
+                    float.NegativeInfinity,
+                    TypeRef.CoreLib("System", "Single")),
+                "float.NegativeInfinity"
+            },
+            {
+                new Constant(
+                    double.NaN,
+                    TypeRef.CoreLib("System", "Double")),
+                "double.NaN"
+            },
+            {
+                new Constant(
+                    double.PositiveInfinity,
+                    TypeRef.CoreLib("System", "Double")),
+                "double.PositiveInfinity"
+            },
+            {
+                new Constant(
+                    double.NegativeInfinity,
+                    TypeRef.CoreLib("System", "Double")),
+                "double.NegativeInfinity"
+            },
+        };
+
     [Theory]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "-(a + b)", "UnaryExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "a + b", "BinaryExpression")]
