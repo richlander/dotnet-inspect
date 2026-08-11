@@ -19,6 +19,10 @@ family.
 
 - `ILInspector.Decompiler` owns C# body diff production and display rows through
   `CSharpBodyDiff` and `CSharpDiffPrinter`.
+- `ILInspector.Decompiler` also owns annotated-source structural comparison
+  through `AnnotatedSourceComparer`. Its node changes and full-body caret
+  overlays describe rendered-syntax correspondence; they do not replace or
+  duplicate `CSharpDiffRow`.
 - `ILInspector.Instructions` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
@@ -73,6 +77,47 @@ comparison, and divergence becomes a visible per-member `Failed` diagnostic.
 If the Finding producers later carry equivalent aligned hunk and typed display
 payloads, the semantic projections should be deleted rather than matched a
 third time.
+
+## Annotated-source structural comparison
+
+`AnnotatedSourceComparer` accepts two C#-only `AnnotatedSourceDocument`
+payloads. Node IDs and absolute UTF-16 spans remain document-local: equal IDs or
+coordinates never establish correspondence. The comparer instead aligns the
+ordered node streams using stable rendered-syntax kinds, selected text, and
+region context, then emits typed `Added`, `Removed`, `Changed`, and `Moved`
+node changes. Unknown future kinds remain readable labels.
+
+`AnnotatedSourceComparisonRenderer` consumes that one result twice. It renders
+full Before and After C# bodies with label-plus-extent carets, then renders the
+rich structural table from the same changes. The caret input is a
+presentation-only primitive under `AnnotationCaret`; structural changes are not
+wrapped as hidden-fact annotations. Multi-span nodes project each absolute span
+through `AnnotatedSourceTextMap`, whose line and column values retain the
+document's UTF-16 coordinate currency.
+
+This is a comparison overlay, not a second generic diff spine.
+`CSharpBodyDiff` remains the owner of aligned source lines, canonical
+operations, hunks, and `CSharpDiffRow`. The structural comparison adds the
+rendered-syntax relationship those rows do not carry. A consumer may present
+both, but it must not translate structural changes into synthetic
+`CSharpDiffRow` values or independently match nodes for each renderer.
+
+Structural correspondence also proves no IL relationship. A
+`ReturnStatement → BreakStatement` change says only that the rendered node kind
+changed. Independent producers may attach typed
+`AnnotatedSourceComparisonEvidence` such as `IlFidelity`; absent that evidence,
+the structural result and its renderer make no fidelity claim.
+
+The decompiler harness provides the consumer proof:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --annotated-source-diff before.json after.json
+```
+
+Both files are direct Annotated Source Document JSON payloads produced by the
+base and head tool revisions. This mode consumes no assembly and performs no IL
+inspection.
 
 ## Row currency contract
 

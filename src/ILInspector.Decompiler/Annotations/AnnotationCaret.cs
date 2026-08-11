@@ -3,6 +3,12 @@ using System.Text;
 namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
+/// Presentation-only input for caret layout: display text plus an optional
+/// line-relative underline extent.
+/// </summary>
+public sealed record CaretLabel(string Text, AnnotationAnchor.CaretExtent? Extent = null);
+
+/// <summary>
 /// Renders the <see cref="AnnotationGesture.Caret"/> gesture: a <c>^^^^</c>
 /// underline on following <c>//</c> lines, pointing at the annotated statement.
 /// </summary>
@@ -138,8 +144,42 @@ public static class AnnotationCaret
         IReadOnlyList<IAnnotation> annotations,
         bool hoist = false,
         IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
+        => RenderCore(
+            lineText,
+            memberIndent,
+            annotations,
+            AnnotationText.Format,
+            annotation => extents is not null && extents.TryGetValue(annotation, out var extent)
+                ? extent
+                : null,
+            hoist);
+
+    /// <summary>
+    /// Renders arbitrary presentation labels with the same geometry used for
+    /// annotation carets, without manufacturing annotation facts.
+    /// </summary>
+    public static IReadOnlyList<string> RenderLabels(
+        string lineText,
+        string memberIndent,
+        IReadOnlyList<CaretLabel> labels,
+        bool hoist = false)
+        => RenderCore(
+            lineText,
+            memberIndent,
+            labels,
+            label => label.Text,
+            label => label.Extent,
+            hoist);
+
+    static IReadOnlyList<string> RenderCore<T>(
+        string lineText,
+        string memberIndent,
+        IReadOnlyList<T> items,
+        Func<T, string> format,
+        Func<T, AnnotationAnchor.CaretExtent?> extentOf,
+        bool hoist)
     {
-        if (annotations.Count == 0)
+        if (items.Count == 0)
             return [];
 
         string trimmed = lineText.Trim();
@@ -168,10 +208,10 @@ public static class AnnotationCaret
         // point at different characters, or some fact has no extent at all. A
         // line with no placeable fact still has nothing to point at, so it
         // widens as before — that is the Count: > 0 guard.
-        var agreed = Agreed(annotations, extents, lineText.Length);
+        var agreed = Agreed(items, extentOf, lineText.Length);
         if (agreed is null
-            && Stack(annotations, extents, lineText.Length, out var unplaced) is { Count: > 0 } stacked
-            && RenderStacked(stacked, unplaced, gutter, commentColumn, hoisted, hoist ? 1 : 0) is { } stackedLines)
+            && Stack(items, extentOf, lineText.Length, out var unplaced) is { Count: > 0 } stacked
+            && RenderStacked(stacked, unplaced, format, gutter, commentColumn, hoisted, hoist ? 1 : 0) is { } stackedLines)
         {
             return stackedLines;
         }
@@ -198,9 +238,9 @@ public static class AnnotationCaret
         // Each fact starts on its own line so a multi-fact statement stays
         // readable; only the first can share the caret line.
         bool first = true;
-        foreach (var annotation in annotations)
+        foreach (var item in items)
         {
-            foreach (string chunk in Wrap(AnnotationText.Format(annotation), width))
+            foreach (string chunk in Wrap(format(item).ReplaceLineEndings(" "), width))
             {
                 if (first && inline)
                 {
@@ -273,22 +313,19 @@ public static class AnnotationCaret
     /// one. Density is not the only reason this returns null: 1,399 of the
     /// 4,713 null lines carry a single fact that has no extent at all.
     /// </remarks>
-    static AnnotationAnchor.CaretExtent? Agreed(
-        IReadOnlyList<IAnnotation> annotations,
-        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents,
+    static AnnotationAnchor.CaretExtent? Agreed<T>(
+        IReadOnlyList<T> items,
+        Func<T, AnnotationAnchor.CaretExtent?> extent,
         int lineLength)
     {
-        if (extents is null || extents.Count == 0)
-            return null;
-
         AnnotationAnchor.CaretExtent? agreed = null;
-        foreach (var annotation in annotations)
+        foreach (var item in items)
         {
-            if (!extents.TryGetValue(annotation, out var extent))
+            if (extent(item) is not { } current)
                 return null;
-            if (agreed is { } seen && seen != extent)
+            if (agreed is { } seen && seen != current)
                 return null;
-            agreed = extent;
+            agreed = current;
         }
 
         // An extent is measured against the printer's own output, so it can only
@@ -348,36 +385,34 @@ public static class AnnotationCaret
     /// it.
     /// </para>
     /// </remarks>
-    static List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)>? Stack(
-        IReadOnlyList<IAnnotation> annotations,
-        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents,
+    static List<(AnnotationAnchor.CaretExtent Extent, List<T> Facts)>? Stack<T>(
+        IReadOnlyList<T> items,
+        Func<T, AnnotationAnchor.CaretExtent?> extent,
         int lineLength,
-        out List<IAnnotation> unplaced)
+        out List<T> unplaced)
     {
         unplaced = [];
-        if (extents is null)
-            return null;
 
-        var groups = new List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)>();
-        foreach (var annotation in annotations)
+        var groups = new List<(AnnotationAnchor.CaretExtent Extent, List<T> Facts)>();
+        foreach (var item in items)
         {
             // Same bound as Agreed: an extent is measured against the printer's
             // own output, so it can only fall outside the line handed here if a
             // consumer re-wrapped the text. Treat it as unplaceable rather than
             // throw inside a display path.
-            if (!extents.TryGetValue(annotation, out var extent)
-                || extent.Column < 0 || extent.Length <= 0
-                || extent.Column + extent.Length > lineLength)
+            if (extent(item) is not { } current
+                || current.Column < 0 || current.Length <= 0
+                || current.Column + current.Length > lineLength)
             {
-                unplaced.Add(annotation);
+                unplaced.Add(item);
                 continue;
             }
 
-            int existing = groups.FindIndex(group => group.Extent == extent);
+            int existing = groups.FindIndex(group => group.Extent == current);
             if (existing < 0)
-                groups.Add((extent, [annotation]));
+                groups.Add((current, [item]));
             else
-                groups[existing].Facts.Add(annotation);
+                groups[existing].Facts.Add(item);
         }
 
         groups.Sort((left, right) => left.Extent.Column != right.Extent.Column
@@ -458,9 +493,10 @@ public static class AnnotationCaret
     /// to a caret row, so it is 0. The contrast is about where detail is placed,
     /// not about bounding the underline.
     /// </remarks>
-    static IReadOnlyList<string>? RenderStacked(
-        List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
-        IReadOnlyList<IAnnotation> unplaced,
+    static IReadOnlyList<string>? RenderStacked<T>(
+        List<(AnnotationAnchor.CaretExtent Extent, List<T> Facts)> groups,
+        IReadOnlyList<T> unplaced,
+        Func<T, string> format,
         string gutter,
         int commentColumn,
         int hoisted,
@@ -537,9 +573,9 @@ public static class AnnotationCaret
         for (int i = 0; i < groups.Count; i++)
         {
             string prefix = Label(i).PadRight(labelWidth);
-            foreach (var annotation in groups[i].Facts)
+            foreach (var item in groups[i].Facts)
             {
-                foreach (string chunk in Wrap(AnnotationText.Format(annotation), width2))
+                foreach (string chunk in Wrap(format(item).ReplaceLineEndings(" "), width2))
                 {
                     lines.Add(gutter + "  " + prefix + chunk);
                     prefix = new string(' ', labelWidth);
@@ -550,10 +586,10 @@ public static class AnnotationCaret
         // A fact with no recoverable extent gets no number, because there is no
         // caret for a number to refer to. UnplacedMarker says what is true of
         // it: this line, and nothing narrower.
-        foreach (var annotation in unplaced)
+        foreach (var item in unplaced)
         {
             string prefix = $"{UnplacedMarker}".PadRight(labelWidth);
-            foreach (string chunk in Wrap(AnnotationText.Format(annotation), width2))
+            foreach (string chunk in Wrap(format(item).ReplaceLineEndings(" "), width2))
             {
                 lines.Add(gutter + "  " + prefix + chunk);
                 prefix = new string(' ', labelWidth);

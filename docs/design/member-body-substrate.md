@@ -450,6 +450,15 @@ from "invalid document" without conflating the two. `Instruction` remains the
 one reserved value with cross-field semantics, because it is exactly the IL
 nodes carrying an `IlOffset`.
 
+Cross-document comparison follows the same direction. An
+`AnnotatedSourceNode.Id` identifies a node only inside its own document, and an
+absolute span locates evidence only in that document's exact text. Neither is a
+cross-version identity. `AnnotatedSourceComparer` establishes correspondence
+from the stable kind vocabulary, selected text, ordered context, and region
+roles, while retaining each side's local IDs and spans for presentation. Its
+Added/Removed/Changed/Moved result is the sole input to both structural caret
+overlays and the structural table; renderers never rematch nodes independently.
+
 **One coordinate currency: the absolute span.** `AnnotatedSourceSpan(int Start,
 int Length)` is an end-exclusive range of **UTF-16 code units** over the decoded
 `Text`, exactly as Roslyn's `TextSpan` indexes `SourceText`. There is no second

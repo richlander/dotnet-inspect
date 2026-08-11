@@ -54,6 +54,8 @@ static class Program
         bool sequential = false;
         string? renderAb = null;
         string? emitRenderAb = null;
+        string? annotatedSourceBefore = null;
+        string? annotatedSourceAfter = null;
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
@@ -336,6 +338,10 @@ static class Program
                     case "--sequential": sequential = true; break;
                     case "--render-ab": renderAb = NextArg(args, ref i, flag); break;
                     case "--emit-render-ab": emitRenderAb = NextArg(args, ref i, flag); break;
+                    case "--annotated-source-diff":
+                        annotatedSourceBefore = NextArg(args, ref i, flag);
+                        annotatedSourceAfter = NextArg(args, ref i, flag);
+                        break;
                     case "--idempotence-check": idempotenceCheck = true; break;
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
@@ -399,6 +405,7 @@ static class Program
         (string Flag, bool Selected)[] dispatchOrder =
         [
             ("--fixture-source-inventory", fixtureSourceInventory),
+            ("--annotated-source-diff", annotatedSourceBefore is not null),
             ("--history-card", historyCard),
             ("--generated-fixtures", generatedFixtures),
             ("--fuzz-signatures", fuzzSignatures),
@@ -447,6 +454,23 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
             return FixtureSourceInventory(json);
+        }
+
+        if (annotatedSourceBefore is not null)
+        {
+            if (inputs.Count > 0 || packages.Count > 0)
+                return Fail("--annotated-source-diff consumes two JSON documents; do not pass assembly or package inputs.");
+            try
+            {
+                return AnnotatedSourceDiff.Run(annotatedSourceBefore, annotatedSourceAfter!);
+            }
+            catch (Exception ex) when (ex is ArgumentException
+                or IOException
+                or UnauthorizedAccessException
+                or JsonException)
+            {
+                return Fail(ex.Message);
+            }
         }
 
         if (historyCard)
@@ -2050,6 +2074,10 @@ static class Program
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --annotated-source-diff <before.json> <after.json>
+                                compare two C# Annotated Source Document payloads;
+                                print full Before/After bodies with structural
+                                carets plus the shared typed structural diff.
           --idempotence-check     run the IR pipeline twice and report methods the
                                 second run still rewrites (ordering gaps / instability);
                                 bucketed by the pass that fired. Zero is the target.

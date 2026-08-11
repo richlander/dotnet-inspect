@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -153,6 +154,51 @@ public class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(0, run.ExitCode);
         Assert.Contains("usage: decompiler-harness", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_RendersAnnotatedSourceStructuralComparison()
+    {
+        string beforePath = Path.Combine(Path.GetTempPath(), $"annotated-before-{Guid.NewGuid():N}.json");
+        string afterPath = Path.Combine(Path.GetTempPath(), $"annotated-after-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(beforePath, JsonSerializer.Serialize(Document("return;", "ReturnStatement")));
+            File.WriteAllText(afterPath, JsonSerializer.Serialize(Document("break;", "BreakStatement")));
+
+            var run = RunHarness("--annotated-source-diff", beforePath, afterPath);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("## Before", run.Output, StringComparison.Ordinal);
+            Assert.Contains("ReturnStatement -> BreakStatement", run.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "| Changed | ReturnStatement | BreakStatement |",
+                run.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(beforePath);
+            File.Delete(afterPath);
+        }
+
+        static AnnotatedSourceDocument Document(string statement, string kind)
+        {
+            string text = $"void M(){Environment.NewLine}{{{Environment.NewLine}    {statement}{Environment.NewLine}}}";
+            int start = text.IndexOf(statement, StringComparison.Ordinal);
+            return new AnnotatedSourceDocument(
+                text,
+                [
+                    new AnnotatedSourceNode(
+                        0,
+                        kind,
+                        SourceLineKind.CSharp,
+                        [new AnnotatedSourceSpan(start, statement.Length)]),
+                ],
+                [],
+                [],
+                []);
+        }
     }
 
     /// <summary>
@@ -310,6 +356,11 @@ public class AuthoredCorpusHarnessProcessTests
     static readonly (string Mode, string[] Invocation)[] PreemptingModeInvocations =
     [
         ("--fixture-source-inventory", ["--fixture-source-inventory"]),
+        ("--annotated-source-diff", [
+            "--annotated-source-diff",
+            "/does-not-exist-before.json",
+            "/does-not-exist-after.json",
+        ]),
         ("--history-card", ["--history-card"]),
         ("--generated-fixtures", ["--generated-fixtures"]),
         ("--fuzz-signatures", ["--fuzz-signatures"]),

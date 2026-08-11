@@ -146,6 +146,27 @@ the method signature line here too, for the same reason.
 
 {optional prose to elaborate on the verdict}
 
+### Structural comparison overlay
+
+<!--
+For a change that alters rendered syntax kinds, generate this section from the
+two direct Annotated Source Document JSON payloads rather than hand-annotating
+the code:
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --annotated-source-diff before.json after.json
+
+Paste the complete generated output below. It must retain the full Before and
+After C# bodies, structural carets on both sides, and the rich structural diff.
+The carets and table consume one typed comparison result. Do not infer IL
+fidelity from a kind transition; include fidelity only when the output carries
+independently produced typed evidence.
+
+Delete this section when the change does not alter rendered syntax kinds.
+-->
+
+{generated full-body Before/After structural comparison and rich diff}
+
 ### Fully raised
 
 <!--
