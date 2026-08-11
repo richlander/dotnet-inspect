@@ -537,6 +537,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     Dictionary<IrNode, string>? _expressionText;
 
+    List<(IrNode Node, int Start, int End)>? _contextRanges;
+
     readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
 
     internal sealed record StackSlotUnifierTelemetry(
@@ -1804,8 +1806,25 @@ public sealed partial class CSharpPrinter
             return;
         }
         int start = sb.Length;
-        AppendStatementCore(sb, node, indent, out int? statementStartOverride);
+        var enclosingContextRanges = _contextRanges;
+        _contextRanges = null;
+        int? statementStartOverride;
+        List<(IrNode Node, int Start, int End)>? contextRanges;
+        try
+        {
+            AppendStatementCore(sb, node, indent, out statementStartOverride);
+            contextRanges = _contextRanges;
+        }
+        finally
+        {
+            _contextRanges = enclosingContextRanges;
+        }
         RecordExpressionRanges(sb, node, start);
+        if (contextRanges is not null)
+        {
+            foreach (var contextRange in contextRanges)
+                _printedRanges.Record(contextRange.Node, contextRange.Start, contextRange.End);
+        }
         if (statementStartOverride is not null)
             _printedRanges.SetLineAnchor(node, start);
         int statementStart = statementStartOverride ?? start;
@@ -2001,25 +2020,45 @@ public sealed partial class CSharpPrinter
             // indent the inline Expression() form cannot.
             string inner = pad + "    ";
             var labelEnum = SwitchLabelEnumType(returnedSwitch.Value);
-            sb.Append(pad).Append("return ").Append(Operand(returnedSwitch.Value)).AppendLf(" switch");
+            sb.Append(pad).Append("return ");
+            int switchStart = sb.Length;
+            sb.Append(Operand(returnedSwitch.Value)).AppendLf(" switch");
             sb.Append(pad).AppendLf("{");
             foreach (var arm in returnedSwitch.Arms)
-                sb.Append(inner).Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum)).AppendLf(",");
-            sb.Append(pad).AppendLf("};");
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum));
+                CaptureContextRange(arm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
+            sb.Append(pad).Append("}");
+            CaptureContextRange(returnedSwitch, switchStart, sb.Length);
+            sb.AppendLf(";");
             return;
         }
         if (node is Return { Value: UnionSwitchExpression unionSwitch })
         {
             string inner = pad + "    ";
-            sb.Append(pad).Append("return ").Append(UnionSwitchReceiverText(unionSwitch.Value)).AppendLf(" switch");
+            sb.Append(pad).Append("return ");
+            int switchStart = sb.Length;
+            sb.Append(UnionSwitchReceiverText(unionSwitch.Value)).AppendLf(" switch");
             sb.Append(pad).AppendLf("{");
             if (unionSwitch.NullValue is { } nullValue)
                 sb.Append(inner).Append("null => ").Append(SwitchArmValueText(nullValue, _function.Signature.ReturnType)).AppendLf(",");
             foreach (var arm in unionSwitch.Arms)
-                sb.Append(inner).Append(UnionSwitchArmText(arm, _function.Signature.ReturnType)).AppendLf(",");
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(UnionSwitchArmText(arm, _function.Signature.ReturnType));
+                CaptureContextRange(arm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
             if (unionSwitch.DefaultValue is { } defaultValue)
                 sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(defaultValue, _function.Signature.ReturnType)).AppendLf(",");
-            sb.Append(pad).AppendLf("};");
+            sb.Append(pad).Append("}");
+            CaptureContextRange(unionSwitch, switchStart, sb.Length);
+            sb.AppendLf(";");
             return;
         }
         if (node is Return { Value: PatternSwitchExpression patternSwitch })
@@ -2028,13 +2067,23 @@ public sealed partial class CSharpPrinter
             // arm per line, indented under the governing receiver, with an
             // optional trailing `_ => default` arm.
             string inner = pad + "    ";
-            sb.Append(pad).Append("return ").Append(Operand(patternSwitch.Value)).AppendLf(" switch");
+            sb.Append(pad).Append("return ");
+            int switchStart = sb.Length;
+            sb.Append(Operand(patternSwitch.Value)).AppendLf(" switch");
             sb.Append(pad).AppendLf("{");
             foreach (var arm in patternSwitch.Arms)
-                sb.Append(inner).Append(PatternSwitchArmText(arm, _function.Signature.ReturnType)).AppendLf(",");
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(PatternSwitchArmText(arm, _function.Signature.ReturnType));
+                CaptureContextRange(arm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
             if (patternSwitch.DefaultValue is { } patternDefault)
                 sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(patternDefault, _function.Signature.ReturnType)).AppendLf(",");
-            sb.Append(pad).AppendLf("};");
+            sb.Append(pad).Append("}");
+            CaptureContextRange(patternSwitch, switchStart, sb.Length);
+            sb.AppendLf(";");
             return;
         }
         if (node is Return { Value: TupleSwitchExpression tupleSwitch })
@@ -2043,11 +2092,21 @@ public sealed partial class CSharpPrinter
             // forms above: one arm per line, indented under the governing tuple.
             string inner = pad + "    ";
             var componentTypes = TupleSwitchComponentTypes(tupleSwitch);
-            sb.Append(pad).Append("return ").Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLf(" switch");
+            sb.Append(pad).Append("return ");
+            int switchStart = sb.Length;
+            sb.Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLf(" switch");
             sb.Append(pad).AppendLf("{");
             foreach (var arm in tupleSwitch.Arms)
-                sb.Append(inner).Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType)).AppendLf(",");
-            sb.Append(pad).AppendLf("};");
+            {
+                sb.Append(inner);
+                int armStart = sb.Length;
+                sb.Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType));
+                CaptureContextRange(arm, armStart, sb.Length);
+                sb.AppendLf(",");
+            }
+            sb.Append(pad).Append("}");
+            CaptureContextRange(tupleSwitch, switchStart, sb.Length);
+            sb.AppendLf(";");
             return;
         }
         if (node is Return { Value: StackAllocate stackAllocate }
@@ -2926,7 +2985,7 @@ public sealed partial class CSharpPrinter
             // discarded by an IL `pop`, a comparison, the caught exception, an
             // operator-spelled call (`a != b`) — is CS0201 as a statement, so
             // spell the discard explicitly with `_ =`, which is always valid.
-            { } expr when !IsStatementExpression(expr) => $"_ = {Expression(expr)};",
+            { } expr when !IsStatementExpression(expr) => DiscardStatement(e, expr),
             { } expr => $"{Expression(expr)};",
         },
         // Storing into a ref-typed local rebinds the reference itself (stloc of
@@ -3333,7 +3392,22 @@ public sealed partial class CSharpPrinter
     string WithNodeKind(IrExpression node, string text, string kind)
     {
         _printedRanges?.SetNodeKind(node, kind);
+        if (_expressionText is not null)
+            _expressionText[node] = text;
         return text;
+    }
+
+    string CaptureNodeText(IrNode node, string text)
+    {
+        if (_expressionText is not null)
+            _expressionText[node] = text;
+        return text;
+    }
+
+    void CaptureContextRange(IrNode node, int start, int end)
+    {
+        if (_printedRanges is not null && end > start)
+            (_contextRanges ??= []).Add((node, start, end));
     }
 
     string RenderedNodeKind(IrNode node)
@@ -3623,24 +3697,39 @@ public sealed partial class CSharpPrinter
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
     {
-        LogicalNot { Operand: Comparison c } => ComparisonText(
-            Conditions.Inverse(c.Kind),
-            IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
-            c.Left, c.Right),
-        LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
-        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } when InvertedRelationalOperatorCallText(call) is { } invertedRelational => invertedRelational,
-        LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
-        LogicalNot { Operand: Call { Callee.Name: "op_True", Arguments: [var value] } } => InvertedUserTruthiness(value),
-        LogicalNot { Operand: Call { Callee.Name: "op_False", Arguments: [var value] } } => OperatorOperand(value),
+        LogicalNot { Operand: Comparison c } n => WithNodeKind(
+            n,
+            ComparisonText(
+                Conditions.Inverse(c.Kind),
+                IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
+                c.Left, c.Right),
+            "BinaryExpression"),
+        LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } n when InvertedEqualityOperatorCallText(call) is { } invertedEquality
+            => WithNodeKind(n, invertedEquality, "BinaryExpression"),
+        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } n when InvertedRelationalOperatorCallText(call) is { } invertedRelational
+            => WithNodeKind(n, invertedRelational, "BinaryExpression"),
+        LogicalNot { Operand: LogicalBinary logical } n when TryPropertyPatternText(logical, negated: true) is { } negatedPattern
+            => WithNodeKind(n, negatedPattern, "PatternExpression"),
+        LogicalNot { Operand: Call { Callee.Name: "op_True", Arguments: [var value] } } n
+            => WithNodeKind(n, InvertedUserTruthiness(value), "ConditionalExpression"),
+        LogicalNot { Operand: Call { Callee.Name: "op_False", Arguments: [var value] } } n
+            => TransparentConditionText(n, value, OperatorOperand(value)),
         // brtrue/brfalse test any I4/ref value; C# conditions need bool —
         // non-bool operands spell the comparison the branch performs.
-        LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
-        LogicalNot n => $"!{Operand(n.Operand)}",
-        Call { Callee.Name: "op_True", Arguments: [var value] } => OperatorOperand(value),
-        Call { Callee.Name: "op_False", Arguments: [var value] } => InvertedUserTruthiness(value),
-        _ when Truthiness(condition) is { } truthy => truthy.Direct,
+        LogicalNot { Operand: { } operand } n when Truthiness(operand) is { } negated
+            => WithNodeKind(n, negated.Inverted, negated.InvertedKind),
+        LogicalNot n => WithNodeKind(n, $"!{Operand(n.Operand)}", "UnaryExpression"),
+        Call { Callee.Name: "op_True", Arguments: [var value] } call
+            => TransparentConditionText(call, value, OperatorOperand(value)),
+        Call { Callee.Name: "op_False", Arguments: [var value] } call
+            => WithNodeKind(call, InvertedUserTruthiness(value), "ConditionalExpression"),
+        _ when Truthiness(condition) is { } truthy
+            => WithNodeKind(condition, truthy.Direct, truthy.DirectKind),
         _ => Expression(condition),
     };
+
+    string TransparentConditionText(IrExpression owner, IrExpression value, string text)
+        => WithNodeKind(owner, text, RenderedNodeKind(value));
 
     string InvertedUserTruthiness(IrExpression value)
         => $"({OperatorOperand(value)} ? false : true)";
@@ -5572,6 +5661,12 @@ public sealed partial class CSharpPrinter
     {
         _printedRanges?.SetNodeKind(owner, "UnsupportedExpression");
         return Expression(unsupported);
+    }
+
+    string DiscardStatement(ExpressionStatement owner, IrExpression expression)
+    {
+        _printedRanges?.SetNodeKind(owner, "AssignmentStatement");
+        return $"_ = {Expression(expression)};";
     }
 
     /// <summary>Renders a diagnostic comment payload without publishing it as surface syntax.</summary>

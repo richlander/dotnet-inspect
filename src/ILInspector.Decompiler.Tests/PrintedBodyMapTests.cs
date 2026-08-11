@@ -406,6 +406,89 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void ContextRenderedSwitchRecordsSwitchAndArmKinds()
+    {
+        var (_, ranges) = Print(
+            typeof(CfgSampleClass),
+            nameof(CfgSampleClass.PowerOfTwo));
+        var map = PrintedBodyMap.Create(ranges);
+
+        var switchNode = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "SwitchExpression");
+        Assert.Equal(
+            """
+            x switch
+            {
+                0 => 1,
+                1 => 2,
+                2 => 4,
+                3 => 8,
+                _ => 0,
+            }
+            """,
+            Text(map, switchNode.Extent));
+        Assert.Equal(
+            ["0 => 1", "1 => 2", "2 => 4", "3 => 8", "_ => 0"],
+            map.Nodes
+                .Where(node => node.Kind == "SwitchExpressionArm")
+                .Select(node => Text(map, node.Extent)));
+    }
+
+    [Fact]
+    public void ContextRenderedConditionRecordsPatternKind()
+    {
+        var (_, ranges) = Print(
+            typeof(CfgSampleClass),
+            nameof(CfgSampleClass.LenOrZero));
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(
+            map.Nodes,
+            node => node.Kind == "PatternExpression"
+                && Text(map, node.Extent) == "o is string s");
+    }
+
+    [Fact]
+    public void SynthesizedDiscardRecordsAssignmentKind()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var statement = new ExpressionStatement(
+            new ArrayLength(
+                new NewArray(
+                    byteType,
+                    new Constant(4, intType))));
+        var block = new Block(0);
+        block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        AssertSurfaceKind(
+            ranges,
+            statement,
+            "_ = (new byte[4]).Length;\n",
+            "AssignmentStatement");
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "ExpressionStatement"
+                && Text(map, node.Extent) == "_ = (new byte[4]).Length;");
+    }
+
+    [Fact]
     public void ConditionalRenderedAsLogicalAndRecordsBinaryKind()
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
