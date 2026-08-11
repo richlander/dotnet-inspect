@@ -102,6 +102,27 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void BodyShapeCommand_AcceptsKnownExactKind()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(
+                ["body-shape", "ObjectCreationExpression", "--library", "sample.dll"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void BodyShapeCommand_RejectsUnknownOrCaseVariantKind()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(
+                ["body-shape", "objectcreationexpression", "--library", "sample.dll"]));
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("not recognized", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "5"]);

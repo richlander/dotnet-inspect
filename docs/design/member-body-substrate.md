@@ -450,6 +450,17 @@ from "invalid document" without conflating the two. `Instruction` remains the
 one reserved value with cross-field semantics, because it is exactly the IL
 nodes carrying an `IlOffset`.
 
+`BodyShapeSearch` is the first assembly-wide consumer of that vocabulary. It
+accepts one exact C# kind, decompiles the selected API-surface bodies, and
+returns one row per matching `PrintedNodeSpan`: stable member identity,
+MethodDef token, exact `PrintedExtent`, and the text selected by that extent.
+The `body-shape` CLI exposes that narrow query for one `--library`; it does not
+add a predicate language, persist an index, or infer parentage from IR object
+references. Public members are the default search boundary, `--all` expands
+that boundary, and `--limit` supplies explicit backpressure. `Instruction` is
+not a body-shape query kind because it belongs to the IL plane rather than the
+rendered C# map.
+
 **One coordinate currency: the absolute span.** `AnnotatedSourceSpan(int Start,
 int Length)` is an end-exclusive range of **UTF-16 code units** over the decoded
 `Text`, exactly as Roslyn's `TextSpan` indexes `SourceText`. There is no second

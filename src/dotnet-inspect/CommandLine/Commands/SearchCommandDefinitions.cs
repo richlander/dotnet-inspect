@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
+using ILInspector.Decompiler;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -11,6 +12,103 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class SearchCommandDefinitions
 {
+    public static Command CreateBodyShapeCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            BodyShapeCommand.Name,
+            "Search one library for an exact stable rendered body-syntax kind");
+        var kindArgument = new Argument<string?>("kind")
+        {
+            Description = "Exact stable kind (for example ObjectCreationExpression or CatchClause)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        kindArgument.AcceptOnlyFromAmong(
+            StringComparer.Ordinal,
+            [.. BodyShapeSearch.SupportedKinds]);
+        var libraryOption = new Option<string?>("--library")
+        {
+            Description = "Library file to search"
+        };
+        var allOption = new Option<bool>("--all")
+        {
+            Description = "Include non-public, hidden, and obsolete members"
+        };
+        var limitOption = new Option<int?>("--limit")
+        {
+            Description = "Stop after this many exact matches"
+        };
+        limitOption.Validators.Add(result =>
+        {
+            if (result.GetValueOrDefault<int?>() is <= 0)
+                result.AddError("--limit must be a positive integer.");
+        });
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description = "Minified JSON (use with --json)"
+        };
+
+        command.Arguments.Add(kindArgument);
+        command.Options.Add(libraryOption);
+        command.Options.Add(allOption);
+        command.Options.Add(limitOption);
+        command.Options.Add(opts.Json);
+        command.Options.Add(compactOption);
+        opts.AddTableOptionsTo(command);
+        command.Options.Add(opts.Discover);
+        command.Options.Add(opts.Tree);
+        command.Options.Add(opts.Columns);
+        command.Options.Add(opts.Fields);
+        opts.AddCountOptionTo(command);
+        opts.AddOutputOptionsTo(command);
+
+        command.SetAction(parseResult =>
+        {
+            var discover = opts.ParseDiscover(parseResult);
+            var kind = parseResult.GetValue(kindArgument);
+            var library = parseResult.GetValue(libraryOption);
+            if (discover is null && string.IsNullOrWhiteSpace(kind))
+            {
+                return TipWriter.MissingArgumentWithTips(
+                    command,
+                    "Stable body-syntax kind required.",
+                    "body-shape ObjectCreationExpression --library MyLibrary.dll",
+                    "body-shape CatchClause --library MyLibrary.dll --all",
+                    "body-shape -D");
+            }
+            if (discover is null && string.IsNullOrWhiteSpace(library))
+            {
+                return TipWriter.MissingArgumentWithTips(
+                    command,
+                    "Library required.",
+                    $"body-shape {kind} --library MyLibrary.dll");
+            }
+
+            return BodyShapeCommand.Execute(
+                new BodyShapeOptions
+                {
+                    Kind = kind ?? "",
+                    LibraryPath = library ?? "",
+                    IncludeAll = parseResult.GetValue(allOption),
+                    MatchLimit = parseResult.GetValue(limitOption),
+                    Rows = opts.ParseRows(parseResult),
+                    Count = parseResult.GetValue(opts.Count),
+                    JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                    CompactJson = parseResult.GetValue(compactOption),
+                    Tabular = opts.ResolveTabular(parseResult),
+                    Tsv = opts.ResolveTsv(parseResult),
+                    Jsonl = opts.ResolveJsonl(parseResult),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
+                    Discover = discover,
+                    Tree = opts.ParseTree(parseResult)
+                });
+        });
+
+        return command;
+    }
+
     public static Command CreateFindCommand(SharedOptions opts)
     {
         var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");

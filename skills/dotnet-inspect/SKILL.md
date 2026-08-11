@@ -23,6 +23,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
+| Find rendered body syntax | `body-shape ObjectCreationExpression --library path/to.dll`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo -S Signals`; load `skill private-feeds` for authenticated/custom sources. |

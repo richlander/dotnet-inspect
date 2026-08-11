@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ILInspector.Decompiler;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
-using ILInspector.Decompiler;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -213,6 +213,20 @@ internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(MemberFindResult))]
 internal partial class MemberFindResultJsonlContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<BodyShapeMatch>))]
+internal partial class BodyShapeJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<BodyShapeMatch>))]
+internal partial class BodyShapeCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {
