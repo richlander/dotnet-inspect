@@ -222,6 +222,46 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void RectangularArrayPseudoMemberReadRecordsInvocationKind()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var arrayType = TypeRef.MdArray(intType, 2);
+        var tupleType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "ValueTuple`2"),
+            [intType, intType]);
+        var load = new LoadElement(
+            intType,
+            new LoadArgument(0, "a", arrayType),
+            new TupleExpression(
+                tupleType,
+                [new LoadStackSlot(0, intType), new LoadStackSlot(0, intType)]));
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(0, intType)));
+        block.Add(new Return(load));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                intType,
+                [new Parameter("a", arrayType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        AssertSurfaceKind(ranges, load, "a.Get(S_0, S_0)", "InvocationExpression");
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "ElementAccessExpression"
+                && Text(map, node.Extent) == "a.Get(S_0, S_0)");
+    }
+
+    [Fact]
     public void ConditionalRenderedAsLogicalAndRecordsBinaryKind()
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
