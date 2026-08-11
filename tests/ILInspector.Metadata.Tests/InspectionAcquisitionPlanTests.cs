@@ -93,6 +93,59 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void PathFactories_BlankAssemblyName_ReturnNoDescriptor()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("BlankName.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString(" "),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var pe = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            pe.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+            Assert.False(ResolvedAssemblyReference.TryCreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("test"),
+                out _));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void CreateFromPathIfManaged_NonPeImage_ReturnsNull()
     {
         string invalid = Path.GetTempFileName();

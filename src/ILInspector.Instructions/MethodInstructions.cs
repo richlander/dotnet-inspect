@@ -99,6 +99,26 @@ public sealed record MethodInstructions(
         return null;
     }
 
+    /// <summary>
+    /// The index of the first instruction beginning at or after
+    /// <paramref name="offset"/>, or <see cref="ImmutableArray{T}.Length"/> when
+    /// no instruction follows it.
+    /// </summary>
+    public int InstructionIndexAtOrAfter(int offset)
+    {
+        int lo = 0;
+        int hi = Instructions.Length;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (Instructions[mid].Offset < offset)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        return lo;
+    }
+
     /// <summary>The index of the block containing <paramref name="offset"/>, or -1 if out of range.</summary>
     public int BlockIndexAt(int offset) => Blocks.BlockIndexAt(offset);
 

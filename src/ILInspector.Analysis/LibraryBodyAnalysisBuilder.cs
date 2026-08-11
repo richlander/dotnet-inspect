@@ -235,21 +235,23 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     {
         readonly Dictionary<int, int> _instructionIndexByOffset;
 
-        public DecodedBody(ImmutableArray<DecodedInstruction> instructions, BlockGraph blockGraph)
+        public DecodedBody(MethodInstructions methodInstructions)
         {
-            Instructions = instructions;
-            BlockGraph = blockGraph;
-            _instructionIndexByOffset = new Dictionary<int, int>(instructions.Length);
-            for (int i = 0; i < instructions.Length; i++)
-                _instructionIndexByOffset[instructions[i].Offset] = i;
+            MethodInstructions = methodInstructions;
+            _instructionIndexByOffset =
+                new Dictionary<int, int>(Instructions.Length);
+            for (int i = 0; i < Instructions.Length; i++)
+                _instructionIndexByOffset[Instructions[i].Offset] = i;
             LoopRegions = CollectLoopRegions();
             PathContexts = AllocationPathContextIndex.Create(this);
             PathConfidences = AllocationPathConfidenceIndex.Create(this);
             PostDominances = AllocationPostDominanceIndex.Create(this);
         }
 
-        public ImmutableArray<DecodedInstruction> Instructions { get; }
-        public BlockGraph BlockGraph { get; }
+        public MethodInstructions MethodInstructions { get; }
+        public ImmutableArray<DecodedInstruction> Instructions
+            => MethodInstructions.Instructions;
+        public BlockGraph BlockGraph => MethodInstructions.Blocks;
         public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
         public AllocationPathContextIndex PathContexts { get; }
         public AllocationPathConfidenceIndex PathConfidences { get; }
@@ -267,19 +269,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
 
         public int IndexAtOrAfter(int offset)
-        {
-            int lo = 0;
-            int hi = Instructions.Length;
-            while (lo < hi)
-            {
-                int mid = (lo + hi) >>> 1;
-                if (Instructions[mid].Offset < offset)
-                    lo = mid + 1;
-                else
-                    hi = mid;
-            }
-            return lo;
-        }
+            => MethodInstructions.InstructionIndexAtOrAfter(offset);
 
         public int NextNonNopIndexAtOrAfter(int offset)
         {
@@ -673,8 +663,16 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         // The substrate decode contract is BadImageFormatException for malformed IL (normalized
         // at InstructionDecoder.Decode), which the per-method IsRecoverableMethodFailure gate
         // catches — so no InvalidProgramException shim is needed here.
+        // Do not use MethodInstructions.Decode: its fail-closed contract would hide the throw
+        // from that gate and turn a malformed method into success-shaped empty evidence.
         var instructions = InstructionDecoder.Decode(il);
-        return new DecodedBody(instructions, BlockGraph.Build(il.Length, instructions, exceptionRegions));
+        var methodInstructions = new MethodInstructions(
+            instructions,
+            BlockGraph.Build(
+                il.Length,
+                instructions,
+                exceptionRegions));
+        return new DecodedBody(methodInstructions);
     }
 
     bool DetectMemorySafetyRules()
@@ -968,6 +966,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             var decodedBody = DecodeBody(il, body.ExceptionRegions);
             bool hasUnsafeLocals = ScanLocals(body, caller, scope, evidence);
             var loopRegions = decodedBody.LoopRegions;
+            var context = new MethodBodyAnalysisContext(
+                caller,
+                decodedBody.MethodInstructions,
+                body.ExceptionRegions,
+                loopRegions);
             // Scan allocation occurrences once (raw, escape = Unknown). The main allocation output
             // needs escape classification, while Performance Triage's optimization-opportunity pass
             // reuses the same raw occurrences (it keys them by IL offset and does not read escape
@@ -991,7 +994,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 else
                     result.Suppressed = true;
             }
-            var signals = CollectBodySignals(il, decodedBody, body, scope, loopRegions);
+            var signals = BodySignalAnalysis.Collect(
+                context,
+                token => IsAllocatingValueTypeBox(
+                    token,
+                    ResolveTypeToken(token, scope)));
             if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
             {
                 result.Signals = signals;
@@ -1596,7 +1603,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                             caller, offset, token, AllocationKind.Box, boxed, boxed.ToDisplayString(),
                             countsAsHeapAllocation: IsAllocatingValueTypeBox(token, boxed),
                             AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                            BoxFeedsThrowSoon(decodedBody, instruction.NextOffset) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
+                            MethodBodyFlowProbe.BoxFeedsThrowSoon(
+                                decodedBody.MethodInstructions,
+                                instruction.NextOffset)
+                                ? AllocationEscape.ThrowPath
+                                : AllocationEscape.Unknown,
                             AllocationFactSource.Box));
                         break;
                     }
@@ -1676,7 +1687,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return MakeAllocation(
                 caller, newObjectOffset, operandToken, kind, type, LegacyDetail(type, kind), countsAsHeapAllocation: true,
                 frequency, IsInLoopRegion(newObjectOffset, loops),
-                NewObjectFeedsThrowSoon(decoded, afterNewObjectPosition) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
+                MethodBodyFlowProbe.NewObjectFeedsThrowSoon(
+                    decoded.MethodInstructions,
+                    afterNewObjectPosition)
+                    ? AllocationEscape.ThrowPath
+                    : AllocationEscape.Unknown,
                 AllocationFactSource.Newobj);
         }
 
@@ -2801,36 +2816,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     static bool IsEscapingBoxConsumer(ILOpCode op)
         => op is ILOpCode.Stelem_ref or ILOpCode.Call or ILOpCode.Callvirt
             or ILOpCode.Newobj or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Ret;
-
-    // True when a boxed value flows straight into a throw within a short window — the classic
-    // `box <enum>; call Format; newobj <Exception>; throw` exception-message pattern. Such a
-    // box only allocates on the error path, so it is not hot pay-dirt and is not loop-promoted.
-    bool BoxFeedsThrowSoon(DecodedBody decodedBody, int position)
-    {
-        int index = decodedBody.IndexAtOrAfter(position);
-        for (int steps = 0; steps < 6 && index < decodedBody.Instructions.Length; steps++, index++)
-        {
-            var op = decodedBody.Instructions[index].OpCode;
-            if (op is ILOpCode.Throw or ILOpCode.Rethrow)
-                return true;
-            if (IsControlFlowDivergent(op))
-                return false;
-        }
-        return false;
-    }
-
-    // Opcodes after which straight-line flow no longer reliably reaches the next instruction
-    // (branches, switch, returns, leave/endfinally), so a forward throw-probe must stop.
-    static bool IsControlFlowDivergent(ILOpCode op)
-        => op is ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
-            or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Beq or ILOpCode.Beq_s
-            or ILOpCode.Bne_un or ILOpCode.Bne_un_s or ILOpCode.Bge or ILOpCode.Bge_s
-            or ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Ble or ILOpCode.Ble_s
-            or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s
-            or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
-            or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Switch
-            or ILOpCode.Ret or ILOpCode.Leave or ILOpCode.Leave_s
-            or ILOpCode.Endfinally or ILOpCode.Endfilter;
 
     // True only when a `box` operand is positively identified as a value type that
     // unconditionally allocates. ECMA-335 allows `box` on reference types (no allocation),
@@ -4211,121 +4196,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
     static bool IsInLoopRegion(int offset, IReadOnlyList<(int Start, int End)> regions)
         => regions.Any(region => offset >= region.Start && offset <= region.End);
-
-    // Body-scan signals the call index cannot see: array allocations (newarr),
-    // throw/rethrow sites, and exception-handling clauses. Mirrors the loop-region
-    // scan's defensive structure — a malformed body yields empty signals, never a
-    // failed index build.
-    BodySignals CollectBodySignals(byte[] il, DecodedBody decodedBody, MethodBodyBlock body, GenericScope scope, IReadOnlyList<(int Start, int End)> loopRegions)
-    {
-        int newarr = 0, throws = 0, boxes = 0;
-        bool allocInLoop = false;
-        var arrayOffsets = ImmutableArray.CreateBuilder<int>();
-        var throwOffsets = ImmutableArray.CreateBuilder<int>();
-        var boxOffsets = ImmutableArray.CreateBuilder<int>();
-        var throwPathNewObjectOffsets = ImmutableArray.CreateBuilder<int>();
-        try
-        {
-            foreach (var instruction in decodedBody.Instructions)
-            {
-                int offset = instruction.Offset;
-                var opcode = instruction.OpCode;
-                switch (opcode)
-                {
-                    case ILOpCode.Newarr:
-                        newarr++;
-                        arrayOffsets.Add(offset);
-                        allocInLoop |= IsInLoopRegion(offset, loopRegions);
-                        break;
-                    case ILOpCode.Throw or ILOpCode.Rethrow:
-                        throws++;
-                        throwOffsets.Add(offset);
-                        break;
-                    case ILOpCode.Newobj:
-                    {
-                        if (NewObjectFeedsThrowSoon(decodedBody, instruction.NextOffset))
-                            throwPathNewObjectOffsets.Add(offset);
-                        break;
-                    }
-                    case ILOpCode.Box:
-                    {
-                        // Boxing a genuinely-allocating value type is a heap allocation, like
-                        // newobj/newarr. Counted unconditionally (the box-value-type opportunity
-                        // adds the escape gate separately for actionable triage).
-                        int token = OperandInt32(instruction);
-                        if (IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope)))
-                        {
-                            boxes++;
-                            boxOffsets.Add(offset);
-                            allocInLoop |= IsInLoopRegion(offset, loopRegions);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            // Fall through with whatever was collected before the malformed instruction.
-        }
-
-        int catches = 0, finallys = 0;
-        foreach (var region in body.ExceptionRegions)
-        {
-            switch (region.Kind)
-            {
-                case ExceptionRegionKind.Catch or ExceptionRegionKind.Filter:
-                    catches++;
-                    break;
-                case ExceptionRegionKind.Finally or ExceptionRegionKind.Fault:
-                    finallys++;
-                    break;
-            }
-        }
-
-        return new BodySignals(
-            newarr,
-            throws,
-            catches,
-            finallys,
-            arrayOffsets.ToImmutable(),
-            throwOffsets.ToImmutable(),
-            boxes,
-            boxOffsets.ToImmutable(),
-            allocInLoop,
-            throwPathNewObjectOffsets.ToImmutable());
-    }
-
-    bool NewObjectFeedsThrowSoon(DecodedBody decodedBody, int position)
-    {
-        var visitedOffsets = new HashSet<int>();
-        int index = decodedBody.IndexAtOrAfter(position);
-        for (int steps = 0; steps < 8 && index < decodedBody.Instructions.Length; steps++, index++)
-        {
-            var instruction = decodedBody.Instructions[index];
-            int probeOffset = instruction.Offset;
-            if (!visitedOffsets.Add(probeOffset))
-                return false;
-
-            var op = instruction.OpCode;
-            if (op is ILOpCode.Throw or ILOpCode.Rethrow)
-                return true;
-            if (op is ILOpCode.Br or ILOpCode.Br_s)
-            {
-                if (!TrySingleBranchTarget(instruction, out int target)
-                    || target < 0
-                    || target >= decodedBody.Instructions[^1].NextOffset)
-                {
-                    return false;
-                }
-                index = decodedBody.IndexAtOrAfter(target) - 1;
-                continue;
-            }
-            if (IsControlFlowDivergent(op))
-                return false;
-        }
-        return false;
-    }
 
     static bool IsUnsafeCall(MemberRef member)
         => IsUnsafeApi(member) || member.ParameterTypes.Append(member.ReturnType).Any(ContainsUnsafeType);

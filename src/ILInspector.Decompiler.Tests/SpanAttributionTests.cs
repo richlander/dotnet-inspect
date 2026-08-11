@@ -304,6 +304,9 @@ public class SpanAttributionTests
             // is excluded because a broken shell reconstructs them identically to a real
             // body defect — see SpanAttribution.IsolatingBodyError.
             KeyValuePair.Create(2, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
+            // v3 adds the ValidDifferent fidelity control without changing the
+            // invalid-row span rule, so it inherits the exact v2 allow list.
+            KeyValuePair.Create(3, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
         ]);
 
     [Fact]
@@ -322,7 +325,7 @@ public class SpanAttributionTests
         //
         // Set equality (not a subset check) is the point: any addition, removal, or
         // substitution fails here until the version is bumped and a new pin recorded.
-        int version = SpanAttribution.MethodologyVersion;
+        int version = AuthoredCorpusMethodology.Version;
 
         Assert.True(
             AllowlistByMethodologyVersion.ContainsKey(version),
