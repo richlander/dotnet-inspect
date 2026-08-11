@@ -1222,7 +1222,9 @@ jobs:
         # tools/netX.0/any/. This makes the pointer TFM-agnostic: any SDK that
         # understands RID-specific tools can read it, regardless of TFM. The
         # pointer carries no implementation, so SelfContained pulls in no runtime.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+        run: |
+          dotnet restore src/dotnet-inspect -r linux-x64 -p:SelfContained=true -p:OfficialBuild=true
+          dotnet pack src/dotnet-inspect -c Release --no-restore -p:SelfContained=true -p:OfficialBuild=true
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7

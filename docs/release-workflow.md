@@ -114,7 +114,10 @@ The workflow then:
 1. Runs the full publish-time product, CLI, decompiler, Analysis, and IL
    round-trip checks against the resolved commit.
 2. Builds each Native AOT package on its supported host.
-3. Builds the pointer and managed fallback packages.
+3. Restores the pointer build for the portable job's `linux-x64` host, then
+   builds the TFM-agnostic pointer and managed fallback packages. The explicit
+   restore satisfies SDK build-target inference; the pointer still contains no
+   implementation and remains under `tools/any/any`.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
 5. Publishes Native AOT packages, then the managed fallback, then the pointer.
