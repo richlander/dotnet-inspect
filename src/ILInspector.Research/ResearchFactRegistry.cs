@@ -193,9 +193,9 @@ public sealed class ResearchFactRegistry
     /// The body-local relationship dimension. Its call evidence is supplied by
     /// the graph session, so producing the document opens no second Analysis
     /// index. <c>Registry_UnionsProducerAnalysisRequirementsBeforeAcquisition</c>
-    /// and
-    /// <c>AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite</c>
-    /// gate that acquisition boundary.
+    /// pins the profile's declaration, while
+    /// <c>RequirementsNone_DoesNotResolveAnAssemblyContext</c> gates the
+    /// declaration-to-acquisition wiring.
     /// </summary>
     public static ResearchFactRegistry CallRelationships { get; } = new(
         new DirectCallFactProducer());

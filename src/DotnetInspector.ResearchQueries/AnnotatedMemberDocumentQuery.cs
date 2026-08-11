@@ -69,7 +69,9 @@ public abstract record AnnotatedMemberDocumentResult
 /// </summary>
 /// <remarks>
 /// <c>AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite</c>
-/// gates the reuse claim, including the unchanged graph build counts.
+/// gates graph-session reuse and the unchanged graph build counts.
+/// <c>RequirementsNone_DoesNotResolveAnAssemblyContext</c> gates the Research
+/// acquisition boundary used by the call-only profile.
 /// </remarks>
 public static class AnnotatedMemberDocumentQuery
 {

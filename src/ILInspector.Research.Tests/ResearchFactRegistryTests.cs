@@ -44,6 +44,23 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void RequirementsNone_DoesNotResolveAnAssemblyContext()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        var producer = new AssemblyContextCapturingProducer();
+
+        _ = ResearchViews.CollectFacts(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            registry: new ResearchFactRegistry(producer));
+
+        Assert.True(producer.WasInvoked);
+        Assert.Null(producer.AssemblyContext);
+    }
+
+    [Fact]
     public void AnalysisIndexCache_UsesMemberScopeAndReusesCompatibleFullIndex()
     {
         string sourcePath =
@@ -595,6 +612,30 @@ public class ResearchFactRegistryTests
                     new AnnotationDescriptor("cost.header.test", AnnotationCategory.Cost, "test header"),
                     "shared")
             ];
+        }
+
+    }
+
+    sealed class AssemblyContextCapturingProducer
+        : IResearchFactProducer
+    {
+        public bool WasInvoked { get; private set; }
+        public ResearchAssemblyContext? AssemblyContext
+        {
+            get;
+            private set;
+        }
+
+        public string Name => "assembly-context-capturing";
+        public IReadOnlyList<string> Produces => [];
+        public IReadOnlyList<string> DependsOn => [];
+
+        public IReadOnlyList<IAnnotation> Produce(
+            ResearchFactContext context)
+        {
+            WasInvoked = true;
+            AssemblyContext = context.Assembly;
+            return [];
         }
     }
 }

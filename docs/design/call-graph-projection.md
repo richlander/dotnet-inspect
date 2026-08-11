@@ -246,11 +246,14 @@ projection and the supplied relationship facts; omission under a
 Caller-only views are rejected because they contain no outbound topology to
 which body-local call sites could map.
 
-The query declares no graph or Analysis acquisition. The
+The query declares no graph or Analysis acquisition.
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test
-gates that claim by asserting unchanged session build/source-open counts and
-the two-occurrences/one-edge shape. Requirement tests pin the call-only Research
-profile to `ResearchFactRequirements.None`.
+gates graph-session reuse by asserting unchanged session build/source-open
+counts and the two-occurrences/one-edge shape.
+`Registry_UnionsProducerAnalysisRequirementsBeforeAcquisition` pins the
+call-only Research profile to `ResearchFactRequirements.None`, and
+`RequirementsNone_DoesNotResolveAnAssemblyContext` is the non-vacuity gate that
+proves such a profile bypasses Research's Analysis-context resolver.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
