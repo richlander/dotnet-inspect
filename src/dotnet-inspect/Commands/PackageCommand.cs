@@ -2806,8 +2806,12 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
+        bool requiresGroupedIntegrations =
+            RequiresGroupedIntegrations(
+                queries,
+                out bool includeIntegrationOpportunities);
         using PackageIntegrationsWorkspace? integrationsWorkspace =
-            RequiresGroupedIntegrations(queries)
+            requiresGroupedIntegrations
                 ? PackageIntegrationsWorkspace.Create(
                     selected.Select(selection =>
                     {
@@ -2819,7 +2823,9 @@ public class PackageCommand
                             selection.Path,
                             relativePath);
                     }),
-                    acquisition)
+                    acquisition,
+                    includeIntegrationOpportunities:
+                        includeIntegrationOpportunities)
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
@@ -2832,7 +2838,8 @@ public class PackageCommand
 
             Task<LibraryInspection?> InspectAsync(
                 ResolvedAssemblyReference? assemblyReference,
-                AssemblyIntegrationsEntry? integrations)
+                AssemblyIntegrationsEntry? integrations,
+                AssemblyIntegrationOpportunitiesEntry? opportunities)
             {
                 return LibraryMetadataService.InspectAsync(
                     selection.Path,
@@ -2847,15 +2854,12 @@ public class PackageCommand
                     queryRegistry: queryRegistry,
                     assemblyReference: assemblyReference,
                     integrationsEntry: integrations,
-                    integrationEvidenceUnavailable:
-                        integrationsWorkspace is not null
-                        && assemblyReference is null
-                        && integrations is null);
+                    integrationOpportunitiesEntry: opportunities);
             }
 
             LibraryInspection? inspection =
                 integrationsWorkspace is null
-                    ? await InspectAsync(null, null)
+                    ? await InspectAsync(null, null, null)
                     : await InspectGroupedAssemblyAsync(
                         integrationsWorkspace,
                         selection.Path,
@@ -2940,6 +2944,7 @@ public class PackageCommand
             Func<
                 ResolvedAssemblyReference?,
                 AssemblyIntegrationsEntry?,
+                AssemblyIntegrationOpportunitiesEntry?,
                 Task<LibraryInspection?>> inspectAsync)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -2958,7 +2963,7 @@ public class PackageCommand
 
         return workspace.UseAssemblyAsync(
             path,
-            (retainedAssembly, integrations) =>
+            (retainedAssembly, integrations, opportunities) =>
             {
                 switch (integrations)
                 {
@@ -2972,13 +2977,36 @@ public class PackageCommand
                         break;
                 }
 
-                return inspectAsync(retainedAssembly, integrations);
+                switch (opportunities)
+                {
+                    case AssemblyIntegrationOpportunitiesEntry.Rejected
+                        rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        break;
+                    case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return inspectAsync(
+                    retainedAssembly,
+                    integrations,
+                    opportunities);
             });
     }
 
     internal static bool RequiresGroupedIntegrations(
-        HashSet<InspectionQueryDefinition> queries) =>
-        queries.Remove(AssemblyContextIntegrationsQuery.Definition);
+        HashSet<InspectionQueryDefinition> queries,
+        out bool includeIntegrationOpportunities)
+    {
+        includeIntegrationOpportunities = queries.Remove(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition);
+        return queries.Remove(
+                AssemblyContextIntegrationsQuery.Definition)
+            || includeIntegrationOpportunities;
+    }
 
     internal static PackageIntegrationAssembly
         CreatePackageIntegrationAssembly(
@@ -3114,11 +3142,17 @@ public class PackageCommand
 
     private sealed record PackageLibrarySelection(string Path);
 
-    private static List<string> GetAllLibrariesSections(
+    internal static List<string> GetAllLibrariesSections(
         List<LibraryInspection> inspections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        LibraryCommand.WarnEmptySections(
+            inspections,
+            options,
+            pipeline,
+            writeEmptyNote: false);
+
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         List<string> union = [];
         foreach (var inspection in inspections)
