@@ -16,7 +16,9 @@ property asserted below is **unverified** until the gates named in
 ## Purpose
 
 Three consumers need a portable workspace description and are currently served
-by none:
+by none (the browser workbench described below lives on the
+`feature/wasm-site-main` branch, not in the main tree — claims about it cite
+that branch's `prototypes/inspect-web/src/app.js`):
 
 - The browser workbench's home demos are hand-authored base64 URL strings, and
   one demo (`runCallGraphDemo`) is imperative code because the URL packet
@@ -137,7 +139,9 @@ Field semantics:
 - `schemaVersion` — required in both document kinds; readers reject documents
   whose `schemaVersion` they do not understand. There is no unversioned
   form.
-- `kind` — required document discriminator: `catalog` or `workspace`.
+- `kind` — required document discriminator: `catalog` or `workspace`. (The
+  member-coordinate `kind` under [Member coordinates](#member-coordinates)
+  is a distinct field one nesting level down; the two never share a slot.)
 - `groups` — catalog documents only, with one narrow exception: a workspace
   definition that must travel as a single self-contained file may inline
   document-local group definitions. Inlining is a portability convenience,
@@ -154,7 +158,10 @@ Field semantics:
   per the bundle contract's separation of workspace definition, query
   preset, and view preset. A scenario has two preset slots: `view`, whose
   shape this note pins (`lens`, `type`, `memberAnchor` or `memberSignature`,
-  `section`), and an optional `query`, for which this note pins only the
+  `section` — each individually optional; member selectors require `type`,
+  `memberAnchor` and `memberSignature` are mutually exclusive, `section`
+  requires a member selector, and an empty view is the context's default
+  view), and an optional `query`, for which this note pins only the
   slot — the query-plan owner defines its shape. Selection state uses
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
@@ -237,7 +244,8 @@ is implied.
 `embedded` members reference artifact bytes shipped in an inspection bundle:
 `contentRef` is a bundle-relative content identifier, `digest` is the
 SHA-256 of the content bytes, and `declaredName` is the expected assembly
-simple name, validated against the opened image's identity at load. The
+simple name, validated against the image's identity when the image is first
+opened (not at definition load, which acquires nothing). The
 digest is integrity evidence only — it confers no authorization, per the
 bundle contract. `local` and `project` members are meaningful only to hosts
 with filesystem access; a browser host rejects them with a typed outcome
@@ -257,10 +265,9 @@ cached verdicts, or authorization decisions. This note explicitly adds
 compared by reference identity, so it cannot survive serialization — an
 amendment the contract owner should adopt rather than a quotation of it.
 All are reference-identity or lifetime-bound runtime state. Loading a
-definition
-materializes coordinates and presets only; acquisition happens lazily through
-the normal owners when the first authorized query plan needs it. A definition
-also contains no precomputed query results.
+definition materializes coordinates and presets only; acquisition happens
+lazily through the normal owners when the first authorized query plan needs
+it. A definition also contains no precomputed query results.
 
 ## Named assembly groups
 
@@ -356,12 +363,17 @@ required by this design:
   Deeper pins are expressible only in the canonical form. This retires the
   `Microsoft.NETCore.App` pseudo-package and the `isRuntimePackId` sniff,
   and unifies restore-path matching.
-- **The projection is partial by design.** A definition whose contexts or
-  presets exceed what the packet can express — per-overlay pins, query
-  presets, multiple scenarios — is shared as a file or bundle instead, and
-  the transposition layer refuses with a typed outcome rather than silently
-  flattening. Which definitions are projectable is bounded by the
-  context-to-tuple mapping question in [Open questions](#open-questions).
+- **The projection is partial by design — for authored definitions only.**
+  A live session is packet-born: its state exists because a packet or an
+  interactive action produced it, so transposing a session to a packet is
+  always total, and the round-trip claims below hold unconditionally. An
+  *authored* definition, by contrast, may exceed the packet — per-overlay
+  pins, query presets, multiple scenarios, or a context shape the tuple
+  grammar cannot carry — and for those the transposition layer refuses with
+  a typed outcome rather than silently flattening; the definition is shared
+  as a file or bundle instead. Which authored context shapes are
+  projectable is bounded by the context-to-tuple mapping question in
+  [Open questions](#open-questions).
 - **A format discriminator is required.** Today's two wire forms are
   distinguished by shape; the next revision adds an explicit version so
   future changes (including optional compression, should payloads ever grow)
@@ -370,7 +382,11 @@ required by this design:
   index (`o`) is replaced by the `MemberAnchor` fingerprint the UI already
   displays and the call-graph demo already matches on. With that, every
   existing demo — including the imperative call-graph demo — becomes a data
-  definition plus an ordinary link. This makes the digest a compatibility
+  definition plus an ordinary link: today's demos are tab-shaped, and a
+  transposed tab is a single-subscription or single-package context, which
+  the tuple grammar always carries (the fused-context caveat in Open
+  questions concerns richer authored shapes, not these). This makes the
+  digest a compatibility
   surface: it hashes the canonical-signature spelling under a versioned salt
   (`dotnet-inspect.member-index.v1`) and varies with degraded signature
   decoding, so every preserved link depends on that spelling staying fixed —
@@ -401,8 +417,8 @@ NativeAOT-compatible.
 - **A fifth provenance case.** `AssemblyResolutionProvenance` is
   deliberately closed (private-protected constructor and discriminator), so
   the `embedded` coordinate requires a new case added in
-  `ILInspector.Metadata` by that layer's owner — the one change this design
-  needs below the workspace layer.
+  `ILInspector.Metadata` by that layer's owner — a change below the
+  workspace layer.
 - **An `ApiSurface` deserializer is not needed** for this feature and stays
   deferred until a surface-only workspace is pursued.
 - **Packet consolidation.** The `popstate` handler currently re-implements
@@ -414,13 +430,24 @@ NativeAOT-compatible.
 Questions the schema's own edges raise that this note deliberately does not
 answer; each needs a decision before or during implementation.
 
-- **Context-to-tuple mapping.** Each packet tuple naturally projects one
-  context, with the active index naming the focused context. But a context
-  combining a subscription with inline members (the System.Text.Json example
-  above) has no single-tuple encoding. Whether such contexts project as
-  several tuples with a shared-context marker, or the packet grammar grows a
-  member list, is unresolved; until it is, such definitions fall under the
-  projection-refusal rule.
+- **Context-to-tuple mapping.** Today a tuple carries one *library or
+  package* — the platform occupies an ordinary package-shaped slot, and
+  contexts do not exist in the packet at all; the engine unions tabs on
+  demand for cross-package analysis. This design re-purposes the id slot for
+  group subscriptions, which raises two linked decisions. First, the
+  packet's unit: under "tuple = context", every transposed tab becomes a
+  single-subscription or single-package context and today's demos all remain
+  links, but an authored context that fuses a subscription with inline
+  members (the System.Text.Json example above) has no single-tuple encoding
+  — its workarounds are a composition expression (`:Platform+Extensions`
+  is one tuple), a custom catalog group, or splitting the context; the
+  alternative is a multi-tuple encoding with a shared-context marker or a
+  packet member list. Second, what a multi-tab session transposes *to*:
+  N independent contexts (faithful to tabs, but cross-package analysis then
+  needs a union context the definition never declared) or one fused
+  context (faithful to the analysis, but not to per-tab binding isolation).
+  Both are unresolved; until they are, authored fused contexts fall under
+  the projection-refusal rule, and transposed sessions are unaffected.
 - **Unknown group references.** A `subscribe` naming a group absent from
   every catalog in scope is a typed load failure (failure stays visible, per
   repository policy). Whether hosts may offer resolution — fetching a bundle
