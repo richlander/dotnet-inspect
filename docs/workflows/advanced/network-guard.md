@@ -20,7 +20,8 @@ The network guard is automatically enabled in DEBUG builds and will throw if any
 Build the tool in DEBUG mode:
 
 ```bash
-dotnet build src/dotnet-inspect/dotnet-inspect.csproj -c Debug -p:PublishAot=false
+dotnet build src/dotnet-inspect/dotnet-inspect.csproj -c Debug \
+  -p:PublishAot=false -t:Rebuild
 ```
 
 Use an isolated session to avoid cache interference:

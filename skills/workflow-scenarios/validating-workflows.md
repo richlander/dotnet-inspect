@@ -141,7 +141,9 @@ Before shipping a new build:
 
 1. Publish the exact revision as NativeAOT and set
    `DOTNET_INSPECT_WORKFLOW_BINARY` and `DOTNET_INSPECT_WORKFLOW_VERSION`.
-   Prepend its directory to `PATH` and verify the apphost as described above.
+   Clean the product's intermediate artifacts before publishing, remove the
+   prior publish directory, prepend the new apphost directory to `PATH`, and
+   verify the apphost as described above.
 2. Run all workflow scenarios.
 3. Run [perf scenarios](performance-testing.md) and check latency targets.
 4. Report version + pass/fail summary.
