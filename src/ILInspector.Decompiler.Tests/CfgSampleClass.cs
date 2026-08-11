@@ -2621,6 +2621,51 @@ public class CfgSampleClass
         }
     }
 
+    // #4008: a sparse jump table whose successful labels use `break;` to reach the
+    // method's final void return. csc places that ret after the throwing default,
+    // so switch raising must preserve it as the post-switch continuation rather
+    // than moving `return;` into the successful section.
+    public static void TerminalSwitchBreakToReturn(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                break;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
+    // #4008 close negative: source-level `return;` inside the same sparse case group
+    // places ret before the default and emits a branch over it. That return must
+    // remain in the section rather than being mistaken for a trailing join.
+    public static void TerminalSwitchReturnInCase(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                return;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
@@ -5189,6 +5234,19 @@ public sealed class JoinTypeProvider
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
+public enum CfgTerminalSwitchKind
+{
+    Value25 = 25,
+    Value30 = 30,
+    Value31 = 31,
+    Value32 = 32,
+    Value33 = 33,
+    Value35 = 35,
+    Value36 = 36,
+    Value37 = 37,
+    Value40 = 40,
+}
+
 public enum CfgLongPriority : long { Low = 0, High = 2 }
 public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
@@ -6176,39 +6234,4 @@ public static class FlagsEnumAccumulatorSamples
             | FlagCaps64.MultiResults;
         return (int)caps;
     }
-}
-
-// #3371 follow-up witnesses: a record `with` expression and an anonymous object
-// wide enough that the printer's brace-body width wrapper breaks them Allman-style
-// (one entry per line). New top-level types appended at end of file so they cannot
-// shift any existing CfgSampleClass generated-code ordinals.
-public sealed record MeasuredRecord(
-    int FirstMeasuredValue,
-    int SecondMeasuredValue,
-    int ThirdMeasuredValue,
-    int FourthMeasuredValue);
-
-public static class BraceBodyWrappingSamples
-{
-    // `source with { A = .., B = .., C = .., D = .. }` — flat form exceeds 120 cols.
-    public static MeasuredRecord WidenMeasuredRecord(MeasuredRecord source, int first, int second, int third, int fourth)
-        => source with
-        {
-            FirstMeasuredValue = first,
-            SecondMeasuredValue = second,
-            ThirdMeasuredValue = third,
-            FourthMeasuredValue = fourth,
-        };
-
-    // Anonymous types are reference types, so returning one as `object` needs no
-    // box/cast; the anonymous object stays the bare return value. Explicit
-    // `Name = value` form (value names differ from property names), flat > 120 cols.
-    public static object ProjectMeasuredValues(int first, int second, int third, int fourth)
-        => new
-        {
-            FirstMeasuredProjection = first,
-            SecondMeasuredProjection = second,
-            ThirdMeasuredProjection = third,
-            FourthMeasuredProjection = fourth,
-        };
 }
