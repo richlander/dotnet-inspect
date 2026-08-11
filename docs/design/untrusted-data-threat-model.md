@@ -258,13 +258,17 @@ culture and public-key-token constraints still bind, while omitted constraints
 remain wildcards because typed identity travels through the inspection model
 rather than being reconstructed from display text. It excludes the inspecting
 process's own trusted platform assembly closure. Platform lookup matches
-requested names against enumerated file names. The
+requested names against enumerated file names. The decompiler's default
+sibling-only resolver follows the same boundary: it enumerates neighboring
+assemblies and then selects by metadata identity rather than deriving a path
+from the requested name. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
 and the sibling/platform/culture/failure-state tests in that class,
 `AssemblyDependencyResolverTests.Select_CaseDistinctCandidatesAreMatchedBeforeDeduplication`,
-plus
+`AssemblyReferenceResolverTests.SiblingResolver_AssemblyReferenceNameCannotEscapeDirectory`,
+and
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
-gates enforce both seams.
+gate these seams.
 
 ### Package archives use traversal-aware extraction
 

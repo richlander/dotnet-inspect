@@ -252,8 +252,7 @@ public sealed class AssemblyDependencyResolver :
                 candidateUnavailable = true;
                 continue;
             }
-            if (!MatchesIdentity(
-                    identity,
+            if (!identity.MatchesCandidate(
                     selected.Identity,
                     allowVersionRollForward,
                     _options.IgnoreAssemblyVersion))
@@ -288,8 +287,7 @@ public sealed class AssemblyDependencyResolver :
                 {
                     candidateUnavailable = true;
                 }
-                else if (MatchesIdentity(
-                        identity,
+                else if (identity.MatchesCandidate(
                         selected.Identity,
                         _options.AllowPlatformAssemblyVersionRollForward,
                         _options.IgnoreAssemblyVersion))
@@ -487,35 +485,6 @@ public sealed class AssemblyDependencyResolver :
             _snapshotImageBytes -= bytes;
     }
 
-    static bool MatchesIdentity(
-        AssemblyReferenceIdentity expected,
-        AssemblyReferenceIdentity actual,
-        bool allowVersionRollForward = false,
-        bool ignoreVersion = false)
-    {
-        if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (expected.Version is null
-            && string.IsNullOrEmpty(expected.Culture)
-            && string.IsNullOrEmpty(expected.PublicKeyToken))
-        {
-            return true;
-        }
-
-        if (!ignoreVersion
-            && expected.Version is not null
-            && actual.Version != expected.Version
-            && (!allowVersionRollForward || actual.Version < expected.Version))
-            return false;
-        if (!CultureMatches(expected.Culture, actual.Culture))
-            return false;
-        if (expected.PublicKeyToken is { Length: > 0 }
-            && !string.Equals(actual.PublicKeyToken, expected.PublicKeyToken, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return true;
-    }
-
     readonly record struct AssemblyBindingRequestKey(
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
@@ -542,19 +511,6 @@ public sealed class AssemblyDependencyResolver :
     readonly record struct AssemblyResolutionAttempt(
         ResolvedAssemblyReference? Assembly,
         bool CandidateUnavailable);
-
-    static bool CultureMatches(string? expected, string? actual)
-    {
-        if (string.IsNullOrEmpty(expected))
-            return true;
-
-        static string Normalize(string? culture)
-            => string.IsNullOrEmpty(culture) || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
-                ? ""
-                : culture;
-
-        return Normalize(expected).Equals(Normalize(actual), StringComparison.OrdinalIgnoreCase);
-    }
 
     public static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
         => PackageDependencyReferencePaths(targetPath, packageRoots: null);
