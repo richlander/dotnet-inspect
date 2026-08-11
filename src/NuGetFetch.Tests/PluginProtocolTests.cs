@@ -178,6 +178,24 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task WhenOnePluginDiesDuringTheRequest_TheNextIsTried()
+    {
+        FakePlugin dies = CreatePlugin(
+            "dies",
+            username: "unused",
+            password: "unused",
+            exitOnCredentialRequest: true);
+        FakePlugin answers = CreatePlugin("answers-after-death", username: "right", password: "token");
+
+        await using var provider = new PluginCredentialProvider(null, [dies.Executable, answers.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"), false, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+        Assert.Equal("right", credential.Username);
+    }
+
+    [Fact]
     public async Task CredentialsRestrictedToOtherAuthSchemesAreNotUsed()
     {
         FakePlugin plugin = CreatePlugin("negotiate", username: "u", password: "p", authenticationTypes: "negotiate");
@@ -257,6 +275,76 @@ public sealed class PluginProtocolTests : IDisposable
         Assert.Equal("p", credential.Password);
     }
 
+    [Fact]
+    public async Task AConnectionDisposedBeforeARequestDegradesToNoCredentials()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "disposed-connection",
+            username: "u",
+            password: "p");
+        PluginConnection? connection = await PluginConnection.StartAsync(
+            plugin.Executable,
+            log: null,
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(connection);
+
+        await connection.DisposeAsync();
+
+        GetAuthenticationCredentialsResponse? response =
+            await connection.GetCredentialsAsync(
+                new Uri("https://feed.example/v3/index.json"),
+                isRetry: false,
+                isNonInteractive: true,
+                canShowDialog: false,
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task CallerCancellationContinuesToPropagate()
+    {
+        FakePlugin plugin = CreatePlugin("cancelled-request", username: "u", password: "p");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                connection.GetCredentialsAsync(
+                    new Uri("https://feed.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    cancellation.Token));
+        }
+    }
+
+    [Fact]
+    public void RecoverableRequestFailuresExcludeCallerCancellationAndUnrelatedFaults()
+    {
+        Assert.True(PluginConnection.IsRecoverableRequestFailure(
+            new TimeoutException()));
+        Assert.True(PluginConnection.IsRecoverableRequestFailure(
+            new JsonException()));
+        Assert.True(PluginConnection.IsRecoverableRequestFailure(
+            new IOException()));
+        Assert.True(PluginConnection.IsRecoverableRequestFailure(
+            new ObjectDisposedException("plugin pipe")));
+        Assert.True(PluginConnection.IsRecoverableRequestFailure(
+            new InvalidOperationException()));
+
+        Assert.False(PluginConnection.IsRecoverableRequestFailure(
+            new OperationCanceledException()));
+        Assert.False(PluginConnection.IsRecoverableRequestFailure(
+            new ArgumentException()));
+    }
+
     private FakePlugin CreatePlugin(
         string name,
         string username,
@@ -264,7 +352,8 @@ public sealed class PluginProtocolTests : IDisposable
         string claims = "Authentication",
         string responseCode = "Success",
         string? authenticationTypes = null,
-        string? preamble = null)
+        string? preamble = null,
+        bool exitOnCredentialRequest = false)
     {
         // Values are embedded in a double-quoted bash string, so every JSON quote needs a
         // backslash in the emitted script.
@@ -278,6 +367,11 @@ public sealed class PluginProtocolTests : IDisposable
                 + "," + Quoted("AuthenticationTypes") + ":" + types
                 + "," + Quoted("ResponseCode") + ":" + Quoted("Success") + "}"
             : "{" + Quoted("ResponseCode") + ":" + Quoted(responseCode) + "}";
+        string credentialAction = exitOnCredentialRequest
+            ? "exit 0"
+            : """
+              emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
+              """;
 
         // A non-interpolated raw string with tokens: the script is dense with braces, and
         // interpolation holes would be indistinguishable from JSON.
@@ -300,13 +394,14 @@ public sealed class PluginProtocolTests : IDisposable
                 GetOperationClaims)
                   emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetOperationClaims\",\"Payload\":{\"Claims\":[__CLAIMS__]}}" ;;
                 GetAuthenticationCredentials)
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}" ;;
+                  __AUTH_ACTION__ ;;
                 Close)
                   exit 0 ;;
               esac
             done
             """
             .Replace("__CLAIMS__", Quoted(claims))
+            .Replace("__AUTH_ACTION__", credentialAction)
             .Replace("__CREDENTIAL__", credentialPayload)
             .Replace("__PREAMBLE__", preamble ?? string.Empty);
 
