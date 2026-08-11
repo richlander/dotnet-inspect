@@ -1260,37 +1260,7 @@ internal static class DeclarationIndexBuilder
             }
         }
 
-        // A file-scoped namespace *scopes* the rest of the file, but its declaration ends where its
-        // last member ends, not at the last physical line: a trailing comment belongs to the file,
-        // not to the namespace. Ending at EOF would put trailing trivia inside the declaration and
-        // disagree with the span of every other row.
-        for (int i = 0; i < rows.Count; i++)
-        {
-            if (!rows[i].ClosesAtEndOfFile)
-                continue;
-
-            // Everything after a file-scoped namespace is inside it. A file cannot open two in any
-            // one build, but the branches of a conditional group can each open one, and this scan
-            // keeps every branch's rows -- so more than one row here can close at end of file, and
-            // each takes a maximum over the rows below it. That over-wide end is not vouched for:
-            // such a namespace is never SpanKnown, and the refusal above has already unknowed
-            // every row below the first of them.
-            int end = rows[i].SignatureEndLine;
-            bool guessed = depthLost;
-            for (int j = i + 1; j < rows.Count; j++)
-            {
-                end = Math.Max(end, rows[j].EndLine);
-                guessed |= !rows[j].SpanKnown;
-            }
-            rows[i].EndLine = end;
-
-            // The end is a maximum over the rows this namespace encloses, so it is only as good as
-            // the worst of them: a row that never closed reports the last line as a guess, and
-            // adopting that guess as a measured namespace end would claim a span the scan never
-            // saw. The same holds if the scan lost its place anywhere after this row opened.
-            if (guessed)
-                rows[i].SpanKnown = false;
-        }
+        FinalizeFileScopedNamespaces(rows, depthLost);
 
         // Depth counts enclosing declarations, not braces. A file-scoped namespace opens no brace,
         // so brace depth would report the same nesting differently depending on which namespace
@@ -1340,6 +1310,42 @@ internal static class DeclarationIndexBuilder
         {
             active += deltas[i];
             if (active > 0)
+                rows[i].SpanKnown = false;
+        }
+    }
+
+    private static void FinalizeFileScopedNamespaces(List<Row> rows, bool depthLost)
+    {
+        bool hasFileScopedNamespace = false;
+        foreach (var row in rows)
+            hasFileScopedNamespace |= row.ClosesAtEndOfFile;
+        if (!hasFileScopedNamespace)
+            return;
+
+        // A file-scoped namespace scopes the rest of the file, but its declaration ends where its
+        // last member ends rather than at trailing file trivia. Conditional branches can expose
+        // several namespace rows to this model even though one build accepts only one. Summarize
+        // every raw suffix before mutating any namespace row, preserving the former forward scan's
+        // answer while avoiding one complete suffix walk per namespace.
+        var suffixEnd = new int[rows.Count + 1];
+        var suffixUnknown = new bool[rows.Count + 1];
+        for (int i = rows.Count - 1; i >= 0; i--)
+        {
+            suffixEnd[i] = Math.Max(rows[i].EndLine, suffixEnd[i + 1]);
+            suffixUnknown[i] = !rows[i].SpanKnown || suffixUnknown[i + 1];
+        }
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (!rows[i].ClosesAtEndOfFile)
+                continue;
+
+            rows[i].EndLine = Math.Max(rows[i].SignatureEndLine, suffixEnd[i + 1]);
+
+            // The end is only as trustworthy as the worst row below it. A row that never closed
+            // contributes a guessed EOF end, and losing structural depth anywhere after this
+            // namespace opened likewise makes the aggregate end unknown.
+            if (depthLost || suffixUnknown[i + 1])
                 rows[i].SpanKnown = false;
         }
     }

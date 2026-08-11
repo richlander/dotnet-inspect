@@ -162,6 +162,41 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void ManyFileScopedNamespaces_ReuseOneSuffixSummary()
+    {
+        var baselineSource = new StringBuilder("class C {\n");
+        for (int i = 0; i < 150_000; i++)
+            baselineSource.Append("int f").Append(i).AppendLine(";");
+        baselineSource.AppendLine("void M() { }");
+        baselineSource.AppendLine("}");
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder();
+        for (int i = 0; i < 150_000; i++)
+            source.AppendLine("namespace N;");
+        source.AppendLine("class C {");
+        source.AppendLine("void M() { }");
+        source.AppendLine("}");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(150_002, index.Declarations.Length);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"namespace case took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    [Fact]
     public void RelationalInitializerChain_DoesNotRescanEachRemainingSuffix()
     {
         var source = new StringBuilder("class C { static dynamic f = a");

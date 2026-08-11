@@ -661,6 +661,10 @@ rescan and rewrite the declaration suffix once per scope.
 `DeclarationIndexTests.ManyUnclosedExtensionScopes_ApplyTrustInOneFinalPass`
 compares elapsed time with an equivalent row baseline and applies an allocation
 budget to an accepted input near the token limit.
+File-scoped namespace ends likewise reuse one suffix summary rather than
+rescanning every later row;
+`DeclarationIndexTests.ManyFileScopedNamespaces_ReuseOneSuffixSummary` gates
+that work and allocation bound.
 
 Limit exhaustion is a visible extraction failure, not an absent declaration.
 `ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
