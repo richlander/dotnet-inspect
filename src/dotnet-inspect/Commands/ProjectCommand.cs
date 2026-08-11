@@ -44,6 +44,16 @@ public class ProjectCommand
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
+        if (options.Discover is null
+            && options.Verbosity == Verbosity.Quiet
+            && selectedSections is null)
+        {
+            CommandError.Write(
+                "-v:q requires an explicit project section. "
+                + "Use -v:m for the default Skills view or select a section with -S.");
+            return 1;
+        }
+
         if (options.Effective && options.Discover is null)
         {
             CommandError.Write("--effective requires -D/--discover.");
@@ -182,6 +192,7 @@ public class ProjectCommand
 
         if (options.PackageFilter is not null
             && candidateSections.Contains(ProjectSectionNames.PackageDocs)
+            && !options.Count
             && inspection.PackageDocuments is { Documents.Length: 0 })
         {
             CommandError.Write(
@@ -265,6 +276,7 @@ public class ProjectCommand
         {
             normalized = input with
             {
+                AgentsIndex = false,
                 Select = [ProjectSectionNames.AgentGuidance],
             };
         }
@@ -272,6 +284,7 @@ public class ProjectCommand
         {
             normalized = input with
             {
+                ReadmePackageId = null,
                 Select = [ProjectSectionNames.PackageDocs],
                 PackageFilter = input.ReadmePackageId,
                 Print = true,
@@ -287,22 +300,6 @@ public class ProjectCommand
         {
             CommandError.Write(
                 "--frontmatter/--yaml-header cannot be combined with --body.");
-            return false;
-        }
-
-        if (options.AgentsIndex && options.BodyRequested)
-        {
-            CommandError.Write("--body cannot be combined with --agents-index.");
-            return false;
-        }
-
-        if (options.ReadmePackageId is not null
-            && options.Tabular
-            && !options.Jsonl)
-        {
-            CommandError.Write(
-                "project --readme supports raw text, --json, or --jsonl; "
-                + "it cannot be combined with --table or --tsv.");
             return false;
         }
 
@@ -563,7 +560,8 @@ public class ProjectCommand
             projection: options,
             columns: options.Columns,
             fields: options.Fields,
-            rows: options.Rows);
+            rows: options.Rows,
+            outputPath: options.OutputPath);
     }
 
     static bool TryResolveValueField(
@@ -775,21 +773,22 @@ public class ProjectCommand
         NuGetSourceOptions? sourceOptions,
         CommandContext context)
     {
-        try
+        if (!string.IsNullOrWhiteSpace(dependency.PackagePath)
+            && Directory.Exists(dependency.PackagePath))
         {
-            ProjectPackageDocumentData? local =
-                ReadBestPackageDocumentFromDirectory(dependency);
-            if (local is not null)
-                return (local, null);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return (
-                null,
-                new ProjectContentFailure(
-                    dependency.PackageName,
-                    "README.md|PROJECT.md",
-                    ex.Message));
+            try
+            {
+                return (ReadBestPackageDocumentFromDirectory(dependency), null);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return (
+                    null,
+                    new ProjectContentFailure(
+                        dependency.PackageName,
+                        "README.md|PROJECT.md",
+                        ex.Message));
+            }
         }
 
         PackageExtractionResult? resolution = null;
@@ -901,6 +900,54 @@ public class ProjectCommand
         HashSet<string> renderedSections)
     {
         string section = renderedSections.Single();
+        var printOptions = new PrintProjectionOptions(
+            options.Bare && !options.Print
+                ? RowSelector.First
+                : options.PrintRow,
+            options.JsonOutput,
+            options.Jsonl,
+            options.JsonArray,
+            options.Bare,
+            options.OutputPath);
+
+        if (section == ProjectSectionNames.AgentGuidance)
+        {
+            IReadOnlyList<ProjectAgentGuidanceData> guidance =
+                inspection.AgentGuidance?.Guidance ?? [];
+            bool firstAvailable = options.Bare && !options.Print;
+            var rows = new List<PrintableRow>(guidance.Count);
+            var contentByRow = new Dictionary<int, string?>();
+            for (int index = 0; index < guidance.Count; index++)
+            {
+                ProjectAgentGuidanceData item = guidance[index];
+                if (firstAvailable && item.Content is null)
+                    continue;
+
+                int rowNumber = index + 1;
+                rows.Add(new PrintableRow(
+                    rowNumber,
+                    section,
+                    CSharpIdentifier.ContainRenderedText(
+                        $"{item.Package} {item.Path}"),
+                    CSharpIdentifier.ContainRenderedText(item.Path),
+                    null));
+                contentByRow[rowNumber] = item.Content is null
+                    ? null
+                    : Printable(
+                        rowNumber,
+                        section,
+                        $"{item.Package} {item.Path}",
+                        item.Path,
+                        item.Content,
+                        options.ContentScope).Content;
+            }
+
+            return PrintProjectionOutput.Write(
+                rows,
+                row => contentByRow[row.Row],
+                printOptions);
+        }
+
         List<PrintableDocument> documents = section switch
         {
             ProjectSectionNames.Skills => inspection.Skills?.Skills
@@ -912,18 +959,6 @@ public class ProjectCommand
                     row.Content,
                     options.ContentScope))
                 .ToList() ?? [],
-            ProjectSectionNames.AgentGuidance =>
-                inspection.AgentGuidance?.Guidance
-                    .Select((row, index) => (row, index))
-                    .Where(item => item.row.Content is not null)
-                    .Select(item => Printable(
-                        item.index + 1,
-                        section,
-                        $"{item.row.Package} {item.row.Path}",
-                        item.row.Path,
-                        item.row.Content!,
-                        options.ContentScope))
-                    .ToList() ?? [],
             ProjectSectionNames.PackageDocs =>
                 inspection.PackageDocuments?.Documents
                     .Select((row, index) => Printable(
@@ -939,15 +974,7 @@ public class ProjectCommand
 
         return PrintProjectionOutput.Write(
             documents,
-            new PrintProjectionOptions(
-                options.Bare && !options.Print
-                    ? RowSelector.First
-                    : options.PrintRow,
-                options.JsonOutput,
-                options.Jsonl,
-                options.JsonArray,
-                options.Bare,
-                options.OutputPath));
+            printOptions);
     }
 
     static PrintableDocument Printable(
@@ -1012,7 +1039,8 @@ public class ProjectCommand
                 options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
-                options.JsonArray));
+                options.JsonArray,
+                options.OutputPath));
     }
 
     static void AddSkillProjections(

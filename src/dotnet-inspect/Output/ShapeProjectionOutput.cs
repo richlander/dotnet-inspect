@@ -67,7 +67,8 @@ public sealed record ShapeProjectionOptions(
     RowSelector? Row,
     bool JsonOutput,
     bool Jsonl,
-    bool JsonArray);
+    bool JsonArray,
+    string? OutputPath = null);
 
 public static class ShapeProjectionOutput
 {
@@ -130,14 +131,22 @@ public static class ShapeProjectionOutput
 
         if (options.Jsonl)
         {
-            foreach (var item in selected)
-                Console.WriteLine(JsonSerializer.Serialize(item, ShapeProjectionJsonContext.Default.ShapeProjectionRow));
+            string output = string.Concat(selected.Select(item =>
+                JsonSerializer.Serialize(
+                    item,
+                    ShapeProjectionJsonContext.Default.ShapeProjectionRow)
+                + '\n'));
+            WriteOutput(output, options.OutputPath);
             return 0;
         }
 
         if (options.JsonArray)
         {
-            Console.Write(JsonSerializer.Serialize(selected.ToArray(), ShapeProjectionJsonContext.Default.ShapeProjectionRowArray));
+            WriteOutput(
+                JsonSerializer.Serialize(
+                    selected.ToArray(),
+                    ShapeProjectionJsonContext.Default.ShapeProjectionRowArray),
+                options.OutputPath);
             return 0;
         }
 
@@ -146,13 +155,22 @@ public static class ShapeProjectionOutput
             var json = selected.Count == 1
                 ? JsonSerializer.Serialize(selected[0], ShapeProjectionJsonContext.Default.ShapeProjectionRow)
                 : JsonSerializer.Serialize(selected.ToArray(), ShapeProjectionJsonContext.Default.ShapeProjectionRowArray);
-            Console.Write(json);
+            WriteOutput(json, options.OutputPath);
             return 0;
         }
 
-        foreach (var item in selected)
-            Console.WriteLine(item.Value);
+        WriteOutput(
+            string.Concat(selected.Select(item => item.Value + '\n')),
+            options.OutputPath);
         return 0;
+    }
+
+    private static void WriteOutput(string output, string? outputPath)
+    {
+        if (!string.IsNullOrWhiteSpace(outputPath))
+            File.WriteAllText(outputPath, output);
+        else
+            Console.Write(output);
     }
 
     private static string ProjectionName(ShapeProjectionKind kind) => kind switch

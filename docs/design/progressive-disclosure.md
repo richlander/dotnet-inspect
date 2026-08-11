@@ -31,7 +31,9 @@ Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
 The project command's minimal and bare-command view is `Skills`. Its other
-sections require an explicit selection.
+sections require an explicit selection. Project has no compact identity section,
+so bare `project -v:q` is rejected; an explicit section selection promotes to
+the verbosity required by that section.
 
 ## Categories
 

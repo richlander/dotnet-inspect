@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
@@ -27,7 +28,8 @@ public static class DiscoverOutput
         IProjectionOptions? projection = null,
         string[]? columns = null,
         string[]? fields = null,
-        RowWindow? rows = null)
+        RowWindow? rows = null,
+        string? outputPath = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -65,8 +67,26 @@ public static class DiscoverOutput
             && discover is null or { Length: 0 } && verbosity >= 3)
             tree = true;
 
+        using var output = new StringWriter(CultureInfo.InvariantCulture)
+        {
+            NewLine = "\n",
+        };
+
         if (tree)
-            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+        {
+            int treeExitCode = WriteTree(
+                discover,
+                schema,
+                output,
+                rootLabel,
+                sectionCostAnnotations,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors);
+            if (treeExitCode == 0)
+                WriteOutput(output.ToString(), outputPath);
+            return treeExitCode;
+        }
 
         discoveryRows ??= GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (discoveryRows == null)
@@ -78,13 +98,17 @@ public static class DiscoverOutput
 
         if (json)
         {
-            Console.WriteLine(JsonSerializer.Serialize(discoveryRows, DiscoveryJsonContext.Default.ListDiscoveryRow));
+            output.Write(
+                JsonSerializer.Serialize(
+                    discoveryRows,
+                    DiscoveryJsonContext.Default.ListDiscoveryRow)
+                + '\n');
         }
         else if (markdown)
         {
             MarkoutSerializer.Serialize(
                 view,
-                Console.Out,
+                output,
                 new MarkdownFormatter(),
                 DiscoveryContext.Default,
                 OutputFormatter.CreateProjectedWriterOptions(projectedColumns));
@@ -92,7 +116,7 @@ public static class DiscoverOutput
         else
         {
             OutputFormatter.WriteProjectedTable(
-                Console.Out,
+                output,
                 showHeader: tsv,
                 tsv,
                 jsonl,
@@ -106,6 +130,7 @@ public static class DiscoverOutput
                     writerOptions));
         }
 
+        WriteOutput(output.ToString(), outputPath);
         return 0;
     }
 
@@ -122,7 +147,8 @@ public static class DiscoverOutput
         IProjectionOptions? projection = null,
         string[]? columns = null,
         string[]? fields = null,
-        RowWindow? rows = null)
+        RowWindow? rows = null,
+        string? outputPath = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -152,6 +178,7 @@ public static class DiscoverOutput
                         ? emptyProjectionExitCode
                         : 0;
                 }
+                WriteOutput(string.Empty, outputPath);
                 return 0;
             }
             discover = remaining;
@@ -174,7 +201,8 @@ public static class DiscoverOutput
             projection,
             columns,
             fields,
-            rows);
+            rows,
+            outputPath);
     }
 
     /// <summary>
@@ -646,7 +674,11 @@ public static class DiscoverOutput
         return 0;
     }
 
-    private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
+    private static int WriteTree(
+        string[]? discover,
+        DocumentSchema schema,
+        TextWriter output,
+        string? rootLabel = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
@@ -789,8 +821,16 @@ public static class DiscoverOutput
             nodes = [new TreeNode(rootLabel) { Children = nodes }];
 
         var view = new DiscoveryTreeView { Sections = nodes };
-        MarkoutSerializer.Serialize(view, Console.Out, DiscoveryContext.Default);
+        MarkoutSerializer.Serialize(view, output, DiscoveryContext.Default);
         return 0;
+    }
+
+    private static void WriteOutput(string output, string? outputPath)
+    {
+        if (!string.IsNullOrWhiteSpace(outputPath))
+            File.WriteAllText(outputPath, output);
+        else
+            Console.Write(output);
     }
 
     private static IReadOnlyDictionary<string, string[]>? FilterCategories(

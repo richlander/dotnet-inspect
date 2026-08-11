@@ -57,7 +57,7 @@ public static class PrintProjectionOutput
     /// </summary>
     public static int Write(
         IReadOnlyList<PrintableRow> rows,
-        Func<PrintableRow, string> readContent,
+        Func<PrintableRow, string?> readContent,
         PrintProjectionOptions options)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Print);
@@ -89,11 +89,19 @@ public static class PrintProjectionOutput
         {
             if (rows.Count != 1)
             {
-                CommandError.Write($"selected section has {rows.Count} printable rows; use --row N|first|last to choose one row.");
+                CommandError.Write($"selected section has {rows.Count} rows; use --row N|first|last to choose one row.");
                 return 1;
             }
 
             selectedRow = rows[0];
+        }
+
+        string? selectedContent = readContent(selectedRow);
+        if (selectedContent is null)
+        {
+            CommandError.Write(
+                $"row {selectedRow.Row} has no printable document.");
+            return 1;
         }
 
         var selected = new PrintableDocument(
@@ -102,7 +110,7 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            readContent(selectedRow));
+            selectedContent);
 
         if (options.Jsonl)
         {

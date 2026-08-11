@@ -527,6 +527,8 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 For compatibility, `project --agents-index` selects `Agent Guidance`, and
 `project --readme PACKAGE` selects and prints that dependency's `Package Docs`.
 Prefer the canonical section forms in new automation.
+Bare `project -v:q` is rejected because project has no compact identity section;
+use the default `-v:m` Skills view or select an explicit section with `-S`.
 
 For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `project [path]` renders `Skills`. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated project, package, and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Project`, `@Source`, and `@Audit` expand to scenario-focused section groups.
 

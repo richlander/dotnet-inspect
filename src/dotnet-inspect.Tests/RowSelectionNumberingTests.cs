@@ -227,7 +227,7 @@ public class RowSelectionNumberingTests
                 Print(null))));
 
         Assert.Equal(1, ambiguousExit);
-        Assert.Contains("2 printable rows", ambiguousError, StringComparison.Ordinal);
+        Assert.Contains("2 rows", ambiguousError, StringComparison.Ordinal);
         Assert.Empty(reads);
 
         var (missingExit, _, missingError) = await ConsoleCapture.RunAsync(() => Task.FromResult(
@@ -239,6 +239,29 @@ public class RowSelectionNumberingTests
         Assert.Equal(1, missingExit);
         Assert.Contains("row 9 is not in this section", missingError, StringComparison.Ordinal);
         Assert.Empty(reads);
+    }
+
+    [Fact]
+    public async Task Print_ReportsSelectedRowWithoutPayload()
+    {
+        var rows = new List<PrintableRow>
+        {
+            new(1, "Docs", "missing", null, null),
+            new(2, "Docs", "present", "present.md", null)
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            PrintProjectionOutput.Write(
+                rows,
+                row => row.Row == 1 ? null : row.Label,
+                Print(RowSelector.FromIndex(1)))));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "row 1 has no printable document",
+            error,
+            StringComparison.Ordinal);
     }
 
     private static PrintProjectionOptions Print(RowSelector? row) =>

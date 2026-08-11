@@ -16626,6 +16626,219 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_AgentGuidanceBody_MatchesAgentsIndexAlias()
+    {
+        const string agents = """
+            ---
+            name: selected
+            ---
+            selected body
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Agent.BodyAlias",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents));
+
+        try
+        {
+            var canonical = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Agent Guidance",
+                "--print", "--body");
+            var alias = await RunAppAsync(
+                "project", projectPath,
+                "--agents-index",
+                "--print", "--body");
+
+            Assert.Equal(0, canonical.Exit);
+            Assert.Equal(canonical, alias);
+            Assert.Equal("selected body", canonical.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_AgentGuidancePrint_PreservesRowsWithoutDocuments()
+    {
+        const string agents = """
+            ---
+            name: selected
+            ---
+            selected guidance
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.NoGuidance",
+                "1.0.0",
+                "README.md",
+                "readme"),
+            new ProjectDocPackage(
+                "B.Project.HasGuidance",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents));
+
+        try
+        {
+            var ambiguous = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Agent Guidance",
+                "--print");
+            var missing = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Agent Guidance",
+                "--print", "--row", "1");
+            var selected = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Agent Guidance",
+                "--print", "--row", "2");
+
+            Assert.Equal(1, ambiguous.Exit);
+            Assert.Empty(ambiguous.Output);
+            Assert.Contains(
+                "selected section has 2 rows",
+                ambiguous.Error,
+                StringComparison.Ordinal);
+            Assert.Equal(1, missing.Exit);
+            Assert.Empty(missing.Output);
+            Assert.Contains(
+                "row 1 has no printable document",
+                missing.Error,
+                StringComparison.Ordinal);
+            Assert.Equal(0, selected.Exit);
+            Assert.Empty(selected.Error);
+            Assert.Contains("selected guidance", selected.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_FocusedPackageDocsCount_ReportsZeroWhenDocumentIsAbsent()
+    {
+        const string id = "Test.Project.Readme.Empty";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "",
+                OmitReadme: true));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "--package", id,
+                "-S", "Package Docs",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("0", output.Trim());
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_AlternateOutputs_HonorOutputPath()
+    {
+        const string agents = """
+            ---
+            name: selected
+            ---
+            selected guidance
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.OutputPath",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents));
+
+        try
+        {
+            var pathsOutput = Path.Combine(tempDir, "paths.txt");
+            var discoveryOutput = Path.Combine(tempDir, "discovery.json");
+            var discoveryTreeOutput = Path.Combine(tempDir, "discovery.md");
+            var paths = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Agent Guidance",
+                "--paths",
+                "--out", pathsOutput);
+            var discovery = await RunAppAsync(
+                "project", "missing-project",
+                "-D", "--json",
+                "--out", discoveryOutput);
+            var discoveryTree = await RunAppAsync(
+                "project", "missing-project",
+                "-D", "--tree",
+                "--out", discoveryTreeOutput);
+
+            Assert.Equal(0, paths.Exit);
+            Assert.Empty(paths.Output);
+            Assert.Empty(paths.Error);
+            Assert.Equal("AGENTS.md\n", File.ReadAllText(pathsOutput));
+            Assert.Equal(0, discovery.Exit);
+            Assert.Empty(discovery.Output);
+            Assert.Empty(discovery.Error);
+            using JsonDocument document = JsonDocument.Parse(
+                File.ReadAllText(discoveryOutput));
+            Assert.Contains(
+                document.RootElement.EnumerateArray(),
+                row => row.GetProperty("name").GetString() == "Skills");
+            Assert.Equal(0, discoveryTree.Exit);
+            Assert.Empty(discoveryTree.Output);
+            Assert.Empty(discoveryTree.Error);
+            Assert.Contains(
+                "Project",
+                File.ReadAllText(discoveryTreeOutput),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_QuietWithoutSelection_IsRejectedBeforeResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-v:q",
+            "--fields", "NoSuchField");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "-v:q requires an explicit project section",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "project.assets.json",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "NoSuchField",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Project_AgentsIndex_EmitsDirectDependencyAgentsFrontmatter()
     {
         var agents = """
@@ -17150,7 +17363,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
+            Assert.Contains("selected section has 2 rows; use --row N|first|last to choose one row", error);
         }
         finally
         {
@@ -18322,8 +18535,12 @@ public partial class CommandExecutionTests
         Assert.Contains("--count cannot be combined with --print", error);
     }
 
-    [Fact]
-    public async Task Project_PackageDocsSection_MatchesReadmeAlias()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    public async Task Project_PackageDocsSection_MatchesReadmeAlias(
+        string? format)
     {
         const string id = "Test.Project.Readme.Alias";
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -18331,10 +18548,14 @@ public partial class CommandExecutionTests
 
         try
         {
-            var canonical = await RunAppAsync(
-                "project", projectPath, "--package", id, "-S", "Package Docs", "--print");
-            var alias = await RunAppAsync(
-                "project", projectPath, "--readme", id);
+            string[] canonicalArguments = format is null
+                ? ["project", projectPath, "--package", id, "-S", "Package Docs", "--print"]
+                : ["project", projectPath, "--package", id, "-S", "Package Docs", "--print", format];
+            string[] aliasArguments = format is null
+                ? ["project", projectPath, "--readme", id]
+                : ["project", projectPath, "--readme", id, format];
+            var canonical = await RunAppAsync(canonicalArguments);
+            var alias = await RunAppAsync(aliasArguments);
 
             Assert.Equal(0, canonical.Exit);
             Assert.Equal(canonical, alias);
