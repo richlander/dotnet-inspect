@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
+using SLF = SourceLinkFetch;
 
 namespace DotnetInspector.Services;
 
@@ -19,7 +20,7 @@ public sealed record SourceIntegritySummary(
 /// </summary>
 public static class SourceIntegrityService
 {
-    private const string CacheCategory = "source-integrity";
+    private const string CacheCategory = "source-integrity-v2";
 
     public static async Task<SourceIntegritySummary> InspectAsync(
         IEnumerable<SourceDocumentObservation> sourceDocuments,
@@ -108,12 +109,38 @@ public static class SourceIntegrityService
                     byte[]? body;
                     try
                     {
-                        body = await HttpRetryHelper.GetBytesWithRetryAsync(
+                        using var response = await HttpRetryHelper.GetWithRetryAsync(
                             httpClient,
                             document.ResolvedUrl!,
                             log: log,
                             cancellationToken: ct,
                             trafficKind: NetworkTrafficKind.SourceIntegrity).ConfigureAwait(false);
+                        string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
+                        if (response is null)
+                        {
+                            body = null;
+                        }
+                        else if (finalUrl is null
+                            || !SLF.SourceLinkProvenance.ValidateFetchOrigin(
+                                document.ResolvedUrl!,
+                                finalUrl).IsAllowed)
+                        {
+                            log?.Invoke(
+                                "Source integrity fetch left the attributed source origin.");
+                            body = null;
+                        }
+                        else
+                        {
+                            const long MaxDownloadSize = 500_000_000;
+                            if (response.Content.Headers.ContentLength is > MaxDownloadSize)
+                            {
+                                throw new InvalidOperationException(
+                                    $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
+                            }
+
+                            body = await response.Content.ReadAsByteArrayAsync(ct)
+                                .ConfigureAwait(false);
+                        }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {

@@ -77,14 +77,17 @@ Selected member output already exposes source evidence:
 
 | Section | Purpose |
 | --- | --- |
-| `Original Source` | SourceLink-backed original source text for one selected overload |
+| `Original Source` | SourceLink-backed, portable-PDB-checksum-verified source text for one selected overload |
 | `Source Locations` | file/URL/line rows for a member group or selected signature |
 | `Decompiled Source` | readable C# reconstructed from IL |
 | `Annotated Source` | C# plus hidden-fact comments and IL evidence |
 | `IL` | raw IL disassembly |
 
 Single-type `Source Files` is the natural section home for type-to-URL rows when
-a user is already in a `type` flow.
+a user is already in a `type` flow. Printing a source body from `Source Files`
+or `Source Locations` requires a usable portable-PDB checksum. A missing or
+unsupported checksum is a visible failure rather than permission to render
+unverified network content.
 
 Member source locations should not be added to `Member Index`. That section must
 stay focused on the query pattern: terse selectors, stable selectors, and
@@ -202,6 +205,12 @@ use the network only when the selected section justifies it.
 | Download every source body | explicit `SourceLink: Integrity` |
 | Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
+
+Every source-body fetch checks the final response URL after redirects. If the
+requested URL has an attributable SourceLink origin, the final URL must name the
+same host, repository, and revision. The response body is then used only when it
+matches the portable-PDB checksum. Availability and integrity audits apply the
+same final-origin rule before recording reachability or reading content.
 
 The section pipeline lowers selected SourceLink sections to typed query demand:
 

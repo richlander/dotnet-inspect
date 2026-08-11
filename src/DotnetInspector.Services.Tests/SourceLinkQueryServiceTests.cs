@@ -78,6 +78,62 @@ public class SourceLinkQueryServiceTests
         Assert.Equal(["/src/Mismatch.cs"], result.MismatchedFiles);
     }
 
+    [Fact]
+    public async Task Availability_DoesNotCountCrossOriginRedirectAsReachable()
+    {
+        const string Url =
+            "https://dev.azure.com/org/project/_apis/git/repositories/repo/items"
+            + "?api-version=7.1&versionType=commit"
+            + "&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/A.cs";
+        using var client = new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage((HttpStatusCode)203)
+            {
+                RequestMessage = new HttpRequestMessage(
+                    HttpMethod.Head,
+                    "https://spsprodeus27.vssps.visualstudio.com/_signin"),
+            }));
+
+        SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
+            [Document("/src/A.cs", url: Url)],
+            client,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, result.AccessibleSourceFiles);
+        Assert.Equal(["/src/A.cs"], result.MissingSourceFiles);
+    }
+
+    [Fact]
+    public async Task Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect()
+    {
+        byte[] body = "exact source"u8.ToArray();
+        const string Url =
+            "https://dev.azure.com/org/project/_apis/git/repositories/repo/items"
+            + "?api-version=7.1&versionType=commit"
+            + "&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/A.cs";
+        using var client = new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+                RequestMessage = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    "https://spsprodeus27.vssps.visualstudio.com/_signin"),
+            }));
+
+        SourceIntegritySummary result = await SourceIntegrityService.InspectAsync(
+            [
+                Document(
+                    "/src/A.cs",
+                    url: Url,
+                    checksum: Convert.ToHexString(SHA256.HashData(body)))
+            ],
+            client,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, result.Verified);
+        Assert.Equal(0, result.Mismatched);
+        Assert.Equal(1, result.Unverifiable);
+    }
+
     private static SourceDocumentObservation Document(
         string path,
         SourceDocumentStorage storage = SourceDocumentStorage.SourceLink,
@@ -101,7 +157,9 @@ public class SourceLinkQueryServiceTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(respond(request));
+            HttpResponseMessage response = respond(request);
+            response.RequestMessage ??= request;
+            return Task.FromResult(response);
         }
     }
 }

@@ -233,7 +233,7 @@ internal static class SourceEnricher
         }
 
         List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)> typeSourceInfo = [];
-        HashSet<string> allUrlsToFetch = [];
+        Dictionary<string, (string Url, string? Algorithm, byte[]? Checksum)> allSourcesToFetch = [];
 
         foreach (var apiType in types)
         {
@@ -243,30 +243,54 @@ internal static class SourceEnricher
 
             if (sourceInfo?.SourceUrl != null)
             {
-                allUrlsToFetch.Add(sourceInfo.SourceUrl);
+                AddSourceFetch(
+                    allSourcesToFetch,
+                    sourceInfo.SourceUrl,
+                    sourceInfo.ChecksumAlgorithm,
+                    sourceInfo.Checksum);
                 if (sourceInfo.AdditionalSourceFiles != null)
                 {
                     foreach (var additional in sourceInfo.AdditionalSourceFiles)
                     {
                         if (additional.SourceUrl != null)
-                            allUrlsToFetch.Add(additional.SourceUrl);
+                        {
+                            AddSourceFetch(
+                                allSourcesToFetch,
+                                additional.SourceUrl,
+                                additional.ChecksumAlgorithm,
+                                additional.Checksum);
+                        }
                     }
                 }
             }
         }
 
-        logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allUrlsToFetch.Count} unique source URLs ({stopwatch.ElapsedMilliseconds}ms)");
+        logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allSourcesToFetch.Count} unique source documents ({stopwatch.ElapsedMilliseconds}ms)");
 
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
+        var fetchList = allSourcesToFetch
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry => entry.Value)
+            .ToList();
         var contentCache = new ConcurrentDictionary<string, string?>();
 
-        logger.Log($"Phase 2: Fetching {urlList.Count} URLs (max 16 concurrent)");
-        await Parallel.ForEachAsync(urlList,
+        logger.Log($"Phase 2: Fetching {fetchList.Count} source documents (max 16 concurrent)");
+        await Parallel.ForEachAsync(fetchList,
             new ParallelOptions { MaxDegreeOfParallelism = 16 },
-            async (url, ct) =>
+            async (sourceFetch, ct) =>
             {
-                contentCache[url] = await fetcher.FetchSourceAsync(url);
+                var result = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                    fetcher,
+                    sourceFetch.Url,
+                    sourceFetch.Algorithm,
+                    sourceFetch.Checksum,
+                    ct);
+                contentCache[SourceFetchKey(
+                    sourceFetch.Url,
+                    sourceFetch.Algorithm,
+                    sourceFetch.Checksum)] = result.Text;
+                if (result.Failure is not null)
+                    logger.LogWarning(result.Failure);
             });
 
         logger.Log($"Phase 2: Fetched {contentCache.Count(kv => kv.Value != null)} of {contentCache.Count} URLs ({stopwatch.ElapsedMilliseconds}ms)");
@@ -282,6 +306,8 @@ internal static class SourceEnricher
             apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
             apiType.SourceLineNumber = sourceInfo.LineNumber;
             apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
+            apiType.SourceChecksum = sourceInfo.Checksum;
+            apiType.SourceChecksumAlgorithm = sourceInfo.ChecksumAlgorithm;
 
             if (sourceInfo.AdditionalSourceFiles?.Count > 0)
             {
@@ -290,7 +316,9 @@ internal static class SourceEnricher
                     {
                         FilePath = f.FilePath,
                         SourceUrl = f.SourceUrl,
-                        GitHubBrowseUrl = f.GitHubBrowseUrl
+                        GitHubBrowseUrl = f.GitHubBrowseUrl,
+                        SourceChecksum = f.Checksum,
+                        SourceChecksumAlgorithm = f.ChecksumAlgorithm,
                     })
                     .ToList();
             }
@@ -299,7 +327,13 @@ internal static class SourceEnricher
             {
                 List<(string Content, string Url, string FilePath)> sourceContents = [];
 
-                if (contentCache.TryGetValue(sourceInfo.SourceUrl, out var primaryContent) && primaryContent != null)
+                if (contentCache.TryGetValue(
+                        SourceFetchKey(
+                            sourceInfo.SourceUrl,
+                            sourceInfo.ChecksumAlgorithm,
+                            sourceInfo.Checksum),
+                        out var primaryContent)
+                    && primaryContent != null)
                 {
                     sourceContents.Add((primaryContent, sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? ""));
                 }
@@ -309,7 +343,12 @@ internal static class SourceEnricher
                     foreach (var additional in sourceInfo.AdditionalSourceFiles)
                     {
                         if (additional.SourceUrl != null &&
-                            contentCache.TryGetValue(additional.SourceUrl, out var additionalContent) &&
+                            contentCache.TryGetValue(
+                                SourceFetchKey(
+                                    additional.SourceUrl,
+                                    additional.ChecksumAlgorithm,
+                                    additional.Checksum),
+                                out var additionalContent) &&
                             additionalContent != null)
                         {
                             sourceContents.Add((additionalContent, additional.SourceUrl, additional.FilePath));
@@ -719,6 +758,8 @@ internal static class SourceEnricher
         apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
         apiType.SourceLineNumber = sourceInfo.LineNumber;
         apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
+        apiType.SourceChecksum = sourceInfo.Checksum;
+        apiType.SourceChecksumAlgorithm = sourceInfo.ChecksumAlgorithm;
 
         if (sourceInfo.AdditionalSourceFiles.Count > 0)
         {
@@ -727,7 +768,9 @@ internal static class SourceEnricher
                 {
                     FilePath = f.FilePath,
                     SourceUrl = f.SourceUrl,
-                    GitHubBrowseUrl = f.GitHubBrowseUrl
+                    GitHubBrowseUrl = f.GitHubBrowseUrl,
+                    SourceChecksum = f.Checksum,
+                    SourceChecksumAlgorithm = f.ChecksumAlgorithm,
                 })
                 .ToList();
             logger.Log(
@@ -746,29 +789,42 @@ internal static class SourceEnricher
         var fetcher = new SourceFetcher(
             DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var parser = new DocCommentParser();
-        List<(string Url, string FilePath)> sourceFilesToFetch =
+        List<(string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sourceFilesToFetch =
         [
-            (sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? "")
+            (
+                sourceInfo.SourceUrl,
+                sourceInfo.SourceFilePath ?? "",
+                sourceInfo.ChecksumAlgorithm,
+                sourceInfo.Checksum)
         ];
 
         foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
         {
             if (additionalFile.SourceUrl is not null)
                 sourceFilesToFetch.Add(
-                    (additionalFile.SourceUrl, additionalFile.FilePath));
+                    (
+                        additionalFile.SourceUrl,
+                        additionalFile.FilePath,
+                        additionalFile.ChecksumAlgorithm,
+                        additionalFile.Checksum));
         }
 
         List<(string Content, string Url, string FilePath)> allSourceContents = [];
         string? primaryNamespace = null;
         bool isPrimaryPartial = false;
 
-        foreach ((string url, string filePath) in sourceFilesToFetch)
+        foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
         {
             logger.Log($"Fetching source from: {url}");
-            string? content = await fetcher.FetchSourceAsync(url);
+            var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                fetcher,
+                url,
+                algorithm,
+                checksum);
+            string? content = fetch.Text;
             if (content is null)
             {
-                logger.Log($"Could not fetch source from: {url}");
+                logger.LogWarning(fetch.Failure ?? "Could not fetch SourceLink source.");
                 continue;
             }
 
@@ -798,6 +854,7 @@ internal static class SourceEnricher
                         $"Skipping {Path.GetFileName(filePath)} - not a matching partial type");
                 }
             }
+
         }
 
         if (allSourceContents.Count > 0)
@@ -810,6 +867,21 @@ internal static class SourceEnricher
                 logger);
         }
     }
+
+    private static void AddSourceFetch(
+        Dictionary<string, (string Url, string? Algorithm, byte[]? Checksum)> sources,
+        string url,
+        string? algorithm,
+        byte[]? checksum)
+        => sources.TryAdd(
+            SourceFetchKey(url, algorithm, checksum),
+            (url, algorithm, checksum));
+
+    private static string SourceFetchKey(
+        string url,
+        string? algorithm,
+        byte[]? checksum)
+        => $"{url}\n{algorithm}\n{(checksum is null ? "" : Convert.ToHexString(checksum))}";
 
     private static bool IsPartialTypeDeclaration(string sourceContent, string typeName)
     {

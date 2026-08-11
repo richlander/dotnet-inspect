@@ -645,6 +645,8 @@ public class ApiCommand
             SourceUrl = type.SourceUrl,
             GitHubBrowseUrl = type.GitHubBrowseUrl,
             SourceLineNumber = type.SourceLineNumber,
+            SourceChecksum = type.SourceChecksum,
+            SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             SourceResolution = type.SourceResolution,
             AdditionalSourceFiles = type.AdditionalSourceFiles,
             IsForwarded = type.IsForwarded,
@@ -1075,7 +1077,14 @@ public class ApiCommand
             else if (methodInfo.SourceUrl != null)
             {
                 var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
+                var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                    fetcher,
+                    methodInfo.SourceUrl,
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum);
+                content = fetch.Text?.ReplaceLineEndings("\n");
+                if (fetch.Failure is not null)
+                    logger.LogWarning(fetch.Failure);
             }
 
             if (content == null)
@@ -1544,7 +1553,12 @@ public class ApiCommand
         {
             return await PrintUrlProjectionAsync(
                 section,
-                view.SourceFileRows?.Select((row, index) => (Row: index + 1, Label: (string?)row.Url, Url: (string?)row.Url)),
+                view.SourceFileRows?.Select((row, index) => (
+                    Row: index + 1,
+                    Label: (string?)row.Url,
+                    Url: (string?)row.Url,
+                    row.Checksum,
+                    row.ChecksumAlgorithm)),
                 options);
         }
 
@@ -1552,7 +1566,12 @@ public class ApiCommand
         {
             return await PrintUrlProjectionAsync(
                 section,
-                view.SourceLocationRows?.Select((row, index) => (Row: index + 1, Label: (string?)row.File ?? row.Url, Url: row.Url)),
+                view.SourceLocationRows?.Select((row, index) => (
+                    Row: index + 1,
+                    Label: (string?)row.File ?? row.Url,
+                    Url: row.Url,
+                    row.Checksum,
+                    row.ChecksumAlgorithm)),
                 options);
         }
 
@@ -1743,10 +1762,19 @@ public class ApiCommand
 
     private static async Task<int> PrintUrlProjectionAsync(
         string section,
-        IEnumerable<(int Row, string? Label, string? Url)>? rows,
+        IEnumerable<(
+            int Row,
+            string? Label,
+            string? Url,
+            byte[]? Checksum,
+            string? ChecksumAlgorithm)>? rows,
         ApiOptions options)
     {
-        var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
+        var materialized = (rows ?? []).ToList();
+        var selection = SelectPrintableRow(
+            materialized.Select(row => (row.Row, row.Label, row.Url)).ToList(),
+            options.PrintRow,
+            out var selectionError);
         if (selection is not { } selectedRow)
         {
             CommandError.Write(selectionError);
@@ -1754,11 +1782,18 @@ public class ApiCommand
         }
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
+        var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var content = await fetcher.FetchSourceAsync(rawUrl);
-        if (content == null)
+        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+            fetcher,
+            rawUrl,
+            selectedSource.ChecksumAlgorithm,
+            selectedSource.Checksum);
+        if (fetch.Text is null)
         {
-            CommandError.Write($"failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
+            CommandError.Write(
+                $"failed to fetch verified source for row {selectedRow.Row}: "
+                + (fetch.Failure ?? "source is unavailable."));
             return 1;
         }
 
@@ -1768,7 +1803,7 @@ public class ApiCommand
             string.IsNullOrWhiteSpace(selectedRow.Label) ? rawUrl : selectedRow.Label!,
             null,
             rawUrl,
-            content);
+            fetch.Text);
 
         return PrintProjectionOutput.Write(
             [document],
@@ -2286,6 +2321,9 @@ public class ApiCommand
                 SourceUrl = type.SourceUrl,
                 GitHubBrowseUrl = type.GitHubBrowseUrl,
                 SourceLineNumber = type.SourceLineNumber,
+                SourceChecksum = type.SourceChecksum,
+                SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
+                AdditionalSourceFiles = type.AdditionalSourceFiles,
                 Documentation = type.Documentation
             };
         }
@@ -2408,6 +2446,9 @@ public class ApiCommand
             SourceUrl = type.SourceUrl,
             GitHubBrowseUrl = type.GitHubBrowseUrl,
             SourceLineNumber = type.SourceLineNumber,
+            SourceChecksum = type.SourceChecksum,
+            SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
+            AdditionalSourceFiles = type.AdditionalSourceFiles,
             Documentation = type.Documentation
         };
     }

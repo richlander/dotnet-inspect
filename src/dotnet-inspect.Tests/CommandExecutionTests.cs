@@ -6585,8 +6585,9 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
-            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+            Assert.DoesNotContain("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
         }
         finally
         {
@@ -6618,7 +6619,68 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsCrossOriginResponse()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "redirected content"u8.ToArray(),
+            "https://spsprodeus27.vssps.visualstudio.com/_signin"));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-cross-origin-source-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("left the attributed source origin", error);
+            Assert.DoesNotContain("spsprodeus27", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsSameOriginChecksumMismatch()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "same-origin but wrong content"u8.ToArray()));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-source-checksum-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("does not match the portable-PDB checksum", error);
         }
         finally
         {
@@ -6637,6 +6699,21 @@ public partial class CommandExecutionTests
             => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
             {
                 RequestMessage = request,
+            });
+    }
+
+    private sealed class SourceResponseHandler(byte[] body, string? finalUrl = null)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+                RequestMessage = finalUrl is null
+                    ? request
+                    : new HttpRequestMessage(HttpMethod.Get, finalUrl),
             });
     }
 

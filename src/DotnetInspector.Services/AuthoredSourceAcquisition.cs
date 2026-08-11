@@ -29,6 +29,11 @@ public sealed record AuthoredMemberSourceInspection(
     public bool IsComplete => Lines.Value is FindingInspection<string>.Complete;
 }
 
+public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
+{
+    public bool IsVerified => Text is not null;
+}
+
 /// <summary>
 /// Acquires one authored member from SourceLink and verifies the portable-PDB checksum before
 /// exposing its text as evidence.
@@ -124,20 +129,83 @@ public static class AuthoredSourceAcquisition
                 : "The selected source document has no fetchable SourceLink URL.");
         }
 
-        var bytes = await fetcher.FetchValidatedSourceBytesAsync(
+        var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
             url,
             content => VerifyChecksum(document, content.Span)
                 is SourceChecksumVerification.Exact
                     or SourceChecksumVerification.LineEndingNormalized,
             cancellationToken).ConfigureAwait(false);
-        if (bytes is null)
+        if (fetch.Bytes is null)
         {
+            if (fetch.Failure == SourceFetchFailureKind.ValidationFailed)
+            {
+                return Failed(
+                    subject,
+                    "Fetched authored source does not match the portable-PDB checksum.",
+                    mapping,
+                    document,
+                    SourceChecksumVerification.Mismatch);
+            }
+
             return Failed(
                 subject,
-                $"Could not fetch authored source from '{url}'.");
+                fetch.Failure == SourceFetchFailureKind.AttributedOriginChanged
+                    ? "The SourceLink fetch left the attributed source origin."
+                    : "Could not fetch authored source.");
         }
 
-        return FromContent(mapping, document, bytes, methodName, subject);
+        return FromContent(mapping, document, fetch.Bytes, methodName, subject);
+    }
+
+    public static async Task<VerifiedSourceTextResult> FetchVerifiedSourceTextAsync(
+        SourceFetcher fetcher,
+        string url,
+        string? checksumAlgorithm,
+        byte[]? checksum,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fetcher);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        if (string.IsNullOrEmpty(checksumAlgorithm) || checksum is not { Length: > 0 })
+        {
+            return new VerifiedSourceTextResult(
+                null,
+                "The portable PDB does not provide a usable source checksum.");
+        }
+
+        var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
+            url,
+            content => VerifyChecksum(checksumAlgorithm, checksum, content.Span)
+                is SourceChecksumVerification.Exact
+                    or SourceChecksumVerification.LineEndingNormalized,
+            cancellationToken).ConfigureAwait(false);
+        if (fetch.Bytes is null)
+        {
+            return new VerifiedSourceTextResult(
+                null,
+                fetch.Failure switch
+                {
+                    SourceFetchFailureKind.AttributedOriginChanged =>
+                        "The SourceLink fetch left the attributed source origin.",
+                    SourceFetchFailureKind.ValidationFailed =>
+                        "Fetched source does not match the portable-PDB checksum.",
+                    _ => "Could not fetch SourceLink source.",
+                });
+        }
+
+        var verification = VerifyChecksum(checksumAlgorithm, checksum, fetch.Bytes);
+        if (verification is not (SourceChecksumVerification.Exact
+            or SourceChecksumVerification.LineEndingNormalized))
+        {
+            return new VerifiedSourceTextResult(
+                null,
+                verification == SourceChecksumVerification.Unsupported
+                    ? "The portable-PDB source checksum algorithm is unsupported."
+                    : "Fetched source does not match the portable-PDB checksum.");
+        }
+
+        return new VerifiedSourceTextResult(DecodeSourceText(fetch.Bytes), null);
     }
 
     public static AuthoredMemberSourceInspection FromContent(

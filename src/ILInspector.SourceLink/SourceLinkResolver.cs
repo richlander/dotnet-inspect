@@ -12,6 +12,7 @@ public sealed class SourceLinkResolver
     readonly SLF.SourceLinkResolver _map;
     IReadOnlyList<string>? _documentPaths;
     Dictionary<string, List<string>>? _docsByFirstSegment;
+    Dictionary<string, PdbDocumentInfo>? _documentsByPath;
     Dictionary<string, PdbTypeDocumentInfo>? _typesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesBySimpleName;
 
@@ -34,7 +35,9 @@ public sealed class SourceLinkResolver
         string? SourceUrl,
         int? LineNumber,
         string? GitHubBrowseUrl,
-        SourceResolutionMethod ResolutionMethod = SourceResolutionMethod.SourceLink)
+        SourceResolutionMethod ResolutionMethod = SourceResolutionMethod.SourceLink,
+        byte[]? Checksum = null,
+        string? ChecksumAlgorithm = null)
     {
         public List<PartialSourceFile> AdditionalSourceFiles { get; init; } = [];
         public bool IsPartialType => AdditionalSourceFiles.Count > 0;
@@ -43,7 +46,9 @@ public sealed class SourceLinkResolver
     public record PartialSourceFile(
         string FilePath,
         string? SourceUrl,
-        string? GitHubBrowseUrl);
+        string? GitHubBrowseUrl,
+        byte[]? Checksum = null,
+        string? ChecksumAlgorithm = null);
 
     public record MethodSourceInfo(
         string FilePath,
@@ -59,7 +64,9 @@ public sealed class SourceLinkResolver
         string? SourceUrl,
         int Line,
         int MatchedOffset,
-        string? GitHubBrowseUrl);
+        string? GitHubBrowseUrl,
+        byte[]? Checksum = null,
+        string? ChecksumAlgorithm = null);
 
     public TypeSourceInfo? ResolveTypeSource(string typeName)
     {
@@ -96,7 +103,9 @@ public sealed class SourceLinkResolver
                 file.SourceUrl,
                 LineNumber: null,
                 file.GitHubBrowseUrl,
-                SourceResolutionMethod.Inferred);
+                SourceResolutionMethod.Inferred,
+                file.Checksum,
+                file.ChecksumAlgorithm);
         }
 
         var primary = SelectPrimarySourceFile(files.Values, simpleName);
@@ -104,7 +113,9 @@ public sealed class SourceLinkResolver
             primary.FilePath,
             primary.SourceUrl,
             LineNumber: null,
-            primary.GitHubBrowseUrl)
+            primary.GitHubBrowseUrl,
+            Checksum: primary.Checksum,
+            ChecksumAlgorithm: primary.ChecksumAlgorithm)
         {
             AdditionalSourceFiles =
             [
@@ -190,10 +201,24 @@ public sealed class SourceLinkResolver
     PartialSourceFile Decorate(string filePath)
     {
         string? url = _map.ResolveUrl(filePath);
+        EnsureDocumentIndex();
+        _documentsByPath!.TryGetValue(filePath, out PdbDocumentInfo? document);
         return new PartialSourceFile(
             filePath,
             url,
-            SLF.SourceLinkProvenance.BrowseUrl(url));
+            SLF.SourceLinkProvenance.BrowseUrl(url),
+            document?.Checksum,
+            document?.ChecksumAlgorithm);
+    }
+
+    void EnsureDocumentIndex()
+    {
+        if (_documentsByPath is not null)
+            return;
+
+        _documentsByPath = new Dictionary<string, PdbDocumentInfo>(StringComparer.Ordinal);
+        foreach (PdbDocumentInfo document in _context.EnumeratePdbDocuments())
+            _documentsByPath.TryAdd(document.FilePath, document);
     }
 
     static PartialSourceFile SelectPrimarySourceFile(

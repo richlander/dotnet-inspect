@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
+using SLF = SourceLinkFetch;
 
 namespace DotnetInspector.Services;
 
@@ -22,6 +23,7 @@ public sealed record SourceAvailabilitySummary(
 /// </summary>
 public static class SourceAvailabilityService
 {
+    private const string CacheCategory = "source-audit-v2";
     private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromDays(1);
     private static readonly TimeSpan MutablePositiveCacheTtl = TimeSpan.FromDays(1);
 
@@ -68,7 +70,7 @@ public static class SourceAvailabilityService
         {
             bool immutable = SourceLinkUrls.IsImmutable(document.ResolvedUrl!);
             string? positiveHit = cache?.TryGet(
-                "source-audit",
+                CacheCategory,
                 document.ResolvedUrl!,
                 immutable ? null : MutablePositiveCacheTtl,
                 "ok");
@@ -78,7 +80,7 @@ public static class SourceAvailabilityService
                 accessibleCount++;
             }
             else if (cache?.TryGet(
-                "source-audit",
+                CacheCategory,
                 document.ResolvedUrl!,
                 NegativeCacheTtl,
                 "miss") != null)
@@ -112,21 +114,32 @@ public static class SourceAvailabilityService
                         cancellationToken: ct,
                         trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
                     using var response = result.Response;
-                    if (response != null)
+                    string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
+                    bool originPreserved = response is not null
+                        && finalUrl is not null
+                        && SLF.SourceLinkProvenance.ValidateFetchOrigin(
+                            document.ResolvedUrl!,
+                            finalUrl).IsAllowed;
+                    if (originPreserved)
                     {
                         Interlocked.Increment(ref accessibleCount);
                         cache?.Set(
-                            "source-audit",
+                            CacheCategory,
                             document.ResolvedUrl!,
                             "1",
                             "ok");
                     }
                     else
                     {
-                        if (result.IsNotFound)
+                        if (response is not null)
+                        {
+                            log?.Invoke(
+                                "Source fetch left the attributed source origin.");
+                        }
+                        else if (result.IsNotFound)
                         {
                             cache?.Set(
-                                "source-audit",
+                                CacheCategory,
                                 document.ResolvedUrl!,
                                 "1",
                                 "miss");
