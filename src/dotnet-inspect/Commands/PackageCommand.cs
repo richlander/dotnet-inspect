@@ -3102,7 +3102,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.Append("# ").Append(title).Append('\n').Append('\n');
+        AppendBlock(sb, $"# {title}");
 
         foreach (var section in sections)
         {
@@ -3114,6 +3114,29 @@ public class PackageCommand
 
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// Appends one rendered block, separated from whatever precedes it by exactly one blank line.
+    /// </summary>
+    /// <remarks>
+    /// Written once rather than at each of the three call sites, which restated it and so had to
+    /// keep three copies of the separator agreeing on a line ending. When a copy disagreed the
+    /// result was silent: #3963 read a CRLF tail as "no blank line yet" and doubled the blank
+    /// before every section on Windows.
+    /// <para>
+    /// Those call sites also guarded the trailing newlines with
+    /// <c>!sb.ToString().EndsWith("\n\n")</c> -- the two section sites did; the title site, which
+    /// runs first, never had it. That guard is unreachable and is not carried over.
+    /// Every append to the buffer goes through this method, and this method always leaves exactly
+    /// <c>"\n\n"</c> at the tail, so the guard was false for every block after the first and the
+    /// length test excluded the first. It was load-bearing only while the tail could be CRLF,
+    /// which is what #3981 removed. Keeping it would leave two mechanisms for one property and
+    /// gate neither; the separation is asserted from the rendered document instead, by
+    /// <c>PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine</c>.
+    /// </para>
+    /// </remarks>
+    private static void AppendBlock(StringBuilder sb, string rendered)
+        => sb.Append(rendered).Append('\n').Append('\n');
 
     /// <summary>
     /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
@@ -3132,9 +3155,7 @@ public class PackageCommand
         if (rendered.Length == 0)
             return;
 
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.Append('\n');
-        sb.Append(rendered).Append('\n').Append('\n');
+        AppendBlock(sb, rendered);
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3254,9 +3275,7 @@ public class PackageCommand
             if (rendered.Length == 0)
                 continue;
 
-            if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.Append('\n');
-            sb.Append(rendered).Append('\n').Append('\n');
+            AppendBlock(sb, rendered);
         }
     }
 
