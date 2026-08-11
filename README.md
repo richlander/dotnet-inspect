@@ -214,7 +214,9 @@ library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
 require one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
 `@Integrations`. Add `--count` to a category selector for per-section row counts,
-or to bare `-S` for the same map over the fixed overview.
+or to bare `-S` for the same map over the fixed overview. For Integrations,
+all-library mode scans selected managed assemblies together within each target
+framework; `--tfm all` keeps each framework in a separate inspection group.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and

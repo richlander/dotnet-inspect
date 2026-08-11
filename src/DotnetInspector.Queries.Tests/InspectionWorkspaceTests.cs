@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using System.Reflection;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -598,6 +599,113 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource = new RetainedImageAssertingResource(group);
+        group.RegisterOwnedResource(resource);
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                (_, _) =>
+                {
+                    workspace.Dispose();
+                    return Task.FromResult(1);
+                });
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.True(resource.IsDisposed);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
+    public void ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource = new RetainedImageAssertingResource(group);
+        group.RegisterOwnedResource(resource);
+
+        object participant =
+            InvokeGroupMethod(
+                group,
+                "FindParticipant",
+                source.Assembly)!;
+        object imageLoadGate =
+            participant.GetType().GetProperty(
+                "ImageLoadGate",
+                BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(participant)!;
+        using var callbackEntered = new ManualResetEventSlim();
+        using var callbackResume = new ManualResetEventSlim();
+        using var callbackResumed = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Exception? operationFailure = null;
+        var operation = new Thread(
+            () =>
+            {
+                try
+                {
+                    AssemblyImageAccessResult<int> result =
+                        group.UseAndReleaseAssemblySessionAsync(
+                                source.Assembly,
+                                (_, _) =>
+                                {
+                                    callbackEntered.Set();
+                                    callbackResume.Wait(cancellationToken);
+                                    callbackResumed.Set();
+                                    return Task.FromResult(1);
+                                })
+                            .GetAwaiter()
+                            .GetResult();
+                    Assert.IsType<
+                        AssemblyImageAccessResult<int>.Available>(result);
+                }
+                catch (Exception ex)
+                {
+                    operationFailure = ex;
+                }
+            });
+        operation.IsBackground = true;
+        operation.Start();
+        Assert.True(
+            callbackEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        lock (imageLoadGate)
+        {
+            callbackResume.Set();
+            Assert.True(
+                callbackResumed.Wait(
+                    TimeSpan.FromSeconds(10),
+                    cancellationToken));
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => (operation.ThreadState & ThreadState.WaitSleepJoin)
+                        != 0,
+                    TimeSpan.FromSeconds(10)));
+
+            workspace.Dispose();
+            Assert.True(group.RetainedImageBytes > 0);
+        }
+
+        Assert.True(operation.Join(TimeSpan.FromSeconds(10)));
+        Assert.Null(operationFailure);
+        Assert.True(resource.IsDisposed);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
     public void WorkspaceDisposal_ContinuesAfterAGroupFails()
     {
         TestAssembly first = TestAssembly.Create();
@@ -662,6 +770,20 @@ public sealed class InspectionWorkspaceTests
     {
         Assert.True(typeof(AssemblyImageView).IsByRefLike);
         Assert.True(typeof(AssemblyImageSpanResult).IsByRefLike);
+    }
+
+    static object? InvokeGroupMethod(
+        AssemblyContextGroup group,
+        string methodName,
+        params object?[]? arguments)
+    {
+        MethodInfo method =
+            typeof(AssemblyContextGroup).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                $"AssemblyContextGroup.{methodName} was not found.");
+        return method.Invoke(group, arguments);
     }
 
     sealed class TestAssembly
