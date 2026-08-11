@@ -332,6 +332,19 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
+`AssemblyContextIntegrationOpportunitiesQuery` is the first dependent group
+query. It declares the Integrations result as a typed prerequisite, derives the
+set of already-present integrations from that result, and scans each available
+participant's same retained snapshot for missing registration surfaces.
+Rejected and failed prerequisite entries remain explicit in the dependent
+result. The query's local cost is `NetworkFree`, while registry planning exposes
+the `Unbounded` transitive cost of its Integrations prerequisite.
+`AssemblyContextIntegrationsQueryTests.Execute_ComposesOpportunitiesFromTypedIntegrations`
+and
+`AssemblyContextIntegrationsQueryTests.RegistryRun_OpportunityQueryUsesOneImmutableSnapshot`
+gate prerequisite composition, existing-integration suppression, and snapshot
+reuse.
+
 Package `--all-libraries` constructs one
 `SourceRelativeAssemblyGroupBindingPolicy` per selected package asset directory
 and passes that shared policy snapshot to every participant in that group.
@@ -344,10 +357,11 @@ Query production and the asynchronous library pipeline consume one
 participant's retained snapshot before the group releases it and advances, so
 the group keeps its complete binding universe without retaining the package's
 cumulative image bytes. The legacy Integrations scanner recognizes populated
-Findings and does not rescan. The dependent integration-opportunity scanner
-consumes available findings unchanged and emits no gap rows when its
-prerequisite failed or a blank assembly identity made the participant a
-compatibility skip. Direct `library` and package `--library` remain
+Findings and does not rescan. When Opportunities is selected, the host executes
+the typed Integrations prerequisite and dependent Opportunities query inside
+that same participant callback before release. Rejected or failed prerequisite
+entries remain typed dependent outcomes, and a blank assembly identity remains
+a compatibility skip. Direct `library` and package `--library` remain
 single-assembly controls.
 Ecosystem and OpenTelemetry evidence form one grouped query outcome, so
 malformed participant metadata fails that grouped unit.
@@ -365,7 +379,9 @@ and same-generation host inspection.
 gates streaming image release.
 `PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
 and
-`PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
+`PackageIntegrationsWorkspaceTests.OpportunityDemand_UsesTheStreamingParticipantSnapshot`
+and
+`PackageIntegrationsWorkspaceTests.IntegrationRejection_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
 `PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities` and
 `LibraryCommand_BlankAssemblyNameSuppressesOpportunities` gate compatibility
@@ -410,9 +426,8 @@ malformed-image failure caching, and
 `MemberCallGraphSessionTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
 gates the complete metadata-decoder exception classification.
 
-Other domain catalogs, query authorization, integration-opportunity
-composition migration, concurrent execution, and broader command migration
-remain later slices.
+Other domain catalogs, query authorization, concurrent execution, and broader
+command migration remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while

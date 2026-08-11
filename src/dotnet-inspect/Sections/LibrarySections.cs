@@ -25,7 +25,6 @@ public static class LibrarySections
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerAuditSignals = "AuditSignals";
-    public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
     public const string ScannerSwitches = "Switches";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
@@ -104,7 +103,7 @@ public static class LibrarySections
             .Add<Signals>(HasAssemblyInfo)
             .Add<Switches>()
             .Add<IntegrationOpportunities>(
-                AssemblyContextIntegrationsQuery.Definition)
+                AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<AI>(AssemblyContextIntegrationsQuery.Definition)
             .Add<AspNetCore>(AssemblyContextIntegrationsQuery.Definition)
             .Add<Authentication>(AssemblyContextIntegrationsQuery.Definition)
@@ -227,10 +226,6 @@ public static class LibrarySections
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger)))
-            .Add(ScannerIntegrationOpportunities, SectionCost.NetworkFree, ctx =>
-                ctx.Scan(
-                    session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
-                    () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
             ;
     }
 
@@ -317,7 +312,11 @@ public static class LibrarySections
         => new InspectionQueryRegistry<AssemblyContextGroup>()
             .Add(
                 AssemblyContextIntegrationsQuery.Definition,
-                AssemblyContextIntegrationsQuery.Execute);
+                AssemblyContextIntegrationsQuery.Execute)
+            .Add(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                AssemblyContextIntegrationsQuery.Definition);
 
     private static SourceLinkQueryContext RequireSourceLinkContext(ScannerContext context)
         => context.SourceLinkContext
@@ -483,7 +482,7 @@ public static class LibrarySections
         public static string Name => IntegrationSectionNames.Opportunities;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => ScannerIntegrationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
     }
