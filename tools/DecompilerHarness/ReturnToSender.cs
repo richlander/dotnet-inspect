@@ -2206,6 +2206,7 @@ static class ReturnToSender
         {
             ExcludeTargetAssembly = true,
             SnapshotAssemblyImages = true,
+            AllowPlatformAssemblyVersionRollForward = true,
         });
         ResolvedAssemblyReference targetAssembly =
             resolver.AcquireTargetAssembly()

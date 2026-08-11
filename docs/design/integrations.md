@@ -131,9 +131,10 @@ how to group or present it.
 
 Image acquisition rejection remains explicit beside available participant
 results, so a budget-limited group cannot look like a complete group with fewer
-integrations. Late malformed-metadata mapping is implemented but not yet
-independently gated. The query reuses the workspace's immutable snapshots and
-does not reopen paths or streams.
+integrations. Late malformed-metadata mapping and preflight malformed-managed
+metadata isolation are gated by the package command tests named below. The
+query reuses the workspace's immutable snapshots and does not reopen paths or
+streams.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
 and
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
@@ -147,19 +148,78 @@ catalog binds every member of the family to the same query definition by object
 identity and owns a separate group-query registry because the query consumes an
 `AssemblyContextGroup`, not a single-library scanner context.
 
-The command creates one group for the selected assembly set, projects each typed
-entry into the corresponding `LibraryInspection`, and retains the workspace's
-authoritative immutable image for the rest of that library inspection. A path
-retarget after query execution therefore cannot mix one assembly's integration
-evidence with another assembly's metadata or opportunity scan.
+The library command retains its queried snapshot for the rest of inspection.
 `AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection`
 gates that shared-image boundary.
 
-`Integration: Opportunities` remains a CLI composition scanner. It consumes the
-query-produced existing-integration evidence before scanning for missing
-registration surfaces; opportunity production has not moved into the L1 group
-query. Cancellation-aware group execution and optional concurrency remain later
-slices.
+Package `--all-libraries` creates one binding-consistent group per package asset
+directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`
+never combines different binding universes. Every root receives its own
+`AssemblyDependencyResolver`, and
+`SourceRelativeAssemblyGroupBindingPolicy` composes those resolvers behind the
+one shared policy version required by the group. For each participant in group
+order, the query and asynchronous library pipeline consume one retained
+snapshot before releasing it and advancing. This preserves one complete
+binding universe without retaining the cumulative bytes of every package
+assembly.
+
+The package host correlates query entries to libraries by acquisition
+registration and projects their evidence or typed failure into existing
+Finding properties. Remote provenance uses the coordinate resolved by package
+acquisition, not package-controlled nuspec fields. A local archive uses a
+trimmed, valid nuspec coordinate when available and otherwise carries
+local-archive provenance.
+
+`Integration: Opportunities` remains a CLI composition scanner. It consumes
+query-produced evidence and emits no gaps when its prerequisite failed or a
+compatibility-skipped participant has no grouped evidence; opportunity
+production has not moved into the L1 group query. Ecosystem and
+OpenTelemetry evidence form one grouped query outcome, so malformed participant
+metadata fails that grouped unit. Grouped failures leave successful rows
+renderable, emit one warning per affected library and reason, and make the
+command incomplete with a nonzero exit code. Direct `library` and package
+`--library` remain single-assembly controls.
+
+`PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+gates grouping, correlation, provenance, and retained-generation reuse.
+`PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
+gates participant-at-a-time retention.
+`PackageIntegrationsWorkspaceTests.UnreadablePreflight_DoesNotFallBackToPathInspection`
+gates terminal failure for unreadable managed participants.
+`PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
+and
+`PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
+gate prerequisite activation and failure-safe opportunity composition.
+`PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
+and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition-owned
+provenance. `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates
+diagnostic composition and the shared nonzero completion status used after
+Markdown, count, tabular, or JSON output.
+`PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailureAcrossOutputPaths`
+gates that status independently of later host inspection across Markdown,
+JSON, count, and tabular output.
+`PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
+and
+`InspectionAcquisitionPlanTests.PathFactories_BlankAssemblyName_ReturnNoDescriptor`
+gate malformed participant isolation.
+`PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput` gates
+preflight decoder-failure isolation.
+`PackageCommand_AllLibraries_MalformedMetadataPreflightIsIncompleteAcrossOutputPaths`
+gates visible incomplete status for malformed managed metadata across Markdown,
+JSON, count, and tabular output.
+`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsEntry_PopulatesFindings`
+and `GroupedEvidence_SuppliesIntegrationPresence` gate projection and
+duplicate-scan avoidance.
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`
+gates preservation of presence flags that are broader than rendered evidence
+rows.
+`AssemblyContextIntegrationsQueryTests.Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence`
+gates the close negative where an evidence row does not satisfy the legacy
+OpenTelemetry support predicate. Existing
+`PackageCommand_AllLibraries_*` tests gate rendering compatibility.
+
+Cancellation-aware execution, optional concurrent execution, and migration of
+other command paths remain later slices.
 
 ## Relationship to sections and categories
 
