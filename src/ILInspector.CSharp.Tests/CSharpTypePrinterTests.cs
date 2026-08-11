@@ -2118,15 +2118,19 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void SourceEscapesAndDeduplicatesUsings()
+    public void SourceEscapesDeduplicatesAndSortsEmittedUsings()
     {
         var result = _printer.Print(
             new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
             new CSharpTypePrintOptions
             {
-                Usings = ["System", "System", "Some.namespace.Value"]
+                Usings = ["Alpha", "event", "System", "System", "Some.namespace.Value"]
             });
 
+        Assert.StartsWith(
+            "using @event;\nusing Alpha;\nusing Some.@namespace.Value;\nusing System;\n",
+            result.Source,
+            StringComparison.Ordinal);
         Assert.Contains("using Some.@namespace.Value;", result.Source, StringComparison.Ordinal);
         Assert.Single(
             result.Source.Split('\n'),

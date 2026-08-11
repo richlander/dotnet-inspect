@@ -153,7 +153,9 @@ public sealed class CSharpTypePrinter
             sb.AppendLf($"[module: {attribute}]");
         if (options.IncludeUsings)
         {
-            foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace))
+            foreach (var ns in usings
+                .Select(CSharpFormatter.EscapeNamespace)
+                .Order(StringComparer.Ordinal))
                 sb.AppendLf($"using {ns};");
         }
         foreach (var unit in units)
