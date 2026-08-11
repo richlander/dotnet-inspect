@@ -5,6 +5,24 @@ using NuGet.Versioning;
 namespace DotnetInspector.Packages;
 
 /// <summary>
+/// Indicates that no configured package source supplied version metadata for a package.
+/// </summary>
+public sealed class PackageVersionsUnavailableException(
+    string packageId,
+    bool hasIncompleteMetadata)
+    : InvalidOperationException(
+        $"Could not retrieve versions for package '{packageId}'.")
+{
+    /// <summary>The package whose version metadata was unavailable.</summary>
+    public string PackageId { get; } = packageId;
+
+    /// <summary>
+    /// Whether a source returned a version list whose listing metadata was incomplete.
+    /// </summary>
+    public bool HasIncompleteMetadata { get; } = hasIncompleteMetadata;
+}
+
+/// <summary>
 /// An inclusive package-version range supplied in the familiar <c>Package@A..B</c> form.
 /// </summary>
 public sealed record PackageVersionRange
@@ -130,7 +148,8 @@ public sealed class PackageVersionVector
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(range);
 
-        var candidates = await PackageExtractor.GetVersionCandidatesAsync(
+        var (candidates, hasIncompleteMetadata) =
+            await PackageExtractor.GetVersionCandidatesAsync(
             client,
             range.PackageId,
             range.IncludesPrerelease || includePrerelease,
@@ -138,7 +157,9 @@ public sealed class PackageVersionVector
             sourceOptions);
 
         if (candidates is null)
-            throw new InvalidOperationException($"Could not retrieve versions for package '{range.PackageId}'.");
+            throw new PackageVersionsUnavailableException(
+                range.PackageId,
+                hasIncompleteMetadata);
 
         PackageVersionVector vector = Create(
             range,

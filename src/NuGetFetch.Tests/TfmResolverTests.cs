@@ -140,6 +140,58 @@ public class TfmResolverTests
         Assert.Null(TfmResolver.ExtractTfmFromPath(path));
     }
 
+    [Theory]
+    [InlineData("lib/net8.0/Foo.dll", "net8.0")]
+    [InlineData("lib/uap10.0/Foo.dll", "uap10.0")]
+    [InlineData(
+        "ref/portable-net45+win8/Foo.dll",
+        "portable-net45+win8")]
+    [InlineData("tools\\net9.0\\any\\tool.dll", "net9.0")]
+    public void ExtractFrameworkFolderFromPath_AssetPaths(
+        string path,
+        string expectedFramework)
+    {
+        Assert.Equal(
+            expectedFramework,
+            TfmResolver.ExtractFrameworkFolderFromPath(path));
+    }
+
+    [Theory]
+    [InlineData("readme.txt")]
+    [InlineData("")]
+    [InlineData("content/uap10.0/Foo.dll")]
+    [InlineData("lib/Foo.dll")]
+    public void ExtractFrameworkFolderFromPath_NoFrameworkFolder_ReturnsNull(
+        string path)
+    {
+        Assert.Null(
+            TfmResolver.ExtractFrameworkFolderFromPath(path));
+    }
+
+    [Theory]
+    [InlineData("lib/net8.0/Foo.dll", "lib/net8.0")]
+    [InlineData(
+        "runtimes\\win-x64\\lib\\net8.0\\Foo.dll",
+        "runtimes/win-x64/lib/net8.0")]
+    [InlineData("tools/net9.0/any/tool.dll", "tools/net9.0/any")]
+    public void ExtractAssetDirectoryFromPath_AssetPaths(
+        string path,
+        string expectedDirectory)
+    {
+        Assert.Equal(
+            expectedDirectory,
+            TfmResolver.ExtractAssetDirectoryFromPath(path));
+    }
+
+    [Theory]
+    [InlineData("Foo.dll")]
+    [InlineData("")]
+    public void ExtractAssetDirectoryFromPath_NoDirectory_ReturnsNull(
+        string path)
+    {
+        Assert.Null(TfmResolver.ExtractAssetDirectoryFromPath(path));
+    }
+
     // --- ResolvePackagePath with file-system fixtures ---
 
     [Fact]

@@ -39,6 +39,24 @@ The correctness system should have these properties:
 6. **Work generation by failed boss.** New work comes from the lowest failing
    stage, not from taste or a stale backlog.
 
+## Harness artifact ownership
+
+The harness may parse source and compiler diagnostics as an independent
+observation layer. It must not use that parse to construct or rewrite the C#
+artifact it later compiles as evidence. C# spelling, declaration shape, body
+layout, and artifact replacement remain product responsibilities.
+
+ReturnToSender authored-body controls therefore operate on the exact frozen
+compilation unit produced for the decompiled body. The product renderer selects
+the target body while rendering and returns an immutable source artifact with a
+typed replacement range and operation. The harness supplies the independently
+acquired authored body, invokes that product operation, and compiles the result.
+It must not rediscover the target by member name, overload count, syntax-tree
+search, or textual heuristics, and it must not recompose the shell from mutable
+planning state. This keeps assembly identity, modifiers, primary-constructor
+shape, closure membership, references, and every non-target source byte fixed
+between the experiment and its control.
+
 ## The gauntlet
 
 | Stage | Boss | Current implementation | What it proves | Does not prove |
