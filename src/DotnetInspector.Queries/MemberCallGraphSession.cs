@@ -244,7 +244,7 @@ public sealed class MemberCallGraphSession : IDisposable
             IndexBuildResult.Available full = Require(_fullRoot);
             return View(
                 CallGraphTier.Callees,
-                full.Index,
+                full,
                 full.Index.BuildCallTree(
                     _memberToken,
                     _options.Depth,
@@ -264,7 +264,7 @@ public sealed class MemberCallGraphSession : IDisposable
             maxNodes: _options.MaxNodes);
         return View(
             CallGraphTier.Callees,
-            scoped.Index,
+            scoped,
             MarkImmediateCalleesBounded(root),
             callerRoot: null);
     }
@@ -292,7 +292,7 @@ public sealed class MemberCallGraphSession : IDisposable
         IndexBuildResult.Available root = Require(GetFullRoot());
         return View(
             CallGraphTier.Callers,
-            root.Index,
+            root,
             root.Index.BuildCallTree(
                 _memberToken,
                 _options.Depth,
@@ -310,7 +310,7 @@ public sealed class MemberCallGraphSession : IDisposable
         ThrowIfCrossLibraryFailed();
         return View(
             CallGraphTier.CrossLibrary,
-            root.Index,
+            root,
             root.Index.BuildCallTree(
                 _memberToken,
                 _catalogScope!,
@@ -326,14 +326,16 @@ public sealed class MemberCallGraphSession : IDisposable
 
     MemberCallGraphView View(
         CallGraphTier tier,
-        Analysis.LibraryBodyIndex index,
+        IndexBuildResult.Available source,
         Analysis.CallTreeNode? calleeRoot,
         Analysis.CallTreeNode? callerRoot,
-        Analysis.CatalogCallGraphDiagnostics? diagnostics = null) =>
-        new(tier, calleeRoot, callerRoot)
+        Analysis.CatalogCallGraphDiagnostics? diagnostics = null)
+    {
+        Analysis.LibraryBodyIndex index = source.Index;
+        return new(tier, calleeRoot, callerRoot)
         {
-            FocusModuleVersionId = index.Methods.First(method =>
-                method.MetadataToken == _memberToken).ModuleVersionId,
+            FocusModuleVersionId =
+                source.ImageIdentity.ModuleVersionId,
             FocusMethodToken = _memberToken,
             FocusCallSites =
             [
@@ -347,6 +349,7 @@ public sealed class MemberCallGraphSession : IDisposable
                 diagnostics
                 ?? Analysis.CatalogCallGraphDiagnostics.Empty,
         };
+    }
 
     void EnsureCrossLibraryScope()
     {

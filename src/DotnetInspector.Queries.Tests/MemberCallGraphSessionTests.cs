@@ -235,6 +235,43 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
+    public void BodilessFocus_ProducesEveryProgressiveTier()
+    {
+        using GraphContext context =
+            GraphContext.Create(TargetPath, CallerPath);
+        Analysis.MethodIdentity focus =
+            Analysis.LibraryBodyIndex.Open(TargetPath)
+                .DeclaredMethods
+                .First(method =>
+                    method.DeclaringType.Name == "IBodilessApi"
+                    && method.Name == "Invoke");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            focus.MetadataToken);
+
+        MemberCallGraphView[] views =
+        [
+            graph.Callees(),
+            graph.Callers(),
+            graph.CrossLibrary(),
+        ];
+
+        Assert.All(
+            views,
+            view =>
+            {
+                Assert.Equal(
+                    focus.ModuleVersionId,
+                    view.FocusModuleVersionId);
+                Assert.Equal(
+                    focus.MetadataToken,
+                    view.FocusMethodToken);
+                Assert.Empty(view.FocusCallSites);
+            });
+    }
+
+    [Fact]
     public void DirectFullTier_SkipsScopedAndLaterCalleesReusesFull()
     {
         using GraphContext context =
