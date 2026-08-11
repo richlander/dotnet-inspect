@@ -171,7 +171,7 @@ public static class AssemblyContextIntegrationsQuery
         };
     }
 
-    static AssemblyIntegrationsEntry Inspect(
+    internal static AssemblyIntegrationsEntry Inspect(
         AssemblyContextSubject subject,
         AssemblyInspectionSession session)
     {
@@ -201,5 +201,16 @@ public static class AssemblyContextIntegrationsQuery
                     "The selected image contains invalid metadata.",
                     ex));
         }
+    }
+
+    internal static AssemblyIntegrationsEntry ExecuteParticipant(
+        AssemblyContextParticipant participant,
+        AssemblyInspectionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(session);
+        return Inspect(
+            new AssemblyContextSubject(participant.Assembly),
+            session);
     }
 }
