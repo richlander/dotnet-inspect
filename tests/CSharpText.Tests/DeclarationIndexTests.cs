@@ -256,23 +256,27 @@ public class DeclarationIndexTests
     }
 
     [Fact]
-    public void ManyConditionalFileScopedNamespaces_RefuseEachSiblingOnce()
+    public void ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce()
     {
-        // Five retained tokens per iteration keeps this at 400,003 of the 500,000-token limit.
-        const int count = 80_000;
+        // Each namespace contributes five retained tokens and each terminator contributes three,
+        // keeping both sources at 490,000 of the 500,000-token limit and 390,000 physical lines.
+        const int depth = 50_000;
+        const int terminators = 80_000;
         var baselineSource = new StringBuilder();
-        for (int i = 0; i < count; i++)
-            baselineSource.AppendLine("namespace N;");
-        baselineSource.AppendLine("= 0;");
+        for (int i = 0; i < depth; i++)
+            baselineSource.AppendLine("namespace N;\n#if X\n#endif");
+        for (int i = 0; i < terminators; i++)
+            baselineSource.AppendLine("#if X\n#endif\n;");
 
         var baselineTimer = Stopwatch.StartNew();
         _ = DeclarationIndex.Build(baselineSource.ToString());
         baselineTimer.Stop();
 
         var source = new StringBuilder();
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < depth; i++)
             source.AppendLine("#if X\nnamespace N;\n#endif");
-        source.AppendLine("= 0;");
+        for (int i = 0; i < terminators; i++)
+            source.AppendLine("#if X\n#endif\n;");
 
         GC.Collect();
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -281,13 +285,42 @@ public class DeclarationIndexTests
         timer.Stop();
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.Equal(count, index.Declarations.Length);
+        Assert.Equal(depth, index.Declarations.Length);
+        Assert.All(index.Declarations, declaration => Assert.False(declaration.SpanKnown));
         Assert.True(
             timer.Elapsed < baselineTimer.Elapsed * 4 + TimeSpan.FromMilliseconds(500),
             $"conditional namespace chain took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
         Assert.True(
             allocated < 384L * 1024 * 1024,
             $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    /// <summary>
+    /// Completing a parent's outward walk does not complete its sibling prefix. A later child must
+    /// still be refused before the memo stops at that parent; checking the memo first leaves
+    /// <c>B</c> incorrectly vouched.
+    /// </summary>
+    [Fact]
+    public void AChildAddedAfterAnOutwardRefusal_IsStillRefused()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            class P
+            #endif
+            {
+                class A { }
+            #if Y
+            #endif
+                ;
+                class B { }
+            #if Z
+            #endif
+                ;
+            }
+            """);
+
+        Assert.False(Assert.Single(index.FindByName(DeclarationKind.Class, "A")).SpanKnown);
+        Assert.False(Assert.Single(index.FindByName(DeclarationKind.Class, "B")).SpanKnown);
     }
 
     [Fact]

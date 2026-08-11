@@ -42,6 +42,7 @@ internal static class DeclarationIndexBuilder
         public int PreviousSiblingIndex = -1;
         public int LastChildIndex = -1;
         public int LastRefusedChildIndex = -1;
+        public bool InitializerReachWalkedOutward;
         public bool SpanKnown = true;
         public bool IsStatic;
         public bool StaticModifierKnown;
@@ -528,11 +529,16 @@ internal static class DeclarationIndexBuilder
         // at the ";" on line 10 -- and A was vouched at 1..3. Stopping at a parent that is VOUCHED
         // is what keeps this from being a blunt "refuse everything": a vouched parent exists
         // identically in every build, so the scope it opens exists in every build and no terminator
-        // can escape it. Direct siblings are linked in source order, and each parent remembers the
-        // newest sibling already refused, so repeated terminators and branch-dependent ancestor
-        // chains visit each row at most once. Gated by
-        // ManyConditionalFileScopedNamespaces_RefuseEachSiblingOnce. Found by adversarial review
-        // round 10 (Claude Opus 5).
+        // can escape it. Direct siblings are linked in source order, and each parent remembers both
+        // the newest sibling already refused and whether its outward ancestor prefix was already
+        // visited. A later child is still refused before that second memo stops the walk, but it
+        // cannot add a new candidate outside its parent: that outer prefix still ends at the same
+        // parent. A vouched stopping parent is deliberately not marked, because another refusal may
+        // make it unknown later. SpanKnown only moves true to false and ParentIndex never changes,
+        // so each direct sibling is refused once and each outward ancestor edge is traversed once
+        // across the scan. Gated by
+        // ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce. Found by
+        // adversarial review rounds 10 and 15 (Claude Opus 5).
         void RefuseSiblingPrefix(int parent, int lastChild)
         {
             int alreadyRefused = parent >= 0
@@ -569,6 +575,10 @@ internal static class DeclarationIndexBuilder
 
                 if (parent < 0 || rows[parent].SpanKnown)
                     return;
+
+                if (rows[parent].InitializerReachWalkedOutward)
+                    return;
+                rows[parent].InitializerReachWalkedOutward = true;
 
                 lastChild = parent;
                 parent = rows[parent].ParentIndex;
