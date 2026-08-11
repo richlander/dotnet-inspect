@@ -118,12 +118,11 @@ public partial class SourceLinkResolver
     /// in the key's wildcard placement or because the value was not a string.
     /// </summary>
     /// <remarks>
-    /// This makes a rejected key <em>available</em> to a caller, not visible to a user: no
-    /// command reports it today, so a map whose every entry is rejected is currently
-    /// indistinguishable in output from a healthy one. Tracked by
-    /// <see href="https://github.com/richlander/dotnet-inspect/issues/3590">#3590</see>. What is
-    /// gated here is the narrower claim that a rejected entry does not participate in matching
-    /// and does not shadow a valid one — see
+    /// This makes a rejected key available to higher layers without giving the map grammar a
+    /// presentation dependency. <c>ILInspector.SourceLink.SourceLinkService</c> carries these
+    /// keys into its map inspection, and the library command reports them through
+    /// <c>SourceLink: Diagnostics</c>. The matching claim is gated independently: a rejected
+    /// entry does not participate in matching and does not shadow a valid one — see
     /// <c>SourceLinkMapConformanceTests.ARejectedKey_IsReportedAndDoesNotDenyTheRestOfTheMap</c>
     /// and <c>AnEntryWhoseValueIsNotAString_IsRejectedRatherThanMatchingNothing</c>.
     /// </remarks>
