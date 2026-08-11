@@ -314,40 +314,43 @@ public sealed record CSharpTypePrintResult
 
     public CSharpTypePrintResult(
         ImmutableArray<CSharpTypeSourceUnit> units,
+        ImmutableSortedSet<string> usings,
         ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
-        ImmutableHashSet<string> usings,
         Func<string> sourceFactory)
         : this(
             units,
-            diagnostics,
             usings,
+            diagnostics,
             () => new CSharpSourceArtifact(sourceFactory(), null, null))
     {
     }
 
     public CSharpTypePrintResult(
         ImmutableArray<CSharpTypeSourceUnit> units,
+        ImmutableSortedSet<string> usings,
         ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
-        ImmutableHashSet<string> usings,
         Func<CSharpSourceArtifact> sourceFactory)
     {
         ArgumentNullException.ThrowIfNull(usings);
         ArgumentNullException.ThrowIfNull(sourceFactory);
         Units = units;
+        Usings = usings.ToImmutableSortedSet(StringComparer.Ordinal);
         Diagnostics = diagnostics;
-        Usings = usings.ToImmutableHashSet(StringComparer.Ordinal);
         _sourceArtifact = new Lazy<CSharpSourceArtifact>(sourceFactory);
     }
 
     public ImmutableArray<CSharpTypeSourceUnit> Units { get; }
 
-    public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
-
     /// <summary>
-    /// The immutable set of raw namespace identities emitted as using directives
-    /// in <see cref="Source"/>. Names are escaped only while rendering source.
+    /// The raw namespace names required by the shortened references in
+    /// <see cref="Units"/>, plus any namespaces explicitly supplied in
+    /// <see cref="CSharpTypePrintOptions.Usings"/>. Values are de-duplicated and
+    /// ordinal-sorted namespace identities, not rendered <c>using ...;</c> lines.
+    /// Empty when using emission is disabled.
     /// </summary>
-    public ImmutableHashSet<string> Usings { get; }
+    public ImmutableSortedSet<string> Usings { get; }
+
+    public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
 
     /// <summary>
     /// The composed compilation-unit source. Composed lazily on first access so

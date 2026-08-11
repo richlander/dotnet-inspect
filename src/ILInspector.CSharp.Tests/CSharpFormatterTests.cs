@@ -113,6 +113,59 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatsBareMemberTypesWithNamespaceSet()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "FieldWriter",
+            Kind = "class"
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, constructor);
+
+        Assert.Equal(
+            """
+            using Markout;
+            using Markout.Formatting;
+            using System.IO;
+
+            public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)
+            """,
+            declaration.Text);
+        Assert.Equal(
+            ["Markout", "Markout.Formatting", "System.IO"],
+            declaration.Usings);
+        Assert.DoesNotContain(
+            declaration.Usings,
+            value => value.StartsWith("using ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
     {
         var parameters = new ApiParameter[]
