@@ -291,7 +291,7 @@ public sealed class FindingCorrelation<T>
 
         foreach (var item in ordered)
         {
-            switch (item.Inspection)
+            switch (item.Inspection.Value)
             {
                 case FindingInspection<T>.Complete complete:
                     var matches = complete.Findings.Where(key.Matches).Take(2).ToArray();

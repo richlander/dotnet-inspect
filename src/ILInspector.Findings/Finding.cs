@@ -190,9 +190,9 @@ public interface IMatchedPairFinding : IPairFinding
 /// <para>
 /// The cases are <em>nested</em> so their four otherwise-generic names stay scoped to the union
 /// (<c>PairFinding&lt;T&gt;.Present</c>) rather than claiming the producer-facing namespace, and each
-/// inherits <typeparamref name="T"/> from the enclosing union. Pattern-match the union itself
-/// (<c>pair switch { PairFinding&lt;T&gt;.Added … }</c>, not <c>pair.Value switch</c>) for
-/// compiler-checked exhaustiveness; a fifth case then breaks the build rather than falling through.
+/// inherits <typeparamref name="T"/> from the enclosing union. Prefer matching the union itself for
+/// compiler-checked exhaustiveness. Where the preview compiler rejects a declaration binding with
+/// CS8780, match <c>Value</c> and include an explicit throwing arm for an unexpected case.
 /// </para>
 /// </summary>
 [Union]

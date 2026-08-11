@@ -675,7 +675,7 @@ public class MetadataFindingsTests
 
     static ImmutableArray<PairFinding<T>> Pairs<T>(FindingComparison<T> comparison)
         where T : notnull
-        => comparison is FindingComparison<T>.Complete complete
+        => comparison.Value is FindingComparison<T>.Complete complete
             ? complete.Pairs
             : throw new Xunit.Sdk.XunitException($"Expected a complete comparison; failure: {comparison.Failure}");
 
@@ -684,7 +684,7 @@ public class MetadataFindingsTests
         PairKind kind)
         => Pairs(comparison)
             .Where(pair => pair.Kind == kind)
-            .Select(pair => pair switch
+            .Select(pair => pair.Value switch
             {
                 PairFinding<ApiMemberHandle>.Added added => added.New.Key.IdentityKey,
                 PairFinding<ApiMemberHandle>.Removed removed => removed.Old.Key.IdentityKey,
