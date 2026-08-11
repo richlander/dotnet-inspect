@@ -318,7 +318,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -992,6 +992,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_ExplicitLocalDiagnosticsReadCachedPdbWithoutDownloading()
+    {
+        foreach (string section in new[]
+        {
+            SectionNames.SourceLinkDiagnostics,
+            SectionNames.NonNormalizedPaths,
+        })
+        {
+            var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+            var plan = LibrarySourcePlans.For(Verbosity.Quiet, include);
+
+            Assert.False(plan.AllowPdbDownload);
+            Assert.False(plan.CollectSourceFiles);
+            Assert.True(plan.ReadCachedPdb);
+        }
+    }
+
+    [Fact]
     public void LibrarySourcePlan_PreservesAuthorizationForEverySelection()
     {
         string[] sourceSections =
@@ -1038,7 +1056,8 @@ public class SectionPipelineTests
         {
             Assert.True(sectionNames.Add(section.Name));
             Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
-            Assert.True(section.DownloadPdb);
+            Assert.True(section.DownloadPdb || section.ReadCachedPdb);
+            Assert.False(section.CollectSourceFiles && !section.DownloadPdb);
         }
     }
 
@@ -1284,6 +1303,7 @@ public class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols
             ],
@@ -5441,6 +5461,14 @@ public class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_FixedOverview_IsExactlySignature()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal([SectionNames.Signature], pipeline.FixedOverviewSectionNames);
     }
 
     [Fact]
