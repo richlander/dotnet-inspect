@@ -132,7 +132,8 @@ needs only the platform and one package — no custom group at all:
 A call-graph demo over the Extensions family is the composition case: its
 context subscribes `:Platform+Extensions`, referencing the catalog's group
 rather than restating it (the members above are the three packages the
-current imperative demo loads, so the subscription reproduces its scope),
+current imperative demo loads, so the subscription covers its scope — a
+superset, since the demo itself loads no runtime pack),
 and its scenario's view selects the target overload by anchor digest:
 
 ```json
@@ -170,14 +171,17 @@ Field semantics:
   per the bundle contract's separation of workspace definition, query
   preset, and view preset. A scenario has two preset slots: `view`, whose
   shape this note pins (`lens`, `type`, `memberAnchor` or `memberSignature`,
-  `section`, and `library` — the platform-library scope the packet spells
-  `l`, one or more library names, a view concern because scoping is a lens
-  on a context, not a different context; each field individually optional;
-  member selectors require `type`, `memberAnchor` and `memberSignature` are
+  `section`, and `library` — each field individually optional; member
+  selectors require `type`, `memberAnchor` and `memberSignature` are
   mutually exclusive, `section` requires a member selector, and an empty
   view is the context's default view), and an optional `query`, for which
-  this note pins only the
-  slot — the query-plan owner defines its shape. Selection state uses
+  this note pins only the slot — the query-plan owner defines its shape,
+  and that owner must itself sit at or below the dependency boundary.
+  `library` scopes the view to one or more of the context's libraries — a
+  view concern, because scoping is a lens on a context, not a different
+  context. The packet spells the single-library platform case `l` today
+  and drops the reachable package-library case entirely; the field covers
+  both (see the session-closure discussion under Projections). Selection state uses
   portable identities: `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
@@ -210,29 +214,39 @@ Field semantics:
 
 ### The dependency boundary
 
-A workspace definition is a persisted contract, so every identity it
-carries must be owned **at or below the inspection substrate** — the
-`DotnetInspector.*` / `ILInspector.*` layers (L1/L2 in
-[inspection-layers.md](inspection-layers.md)) — and never by a consumer.
-CLI command names, flag spellings, and wasm chip labels are L3 surfaces:
-they restyle freely, so a definition that depends on them breaks when a
+A workspace definition is a persisted contract, and the rule has two
+halves. Every identity it carries is owned either **at or below the
+inspection substrate** — L2, L1, and the `DotnetInspector.*` /
+`ILInspector.*` libraries beneath them, per
+[inspection-layers.md](inspection-layers.md) — or by an **external
+authority with its own stability contract** (NuGet package ids and
+versions, target frameworks, the inspected assembly's own type names).
+What a definition may **never** depend on is a *consumer* vocabulary. CLI
+command names, flag spellings, and wasm chip labels are L3 surfaces: they
+restyle freely, so a definition that depends on them breaks when a
 consumer does — the section-name evidence in
 [Open questions](#open-questions) is exactly this failure observed in the
 wild. Consumers instead receive product-served descriptors — ids plus
 labels — from the substrate and present them however they like.
 
-The schema's current vocabulary against that rule: group expressions and
-catalogs (defined here, substrate-owned), member coordinates
-(`AssemblyResolutionProvenance`, L1 Metadata), `type` names (metadata
-names), `memberAnchor` and `memberSignature` (`MemberAnchor` fingerprints
-and canonical signatures, substrate-owned), and `library` (platform
-library identity, substrate-owned) all comply. Lens and section ids are
-the one hole: their only existing token spaces are L3-owned today, which
-is why the registry question below *requires* minting the id space at the
-substrate rather than merely preferring it. The layer diagram assigns
-sections to L2, but the descriptor catalog currently resides in the CLI
-project, so homing the registry below the boundary is part of the work,
-not a given.
+The schema's current vocabulary against that rule: the group grammar and
+well-known group names (defined here, substrate-owned), member coordinates
+(`AssemblyResolutionProvenance`, in `ILInspector.Metadata` below L1),
+`type` names (the inspected assembly's authority), `memberAnchor` and
+`memberSignature` (`MemberAnchor` fingerprints and canonical signatures,
+substrate-owned), and `library` (an assembly identity resolved from the
+loaded context) all comply. Custom group names are the deliberate
+in-between: the grammar is substrate-owned but the names are
+bundle-author-owned, portable only with their catalog — which is why
+share links prefer well-known groups, and what the unknown-group open
+question governs. The `query` slot complies by the constraint stated
+above: its owner must sit at or below the boundary. Lens and section ids
+are then the one *current* hole: their only existing token spaces are
+L3-owned today, which is why the registry question below *requires*
+minting the id space at the substrate rather than merely preferring it.
+The layer diagram assigns sections to L2, but the descriptor catalog
+currently resides in the CLI project, so homing the registry below the
+boundary is part of the work, not a given.
 
 ### The implicit platform context
 
@@ -254,10 +268,10 @@ dependency can only fail loudly: adding `contexts` to a scenario-only
 document invalidates its scenarios rather than silently rebinding them.
 The implicit context itself needs no name, because the only scenarios that
 can resolve to it are those that name none. And a bundled scenario-only
-document floats by construction, so the float warning below steers
-preserved demos toward a declared, pinned context; the warning fires on the
-absent-`contexts` form itself, since there is no declared coordinate to
-warn on.
+document floats by construction, so the float warning (whose trigger list
+is defined under Member coordinates below, and explicitly includes the
+absent-`contexts` form) steers preserved demos toward a declared, pinned
+context.
 
 At lowering time the implicit context is a context like any other, so a
 scenario-only document still produces the "one or more" context-group
@@ -322,8 +336,9 @@ A member or subscription without a version **floats** ("resolve latest at
 load"). Floating is the share-link norm and wrong for preserved demos, so
 authored definitions pin every coordinate they declare — the implicit
 platform context is the sanctioned exception, declaring nothing and
-floating by design — and bundle validation warns on floating coordinates
-in bundled definitions.
+floating by design. Bundle validation has one trigger list, defined here:
+it warns on floating declared coordinates and on the absent-`contexts`
+form (which floats by construction).
 
 ### What a definition never contains
 
@@ -437,10 +452,11 @@ required by this design:
   the packet grammar is required to stay closed over interactively
   reachable session state, and the session-closure gate below enforces it.
   (It cannot be derived, because the current packet already violates
-  closure in one corner: a multi-library platform scope encodes only when
-  the scope is exactly one library — `l` is written only for a
-  single-library set — so the redesign must either widen the library slot
-  or bound the interactive scope.) Under that constraint the round-trip
+  closure in one corner: library scope over an ordinary multi-assembly
+  package is never encoded at all — `l` is written only for the runtime
+  pack, and only for a single-library scope — so a library-scoped package
+  session shares as an unscoped link today. The redesign must close that
+  hole; the view preset's `library` field is its schema home.) Under that constraint the round-trip
   claims below hold for every session. An *authored* definition, by
   contrast, may exceed the packet — per-overlay pins, query presets,
   multiple scenarios, or a context shape the tuple grammar cannot carry —
@@ -552,18 +568,24 @@ answer; each needs a decision before or during implementation.
   display names* (`ISectionDescriptor.Name` documents itself as "Section
   display name"), are simultaneously the CLI's `-S` token space, are
   unique per *pipeline* only by convention (thirteen `SectionNames`
-  constants are declared by two descriptor classes; two distinct `IL`
-  descriptors live in different member pipelines selected by CLI option
-  shape, so a persisted `"section": "IL"` does not resolve to one
-  descriptor), and have been renamed wholesale (#3229 renamed twelve in
-  one commit). Binding preserved definitions to that space as-is would
-  contradict this note's own rule, so the realistic shape is a minted
-  view-facet id space in the #3486 mold, homed in the substrate per
+  constants have two declaring descriptor classes each, across four
+  classes; two distinct `IL` descriptors live in different member
+  pipelines selected by CLI option shape, so a persisted `"section": "IL"`
+  does not resolve to one descriptor), and have been renamed wholesale
+  (#3229 renamed twelve in one commit — though the repo already maps old
+  names forward via `SelectResolver.LegacySectionAliases`, the strongest
+  argument for the freeze arm, with the caveat that aliases preserve
+  resolution, not identity). Binding preserved definitions to that space
+  as-is would contradict this note's own rule, so the realistic shape is a
+  minted view-facet id space in the #3486 mold, homed in the substrate per
   [the dependency boundary](#the-dependency-boundary) and fronting the
   existing sections and lenses, carrying today's names as presentation
   metadata — unless the section-name space is instead frozen, which its
-  own interface documents as a repurposing, and which would still leave
-  the ids homed in the CLI project on the wrong side of the boundary. Also unresolved: how ids are spelled
+  own interface documents as a repurposing. Both arms share the home
+  defect (either way the ids must move below the boundary, which
+  inspection-layers already anticipates as a project move), so the real
+  discriminator between them is stability, not location. Also unresolved:
+  how ids are spelled
   (author-facing, so human-writable and documented); and how the `lens`
   field distinguishes package-root from type scope — today scope is
   inferred from `type`-presence, the inference pattern the `kind`
@@ -598,17 +620,19 @@ Unverified, all of it. Implementation must add, at minimum:
   and asserting the definition → packet direction refuses non-projectable
   definitions rather than silently flattening them;
 - a session-closure gate asserting the packet grammar covers every
-  interactively reachable session state — the multi-library platform scope
-  is the known current exception the redesign must close, by widening the
-  library slot or bounding the interactive scope;
+  interactively reachable session state — the known current exception the
+  redesign must close is library scope over non-platform packages, which
+  `l` never encodes;
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
   fails a test instead of shipping silently;
-- a view-facet registry gate: unknown lens, section, or library ids are
-  typed outcomes validated against the product-owned registry, and shipped
-  registry ids are additive — never reused or renamed. Its concrete form
-  tracks the registry-binding open question; and
+- a view-facet registry gate: unknown lens or section ids are typed
+  outcomes validated against the product-owned registry, and shipped
+  registry ids are additive — never reused or renamed. A `library` name is
+  not a facet: it resolves against the loaded context's assemblies, with
+  an unknown name a typed outcome there. The gate's concrete form tracks
+  the registry-binding open question; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload.
 
