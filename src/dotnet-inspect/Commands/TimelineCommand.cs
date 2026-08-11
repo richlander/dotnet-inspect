@@ -294,7 +294,7 @@ public static class TimelineCommand
             new FindingKey($"selector:{selector.NormalizedSelector}", typeFullName));
     }
 
-    static TimelineDocumentView BuildAllocationView(
+    internal static TimelineDocumentView BuildAllocationView(
         PackageVersionVector vector,
         string typeFullName,
         string memberName,
@@ -309,7 +309,7 @@ public static class TimelineCommand
             selectedSections,
             AnalysisFindings.CompareAllocations);
 
-    static TimelineDocumentView BuildCallSiteView(
+    internal static TimelineDocumentView BuildCallSiteView(
         PackageVersionVector vector,
         string typeFullName,
         string memberName,

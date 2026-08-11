@@ -91,35 +91,39 @@ public sealed class FindingTargetFormatterTests
     [Fact]
     public void DirectCallTarget_PreservesSpecialCaseSpelling()
     {
+        var unsupported = Call(MemberRef.Unsupported("unreadable callee"));
         Assert.Equal(
-            "Sample.Widget.Run :: Math",
-            FindingTargetFormatter.Format(Call(new MemberRef(
-                TypeRef.CoreLib("System", "Math"),
-                "?",
-                [],
-                TypeRef.Unsupported("unknown return"),
-                MemberKind.Unsupported))));
+            "Sample.Widget.Run :: <unsupported: unreadable callee>",
+            FindingTargetFormatter.Format(unsupported));
         Assert.Equal(
-            "Sample.Widget.Run :: System.Collections.Generic.List<string>(int)",
+            "Retained.Sample.Widget.Run :: <unsupported: unreadable callee>",
+            FindingTargetFormatter.Format(ExplicitSubject, unsupported));
+
+        var constructedType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "Dictionary`2"),
+            [TypeRef.CoreLib("System", "String"), TypeRef.CoreLib("System", "Int32")]);
+        Assert.Equal(
+            "Sample.Widget.Run :: System.Collections.Generic.Dictionary<string, int>(string, int)",
             FindingTargetFormatter.Format(Call(new MemberRef(
-                TypeRef.CoreLib("System.Collections.Generic", "List"),
+                constructedType,
                 ".ctor",
-                [TypeRef.CoreLib("System", "Int32")],
+                [TypeRef.CoreLib("System", "String"), TypeRef.CoreLib("System", "Int32")],
                 TypeRef.CoreLib("System", "Void"),
-                MemberKind.Constructor)
-            {
-                TypeArguments = [TypeRef.CoreLib("System", "String")],
-            })));
+                MemberKind.Constructor))));
         Assert.Equal(
-            "Sample.Widget.Run :: System.Linq.Enumerable.Select<string>(int)",
+            "Sample.Widget.Run :: System.Linq.Enumerable.Select<string, int>(string, int)",
             FindingTargetFormatter.Format(Call(new MemberRef(
                 TypeRef.CoreLib("System.Linq", "Enumerable"),
                 "Select",
-                [TypeRef.CoreLib("System", "Int32")],
+                [TypeRef.CoreLib("System", "String"), TypeRef.CoreLib("System", "Int32")],
                 TypeRef.CoreLib("System", "String"),
                 MemberKind.Method)
             {
-                TypeArguments = [TypeRef.CoreLib("System", "String")],
+                TypeArguments =
+                [
+                    TypeRef.CoreLib("System", "String"),
+                    TypeRef.CoreLib("System", "Int32"),
+                ],
             })));
     }
 
