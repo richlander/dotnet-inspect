@@ -125,25 +125,9 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
-{
-}
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
-{
-}
+// The AnnotatedSourceDocument wire shape is owned by ILInspector.Decompiler
+// (AnnotatedSourceDocumentJsonContext / AnnotatedSourceDocumentCompactJsonContext), because the
+// document has more than one producer and one consumer contract.
 
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(

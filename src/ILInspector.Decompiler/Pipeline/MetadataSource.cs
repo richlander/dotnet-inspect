@@ -34,9 +34,10 @@ public sealed class MetadataSource : IDisposable
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
 
-    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
+    MetadataSource(string path, string? filePath, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
     {
         Path = path;
+        FilePath = filePath;
         _stream = stream;
         Pe = peReader;
         Reader = reader;
@@ -49,6 +50,18 @@ public sealed class MetadataSource : IDisposable
     }
 
     public string Path { get; }
+
+    /// <summary>
+    /// The filesystem path this source was opened from, or <see langword="null"/> when it was
+    /// opened from a stream-backed <see cref="ResolvedAssemblyReference"/> that has none.
+    /// <see cref="Path"/> falls back to the assembly's identity name so a source always has
+    /// something to name itself by; that fallback is a label, not a file, and a caller that
+    /// intends to open a file — or to key a path-shaped cache — must consult this instead.
+    /// For a source opened from a path the two are the same string, so no existing caller's
+    /// answer changes. Gated by
+    /// <c>ContentShapedMemberProjectionTests.PathlessSourceProjectsWithoutFabricatingAFilePath</c>.
+    /// </summary>
+    internal string? FilePath { get; }
 
     /// <summary>Simple assembly name (no version/culture).</summary>
     public string AssemblyName { get; }
@@ -176,7 +189,8 @@ public sealed class MetadataSource : IDisposable
                 fullPath,
                 () => File.OpenRead(fullPath),
                 AssemblyResolutionProvenance.Local("MetadataSource"));
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, effectiveResolver, context);
+            // The path overload was opened from a file, so FilePath is that same path.
+            return new MetadataSource(path, path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, effectiveResolver, context);
         }
         catch
         {
@@ -200,7 +214,8 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
             string path = assembly.Path ?? assembly.Identity.Name;
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, resolver, context);
+            // A stream-backed descriptor has no file, and Path fell back to its identity name.
+            return new MetadataSource(path, assembly.Path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, resolver, context);
         }
         catch
         {

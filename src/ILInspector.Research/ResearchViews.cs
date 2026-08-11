@@ -38,7 +38,18 @@ public static partial class ResearchViews
         int? MethodToken = null,
         PrinterOptions? PrinterOptions = null,
         string? CaretFocus = null,
-        bool SourceDocument = false);
+        bool SourceDocument = false,
+
+        /// <summary>
+        /// The whole-assembly analysis context fact producers observe through. Supplied by a
+        /// caller that already holds one, or that holds assembly content rather than a
+        /// filesystem path — a browser host reaches
+        /// <see cref="ILInspector.Analysis.LibraryBodyIndex.OpenFromPrefetchedImage"/> but not
+        /// the path-keyed cache the default resolution uses. Null keeps the existing behavior:
+        /// derive the context from the imported function's assembly path, or observe a
+        /// consistent absence when it has none.
+        /// </summary>
+        ResearchAssemblyContext? Assembly = null);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -84,7 +95,7 @@ public static partial class ResearchViews
             var imported = ImportFunction()
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
-            var assembly = ResolveAssemblyContext(imported);
+            var assembly = request.Assembly ?? ResolveAssemblyContext(imported);
             var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
             // The reporting half of the data/reporting split: facts are collected
             // once and describe, and this decides which of them this render

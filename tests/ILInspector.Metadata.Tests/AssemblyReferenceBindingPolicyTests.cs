@@ -8,6 +8,20 @@ public class AssemblyReferenceBindingPolicyTests
         new("Dependency", new Version(1, 2, 3, 4), "neutral", "0102030405060708");
 
     [Fact]
+    public void MetadataIdentityEquivalence_NormalizesCaseAndNeutralCulture()
+    {
+        Assert.True(Reference.IsEquivalentTo(new AssemblyReferenceIdentity(
+            "dependency",
+            new Version(1, 2, 3, 4),
+            Culture: null,
+            PublicKeyToken: "0102030405060708".ToUpperInvariant())));
+        Assert.False(Reference.IsEquivalentTo(Reference with
+        {
+            Version = new Version(2, 0, 0, 0),
+        }));
+    }
+
+    [Fact]
     public void Select_SnapshotsResolverAnswer()
     {
         var resolver = new RecordingResolver((_, _) => null);

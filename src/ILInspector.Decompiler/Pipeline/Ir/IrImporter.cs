@@ -524,7 +524,7 @@ public static class IrImporter
         var container = new BlockContainer();
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container)
         {
-            AssemblyPath = source.Path,
+            AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
