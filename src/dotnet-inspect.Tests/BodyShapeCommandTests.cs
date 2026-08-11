@@ -1,6 +1,8 @@
 using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Options;
@@ -61,17 +63,36 @@ public sealed class BodyShapeCommandTests
         Assert.StartsWith("if (value)", match.Text, StringComparison.Ordinal);
         Assert.EndsWith("}", match.Text, StringComparison.Ordinal);
         Assert.True(match.Extent.EndLine > match.Extent.StartLine);
+
+        var surface = source.ExtractApiSurface(includeAll: false);
+        var type = Assert.Single(surface.Types, candidate =>
+            candidate.FullName == typeof(BodyShapeFixture).FullName);
+        var member = Assert.Single(type.Members, candidate =>
+            candidate.Name == nameof(BodyShapeFixture.Branch));
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(type, member).Format(MemberAnchorFormat.Qualified),
+            match.Member);
     }
 
     [Fact]
-    public void Search_RejectsUnknownKind_AndHonorsLimit()
+    public void Search_RejectsUnknownAndNonNodeKinds_AndHonorsLimit()
     {
         using var source = MetadataSource.Open(FixturePath);
 
+        Assert.DoesNotContain("CatchClause", BodyShapeSearch.SupportedKinds);
+        Assert.DoesNotContain("SwitchSection", BodyShapeSearch.SupportedKinds);
+        Assert.DoesNotContain("Block", BodyShapeSearch.SupportedKinds);
+        Assert.DoesNotContain("UnsupportedExpression", BodyShapeSearch.SupportedKinds);
+        Assert.Contains("TryStatement", BodyShapeSearch.SupportedKinds);
         Assert.Throws<ArgumentException>(
             () => BodyShapeSearch.Search(
                 source,
                 "objectcreationexpression",
+                cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Throws<ArgumentException>(
+            () => BodyShapeSearch.Search(
+                source,
+                "CatchClause",
                 cancellationToken: TestContext.Current.CancellationToken));
         var limited = BodyShapeSearch.Search(
             source,
@@ -81,6 +102,36 @@ public sealed class BodyShapeCommandTests
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(limited.Matches);
+    }
+
+    [Fact]
+    public void Search_ReportsUnreconstructedStateMachineBodies()
+    {
+        using var source = MetadataSource.Open(
+            FixtureCatalog.DecompilerClassicStateMachines.AssemblyPath());
+        var surface = source.ExtractApiSurface(includeAll: true);
+        var type = Assert.Single(surface.Types, candidate =>
+            candidate.Name == "ClassicStateMachineFixtures");
+        var asyncMember = Assert.Single(type.Members, candidate =>
+            candidate.Name == "Async_AwaitInCatchAndFinally");
+        var iteratorMember = Assert.Single(type.Members, candidate =>
+            candidate.Name == "Iterator_YieldInTryFinally");
+
+        var result = BodyShapeSearch.Search(
+            source,
+            "InvocationExpression",
+            includeAll: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(result.Matches, match =>
+            match.MethodToken == asyncMember.MetadataToken
+            || match.MethodToken == iteratorMember.MetadataToken);
+        Assert.Contains(result.Failures, failure =>
+            failure.Subject.Contains($"0x{asyncMember.MetadataToken:X8}", StringComparison.Ordinal)
+            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal));
+        Assert.Contains(result.Failures, failure =>
+            failure.Subject.Contains($"0x{iteratorMember.MetadataToken:X8}", StringComparison.Ordinal)
+            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -96,7 +147,7 @@ public sealed class BodyShapeCommandTests
             })));
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Warning: Body-shape search skipped", error);
         Assert.Contains("start_line\tstart_column\tend_line\tend_column", output);
         Assert.Contains(nameof(BodyShapeFixture.PublicCreation), output);
         Assert.DoesNotContain("PrivateCreation", output);
@@ -115,7 +166,7 @@ public sealed class BodyShapeCommandTests
             })));
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Warning: Body-shape search skipped", error);
         Assert.Contains("| Token |", output);
         Assert.DoesNotContain("Member", output);
         Assert.DoesNotContain("Start Line", output);
@@ -134,7 +185,7 @@ public sealed class BodyShapeCommandTests
             })));
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Warning: Body-shape search skipped", error);
         using var document = JsonDocument.Parse(output);
         var match = document.RootElement.EnumerateArray().Single(element =>
             element.GetProperty("type_name").GetString() == typeof(BodyShapeFixture).FullName

@@ -51,8 +51,17 @@ public static class BodyShapeCommand
                 options.MatchLimit,
                 cancellationToken);
 
-            foreach (var failure in result.Failures)
-                CommandError.WriteWarning($"Body-shape search skipped {failure.Subject}: {failure.Reason}");
+            if (options.Verbose)
+            {
+                foreach (var failure in result.Failures)
+                    CommandError.WriteWarning($"Body-shape search skipped {failure.Subject}: {failure.Reason}");
+            }
+            else if (result.Failures.Count > 0)
+            {
+                CommandError.WriteWarning(
+                    $"Body-shape search skipped {result.Failures.Count} candidates; "
+                    + "rerun with --verbose for details.");
+            }
             if (options.Verbose)
             {
                 CommandError.WriteNote(

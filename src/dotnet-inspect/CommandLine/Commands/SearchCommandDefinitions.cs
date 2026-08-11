@@ -19,7 +19,7 @@ public static class SearchCommandDefinitions
             "Search one library for an exact stable rendered body-syntax kind");
         var kindArgument = new Argument<string?>("kind")
         {
-            Description = "Exact stable kind (for example ObjectCreationExpression or CatchClause)",
+            Description = "Exact stable kind (for example ObjectCreationExpression or TryStatement)",
             Arity = ArgumentArity.ZeroOrOne
         };
         kindArgument.AcceptOnlyFromAmong(
@@ -72,7 +72,7 @@ public static class SearchCommandDefinitions
                     command,
                     "Stable body-syntax kind required.",
                     "body-shape ObjectCreationExpression --library MyLibrary.dll",
-                    "body-shape CatchClause --library MyLibrary.dll --all",
+                    "body-shape TryStatement --library MyLibrary.dll --all",
                     "body-shape -D");
             }
             if (discover is null && string.IsNullOrWhiteSpace(library))

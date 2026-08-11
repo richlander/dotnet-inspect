@@ -451,15 +451,18 @@ one reserved value with cross-field semantics, because it is exactly the IL
 nodes carrying an `IlOffset`.
 
 `BodyShapeSearch` is the first assembly-wide consumer of that vocabulary. It
-accepts one exact C# kind, decompiles the selected API-surface bodies, and
-returns one row per matching `PrintedNodeSpan`: stable member identity,
-MethodDef token, exact `PrintedExtent`, and the text selected by that extent.
-The `body-shape` CLI exposes that narrow query for one `--library`; it does not
-add a predicate language, persist an index, or infer parentage from IR object
-references. Public members are the default search boundary, `--all` expands
-that boundary, and `--limit` supplies explicit backpressure. `Instruction` is
-not a body-shape query kind because it belongs to the IL plane rather than the
-rendered C# map.
+accepts one exact C# kind that the printer can emit as a `PrintedNodeSpan`,
+decompiles the selected API-surface bodies, and returns one row per match:
+stable source-facing member identity, MethodDef token, exact `PrintedExtent`,
+and the text selected by that extent. Bodies below `Full` fidelity, including
+state-machine kickoffs whose source body was not reconstructed, are explicit
+failures rather than searchable compiler plumbing. The `body-shape` CLI exposes
+that narrow query for one `--library`; it does not add a predicate language,
+persist an index, or infer parentage from IR object references. Public members
+are the default search boundary, `--all` expands that boundary, and `--limit`
+supplies explicit backpressure. `Instruction` belongs to the IL plane;
+region-only and structural catalog names such as `CatchClause`, `SwitchSection`,
+and `Block` are likewise not exact body-shape query kinds.
 
 **One coordinate currency: the absolute span.** `AnnotatedSourceSpan(int Start,
 int Length)` is an end-exclusive range of **UTF-16 code units** over the decoded

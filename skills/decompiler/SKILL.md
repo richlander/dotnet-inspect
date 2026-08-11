@@ -49,15 +49,16 @@ dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled
 
 Use `body-shape` when the question is "which methods contain this C# syntax?"
 The query is exact and assembly-scoped: its positional value is a stable
-rendered-syntax kind such as `ObjectCreationExpression`, `CatchClause`, or
+rendered-syntax kind such as `ObjectCreationExpression`, `TryStatement`, or
 `ElementAccessExpression`, not an IR class name or text pattern. It returns the
 containing stable member selector and MethodDef token, a one-based start/end
 range, and the exact selected text. Public surface members are searched by
-default; add `--all` for non-public, hidden, and obsolete members.
+default; add `--all` for non-public, hidden, and obsolete members. Bodies below
+`Full` fidelity are skipped and reported; add `--verbose` for per-member detail.
 
 ```bash
 dnx dotnet-inspect -y -- body-shape ObjectCreationExpression --library MyLib.dll
-dnx dotnet-inspect -y -- body-shape CatchClause --library MyLib.dll --all --json
+dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
 dnx dotnet-inspect -y -- body-shape ElementAccessExpression --library MyLib.dll --limit 20 --tsv
 ```
 
