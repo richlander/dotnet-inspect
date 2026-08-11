@@ -191,11 +191,14 @@ public sealed class InspectionTrace
         _requestedQueries.Sort(QueryNameComparer.Instance);
     }
 
-    /// <summary>Records typed queries after prerequisite expansion.</summary>
+    /// <summary>Adds typed queries after prerequisite expansion.</summary>
     public void RecordQueryClosure(IEnumerable<InspectionQueryDefinition> queries)
     {
-        _queryClosure.Clear();
-        _queryClosure.AddRange(queries);
+        foreach (InspectionQueryDefinition query in queries)
+        {
+            if (!_queryClosure.Contains(query))
+                _queryClosure.Add(query);
+        }
         _queryClosure.Sort(QueryNameComparer.Instance);
     }
 
