@@ -208,6 +208,32 @@ Field semantics:
   projections, where no structure does that job. Qualification-in-names is
   the projection's tool, never the schema's.
 
+### The dependency boundary
+
+A workspace definition is a persisted contract, so every identity it
+carries must be owned **at or below the inspection substrate** — the
+`DotnetInspector.*` / `ILInspector.*` layers (L1/L2 in
+[inspection-layers.md](inspection-layers.md)) — and never by a consumer.
+CLI command names, flag spellings, and wasm chip labels are L3 surfaces:
+they restyle freely, so a definition that depends on them breaks when a
+consumer does — the section-name evidence in
+[Open questions](#open-questions) is exactly this failure observed in the
+wild. Consumers instead receive product-served descriptors — ids plus
+labels — from the substrate and present them however they like.
+
+The schema's current vocabulary against that rule: group expressions and
+catalogs (defined here, substrate-owned), member coordinates
+(`AssemblyResolutionProvenance`, L1 Metadata), `type` names (metadata
+names), `memberAnchor` and `memberSignature` (`MemberAnchor` fingerprints
+and canonical signatures, substrate-owned), and `library` (platform
+library identity, substrate-owned) all comply. Lens and section ids are
+the one hole: their only existing token spaces are L3-owned today, which
+is why the registry question below *requires* minting the id space at the
+substrate rather than merely preferring it. The layer diagram assigns
+sections to L2, but the descriptor catalog currently resides in the CLI
+project, so homing the registry below the boundary is part of the work,
+not a given.
+
 ### The implicit platform context
 
 A scenario that names no `context`, in a document that declares no
@@ -532,10 +558,12 @@ answer; each needs a decision before or during implementation.
   descriptor), and have been renamed wholesale (#3229 renamed twelve in
   one commit). Binding preserved definitions to that space as-is would
   contradict this note's own rule, so the realistic shape is a minted
-  view-facet id space in the #3486 mold that fronts the existing
-  sections and lenses, carrying today's names as presentation metadata —
-  unless the section-name space is instead frozen, which its own interface
-  documents as a repurposing. Also unresolved: how ids are spelled
+  view-facet id space in the #3486 mold, homed in the substrate per
+  [the dependency boundary](#the-dependency-boundary) and fronting the
+  existing sections and lenses, carrying today's names as presentation
+  metadata — unless the section-name space is instead frozen, which its
+  own interface documents as a repurposing, and which would still leave
+  the ids homed in the CLI project on the wrong side of the boundary. Also unresolved: how ids are spelled
   (author-facing, so human-writable and documented); and how the `lens`
   field distinguishes package-root from type scope — today scope is
   inferred from `type`-presence, the inference pattern the `kind`
