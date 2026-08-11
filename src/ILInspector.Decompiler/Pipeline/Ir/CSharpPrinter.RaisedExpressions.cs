@@ -304,7 +304,9 @@ public sealed partial class CSharpPrinter
 
     /// <summary>The text of one switch-expression arm: its labels (or <c>_</c>) and the value it yields.</summary>
     string SwitchArmText(SwitchExpressionArm arm, TypeRef? target = null, TypeRef? labelEnum = null, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
-        => $"{SwitchExpressionLabelText(arm, labelEnum)} => {SwitchArmValueText(arm.Value, target, primitiveCoercionSourceType, joinHasExactTypedArm)}";
+        => CaptureNodeText(
+            arm,
+            $"{SwitchExpressionLabelText(arm, labelEnum)} => {SwitchArmValueText(arm.Value, target, primitiveCoercionSourceType, joinHasExactTypedArm)}");
 
     string SwitchExpressionLabelText(SwitchExpressionArm arm, TypeRef? labelEnum)
         => arm.IsDefault
@@ -349,15 +351,17 @@ public sealed partial class CSharpPrinter
     string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)
     {
         var arms = node.Arms.Select(arm => UnionSwitchArmText(arm, target));
-        if (node.NullValue is { } nullValue)
-            arms = arms.Prepend($"null => {SwitchArmValueText(nullValue, target)}");
-        if (node.DefaultValue is { } defaultValue)
-            arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
+        if (node.NullArm is { } nullArm)
+            arms = arms.Prepend(SynthesizedSwitchArmText(nullArm, target));
+        if (node.DefaultArm is { } defaultArm)
+            arms = arms.Append(SynthesizedSwitchArmText(defaultArm, target));
         return $"{UnionSwitchReceiverText(node.Value)} switch {{ {string.Join(", ", arms)} }}";
     }
 
     string UnionSwitchArmText(UnionSwitchExpressionArm arm, TypeRef? target = null)
-        => $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}{(arm.Guard is { } guard ? $" when {RenderedCondition(guard).At(Precedence.NullCoalescing)}" : "")} => {SwitchArmValueText(arm.Value, target)}";
+        => CaptureNodeText(
+            arm,
+            $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}{(arm.Guard is { } guard ? $" when {RenderedCondition(guard).At(Precedence.NullCoalescing)}" : "")} => {SwitchArmValueText(arm.Value, target)}");
 
     string UnionSwitchReceiverText(IrExpression value)
         => UnionValueReceiverText(value) ?? Operand(value);
@@ -366,10 +370,15 @@ public sealed partial class CSharpPrinter
     string PatternSwitchExpressionInline(PatternSwitchExpression node, TypeRef? target = null)
     {
         var arms = node.Arms.Select(arm => PatternSwitchArmText(arm, target));
-        if (node.DefaultValue is { } defaultValue)
-            arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
+        if (node.DefaultArm is { } defaultArm)
+            arms = arms.Append(SynthesizedSwitchArmText(defaultArm, target));
         return $"{Operand(node.Value)} switch {{ {string.Join(", ", arms)} }}";
     }
+
+    string SynthesizedSwitchArmText(SynthesizedSwitchExpressionArm arm, TypeRef? target)
+        => CaptureNodeText(
+            arm,
+            $"{(arm.IsNull ? "null" : "_")} => {SwitchArmValueText(arm.Value, target)}");
 
     /// <summary>One arm of a <see cref="PatternSwitchExpression"/>: <c>Type[ local]</c> or
     /// <c>Type { Property: Inner inner }</c>, an optional <c>when</c> guard, and the yielded value.</summary>
@@ -379,7 +388,9 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } outer ? $" {LocalName(outer)}" : "")} {{ {CSharpNaming.ContainedIdentifier(sub.PropertyName)}: {TypeText(sub.PatternType)} {LocalName(sub.LocalIndex)} }}"
             : $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}";
         string guard = arm.Guard is { } g ? $" when {RenderedCondition(g).At(Precedence.NullCoalescing)}" : "";
-        return $"{pattern}{guard} => {SwitchArmValueText(arm.Value, target)}";
+        return CaptureNodeText(
+            arm,
+            $"{pattern}{guard} => {SwitchArmValueText(arm.Value, target)}");
     }
 
     /// <summary>The single-line form of a tuple relational-pattern switch expression, used when it is nested inside another expression.</summary>
@@ -398,7 +409,9 @@ public sealed partial class CSharpPrinter
 
     /// <summary>The text of one tuple switch arm: its positional pattern (or <c>_</c> for the default) and the value it yields.</summary>
     string TupleSwitchArmText(TupleSwitchExpressionArm arm, IReadOnlyList<TypeRef?> componentTypes, TypeRef? target = null)
-        => $"{TupleSwitchArmLabelText(arm, componentTypes)} => {SwitchArmValueText(arm.Value, target)}";
+        => CaptureNodeText(
+            arm,
+            $"{TupleSwitchArmLabelText(arm, componentTypes)} => {SwitchArmValueText(arm.Value, target)}");
 
     static string TupleSwitchArmLabelText(TupleSwitchExpressionArm arm, IReadOnlyList<TypeRef?> componentTypes)
     {

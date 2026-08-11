@@ -151,6 +151,11 @@ Plugins are started lazily and kept for the process lifetime, because a launch c
 start plus five round trips. A plugin that fails to start, or that does not claim the
 `Authentication` operation, is remembered as unusable rather than retried.
 
+A plugin process or pipe that dies during a request is likewise treated as no credential from
+that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
+state are contained at the request boundary so another provider can answer or the feed's 401 can
+surface normally. Caller cancellation is not a plugin fault and continues to propagate.
+
 ### Unattended by default
 
 Credentials are requested with `IsNonInteractive` set and `CanShowDialog` clear, matching
