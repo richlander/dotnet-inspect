@@ -39,8 +39,12 @@ internal static class DeclarationIndexBuilder
         public int BodyEndLine = -1;
         public int EndLine = -1;
         public int ParentIndex = -1;
+        public int PreviousSiblingIndex = -1;
+        public int LastChildIndex = -1;
+        public int LastRefusedChildIndex = -1;
         public bool SpanKnown = true;
         public bool IsStatic;
+        public bool StaticModifierKnown;
         public bool IsPartial;
         public bool HasInitializer;
         public bool ClosesAtEndOfFile;
@@ -68,6 +72,8 @@ internal static class DeclarationIndexBuilder
     {
         var tokens = CSharpLexer.ScanTokens(lines);
         var rows = new List<Row>();
+        int rootLastChildIndex = -1;
+        int rootLastRefusedChildIndex = -1;
         var transparentScopeRows = ImmutableArray.CreateBuilder<TransparentScopeSpan>();
         var transparentScopeStarts =
             new Dictionary<int, (int StartLine, int BodyStartLine, int FirstRowIndex)>();
@@ -176,6 +182,24 @@ internal static class DeclarationIndexBuilder
 
         string Text(ScanToken t) => t.TextIn(lines[t.Line]).ToString();
         Row? Enclosing() => scopes.Count > 0 && scopes[^1].RowIndex >= 0 ? rows[scopes[^1].RowIndex] : null;
+
+        void AddRow(Row row)
+        {
+            int index = rows.Count;
+            if (row.ParentIndex >= 0)
+            {
+                row.PreviousSiblingIndex = rows[row.ParentIndex].LastChildIndex;
+                rows[row.ParentIndex].LastChildIndex = index;
+            }
+            else
+            {
+                row.PreviousSiblingIndex = rootLastChildIndex;
+                rootLastChildIndex = index;
+            }
+
+            rows.Add(row);
+        }
+
         // A type at file scope and a statement inside a method body both report no enclosing row.
         // Only the first may declare anything: "@namespace = x;" in a method body is an
         // assignment, and reading it as a namespace is what an unqualified null check does.
@@ -371,7 +395,7 @@ internal static class DeclarationIndexBuilder
                     Text),
                 HasInitializer = hasInitializer,
             };
-            rows.Add(row);
+            AddRow(row);
             return row;
         }
 
@@ -380,7 +404,7 @@ internal static class DeclarationIndexBuilder
         // retaining the initializer fact recovered for this particular declarator.
         void EmitAdditionalBodiless(Row sharedDeclaration, Declarator declarator)
         {
-            rows.Add(new Row
+            AddRow(new Row
             {
                 Kind = sharedDeclaration.Kind,
                 Name = declarator.Name,
@@ -422,9 +446,11 @@ internal static class DeclarationIndexBuilder
         // takes the first "=" that QUALIFIES, not the first that exists. Found by adversarial
         // review round 8 (GPT-5.6 Sol).
         //
-        // In code with no conditionals every token shares one section, so the only "=" that can
-        // qualify is one at position zero -- an ordinary "{ get; } = value;" tail. Nothing else is
-        // reachable, which is why this costs the corpus nothing.
+        // Sections increase monotonically as directives are encountered. Therefore an earlier
+        // token shares an "=" token's section exactly when the immediately preceding pending
+        // token does. Inspecting that one predecessor preserves the rule without rescanning an
+        // earlier branch once per "=". Gated by
+        // ConditionalInitializerTail_ExaminesEachPendingTokenOnce.
         int ReachingBackEquals()
         {
             for (int i = 0; i < pending.Count; i++)
@@ -432,17 +458,8 @@ internal static class DeclarationIndexBuilder
                 if (pending[i].Kind != ScanTokenKind.Punctuator || Text(pending[i]) != "=")
                     continue;
 
-                bool reachesBack = true;
-                for (int j = 0; j < i; j++)
-                {
-                    if (pending[j].Section == pending[i].Section)
-                    {
-                        reachesBack = false;
-                        break;
-                    }
-                }
-
-                if (reachesBack) return i;
+                if (i == 0 || pending[i - 1].Section != pending[i].Section)
+                    return i;
             }
 
             return -1;
@@ -511,22 +528,49 @@ internal static class DeclarationIndexBuilder
         // at the ";" on line 10 -- and A was vouched at 1..3. Stopping at a parent that is VOUCHED
         // is what keeps this from being a blunt "refuse everything": a vouched parent exists
         // identically in every build, so the scope it opens exists in every build and no terminator
-        // can escape it. Found by adversarial review round 10 (Claude Opus 5).
+        // can escape it. Direct siblings are linked in source order, and each parent remembers the
+        // newest sibling already refused, so repeated terminators and branch-dependent ancestor
+        // chains visit each row at most once. Gated by
+        // ManyConditionalFileScopedNamespaces_RefuseEachSiblingOnce. Found by adversarial review
+        // round 10 (Claude Opus 5).
+        void RefuseSiblingPrefix(int parent, int lastChild)
+        {
+            int alreadyRefused = parent >= 0
+                ? rows[parent].LastRefusedChildIndex
+                : rootLastRefusedChildIndex;
+            if (lastChild <= alreadyRefused)
+                return;
+
+            int newestRefused = lastChild;
+            while (lastChild > alreadyRefused)
+            {
+                rows[lastChild].SpanKnown = false;
+                lastChild = rows[lastChild].PreviousSiblingIndex;
+            }
+
+            if (parent >= 0)
+                rows[parent].LastRefusedChildIndex = newestRefused;
+            else
+                rootLastRefusedChildIndex = newestRefused;
+        }
+
         void RefuseSiblingsAnInitializerCouldReach()
         {
             int parent = lastClosed >= 0 ? rows[lastClosed].ParentIndex : EnclosingIndex();
-            int from = lastClosed >= 0 ? lastClosed : rows.Count - 1;
+            int lastChild = lastClosed >= 0
+                ? lastClosed
+                : parent >= 0
+                    ? rows[parent].LastChildIndex
+                    : rootLastChildIndex;
 
             while (true)
             {
-                for (int i = from; i >= 0; i--)
-                    if (rows[i].ParentIndex == parent)
-                        rows[i].SpanKnown = false;
+                RefuseSiblingPrefix(parent, lastChild);
 
                 if (parent < 0 || rows[parent].SpanKnown)
                     return;
 
-                from = parent;
+                lastChild = parent;
                 parent = rows[parent].ParentIndex;
             }
         }
@@ -786,7 +830,7 @@ internal static class DeclarationIndexBuilder
                     int sigStart = pending.Count > 0 ? pending[0].Line + 1 : tok.Line + 1;
                     int sigColumn = pending.Count > 0 ? pending[0].Column : tok.Column;
                     var declarationHeader = Truncate(pending, Text).Header;
-                    rows.Add(new Row
+                    var row = new Row
                     {
                         Kind = k,
                         Name = name,
@@ -803,8 +847,11 @@ internal static class DeclarationIndexBuilder
                             && unknownTransparentScopes == 0
                             && pending.All(t => t.DepthKnown),
                         IsStatic = HasTopLevelKeyword(declarationHeader, "static", Text),
+                        StaticModifierKnown = headerKnown
+                            && declarationHeader.All(t => t.DepthKnown),
                         IsPartial = HasTopLevelKeyword(declarationHeader, "partial", Text),
-                    });
+                    };
+                    AddRow(row);
                     scopes.Add((rows.Count - 1, true, true, true));
                 }
                 else
@@ -1947,6 +1994,12 @@ internal static class DeclarationIndexBuilder
             // A partial declaration does not: another part can make the aggregate type static,
             // in which case the same text is a C# 14 extension block. Keep that shape transparent
             // but unknown so neither interpretation can become successful source.
+            // A conditional "static" token makes IsStatic true in the lexical union while leaving
+            // the compiled type's staticness configuration-dependent. Test knownness first so
+            // that union cannot turn constructor-shaped syntax into a trusted extension scope.
+            // Gated by AConditionalStaticModifierKeepsConstructorShapedExtensionSyntaxAmbiguous.
+            if (enclosing.Name == "extension" && !enclosing.StaticModifierKnown)
+                return ExtensionScopeKind.Ambiguous;
             if (enclosing.Name == "extension" && !enclosing.IsStatic)
             {
                 return enclosing.IsPartial
@@ -1979,7 +2032,7 @@ internal static class DeclarationIndexBuilder
                     _ => "{",
                 };
                 if (groups.Count == 0 || groups[^1] != expected)
-                    return ExtensionScopeKind.None;
+                    return ExtensionScopeKind.Ambiguous;
                 groups.RemoveAt(groups.Count - 1);
                 continue;
             }
@@ -1992,11 +2045,13 @@ internal static class DeclarationIndexBuilder
                     ? ExtensionScopeKind.Known
                     : ExtensionScopeKind.None;
             }
-            if (angle < 0)
-                return ExtensionScopeKind.None;
         }
 
-        return ExtensionScopeKind.None;
+        // The header began with the exact generic extension shape but did not close its type
+        // parameter list. Letting ordinary method classification adopt the following body can
+        // make that malformed wrapper the trusted source for a nested member. Gated by
+        // AnIncompleteGenericExtensionHeaderDoesNotBecomeATrustedOuterMethod.
+        return ExtensionScopeKind.Ambiguous;
     }
 
     /// <summary>

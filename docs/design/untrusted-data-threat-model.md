@@ -664,7 +664,17 @@ budget to an accepted input near the token limit.
 File-scoped namespace ends likewise reuse one suffix summary rather than
 rescanning every later row;
 `DeclarationIndexTests.ManyFileScopedNamespaces_ReuseOneSuffixSummary` gates
-that work and allocation bound.
+that work and allocation bound. Conditional initializer tails inspect each
+pending token once, and conditional terminators revoke each direct sibling at
+most once across the scan;
+`DeclarationIndexTests.ConditionalInitializerTail_ExaminesEachPendingTokenOnce`
+and
+`DeclarationIndexTests.ManyConditionalFileScopedNamespaces_RefuseEachSiblingOnce`
+gate those bounds. Carried interpolation state maintains the number of
+line-bound frames as frames change rather than walking every frame after every
+physical line;
+`ScanTokenTests.DeepMultilineInterpolation_DoesNotMultiplyFrameDepthByPhysicalLines`
+gates that depth-by-lines bound.
 
 Limit exhaustion is a visible extraction failure, not an absent declaration.
 `ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the

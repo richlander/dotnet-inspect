@@ -220,6 +220,77 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void ConditionalInitializerTail_ExaminesEachPendingTokenOnce()
+    {
+        const int count = 64_000;
+        var baselineSource = new StringBuilder("class C {\n");
+        for (int i = 0; i < count; i++)
+            baselineSource.Append("x ");
+        baselineSource.Append('x');
+        for (int i = 0; i < count; i++)
+            baselineSource.Append(" =");
+        baselineSource.AppendLine(";\n}");
+
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder("class C {\n#if X\n");
+        for (int i = 0; i < count; i++)
+            source.Append("x ");
+        source.AppendLine("\n#endif");
+        source.Append('x');
+        for (int i = 0; i < count; i++)
+            source.Append(" =");
+        source.AppendLine(";\n}");
+
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+
+        Assert.Equal(2, index.Declarations.Length);
+        Assert.False(Assert.Single(index.FindByName(DeclarationKind.Field, "x")).SpanKnown);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"conditional header took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+    }
+
+    [Fact]
+    public void ManyConditionalFileScopedNamespaces_RefuseEachSiblingOnce()
+    {
+        // Five retained tokens per iteration keeps this at 400,003 of the 500,000-token limit.
+        const int count = 80_000;
+        var baselineSource = new StringBuilder();
+        for (int i = 0; i < count; i++)
+            baselineSource.AppendLine("namespace N;");
+        baselineSource.AppendLine("= 0;");
+
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder();
+        for (int i = 0; i < count; i++)
+            source.AppendLine("#if X\nnamespace N;\n#endif");
+        source.AppendLine("= 0;");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(count, index.Declarations.Length);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 4 + TimeSpan.FromMilliseconds(500),
+            $"conditional namespace chain took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    [Fact]
     public void TheBodySlicerCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
@@ -637,6 +708,48 @@ public class DeclarationIndexTests
             declaration => !declaration.IsType && declaration.SpanKnown);
         var local = Assert.Single(index.FindByName(DeclarationKind.Method, "Local"));
         Assert.False(local.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AConditionalStaticModifierKeepsConstructorShapedExtensionSyntaxAmbiguous()
+    {
+        var index = DeclarationIndex.Build("""
+            #if STATIC_EXTENSION
+            static
+            #endif
+            class extension
+            {
+                extension(int value)
+                {
+                    public void M() { }
+                }
+            }
+            """);
+
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.False(method.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AnIncompleteGenericExtensionHeaderDoesNotBecomeATrustedOuterMethod()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                extension<T(int value)
+                {
+                    public void M() { }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => declaration.Name == "T" && declaration.SpanKnown);
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.False(method.SpanKnown);
         Assert.Single(index.TransparentScopes);
     }
 

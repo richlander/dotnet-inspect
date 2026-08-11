@@ -1510,6 +1510,39 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ConditionalStaticModifier_RefusesConstructorShapedExtensionMember()
+    {
+        var source = Lines(
+            "#if STATIC_EXTENSION",        // 1
+            "static",                      // 2
+            "#endif",                     // 3
+            "class extension",             // 4
+            "{",                           // 5
+            "    extension(int value)",    // 6
+            "    {",                       // 7
+            "        public void M() { }", // 8
+            "    }",                       // 9
+            "}");                          // 10
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 8, 8, "M"));
+    }
+
+    [Fact]
+    public void IncompleteGenericExtensionHeader_RefusesItsWrapper()
+    {
+        var source = Lines(
+            "static class C",                 // 1
+            "{",                              // 2
+            "    extension<T(int value)",     // 3
+            "    {",                          // 4
+            "        public void M() { }",    // 5
+            "    }",                          // 6
+            "}");                             // 7
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+    }
+
+    [Fact]
     public void OneLineConstructorInitializerWithBracesAndAnotherArgument_RemainsSliceable()
     {
         var source = Lines(

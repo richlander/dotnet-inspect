@@ -27,6 +27,7 @@ internal static class CSharpLexer
     internal sealed class LexState
     {
         private readonly List<Frame> frames = [];
+        private int lineBoundLiteralCount;
 
         /// <summary>An unterminated block comment continues onto the next line.</summary>
         public bool InBlockComment;
@@ -245,31 +246,41 @@ internal static class CSharpLexer
 
         public Frame Top => frames[^1];
 
-        public void Push(Frame frame) => frames.Add(frame);
+        public void Push(Frame frame)
+        {
+            frames.Add(frame);
+            if (IsLineBound(frame))
+                lineBoundLiteralCount++;
+        }
 
-        public void Pop() => frames.RemoveAt(frames.Count - 1);
+        public void Pop()
+        {
+            if (IsLineBound(frames[^1]))
+                lineBoundLiteralCount--;
+            frames.RemoveAt(frames.Count - 1);
+        }
 
-        public void Replace(Frame frame) => frames[^1] = frame;
+        public void Replace(Frame frame)
+        {
+            bool wasLineBound = IsLineBound(frames[^1]);
+            bool isLineBound = IsLineBound(frame);
+            if (wasLineBound != isLineBound)
+                lineBoundLiteralCount += isLineBound ? 1 : -1;
+            frames[^1] = frame;
+        }
 
         /// <summary>
         /// True when the state cannot survive a line break: an ordinary or single-quoted
         /// interpolated literal must close on the line that opens it.
         /// </summary>
-        public bool HasLineBoundLiteral
-        {
-            get
-            {
-                foreach (var frame in frames)
-                {
-                    // Since C# 11 a hole may span lines even in a single-quoted literal; only
-                    // the literal's own text is bound to one line (adversarial review, Gemini).
-                    if (!frame.Verbatim && !frame.Raw && !frame.InHole)
-                        return true;
-                }
+        public bool HasLineBoundLiteral => lineBoundLiteralCount > 0;
 
-                return false;
-            }
-        }
+        // Since C# 11 a hole may span lines even in a single-quoted literal; only the literal's
+        // own text is bound to one line. Keeping the count at frame transitions makes the
+        // end-of-line question O(1) even when interpolation holes nest deeply. Gated by
+        // ScanTokenTests.DeepMultilineInterpolation_DoesNotMultiplyFrameDepthByPhysicalLines.
+        private static bool IsLineBound(Frame frame) =>
+            !frame.Verbatim && !frame.Raw && !frame.InHole;
 
         /// <summary>
         /// One string literal. <see cref="InHole"/> separates the literal's own text from the
