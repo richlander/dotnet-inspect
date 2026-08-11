@@ -76,6 +76,12 @@ public sealed class AssemblyContextIntegrationsQueryTests
                 == EcosystemIntegrationNames.DependencyInjection);
         Assert.Empty(
             dependencyInjectionResult.OpenTelemetrySignals);
+        Assert.True(
+            dependencyInjectionResult.Presence
+                .HasDependencyInjectionSupport);
+        Assert.Equal(
+            1,
+            dependencyInjectionResult.Presence.IntegrationCount);
 
         var loggingResult =
             Assert.IsType<AssemblyIntegrationsEntry.Available>(
@@ -90,6 +96,10 @@ public sealed class AssemblyContextIntegrationsQueryTests
             loggingResult.OpenTelemetrySignals,
             signal =>
                 signal.Name == "OpenTelemetry.CustomTracer");
+        Assert.True(loggingResult.Presence.HasLoggingSupport);
+        Assert.True(
+            loggingResult.Presence.HasOpenTelemetrySupport);
+        Assert.Equal(2, loggingResult.Presence.IntegrationCount);
     }
 
     [Fact]
@@ -170,6 +180,244 @@ public sealed class AssemblyContextIntegrationsQueryTests
         Assert.Equal(
             CandidateOpenFailureKind.ResourceBudget,
             rejected.Failure.Kind);
+    }
+
+    [Fact]
+    public void Execute_ComposesOpportunitiesFromTypedIntegrations()
+    {
+        var version = new AssemblyBindingPolicyVersion();
+        var policy = new TestBindingPolicy(version);
+        TestAssembly source = TestAssembly.Create(
+            "CloudClient",
+            "Amazon.S3.AmazonS3Client",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([source.Participant]);
+        var scanned = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            AssemblyContextIntegrationsQuery.Execute(group).Assemblies[0]);
+        Assert.Empty(scanned.EcosystemSignals);
+
+        var injected = new AssemblyContextIntegrationsResult(
+            [
+                new AssemblyIntegrationsEntry.Available(
+                    scanned.Subject,
+                    [
+                        new EcosystemIntegrationSignalInfo(
+                            EcosystemIntegrationNames.DependencyInjection,
+                            "Injected",
+                            "Injected.Registration"),
+                    ],
+                    [],
+                    scanned.Presence),
+            ]);
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextIntegrationsQuery.Definition,
+                    _ => injected)
+                .Add(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                    AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                    AssemblyContextIntegrationsQuery.Definition);
+
+        var opportunities =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Available>(
+                    registry.Run(
+                            [AssemblyContextIntegrationOpportunitiesQuery.Definition],
+                            group)
+                        .Get(
+                            AssemblyContextIntegrationOpportunitiesQuery
+                                .Definition)
+                        .Assemblies[0]);
+
+        Assert.Contains(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration == EcosystemIntegrationNames.Aspire);
+        Assert.DoesNotContain(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+    }
+
+    [Fact]
+    public void RegistryRun_OpportunityQueryUsesOneImmutableSnapshot()
+    {
+        var version = new AssemblyBindingPolicyVersion();
+        var policy = new TestBindingPolicy(version);
+        TestAssembly source = TestAssembly.Create(
+            "CloudClient",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy,
+            additionalIntegrationTypeName:
+                "Amazon.S3.AmazonS3Client");
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([source.Participant]);
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextIntegrationsQuery.Definition,
+                    AssemblyContextIntegrationsQuery.Execute)
+                .Add(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                    AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                    AssemblyContextIntegrationsQuery.Definition);
+
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            registry.RequirementsOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            registry.CostOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+
+        InspectionQueryResults results = registry.Run(
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition],
+            group);
+
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            results.Get(AssemblyContextIntegrationsQuery.Definition)
+                .Assemblies[0]);
+        var opportunities =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Available>(
+                    results.Get(
+                        AssemblyContextIntegrationOpportunitiesQuery
+                            .Definition)
+                    .Assemblies[0]);
+        AssertSubject(source, opportunities.Subject);
+        Assert.Contains(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration == EcosystemIntegrationNames.Aspire);
+        Assert.DoesNotContain(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
+    public void OpportunityQuery_CarriesPrerequisiteRejectionBesideAvailableEntry()
+    {
+        var version = new AssemblyBindingPolicyVersion();
+        var policy = new TestBindingPolicy(version);
+        TestAssembly rejected = TestAssembly.Create(
+            "RejectedOpportunity",
+            "Npgsql.NpgsqlConnection",
+            policy,
+            selectedName: "DifferentIdentity");
+        TestAssembly available = TestAssembly.Create(
+            "AvailableOpportunity",
+            "Npgsql.NpgsqlConnection",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [rejected.Participant, available.Participant]);
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextIntegrationsQuery.Definition,
+                    AssemblyContextIntegrationsQuery.Execute)
+                .Add(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                    AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                    AssemblyContextIntegrationsQuery.Definition);
+
+        AssemblyContextIntegrationOpportunitiesResult result =
+            registry.Run(
+                    [AssemblyContextIntegrationOpportunitiesQuery.Definition],
+                    group)
+                .Get(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition);
+
+        var rejectedResult =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Rejected>(
+                    result.Assemblies[0]);
+        AssertSubject(rejected, rejectedResult.Subject);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejectedResult.Failure.Kind);
+        var availableResult =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Available>(
+                    result.Assemblies[1]);
+        AssertSubject(available, availableResult.Subject);
+        Assert.Contains(
+            availableResult.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.HealthChecks);
+        Assert.Equal(1, rejected.OpenCount);
+        Assert.Equal(1, available.OpenCount);
+    }
+
+    [Fact]
+    public void Execute_CarriesBroadPresenceBeyondEvidenceRows()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly dependencyInjection = TestAssembly.Create(
+            "DependencyInjectionPresence",
+            "Microsoft.Extensions.DependencyInjection.CustomThing",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [dependencyInjection.Participant]);
+
+        AssemblyContextIntegrationsResult result =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        var available =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                Assert.Single(result.Assemblies));
+        Assert.DoesNotContain(
+            available.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.True(
+            available.Presence.HasDependencyInjectionSupport);
+        Assert.Equal(0, available.Presence.IntegrationCount);
+    }
+
+    [Fact]
+    public void Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly internalTelemetry = TestAssembly.Create(
+            "InternalTelemetryPresence",
+            "OpenTelemetry.Internal.CustomTracer",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [internalTelemetry.Participant]);
+
+        AssemblyContextIntegrationsResult result =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        var available =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                Assert.Single(result.Assemblies));
+        Assert.Contains(
+            available.OpenTelemetrySignals,
+            signal =>
+                signal.Name
+                == "OpenTelemetry.Internal.CustomTracer");
+        Assert.False(
+            available.Presence.HasOpenTelemetrySupport);
+        Assert.Equal(0, available.Presence.IntegrationCount);
     }
 
     static void AssertSubject(

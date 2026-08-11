@@ -75,10 +75,15 @@ Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
 `--all-libraries` route focused Integrations demand through the first workspace
-query across every participant in one binding-consistent assembly context
-group. The command projects per-participant evidence or failure into
-compatibility models and continues each library inspection over the same
-retained immutable image.
+query across every participant in binding-consistent assembly context groups.
+The command projects per-participant evidence or failure into compatibility
+models and continues each library inspection over the same retained immutable
+image. Package `--all-libraries` partitions those groups by package asset
+directory, preserving non-`net*` framework and runtime contexts, and releases
+each participant after inspection. `Integration: Opportunities` consumes the
+typed Integrations result as a declared prerequisite and scans the same
+retained participant snapshot before release; direct `library` and package
+`--library` retain their existing controls.
 The `extensions`, `implements`, and `find` CLIs resolve their assembly sets in
 the host, then execute content-shaped L1 queries through an ephemeral
 workspace. Ordinary independent scans use sequential one-participant groups so
@@ -104,12 +109,11 @@ This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
 `LibraryInspection` compatibility aggregate, and transitive reference resolution
-remains host-owned. Integration opportunities also remain a host composition
-scanner over query-produced evidence. The SourceLink document query delegates
-PDB acquisition to shared Services while the host supplies trusted symbol and
-SSRF-hardened source clients. The registry supports deterministic synchronous
-and asynchronous execution and passes each query's maximum transitive cost into
-the host execution scope.
+remains host-owned. The SourceLink document query delegates PDB acquisition to
+shared Services while the host supplies trusted symbol and SSRF-hardened source
+clients. The registry supports deterministic synchronous and asynchronous
+execution and passes each query's maximum transitive cost into the host
+execution scope.
 
 ### L1 — `DotnetInspector.Queries`
 
@@ -259,8 +263,9 @@ consumer's convenience.
 ## Current migration state
 
 Metadata-image, direct-reference, extension-method, custom-attribute,
-SourceLink, API-comparison, and Analysis body-signal comparison inspection are
-the first vertical L1 canaries:
+SourceLink, API-comparison, Analysis body-signal comparison, Implementation
+comparison, and assembly-context Integrations inspection are the first vertical
+L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -297,11 +302,17 @@ the first vertical L1 canaries:
 - Library and package sections bind to the same SourceLink query definitions.
   Package owns compatible/highest-TFM asset selection and aggregation, not a
   parallel audit implementation.
+- `AssemblyContextIntegrationsQuery` returns typed evidence for every managed
+  participant in one assembly group.
+  `AssemblyContextIntegrationOpportunitiesQuery` declares that evidence as a
+  prerequisite and composes missing registration surfaces over the same
+  immutable participant snapshots. The entire `@Integrations` section family
+  is query-owned; the CLI retains only command hosting and projection.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, and the diff `Changes`, `Analysis Diff`, and
   `Implementation Diff` sections bind to query definitions by object identity.
-  A section may bind multiple
-  definitions; diagnostic names are never lookup keys.
+  A section may bind multiple definitions; diagnostic names are never lookup
+  keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.

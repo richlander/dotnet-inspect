@@ -180,6 +180,12 @@ per-source-file reachability pass (`SourceLink: Availability`,
 scales with source-file count. The slow, exhaustive content check
 (`SourceLink: Integrity`) is opt-in only.
 
+For libraries, SourceLink presence and map usability are separate observations.
+`Signals` reports a present map as usable, partially usable, or unusable;
+`SourceLink: Diagnostics` lists parse failures and rejected document mappings.
+`Non-normalized Paths` separately lists SourceLink document keys that do not use
+the deterministic `/_/` prefix.
+
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
 | `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
@@ -214,7 +220,9 @@ library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
 require one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
 `@Integrations`. Add `--count` to a category selector for per-section row counts,
-or to bare `-S` for the same map over the fixed overview.
+or to bare `-S` for the same map over the fixed overview. For Integrations,
+all-library mode scans selected managed assemblies together within each target
+framework; `--tfm all` keeps each framework in a separate inspection group.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
@@ -385,14 +393,16 @@ counting newlines rather than stored. `text` is well-formed UTF-16 — an unpair
 surrogate is rejected, never repaired, because JSON would replace it with U+FFFD
 and shift every later span; malformed IL operand and fact text arrives already
 contained as a visible `\uXXXX` spelling. `nodes` name text structure (C# syntax
-kinds, plus one `Instruction` node per rendered IL line carrying its `il_offset`),
+kinds from a stable rendered-syntax catalog, plus one `Instruction` node per
+rendered IL line carrying its `il_offset`),
 `regions` name construct parts, `facts` are the semantic observations stated once
 each, and `targets` is the only join between them — fact to node, then node spans
 to text. A node carries several spans when interleaved IL splits its construct,
 and the C# line breaks it printed stay inside those spans, so concatenating them
 reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
 carry an `il_offset`, and a fact with no target is explicitly unanchored rather
-than missing.
+than missing. Producers never expose decompiler CLR type names as kinds;
+consumers tolerate unfamiliar kinds so the catalog can grow additively.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -520,7 +530,7 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, `member Type -m Name` uses `Methods` overload rows, and a selected `member Type.Member:N` renders `Signature`. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
 
 ## Common examples
 
