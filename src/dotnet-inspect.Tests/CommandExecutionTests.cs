@@ -13867,6 +13867,11 @@ public partial class CommandExecutionTests
                 "matched sections have no data",
                 error,
                 StringComparison.Ordinal);
+            Assert.Equal(
+                1,
+                error.Split(
+                    "matched section",
+                    StringSplitOptions.None).Length - 1);
         }
         finally
         {

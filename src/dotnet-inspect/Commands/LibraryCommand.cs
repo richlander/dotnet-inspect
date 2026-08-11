@@ -2242,7 +2242,7 @@ public class LibraryCommand
         WarnEmptySections([inspection], options, pipeline);
 
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline)
+        SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
         if (options.Count)
             return;
@@ -2281,7 +2281,7 @@ public class LibraryCommand
             .Where(section => !relevantFailures.Any(
                 entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
-        if (unexplained.Count > 0 && empty.Count == requested)
+        if (writeEmptyNote && unexplained.Count > 0 && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(

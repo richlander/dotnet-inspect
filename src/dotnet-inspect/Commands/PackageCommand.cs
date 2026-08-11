@@ -2904,7 +2904,11 @@ public class PackageCommand
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        LibraryCommand.WarnEmptySections(inspections, options, pipeline);
+        LibraryCommand.WarnEmptySections(
+            inspections,
+            options,
+            pipeline,
+            writeEmptyNote: false);
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         List<string> union = [];
