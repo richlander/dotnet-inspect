@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using CSharpText;
 using ILInspector.Metadata;
@@ -52,7 +53,7 @@ internal sealed record CSharpDeclarationOptions
 
 internal sealed record CSharpRenderedDeclaration(
     string Source,
-    IReadOnlyList<string> Usings,
+    ImmutableSortedSet<string> Usings,
     IReadOnlyList<string> Diagnostics);
 
 /// <summary>
@@ -2755,7 +2756,7 @@ internal static class CSharpDeclarationWriter
 
     sealed record TypeNamePlan(
         IReadOnlyList<KeyValuePair<string, (string Qualified, string? Shortened, string? Diagnostic)>> Replacements,
-        IReadOnlyList<string> GeneratedUsings,
+        ImmutableSortedSet<string> GeneratedUsings,
         List<string> Diagnostics)
     {
         public string Apply(string text)
@@ -3112,7 +3113,7 @@ internal static class CSharpDeclarationWriter
 
             return new TypeNamePlan(
                 replacements.OrderByDescending(kvp => kvp.Key.Length).ToArray(),
-                generatedUsings.ToList(),
+                generatedUsings.ToImmutableSortedSet(StringComparer.Ordinal),
                 diagnostics);
         }
 

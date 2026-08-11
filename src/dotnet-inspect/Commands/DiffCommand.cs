@@ -1718,24 +1718,12 @@ public class DiffCommand
         return new FindingTransitionRow(
             $"PairFinding.{pair.Kind}",
             pair.Descriptor.Id,
-            AllocationTarget(subject, newFinding ?? oldFinding!),
+            FindingTargetFormatter.Format(subject.Display, newFinding ?? oldFinding!),
             fromVersion,
             toVersion,
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
-    }
-
-    static string AllocationTarget(
-        ResearchSubjectKey subject,
-        Finding<AllocationOccurrence> finding)
-    {
-        var occurrence = finding.Payload;
-        var allocatedType = occurrence.AllocatedType?.ToQualifiedDisplayString()
-            ?? occurrence.RuntimeAllocationType
-            ?? occurrence.Detail
-            ?? "?";
-        return $"{subject.Display} :: {occurrence.Source}/{occurrence.Kind} {allocatedType}";
     }
 
     static FindingTransitionRow ToCallSiteTransitionRow(
@@ -1749,33 +1737,12 @@ public class DiffCommand
         return new FindingTransitionRow(
             $"PairFinding.{pair.Kind}",
             pair.Descriptor.Id,
-            CallSiteTarget(subject, newFinding ?? oldFinding!),
+            FindingTargetFormatter.Format(subject.Display, newFinding ?? oldFinding!),
             fromVersion,
             toVersion,
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail);
-    }
-
-    static string CallSiteTarget(
-        ResearchSubjectKey subject,
-        Finding<DirectCall> finding)
-    {
-        var callee = finding.Payload.Callee;
-        if (callee.Kind == MemberKind.Unsupported)
-            return $"{subject.Display} :: {callee.DeclaringType.ToDisplayString()}";
-
-        var typeArguments = callee.TypeArguments.IsDefaultOrEmpty
-            ? ""
-            : $"<{string.Join(", ", callee.TypeArguments.Select(type => type.ToQualifiedDisplayString()))}>";
-        var parameters = string.Join(
-            ", ",
-            callee.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
-        var declaringType = callee.DeclaringType.ToQualifiedDisplayString();
-        var calleeDisplay = callee.Kind == MemberKind.Constructor
-            ? $"{declaringType}{typeArguments}({parameters})"
-            : $"{declaringType}.{callee.Name}{typeArguments}({parameters})";
-        return $"{subject.Display} :: {calleeDisplay}";
     }
 
     static FindingTransitionRow ToUnsafetyTransitionRow(
@@ -1789,23 +1756,12 @@ public class DiffCommand
         return new FindingTransitionRow(
             $"PairFinding.{pair.Kind}",
             pair.Descriptor.Id,
-            UnsafetyTarget(subject, newFinding ?? oldFinding!),
+            FindingTargetFormatter.Format(subject.Display, newFinding ?? oldFinding!),
             fromVersion,
             toVersion,
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
-    }
-
-    static string UnsafetyTarget(
-        ResearchSubjectKey subject,
-        Finding<UnsafetyOccurrence> finding)
-    {
-        var occurrence = finding.Payload;
-        string detail = string.IsNullOrWhiteSpace(occurrence.Detail)
-            ? ""
-            : $" {occurrence.Detail}";
-        return $"{subject.Display} :: {occurrence.Kind}{detail}";
     }
 
     static FindingTransitionRow ToCSharpTransitionRow(

@@ -588,13 +588,11 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
-                    queries: queries, queryRegistry: queryRegistry,
+                    queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
-                    integrationEvidenceUnavailable:
-                        integrations?.IntegrationEvidenceUnavailableFor(
-                            resolvedPath!)
-                        == true,
+                    integrationOpportunitiesEntry:
+                        integrations?.OpportunitiesEntryFor(resolvedPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -803,13 +801,11 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
-                    queries: queries, queryRegistry: queryRegistry,
+                    queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
-                    integrationEvidenceUnavailable:
-                        integrations?.IntegrationEvidenceUnavailableFor(
-                            assemblyPath!)
-                        == true,
+                    integrationOpportunitiesEntry:
+                        integrations?.OpportunitiesEntryFor(assemblyPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -2046,9 +2042,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v21: References now owns both the flat and tree projections, so the effective
-    // catalog no longer contains a separate Dependencies section.
-    private const string EffectiveCategory = "effective-v21";
+    // Bumped to v22: effective catalogs can now include SourceLink: Diagnostics.
+    private const string EffectiveCategory = "effective-v22";
 
     static LibraryCommand()
     {
@@ -2246,7 +2241,7 @@ public class LibraryCommand
         WarnEmptySections([inspection], options, pipeline);
 
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline)
+        SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
         if (options.Count)
             return;
@@ -2285,7 +2280,7 @@ public class LibraryCommand
             .Where(section => !relevantFailures.Any(
                 entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
-        if (unexplained.Count > 0 && empty.Count == requested)
+        if (writeEmptyNote && unexplained.Count > 0 && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(
@@ -2414,9 +2409,8 @@ public class LibraryCommand
                 queryRegistry: queryRegistry,
                 assemblyReference: integrations?.AssemblyForInspection(targetPath),
                 integrationsEntry: integrations?.EntryFor(targetPath),
-                integrationEvidenceUnavailable:
-                    integrations?.IntegrationEvidenceUnavailableFor(targetPath)
-                    == true,
+                integrationOpportunitiesEntry:
+                    integrations?.OpportunitiesEntryFor(targetPath),
                 discoveryOnly: discoveryOnly,
                 trace: trace);
             if (inspection == null)

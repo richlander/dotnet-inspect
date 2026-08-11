@@ -26,7 +26,6 @@ public static class LibrarySections
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerAuditSignals = "AuditSignals";
-    public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
     public const string ScannerSwitches = "Switches";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
@@ -88,6 +87,7 @@ public static class LibrarySections
             .Add<SafetyContext>()
             .Add<CostContext>()
             .Add<SourceFiles>(SourceLinkDiscoverable)
+            .Add<SourceLinkDiagnostics>(SourceLinkDiscoverable)
             .Add<SourceLinkAudit>(
                 SourceAvailabilityQuery.Definition,
                 SourceLinkDiscoverable)
@@ -101,7 +101,7 @@ public static class LibrarySections
             .Add<Signals>(HasAssemblyInfo)
             .Add<Switches>()
             .Add<IntegrationOpportunities>(
-                AssemblyContextIntegrationsQuery.Definition)
+                AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<AI>(AssemblyContextIntegrationsQuery.Definition)
             .Add<AspNetCore>(AssemblyContextIntegrationsQuery.Definition)
             .Add<Authentication>(AssemblyContextIntegrationsQuery.Definition)
@@ -156,12 +156,14 @@ public static class LibrarySections
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles,
                 SectionNames.SourceLinkIntegrity)
@@ -229,10 +231,6 @@ public static class LibrarySections
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger)))
-            .Add(ScannerIntegrationOpportunities, SectionCost.NetworkFree, ctx =>
-                ctx.Scan(
-                    session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
-                    () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
             ;
     }
 
@@ -315,7 +313,11 @@ public static class LibrarySections
         => new InspectionQueryRegistry<AssemblyContextGroup>()
             .Add(
                 AssemblyContextIntegrationsQuery.Definition,
-                AssemblyContextIntegrationsQuery.Execute);
+                AssemblyContextIntegrationsQuery.Execute)
+            .Add(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                AssemblyContextIntegrationsQuery.Definition);
 
     private static SourceLinkQueryContext RequireSourceLinkContext(ScannerContext context)
         => context.SourceLinkContext
@@ -481,7 +483,7 @@ public static class LibrarySections
         public static string Name => IntegrationSectionNames.Opportunities;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => ScannerIntegrationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
     }
@@ -855,6 +857,18 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
+    }
+
+    public sealed class SourceLinkDiagnostics : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.SourceLinkDiagnostics;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.NetworkFree;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => model.SourceLinkMap?.HasDiagnostics == true;
     }
 
 }

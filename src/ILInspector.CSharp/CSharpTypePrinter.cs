@@ -63,11 +63,11 @@ public sealed class CSharpTypePrinter
             ? safeUsings
             : [];
         var contextualUsings = TypeNameContext(options, configuredUsings, safeUsings);
-        var emittedUsings = options.IncludeUsings
+        var effectiveUsings = options.IncludeUsings
             ? configuredUsings
                 .Concat(derivedUsings)
-                .ToImmutableHashSet(StringComparer.Ordinal)
-            : ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+                .ToImmutableSortedSet(StringComparer.Ordinal)
+            : ImmutableSortedSet.Create<string>(StringComparer.Ordinal);
         var declaredTypeFullNamesByNamespace =
             new Dictionary<string, ImmutableHashSet<string>>(StringComparer.Ordinal);
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
@@ -86,14 +86,14 @@ public sealed class CSharpTypePrinter
             declaredTypeFullNamesByNamespace.Add(group.Key, declaredTypeFullNames.ToImmutable());
         }
         var importedDeclaredTypeFullNames = declaredTypeFullNamesByNamespace
-            .Where(entry => emittedUsings.Contains(entry.Key))
+            .Where(entry => effectiveUsings.Contains(entry.Key))
             .SelectMany(entry => entry.Value.Select(path => (Namespace: entry.Key, Path: path)))
             .GroupBy(entry => entry.Path, StringComparer.Ordinal)
             .Where(group => group.Select(entry => entry.Namespace).Distinct(StringComparer.Ordinal).Count() == 1)
             .Select(group => group.Key)
             .ToImmutableHashSet(StringComparer.Ordinal);
         var importedDeclaredTypeNames = preparedTypes
-            .Where(type => emittedUsings.Contains(type.Namespace))
+            .Where(type => effectiveUsings.Contains(type.Namespace))
             .Select(type => CSharpFormatter.StripArity(type.Type.Name))
             .ToImmutableHashSet(StringComparer.Ordinal);
         var globalDeclaredTypeNames = preparedTypes
@@ -105,7 +105,7 @@ public sealed class CSharpTypePrinter
         {
             bool conflictsWithNamespace = preparedTypes.Any(type =>
                 NamespaceRoot(type.Namespace) == globalTypeName);
-            bool conflictsWithUsing = emittedUsings.Any(@namespace =>
+            bool conflictsWithUsing = effectiveUsings.Any(@namespace =>
                 NamespaceRoot(@namespace) == globalTypeName);
             if (conflictsWithNamespace || conflictsWithUsing)
             {
@@ -188,11 +188,11 @@ public sealed class CSharpTypePrinter
         var renderedUnitList = renderedUnits.ToImmutable();
         return new CSharpTypePrintResult(
             unitList,
+            effectiveUsings,
             diagnostics.Distinct().ToImmutableArray(),
-            emittedUsings,
             () => ComposeSource(
                 renderedUnitList,
-                emittedUsings,
+                effectiveUsings,
                 plannedAssemblyAttributes.Attributes,
                 plannedModuleAttributes.Attributes,
                 options));
@@ -289,7 +289,9 @@ public sealed class CSharpTypePrinter
             sb.AppendLf($"[module: {attribute}]");
         if (options.IncludeUsings)
         {
-            foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace).Order(StringComparer.Ordinal))
+            foreach (var ns in usings
+                .Select(CSharpFormatter.EscapeNamespace)
+                .Order(StringComparer.Ordinal))
                 sb.AppendLf($"using {ns};");
         }
         foreach (var unit in units)
