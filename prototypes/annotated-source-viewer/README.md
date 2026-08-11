@@ -9,6 +9,7 @@ portable contract without re-running the decompiler:
   directly;
 - clicking a fact follows `fact → target → node → spans → text`;
 - clicking source text chooses the tightest structural node at that offset;
+- selecting a node kind highlights every matching syntax span;
 - one node can highlight several separated spans without selecting interleaved
   IL;
 - C# and IL lines can be hidden independently without rebasing coordinates;
@@ -23,7 +24,7 @@ npm run dev
 ```
 
 Open <http://127.0.0.1:5199>. The built-in sample includes a multi-span C#
-`ForLoop`, two IL instructions, a cross-medium allocation fact, and an
+`ForStatement`, two IL instructions, a cross-medium allocation fact, and an
 unanchored member-header fact.
 
 Load a real document produced by the CLI:
