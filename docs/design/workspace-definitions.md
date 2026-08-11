@@ -95,8 +95,8 @@ is the point:
 3. a **terse demo reference** — the one record a demo link names, terse
    precisely because every asset it references is registered on the
    product side. (A share link is the deliberate contrast: a live session
-   references nothing registered, so its packet carries the whole
-   composition inline — see Projections.)
+   references no registered *records*, so its packet carries the whole
+   composition inline — see [Projections](#projections).)
 
 First, the product-side registration. A bundle registers this catalog
 entry curating the Extensions family; consumers only ever subscribe to
@@ -200,10 +200,12 @@ Note the two reference namespaces: `workspace`, `view`, and `navigation`
 name peer records' ids in the host or bundle registry, while `context`
 names an entry inside the referenced workspace's `contexts` (optional
 here, since that workspace declares only one). Because everything the
-scenario references is registered product-side, activating this demo
-needs nothing more than the scenario's id — a demo link is as terse as
-`?scenario=serializer` — and that terseness is the payoff of product-side
-registration, not a property of the URL scheme.
+scenario references is registered ahead of time — by the product or by
+the bundle that ships the demo — activating it needs nothing more than
+the scenario's id: a demo link is as terse as `?scenario=serializer` (an
+illustrative spelling; the pinned URL surface remains `?w=`), and that
+terseness is the payoff of registration, not a property of the URL
+scheme.
 
 A call-graph demo over the Extensions family is the composition case: its
 workspace context subscribes `:Platform+Extensions`, referencing the catalog's
