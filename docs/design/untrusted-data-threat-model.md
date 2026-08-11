@@ -283,8 +283,9 @@ The Browser-Wasm package path is filesystem-free and applies host-owned byte
 budgets before content reaches its cache or inspection workspace: 1 MB for a
 version-index response, 128 MB for a downloaded nupkg, 64 MB for one expanded
 assembly entry, and 16 MB for one expanded Markdown or XML entry. It also
-rejects more than 4,096 archive entries by scanning the ZIP central directory
-without allocating entry objects, before `ZipArchive` can materialize them.
+rejects more than 4,096 archive entries by selecting the same highest-offset
+end record as `ZipArchive` and scanning its central directory without allocating
+entry objects, before `ZipArchive` can materialize them.
 `InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
 the caller's limit before allocating that length, then verifies the observed
 expansion against the declaration. `InMemoryPackageContentTests` gates the

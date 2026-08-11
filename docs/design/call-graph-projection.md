@@ -255,6 +255,11 @@ and the browser deliberately do not share a Mermaid generator — sharing the
 Browser navigation transports the projected display spelling separately from
 the exact metadata type name; the latter preserves nested `+` delimiters and
 generic arity and is the only spelling used to resolve a graph target.
+Constructed generic declaring types recover that name and assembly from their
+definition. Synthetic array and function-pointer declaring shapes remain
+renderable but intentionally carry no navigable definition identity. Property
+and event accessors resolve through their opaque body selector when no physical
+method token survives projection.
 
 Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
 (edge direction and inversion, duplicates/cycles, node-kind precedence,

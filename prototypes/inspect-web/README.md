@@ -17,7 +17,7 @@ carried forward.
 
 The rule is enforced by the compiler, not by a convention.
 `engine/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
-`LibraryBodyIndex`, `AssemblyImageSnapshot`, and the group's image and
+`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, and the group's image and
 retained-descriptor accessors in this project, and `Directory.Build.targets`
 already escalates `RS0030` to an error for every project.
 `BrowserEngineLayeringTests` in `engine.Tests` pins that wiring and
@@ -26,7 +26,8 @@ parameter types — a renamed or malformed entry bans nothing and fails the gate
 It also bans opening a retained descriptor or invoking `AssemblyReader` in the
 host; descriptors may carry typed identity into a product query, but their image
 content remains query-owned.
-Acquisition still decodes a healthy entry's real metadata identity.
+The narrow `acquisition` project decodes a healthy entry's real metadata identity;
+the engine receives only that typed identity and cannot open a raw reader.
 A selected malformed entry receives a path-derived identity only as a rejection
 carrier, so the workspace returns its typed failure instead of silently
 shortening the selected assembly set.
@@ -79,7 +80,11 @@ Coordinates are temporarily leased while that composite scope is assembled, so
 acquiring a later package cannot evict an earlier archive and leave it alive
 outside cache accounting.
 Call-graph targets carry both display spelling and exact metadata type identity;
-navigation uses the latter so nested and generic type names retain `+` and arity.
+navigation uses the latter so nested and generic type names retain `+` and
+arity. Constructed generic nodes recover assembly identity from their
+definition. Synthetic array and function-pointer nodes remain visible but carry
+no navigable definition identity. Accessor nodes resolve through their opaque
+body selector even when the graph has no `MethodDef` token.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 
@@ -87,6 +92,7 @@ navigation uses the latter so nested and generic type names retain `+` and arity
 
 | File | Owns |
 | --- | --- |
+| `acquisition/BrowserAssemblyIdentityDecoder.cs` | the isolated raw metadata read needed to mint an exact participant identity |
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
@@ -112,9 +118,9 @@ in the same 12-package/128 MB aggregate while the download is in flight.
 Acquisition is bounded before content enters either cache or workspace. A
 version-index response may contain at most 1 MB, one downloaded nupkg at most
 128 MB, one expanded assembly entry at most 64 MB, and one expanded Markdown or
-XML entry at most 16 MB. A nupkg may contain at most 4,096 entries; the host
-validates and scans the central directory without allocating entry objects
-before `ZipArchive` can materialize them. `InMemoryPackageContent` checks a ZIP entry's declared
+XML entry at most 16 MB. A nupkg may contain at most 4,096 entries; the host validates and scans the
+highest-offset end record and central directory without allocating entry
+objects before `ZipArchive` can materialize them. `InMemoryPackageContent` checks a ZIP entry's declared
 expanded length before allocation and verifies the observed expansion against
 that declaration. `InMemoryPackageContentTests` gates both the pre-expansion
 rejection and bounded stream reading. These are Browser-Wasm host limits, not a

@@ -135,6 +135,12 @@ public sealed class BrowserEngineBoundaryTests
             () => BrowserPackageArchiveValidator.Validate(
                 Zip64WithDeclaredEntryCount(BrowserPackageArchiveValidator.MaxEntries + 1)));
         Assert.Contains("entry-count limit", zip64Failure.Message, StringComparison.Ordinal);
+
+        InvalidOperationException ambiguousFailure = Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageArchiveValidator.Validate(
+                ArchiveWithShadowedEndRecord(
+                    PackageEntries(BrowserPackageArchiveValidator.MaxEntries + 1))));
+        Assert.Contains("entry-count limit", ambiguousFailure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -194,24 +200,35 @@ public sealed class BrowserEngineBoundaryTests
             ImmutableArray<TypeRef>.Empty,
             returnType,
             MemberKind.Method);
+        var arrayMember = new MemberRef(
+            TypeRef.MdArray(declaringTypeDefinition, rank: 2),
+            "Get",
+            ImmutableArray<TypeRef>.Empty,
+            returnType,
+            MemberKind.Method);
         CallGraphNode[] nodes =
         [
             new(0, member, "focus", CallGraphNodeKind.Focus),
             new(1, member, "normal", CallGraphNodeKind.Normal),
             new(2, member, "external", CallGraphNodeKind.External),
+            new(3, arrayMember, "array", CallGraphNodeKind.Normal),
         ];
 
         BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(nodes);
 
-        Assert.Equal(["n0", "n1", "n2"], targets.Select(target => target.Id));
-        Assert.Equal(["focus", "normal", "external"], targets.Select(target => target.Kind));
+        Assert.Equal(["n0", "n1", "n2", "n3"], targets.Select(target => target.Id));
+        Assert.Equal(
+            ["focus", "normal", "external", "normal"],
+            targets.Select(target => target.Kind));
         Assert.All(
-            targets,
+            targets[..3],
             target =>
             {
+                Assert.Equal("Example", target.Assembly);
                 Assert.Equal("Example.Outer.Widget<int>", target.TypeFullName);
                 Assert.Equal("Example.Outer`1+Widget`1", target.TypeMetadataId);
             });
+        Assert.Null(targets[3].TypeMetadataId);
     }
 
     static BrowserPackageCoordinate Coordinate(string id, byte[] nupkg)
@@ -320,5 +337,27 @@ public sealed class BrowserEngineBoundaryTests
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 12)..], uint.MaxValue);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 16)..], uint.MaxValue);
         return archive;
+    }
+
+    static byte[] ArchiveWithShadowedEndRecord(byte[] canonical)
+    {
+        int realEnd = -1;
+        for (int offset = canonical.Length - 22; offset >= 0; offset--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(canonical.AsSpan(offset)) == 0x06054b50)
+            {
+                realEnd = offset;
+                break;
+            }
+        }
+        Assert.True(realEnd >= 0);
+
+        byte[] ambiguous = new byte[canonical.Length + 23];
+        canonical.AsSpan(0, realEnd).CopyTo(ambiguous);
+        Span<byte> shadow = ambiguous.AsSpan(realEnd, 22);
+        BinaryPrimitives.WriteUInt32LittleEndian(shadow, 0x06054b50);
+        BinaryPrimitives.WriteUInt16LittleEndian(shadow[20..], 23);
+        canonical.AsSpan(realEnd).CopyTo(ambiguous.AsSpan(realEnd + 22));
+        return ambiguous;
     }
 }

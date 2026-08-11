@@ -1,12 +1,10 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using InspectWeb.Acquisition;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
@@ -690,22 +688,8 @@ internal sealed class BrowserPackage
         string path,
         AssemblyResolutionProvenance provenance)
     {
-        AssemblyReferenceIdentity? identity = null;
-        try
-        {
-            using var peReader = new PEReader(
-                ImmutableCollectionsMarshal.AsImmutableArray(
-                    Read(path, MaxAssemblyEntryBytes)));
-            if (peReader.HasMetadata)
-            {
-                MetadataReader reader = peReader.GetMetadataReader();
-                if (reader.IsAssembly)
-                    identity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            }
-        }
-        catch (BadImageFormatException)
-        {
-        }
+        AssemblyReferenceIdentity? identity =
+            BrowserAssemblyIdentityDecoder.Decode(Read(path, MaxAssemblyEntryBytes));
 
         return ResolvedAssemblyReference.Create(
             identity ?? new AssemblyReferenceIdentity(

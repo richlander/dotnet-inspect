@@ -4,13 +4,11 @@
 ; scan of the source text — a scan has to model C# to know what a name binds to, and every
 ; spelling it does not model is a hole.
 ;
-; Acquisition is deliberately not banned. Minting a participant requires decoding the entry's real
-; metadata identity, because the workspace validates every image it acquires against its
-; descriptor, so PEReader and MetadataReader stay reachable for that one purpose. What is banned
-; is inspection: opening a session, a metadata source, or a body index, and reaching a group's
-; image bytes or retained descriptor directly.
+; Minting a participant requires decoding the entry's real metadata identity, but that narrow raw
+; read lives in InspectWeb.Acquisition. The engine cannot reach PEReader, MetadataReader, an
+; inspection session, a metadata source, a body index, or a retained image directly.
 ;
-; BrowserEngineLayeringTests in src/dotnet-inspect.Tests pins this file into the engine project and
+; BrowserEngineLayeringTests in engine.Tests pins this file into the engine project and
 ; checks that every identifier below still resolves, so a rename cannot leave a silently vacuous
 ; entry behind.
 
@@ -20,7 +18,10 @@ T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their
 T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
 T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.
+T:ILInspector.Metadata.ApiSurfaceExtractor;API projection belongs to a product query, never to the browser host.
 P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead;A descriptor may carry identity into a query, but the browser host must not open its image.
+T:System.Reflection.PortableExecutable.PEReader;Raw image decoding is isolated in InspectWeb.Acquisition; the browser host uses product queries.
+T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding is isolated in InspectWeb.Acquisition; the browser host uses product queries.
 
 M:DotnetInspector.Queries.AssemblyContextGroup.UseAssemblyImage``1(ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyImageCallback{``0});Inspecting an image span in the host is the thing the workspace rule exists to prevent.
 M:DotnetInspector.Queries.AssemblyContextGroup.GetAssemblyImageSpan(ILInspector.Metadata.ResolvedAssemblyReference);Inspecting an image span in the host is the thing the workspace rule exists to prevent.

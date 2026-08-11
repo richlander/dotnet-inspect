@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   callGraphTargetTypeId,
+  graphMemberSelection,
   mermaidLabel,
   packageForView,
   packageIdentityKey,
+  scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature
 } from "../src/data.js";
@@ -74,7 +76,37 @@ test("call graph navigation prefers exact metadata type identity", () => {
     "Example.Outer`1+Inner`1");
   assert.equal(
     callGraphTargetTypeId({ typeFullName: "Example.Legacy" }),
-    "Example.Legacy");
+    "");
+});
+
+test("call graph navigation resolves accessor body selectors without a token", () => {
+  const groups = [{
+    overloads: [{
+      graphSelectorKey: "property-selector",
+      bodySelectors: [{
+        token: 123,
+        memberName: "get_P",
+        selectorKey: "getter-selector"
+      }]
+    }]
+  }];
+
+  assert.deepEqual(
+    graphMemberSelection(groups, {
+      metadataToken: null,
+      memberName: "get_P",
+      selectorKey: "getter-selector"
+    }),
+    { groupIndex: 0, overloadIndex: 0 });
+});
+
+test("member documentation state is scoped to the exact request", () => {
+  assert.deepEqual(
+    scopedRequestState("package-a\u0000member-a", "package-b\u0000member-b", false, "bad XML"),
+    { loading: false, error: "" });
+  assert.deepEqual(
+    scopedRequestState("same", "same", true, ""),
+    { loading: true, error: "" });
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {

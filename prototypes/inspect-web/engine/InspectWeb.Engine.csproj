@@ -18,6 +18,7 @@
       BrowserEngineLayeringTests pins this wiring.
     -->
     <AdditionalFiles Include="BannedSymbols.txt" />
+    <ProjectReference Include="..\acquisition\InspectWeb.Acquisition.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />

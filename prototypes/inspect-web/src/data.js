@@ -48,7 +48,40 @@ export function packageForView(packages, view) {
 }
 
 export function callGraphTargetTypeId(target) {
-  return target?.typeMetadataId || target?.typeFullName || "";
+  return target?.typeMetadataId || "";
+}
+
+export function graphMemberSelection(groups, target) {
+  const bodyMatches = [];
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    const group = groups[groupIndex];
+    for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
+      const overload = group.overloads[overloadIndex];
+      if ((overload.bodySelectors ?? []).some(body =>
+        body.memberName === target.memberName
+        && body.selectorKey === target.selectorKey
+        && (target.metadataToken == null || body.token === target.metadataToken))) {
+        bodyMatches.push({ groupIndex, overloadIndex });
+      }
+    }
+  }
+  if (bodyMatches.length === 1) return bodyMatches[0];
+
+  const ownerMatches = [];
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    const group = groups[groupIndex];
+    for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
+      if (group.overloads[overloadIndex].graphSelectorKey === target.selectorKey)
+        ownerMatches.push({ groupIndex, overloadIndex });
+    }
+  }
+  return ownerMatches.length === 1 ? ownerMatches[0] : null;
+}
+
+export function scopedRequestState(activeKey, requestKey, loading, error) {
+  return activeKey === requestKey
+    ? { loading, error }
+    : { loading: false, error: "" };
 }
 
 export function mermaidLabel(value) {

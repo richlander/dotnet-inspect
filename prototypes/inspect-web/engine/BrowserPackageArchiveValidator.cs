@@ -160,9 +160,7 @@ internal static class BrowserPackageArchiveValidator
         {
             if (ReadUInt32(archive, offset) != EndOfCentralDirectorySignature)
                 continue;
-            int commentLength = ReadUInt16(archive, offset + 20);
-            if (offset + EndOfCentralDirectoryLength + commentLength == archive.Length)
-                return offset;
+            return offset;
         }
         return -1;
     }

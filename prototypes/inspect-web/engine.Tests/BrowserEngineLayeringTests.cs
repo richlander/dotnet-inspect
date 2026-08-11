@@ -26,11 +26,9 @@ namespace InspectWeb.Engine.Tests;
 /// reopening the door.
 /// </para>
 /// <para>
-/// The second is that acquisition is deliberately still allowed. Minting a participant requires
-/// decoding the entry's real metadata identity, because the workspace validates every image
-/// against its descriptor, so <c>PEReader</c> and <c>MetadataReader</c> must stay reachable.
-/// <see cref="AcquisitionOnlyMetadataDecodingIsNotBanned"/> pins that exception, so a later
-/// tightening cannot quietly make participant minting impossible.
+/// The second is that the engine retains the typed identity and descriptor currency needed to
+/// mint participants, while raw <c>PEReader</c>/<c>MetadataReader</c> decoding stays isolated in
+/// <c>InspectWeb.Acquisition</c>.
 /// </para>
 /// </remarks>
 public sealed class BrowserEngineLayeringTests
@@ -53,7 +51,10 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Metadata.AssemblyInspectionSession", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyImageSnapshot", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
+        Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
+        Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
+        Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
         Assert.Contains(
@@ -102,15 +103,12 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void AcquisitionOnlyMetadataDecodingIsNotBanned()
+    public void AcquisitionCurrencyRemainsAvailableWithoutRawReaders()
     {
         IReadOnlyList<string> banned = BannedSymbols();
 
-        // Acquisition decodes an entry's real metadata identity before it mints a participant,
-        // because the workspace refuses a placeholder identity. Banning these would make a
-        // content-shaped acquisition owner impossible rather than making it safer.
-        Assert.DoesNotContain("T:System.Reflection.PortableExecutable.PEReader", banned);
-        Assert.DoesNotContain("T:System.Reflection.Metadata.MetadataReader", banned);
+        // Acquisition decodes an entry's real metadata identity in the isolated acquisition
+        // project before it mints a participant. The engine itself receives only that identity.
         Assert.DoesNotContain("T:ILInspector.Metadata.AssemblyReferenceIdentity", banned);
         Assert.DoesNotContain("T:ILInspector.Metadata.ResolvedAssemblyReference", banned);
     }

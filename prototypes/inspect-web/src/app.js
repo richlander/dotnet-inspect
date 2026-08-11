@@ -1,11 +1,13 @@
 import {
   callGraphTargetTypeId,
+  graphMemberSelection,
   lenses,
   mermaidLabel,
   packageForView,
   packageIdentityKey,
   packageLenses,
   rootCommands,
+  scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature
 } from "./data.js";
@@ -145,6 +147,7 @@ const state = {
   memberFactsKey: "",
   memberDocumentationLoading: false,
   memberDocumentationError: "",
+  memberDocumentationKey: "",
   lens: "api",
   packageLens: "overview",
   atPackageRoot: false,
@@ -3045,6 +3048,14 @@ function renderMember(type, member) {
   }
   const overloadIndex = state.selectedOverloadIndex ?? 0;
   const overload = member.overloads[overloadIndex];
+  const documentationKey = memberRequestSignature(type, overload);
+  const documentationState = scopedRequestState(
+    state.memberDocumentationKey,
+    documentationKey,
+    state.memberDocumentationLoading,
+    state.memberDocumentationError);
+  const documentationLoading = documentationState.loading;
+  const documentationError = documentationState.error;
   let content;
   if (state.memberSection === "overview") {
     const pageKind = member.kind === "constructor" ? "Constructor" : `${member.kind.slice(0, 1).toUpperCase()}${member.kind.slice(1)}`;
@@ -3062,10 +3073,10 @@ function renderMember(type, member) {
             <div><dt>Assembly:</dt><dd>${escapeHtml(type.assembly)}</dd></div>
             <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)} v${escapeHtml(state.package.version)}</dd></div>
           </dl>
-          ${state.memberDocumentationLoading
+          ${documentationLoading
             ? '<p class="docs-loading">Loading package documentation…</p>'
-            : state.memberDocumentationError
-              ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(state.memberDocumentationError)}</p>`
+            : documentationError
+              ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
             : overload.summary
               ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
               : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>'}
@@ -3088,13 +3099,13 @@ function renderMember(type, member) {
           <dl class="parameter-docs">${parameters.map(parameter => `
             <div>
               <dt><code>${escapeHtml(parameter.name)}</code></dt>
-              <dd><a>${escapeHtml([parameter.modifier, parameter.type].filter(Boolean).join(" "))}</a>${parameter.hasDefault ? `<span>Default: <code>${escapeHtml(parameter.defaultValue ?? "default")}</code></span>` : ""}<p>${escapeHtml(state.memberDocumentationLoading ? "Loading documentation…" : parameter.description || "No parameter documentation was found in the package XML documentation.")}</p></dd>
+              <dd><a>${escapeHtml([parameter.modifier, parameter.type].filter(Boolean).join(" "))}</a>${parameter.hasDefault ? `<span>Default: <code>${escapeHtml(parameter.defaultValue ?? "default")}</code></span>` : ""}<p>${escapeHtml(documentationLoading ? "Loading documentation…" : parameter.description || "No parameter documentation was found in the package XML documentation.")}</p></dd>
             </div>`).join("")}</dl>
         </section>` : ""}
         ${overload.returns ? `<section class="learn-section"><h2>Returns</h2><p class="api-summary">${escapeHtml(overload.returns)}</p></section>` : ""}
         <section class="learn-section">
           <h2>Exceptions</h2>
-          ${state.memberDocumentationLoading
+          ${documentationLoading
             ? '<p class="docs-loading">Loading documented exceptions…</p>'
             : (overload.exceptions ?? []).length
             ? `<dl class="exception-docs">${overload.exceptions.map(exception => `<div><dt>${escapeHtml(exception.type)}</dt><dd>${escapeHtml(exception.description)}</dd></div>`).join("")}</dl>`
@@ -5597,7 +5608,11 @@ async function loadSelectedMemberDocumentation() {
     return;
   }
   const overload = member.overloads[state.selectedOverloadIndex ?? 0];
+  const signature = memberRequestSignature(type, overload);
   if (!overload?.documentationId || overload.documentationLoaded) {
+    state.memberDocumentationKey = signature;
+    state.memberDocumentationLoading = false;
+    state.memberDocumentationError = "";
     render();
     return;
   }
@@ -5607,21 +5622,30 @@ async function loadSelectedMemberDocumentation() {
   // that would wipe an in-progress call-graph diagram back to its placeholder.
   if (state.package?.isRuntimePack) {
     overload.documentationLoaded = true;
+    state.memberDocumentationKey = signature;
+    state.memberDocumentationLoading = false;
+    state.memberDocumentationError = "";
     render();
     return;
   }
 
+  if (state.memberDocumentationKey === signature && state.memberDocumentationLoading)
+    return;
+  const request = {
+    packageId: state.package.id,
+    version: state.package.version,
+    framework: state.package.activeFramework,
+    assembly: type.assembly,
+    documentationId: overload.documentationId
+  };
+  state.memberDocumentationKey = signature;
   state.memberDocumentationLoading = true;
   state.memberDocumentationError = "";
   render();
   try {
-    const documentation = await inspectMemberDocumentation({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      documentationId: overload.documentationId
-    });
+    const documentation = await inspectMemberDocumentation(request);
+    if (!memberRequestIsCurrent(signature))
+      return;
     overload.summary = documentation.summary;
     overload.returns = documentation.returns;
     overload.exceptions = documentation.exceptions ?? [];
@@ -5631,10 +5655,13 @@ async function loadSelectedMemberDocumentation() {
     }));
     overload.documentationLoaded = true;
   } catch (error) {
-    state.memberDocumentationError = String(error?.message || error);
+    if (memberRequestIsCurrent(signature))
+      state.memberDocumentationError = String(error?.message || error);
   } finally {
-    state.memberDocumentationLoading = false;
-    render();
+    if (state.memberDocumentationKey === signature) {
+      state.memberDocumentationLoading = false;
+      render();
+    }
   }
 }
 
@@ -6553,8 +6580,9 @@ function attachGraphPanZoom(
     svg.querySelectorAll("g.node").forEach(node => {
       const target = graphTargetForSvgNode(callGraph, node);
       if (!target) return;
+      const typeId = callGraphTargetTypeId(target);
       if (drilled) {
-        if (target.id === "n0" || !target.assembly || !target.typeFullName)
+        if (target.id === "n0" || !target.assembly || !typeId)
           return;
         node.classList.add("nav-node", "platform-node");
         node.style.cursor = "pointer";
@@ -6568,7 +6596,7 @@ function attachGraphPanZoom(
       const platform = !loaded
         && target.kind === "external"
         && target.assembly
-        && target.typeFullName;
+        && typeId;
       if (!loaded && !platform) return;
       node.classList.add("nav-node");
       if (platform) node.classList.add("platform-node");
@@ -6651,27 +6679,13 @@ function resolveLoadedGraphTarget(target) {
 
 function findGraphMemberSelection(type, target) {
   const groups = memberGroups(type);
-  if (target.metadataToken != null) {
-    for (const group of groups) {
-      const overloadIndex = group.overloads.findIndex(
-        overload => (overload.bodySelectors ?? []).some(body =>
-          body.token === target.metadataToken
-          && body.memberName === target.memberName
-          && body.selectorKey === target.selectorKey));
-      if (overloadIndex >= 0)
-        return { group, overloadIndex };
-    }
-  }
-
-  const matches = [];
-  for (const group of groups) {
-    for (let index = 0; index < group.overloads.length; index++) {
-      if (group.overloads[index].graphSelectorKey === target.selectorKey) {
-        matches.push({ group, overloadIndex: index });
+  const selection = graphMemberSelection(groups, target);
+  return selection
+    ? {
+        group: groups[selection.groupIndex],
+        overloadIndex: selection.overloadIndex
       }
-    }
-  }
-  return matches.length === 1 ? matches[0] : null;
+    : null;
 }
 
 async function drillPlatformNode(node) {
