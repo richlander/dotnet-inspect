@@ -147,7 +147,9 @@ public static class BodyShapeCommand
                 writerOptions => MarkoutSerializer.Serialize(
                     view,
                     BodyShapeViewContext.Default,
-                    writerOptions));
+                    writerOptions),
+                options.Columns,
+                options.Fields);
         }
     }
 }

@@ -104,6 +104,25 @@ public sealed class BodyShapeCommandTests
     }
 
     [Fact]
+    public async Task Command_MarkdownHonorsColumnProjection()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            BodyShapeCommand.Execute(new BodyShapeOptions
+            {
+                Kind = "ObjectCreationExpression",
+                LibraryPath = FixturePath,
+                Columns = ["Token"]
+            })));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Token |", output);
+        Assert.DoesNotContain("Member", output);
+        Assert.DoesNotContain("Start Line", output);
+        Assert.DoesNotContain("new object()", output);
+    }
+
+    [Fact]
     public async Task Command_JsonPreservesMultiLineMatch()
     {
         var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
