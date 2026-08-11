@@ -224,9 +224,7 @@ internal static class LibraryMetadataService
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
             inspection.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
             inspection.PdbPath = pdbContext.CodeViewPdbPath;
-            inspection.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
-            inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
-            inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
+            ApplySourceLinkAudit(service, inspection);
 
             // Run legacy scanners and typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
@@ -560,7 +558,28 @@ internal static class LibraryMetadataService
             }
         }
 
+        ApplySourceLinkAudit(service, inspection);
         inspection.Builder = InferBuilder(inspection);
+    }
+
+    private static void ApplySourceLinkAudit(
+        SourceLinkService service,
+        LibraryInspection inspection)
+    {
+        SourceLinkDebugAudit audit =
+            SourceLinkInspector.InspectDebugInformation(service);
+        inspection.HasSourceLink = audit.SourceLinkMap.IsPresent;
+        inspection.SourceLinkJson = service.SourceLinkJson;
+        inspection.SourceLinkMap = audit.SourceLinkMap.IsPresent
+            ? audit.SourceLinkMap
+            : null;
+        inspection.HasNormalizedPaths = audit.HasNormalizedPaths;
+        inspection.NonNormalizedPaths = audit.NonNormalizedPaths is null
+            ? null
+            : [.. audit.NonNormalizedPaths];
+        inspection.IsDeterministic =
+            service.Context.HasReproducibleFlag
+            && audit.HasNormalizedPaths != false;
     }
 
     /// <summary>
