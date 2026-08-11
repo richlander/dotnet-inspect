@@ -527,8 +527,14 @@ The normative v1 decoded shape is:
 canonical identity strings in ascending ordinal order. Unknown properties and
 any other `l` order are invalid. The compact serializer emits properties in
 the order above, adding optional view fields in their listed order, with no
-insignificant whitespace. Packet identity below is semantic identity after
-decoding; canonical emission has one byte representation.
+insignificant whitespace. String values preserve their scalar sequence without
+Unicode normalization, reject unpaired surrogates, escape only quote,
+backslash, and C0 controls, use `\b`, `\t`, `\n`, `\f`, and `\r` where
+defined, use lowercase `\u00xx` for other C0 controls, and emit every other
+scalar as raw UTF-8. This packet-specific rule does not inherit
+`JavaScriptEncoder.Default` from the `CorpusManifest` serialization precedent.
+Packet identity below is semantic identity after decoding; canonical emission
+has one byte representation.
 
 The packet separates navigation from binding:
 
@@ -550,12 +556,13 @@ The packet separates navigation from binding:
   together to one binding-consistent `AssemblyContextGroup`; the same tuple
   may be referenced by more than one context when navigation needs a
   singleton context and an analysis needs a fused context under a different
-  policy. Index order is member overlay and binding precedence, not display
-  order. A context contains at most one group-reference index, it must be
-  first, and the remaining indexes become ordered `members`; this is exactly
-  the canonical context's `subscribe`-then-`members` shape. Within one context,
-  every referenced tuple has the same framework slot and the same RID slot,
-  including `null`; those slots become the context's target declarations.
+  policy. Every context is nonempty and its indexes are pairwise distinct.
+  Index order is member overlay and binding precedence, not display order. A
+  context contains at most one group-reference index, it must be first, and the
+  remaining indexes become ordered `members`; this is exactly the canonical
+  context's `subscribe`-then-`members` shape. Within one context, every
+  referenced tuple has the same framework slot and the same RID slot, including
+  `null`; those slots become the context's target declarations.
   Canonical record-to-packet emission writes the effective context target into
   every tuple, so inherited and repeated target spellings have one packet form.
   A tuple referenced by several contexts imposes that same target on each.
@@ -589,19 +596,21 @@ layer refuses those with a typed outcome rather than silently flattening them.
   JSON value with no duplicate properties or trailing content, and satisfy
   that version's schema and bounds. After binding, the reader reserializes the
   value canonically and requires byte equality with the decoded UTF-8;
-  reordered properties, alternate number spellings, and insignificant
-  whitespace are invalid rather than silently normalized. V1 accepts at most
+  reordered properties, alternate number spellings, non-canonical string
+  escaping, and insignificant whitespace are invalid rather than silently
+  normalized. V1 accepts at most
   16 KiB of encoded text, 12 KiB of decoded UTF-8 JSON, nesting depth 16,
   1024 JSON values, 12 tuples, and 24 contexts. Its bounded in-memory parse is
   synchronous and needs no timeout; cancellation is checked before decode.
   Unsupported format versions, truncated or appended input, malformed encoding
   or JSON, duplicate properties, tuples, contexts, or library identities,
-  unknown properties, orphaned tuple indexes, inconsistent context-target
-  slots, invalid group-index ordering or multiplicity, non-ordinal library
-  scope, non-canonical decoded JSON, over-limit tables, invalid shapes, and
-  out-of-range indexes are typed invalid-packet outcomes; none restores partial
-  workspace state. The explicit version lets later formats evolve without
-  breaking links issued under this supported contract.
+  unknown properties, orphaned tuple indexes, empty contexts, repeated indexes
+  within a context, inconsistent context-target slots, invalid group-index
+  ordering or multiplicity, non-ordinal library scope, non-canonical decoded
+  JSON or string escaping, over-limit tables, invalid shapes, and out-of-range
+  indexes are typed invalid-packet outcomes; none restores partial workspace
+  state. The explicit version lets later formats evolve without breaking links
+  issued under this supported contract.
 - **Member selection moves to anchor digests.** The positional overload
   index (`o`) is replaced by the `MemberAnchor` fingerprint the UI already
   displays and the call-graph demo already matches on. With that, every
@@ -763,11 +772,15 @@ Unverified, all of it. Implementation must add, at minimum:
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
-  input, reordered or whitespace-bearing decoded JSON, unknown properties,
-  orphaned tuple indexes, inconsistent context-target slots, invalid
-  group-index ordering or multiplicity, non-ordinal library scope, invalid
-  field shapes, out-of-range indexes, and every declared resource-limit breach
-  without restoring partial workspace state;
+  input, reordered, whitespace-bearing, alternately numbered, or
+  non-canonically escaped decoded JSON, unknown properties, orphaned tuple
+  indexes, empty contexts, repeated indexes within a context, inconsistent
+  context-target slots, invalid group-index ordering or multiplicity,
+  non-ordinal library scope, invalid field shapes, out-of-range indexes, and
+  every declared resource-limit breach without restoring partial workspace
+  state; fixed browser/.NET byte vectors cover composed groups, generic and
+  non-ASCII metadata names, canonical signatures, control characters, quotes,
+  and backslashes;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
