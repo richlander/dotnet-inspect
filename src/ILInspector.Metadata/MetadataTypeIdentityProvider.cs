@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Text;
-using CSharpText;
 
 namespace ILInspector.Metadata;
 
@@ -15,10 +14,28 @@ internal sealed class MetadataTypeIdentityProvider
     public static MetadataTypeIdentityProvider Instance { get; } = new();
 
     public string GetPrimitiveType(PrimitiveTypeCode typeCode)
-        => Named(
-            "corelib",
-            PrimitiveTypeNames.ToClrFullName(
-                SignatureDecoder.Instance.GetPrimitiveType(typeCode)));
+        => Named("corelib", typeCode switch
+        {
+            PrimitiveTypeCode.Void => "System.Void",
+            PrimitiveTypeCode.Boolean => "System.Boolean",
+            PrimitiveTypeCode.Char => "System.Char",
+            PrimitiveTypeCode.SByte => "System.SByte",
+            PrimitiveTypeCode.Byte => "System.Byte",
+            PrimitiveTypeCode.Int16 => "System.Int16",
+            PrimitiveTypeCode.UInt16 => "System.UInt16",
+            PrimitiveTypeCode.Int32 => "System.Int32",
+            PrimitiveTypeCode.UInt32 => "System.UInt32",
+            PrimitiveTypeCode.Int64 => "System.Int64",
+            PrimitiveTypeCode.UInt64 => "System.UInt64",
+            PrimitiveTypeCode.Single => "System.Single",
+            PrimitiveTypeCode.Double => "System.Double",
+            PrimitiveTypeCode.String => "System.String",
+            PrimitiveTypeCode.Object => "System.Object",
+            PrimitiveTypeCode.IntPtr => "System.IntPtr",
+            PrimitiveTypeCode.UIntPtr => "System.UIntPtr",
+            PrimitiveTypeCode.TypedReference => "System.TypedReference",
+            _ => typeCode.ToString()
+        });
 
     public string GetTypeFromDefinition(
         MetadataReader reader,
@@ -26,7 +43,7 @@ internal sealed class MetadataTypeIdentityProvider
         byte rawTypeKind)
         => Named(
             CurrentAssembly(reader),
-            SignatureDecoder.Instance.GetTypeFromDefinition(reader, handle, rawTypeKind));
+            TypeResolver.GetTypeNameFromDefinition(reader, handle));
 
     public string GetTypeFromReference(
         MetadataReader reader,
@@ -51,7 +68,7 @@ internal sealed class MetadataTypeIdentityProvider
 
         return Named(
             assembly,
-            SignatureDecoder.Instance.GetTypeFromReference(reader, handle, rawTypeKind));
+            TypeResolver.GetTypeNameFromReference(reader, handle));
     }
 
     public string GetTypeFromSpecification(
