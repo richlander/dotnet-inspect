@@ -508,6 +508,22 @@ origin) *after* portable escaping, and the constructor enforces that uniqueness
 along with contiguous ids, resolvable and non-duplicated target pairs, and — for
 a target on an IL node — an `IlOffset` equal to the fact's own `SourceOffset`.
 
+A graph overlay does not add an edge-to-node join.
+`AnnotatedMemberDocument` pairs the unchanged document with an
+`AnnotatedCallGraphOverlay`; each physical call occurrence carries a stable
+graph edge row and the id of an ordinary `call.edge` fact. Placement therefore
+continues through the existing relation:
+
+```text
+graph edge row → physical occurrence → fact → target → node → spans → text
+```
+
+Several physical call sites may share one logical edge row, but each keeps its
+own IL offset, operand token, fact, and source targets. The
+`AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test
+gates this shape with two call sites that collapse onto one edge and still
+target distinct C# and IL structure.
+
 **A fact with no target is the explicit unanchored case.** It is not a missing
 row and not a third kind of placement: the observation is real, and nothing in
 the text was the right thing to point at. Dropping it would lose the
