@@ -25,7 +25,9 @@ internal static class MethodBodyFlowProbe
                 return true;
             if (operation is ILOpCode.Br or ILOpCode.Br_s)
             {
-                if (!TrySingleBranchTarget(instruction, out int target)
+                if (!MethodInstructionFacts.TrySingleBranchTarget(
+                        instruction,
+                        out int target)
                     || target < 0
                     || target >= body.Instructions[^1].NextOffset)
                 {
@@ -55,19 +57,6 @@ internal static class MethodBodyFlowProbe
             if (IsControlFlowDivergent(operation))
                 return false;
         }
-        return false;
-    }
-
-    static bool TrySingleBranchTarget(
-        DecodedInstruction instruction,
-        out int target)
-    {
-        if (instruction.BranchTargets.Length == 1)
-        {
-            target = instruction.BranchTargets[0];
-            return true;
-        }
-        target = -1;
         return false;
     }
 
