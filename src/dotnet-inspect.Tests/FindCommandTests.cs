@@ -599,7 +599,7 @@ public class FindCommandIntegrationTests
     // ── JSON output tests ────────────────────────────────────────────
 
     [Fact]
-    public async Task Find_JsonOutput_ProducesValidJsonl()
+    public async Task Find_JsonOutput_ProducesIndentedJsonArray()
     {
         var options = new FindOptions
         {
@@ -612,13 +612,53 @@ public class FindCommandIntegrationTests
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.True(lines.Length > 0);
-        foreach (var line in lines)
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
+        Assert.True(doc.RootElement.GetArrayLength() > 0);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement[0].ValueKind);
+        Assert.True(doc.RootElement[0].TryGetProperty("full_name", out _));
+        Assert.Contains("\n  {", output);
+    }
+
+    [Fact]
+    public async Task Find_CompactJsonOutput_ProducesSingleLineJsonArray()
+    {
+        var options = new FindOptions
         {
-            var doc = System.Text.Json.JsonDocument.Parse(line);
-            Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
-        }
+            Pattern = "JsonSerializer",
+            PlatformAssemblies = ["System.Text.Json"],
+            JsonOutput = true,
+            CompactJson = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        var payload = output.TrimEnd();
+        Assert.DoesNotContain('\n', payload);
+        using var doc = System.Text.Json.JsonDocument.Parse(payload);
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
+        Assert.True(doc.RootElement.GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task Find_MemberJsonOutput_WithNoMatches_ProducesEmptyArray()
+    {
+        var options = new FindOptions
+        {
+            Pattern = "ZzzNoSuchMemberName",
+            Members = true,
+            PlatformAssemblies = ["System.Text.Json"],
+            JsonOutput = true,
+            CompactJson = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("[]", output.Trim());
     }
 
     // ── Error handling tests ─────────────────────────────────────────
