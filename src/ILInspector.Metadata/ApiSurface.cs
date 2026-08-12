@@ -115,6 +115,16 @@ public class PartialSourceFileInfo
 /// </summary>
 public class ApiSurface
 {
+    public const string ConstraintResolutionOperation =
+        ApiSurfaceInspectionFailure
+            .GenericParameterConstraintResolutionOperation;
+    public const int MaxVisibleConstraintResolutionFailures = 64;
+
+    readonly HashSet<ConstraintResolutionVisibleKey>
+        _constraintResolutionVisibleKeys = [];
+    int _constraintResolutionSummaryIndex = -1;
+    int _suppressedConstraintResolutionFailureCount;
+
     /// <summary>
     /// Package or assembly name.
     /// </summary>
@@ -134,6 +144,133 @@ public class ApiSurface
     public List<ApiType> Types { get; set; } = [];
 
     public List<ApiSurfaceInspectionFailure> InspectionFailures { get; set; } = [];
+
+    [JsonIgnore]
+    public Dictionary<
+        ApiSurfaceInspectionSubject,
+        List<ApiSurfaceInspectionFailure>>
+        ConstraintResolutionFailuresBySubject { get; } = [];
+
+    public void AddConstraintResolutionFailure(
+        ApiSurfaceInspectionSubject subject,
+        ApiSurfaceInspectionFailure failure)
+    {
+        if (!ConstraintResolutionFailuresBySubject.TryGetValue(
+                subject,
+                out List<ApiSurfaceInspectionFailure>? subjectFailures))
+        {
+            subjectFailures = [];
+            ConstraintResolutionFailuresBySubject.Add(
+                subject,
+                subjectFailures);
+        }
+        if (!subjectFailures.Any(existing =>
+            existing.Mechanism == failure.Mechanism
+            && existing.Kind == failure.Kind
+            && existing.Detail == failure.Detail))
+        {
+            subjectFailures.Add(failure);
+        }
+
+        var key = new ConstraintResolutionVisibleKey(
+            failure.SubjectAssembly,
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail);
+        if (!_constraintResolutionVisibleKeys.Add(key))
+            return;
+
+        if (_constraintResolutionVisibleKeys.Count
+            <= MaxVisibleConstraintResolutionFailures)
+        {
+            InspectionFailures.Add(failure);
+            return;
+        }
+
+        _suppressedConstraintResolutionFailureCount++;
+        var summary = new ApiSurfaceInspectionFailure(
+            ConstraintResolutionOperation,
+            0,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "ResourceLimit",
+            $"{_suppressedConstraintResolutionFailureCount} additional "
+                + "distinct generic-constraint resolution failure(s) "
+                + "were suppressed.");
+        if (_constraintResolutionSummaryIndex < 0)
+        {
+            _constraintResolutionSummaryIndex =
+                InspectionFailures.Count;
+            InspectionFailures.Add(summary);
+        }
+        else
+        {
+            InspectionFailures[
+                _constraintResolutionSummaryIndex] = summary;
+        }
+    }
+
+    public void MergeInspectionFailuresFrom(
+        ApiSurface source,
+        Func<ApiSurfaceInspectionSubject, bool>? includeConstraintSubject =
+            null,
+        bool includeNonConstraintFailures = true)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (includeNonConstraintFailures)
+        {
+            foreach (ApiSurfaceInspectionFailure failure
+                in source.InspectionFailures)
+            {
+                if (failure.Operation != ConstraintResolutionOperation)
+                    InspectionFailures.Add(failure);
+            }
+        }
+
+        foreach (var (subject, failures)
+            in source.ConstraintResolutionFailuresBySubject)
+        {
+            if (includeConstraintSubject is not null
+                && !includeConstraintSubject(subject))
+            {
+                continue;
+            }
+
+            foreach (ApiSurfaceInspectionFailure failure in failures)
+                AddConstraintResolutionFailure(subject, failure);
+        }
+    }
+
+    public void SetInspectionSourceAssemblyPath(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        foreach (ApiType type in Types)
+            type.SourceAssemblyPath = path;
+        for (int i = 0; i < InspectionFailures.Count; i++)
+        {
+            InspectionFailures[i] = InspectionFailures[i] with
+            {
+                SourceAssemblyPath = path,
+            };
+        }
+
+        var constraintFailures =
+            ConstraintResolutionFailuresBySubject.ToArray();
+        ConstraintResolutionFailuresBySubject.Clear();
+        foreach (var (subject, failures) in constraintFailures)
+        {
+            for (int i = 0; i < failures.Count; i++)
+            {
+                failures[i] = failures[i] with
+                {
+                    SourceAssemblyPath = path,
+                };
+            }
+            ConstraintResolutionFailuresBySubject[
+                new ApiSurfaceInspectionSubject(
+                    path,
+                    subject.SubjectToken)] = failures;
+        }
+    }
 
     public int PublicTypeCount { get; set; }
     public int PublicMethodCount { get; set; }
@@ -178,6 +315,12 @@ public class ApiSurface
     [JsonIgnore]
     public FindingInspection<AssemblySurfaceClassification>?
         SurfaceClassificationInspection { get; set; }
+
+    readonly record struct ConstraintResolutionVisibleKey(
+        AssemblyReferenceIdentity? SubjectAssembly,
+        MetadataTypeNameFailureMechanism Mechanism,
+        string Kind,
+        string Detail);
 }
 
 public sealed record ApiSurfaceInspectionFailure(
@@ -191,7 +334,14 @@ public sealed record ApiSurfaceInspectionFailure(
     public const string
         GenericParameterConstraintResolutionOperation =
             "resolve generic parameter constraints";
+
+    [JsonIgnore]
+    public string? SourceAssemblyPath { get; init; }
 }
+
+public readonly record struct ApiSurfaceInspectionSubject(
+    string? SourceAssemblyPath,
+    int SubjectToken);
 
 /// <summary>
 /// Represents a type forwarded to another assembly.
@@ -422,6 +572,9 @@ public class ApiType
 {
     public string? Namespace { get; set; }
     public string Name { get; set; } = "";
+
+    [JsonIgnore]
+    public int? MetadataToken { get; set; }
     
     /// <summary>
     /// The exact metadata name, preserving literal '+' characters and using '+'

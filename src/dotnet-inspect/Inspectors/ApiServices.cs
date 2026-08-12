@@ -347,15 +347,36 @@ internal static class ApiServices
         IReadOnlySet<MetadataTypeDefinitionName> forwardedTypes,
         ResolvedAssemblyReference targetAssembly)
     {
-        int copiedCount = 0;
-        foreach (ApiType type in targetApi.Types)
-        {
-            if (type.DefinitionName is null
-                || !forwardedTypes.Contains(type.DefinitionName))
-            {
-                continue;
-            }
+        List<ApiType> copiedTypes =
+        [
+            .. targetApi.Types.Where(type =>
+                type.DefinitionName is not null
+                && forwardedTypes.Contains(type.DefinitionName)),
+        ];
+        if (copiedTypes.Count == 0)
+            return 0;
 
+        var copiedByToken = new HashSet<int>();
+        foreach (ApiType type in copiedTypes)
+        {
+            Add(type.MetadataToken);
+            foreach (ApiMember member in type.Members)
+            {
+                Add(member.MetadataToken);
+                Add(member.GetterToken);
+                Add(member.SetterToken);
+                Add(member.AdderToken);
+                Add(member.RemoverToken);
+            }
+        }
+
+        api.MergeInspectionFailuresFrom(
+            targetApi,
+            subject => copiedByToken.Contains(subject.SubjectToken),
+            includeNonConstraintFailures: false);
+
+        foreach (ApiType type in copiedTypes)
+        {
             type.IsForwarded = true;
             type.SourceAssemblyPath = targetAssembly.Path;
             api.Types.Add(type);
@@ -372,27 +393,14 @@ internal static class ApiServices
             api.PublicFieldCount +=
                 type.Members.Count(
                     static member => member.Kind == "field");
-            copiedCount++;
         }
 
-        if (copiedCount == 0)
-            return 0;
+        return copiedTypes.Count;
 
-        var knownFailures =
-            new HashSet<ApiSurfaceInspectionFailure>(
-                api.InspectionFailures);
-        foreach (ApiSurfaceInspectionFailure failure
-            in targetApi.InspectionFailures)
+        void Add(int? token)
         {
-            if (failure.Operation
-                    == ApiSurfaceInspectionFailure
-                        .GenericParameterConstraintResolutionOperation
-                && knownFailures.Add(failure))
-            {
-                api.InspectionFailures.Add(failure);
-            }
+            if (token is int value)
+                copiedByToken.Add(value);
         }
-
-        return copiedCount;
     }
 }

@@ -660,6 +660,118 @@ public class TypeParameterKindClassifierTests
     }
 
     [Fact]
+    public void Extract_ClassifiesSameImageClassWithExternalConstructedBase()
+    {
+        var (consumerPath, basePath) =
+            EmitSameImageExternalConstructedBaseSample();
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_ClassifiesSameImageClassWithExternalConstructedBase)));
+            ResolvedAssemblyReference baseAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    basePath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_ClassifiesSameImageClassWithExternalConstructedBase)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog();
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new MappingPolicy(baseAssembly));
+
+            ApiType consumer = Assert.Single(
+                surface.Types,
+                type => type.Name == "Consumer`1");
+            Assert.Equal(
+                TypeParameterTypeKind.ReferenceType,
+                Assert.Single(consumer.TypeParameters).TypeKind);
+            Assert.Empty(surface.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(basePath);
+        }
+    }
+
+    [Fact]
+    public void Extract_RollbackAtFullRequestBudgetDoesNotReportExhaustion()
+    {
+        string dependencyPath = WriteAssembly(
+            $"SharedDependency{Guid.NewGuid():N}",
+            "Base");
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"constraint-full-budget-rollback-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_RollbackAtFullRequestBudgetDoesNotReportExhaustion)));
+            File.WriteAllBytes(
+                consumerPath,
+                BuildFullBudgetRollbackConsumer(
+                    dependency.Identity.Name));
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_RollbackAtFullRequestBudgetDoesNotReportExhaustion)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog(
+                new TypeResolutionContextOptions
+                {
+                    MaxTypeResolutionRequests = 1,
+                });
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new MappingPolicy(dependency));
+
+            Assert.Equal(
+                2,
+                surface.Types.Count(type =>
+                    type.Name.StartsWith(
+                        "Accepted",
+                        StringComparison.Ordinal)));
+            Assert.All(
+                surface.Types.Where(type =>
+                    type.Name.StartsWith(
+                        "Accepted",
+                        StringComparison.Ordinal)),
+                type => Assert.Equal(
+                    TypeParameterTypeKind.ReferenceType,
+                    Assert.Single(type.TypeParameters).TypeKind));
+            Assert.DoesNotContain(
+                surface.InspectionFailures,
+                failure => failure.Operation
+                    == "resolve generic parameter constraints");
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+        }
+    }
+
+    [Fact]
     public void Extract_RejectsForgedClassMarkerForExternalValueTypeBase()
     {
         var (consumerPath, dependencyPath, basePath) =
@@ -905,6 +1017,104 @@ public class TypeParameterKindClassifierTests
             $"external-base-consumer-{Guid.NewGuid():N}.dll");
         consumerAssembly.Save(consumerPath);
         return (consumerPath, dependencyPath, basePath);
+    }
+
+    static (string ConsumerPath, string BasePath)
+        EmitSameImageExternalConstructedBaseSample()
+    {
+        var baseAssembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"SameImageGenericBase{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var baseModule =
+            baseAssembly.DefineDynamicModule(
+                "SameImageGenericBase");
+        var genericBaseBuilder = baseModule.DefineType(
+            "N.GenericBase`1",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        genericBaseBuilder.DefineGenericParameters("T");
+        Type genericBase =
+            genericBaseBuilder.CreateType()!;
+        string basePath = Path.Combine(
+            Path.GetTempPath(),
+            $"same-image-generic-base-{Guid.NewGuid():N}.dll");
+        baseAssembly.Save(basePath);
+
+        var consumerAssembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"SameImageConsumer{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var consumerModule =
+            consumerAssembly.DefineDynamicModule(
+                "SameImageConsumer");
+        Type derived = consumerModule
+            .DefineType(
+                "N.Derived",
+                TypeAttributes.Public
+                    | TypeAttributes.Class,
+                genericBase.MakeGenericType(typeof(int)))
+            .CreateType()!;
+        var consumer = consumerModule.DefineType(
+            "Consumer`1",
+            TypeAttributes.Public | TypeAttributes.Class);
+        consumer.DefineGenericParameters("T")[0]
+            .SetBaseTypeConstraint(derived);
+        consumer.CreateType();
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"same-image-consumer-{Guid.NewGuid():N}.dll");
+        consumerAssembly.Save(consumerPath);
+        return (consumerPath, basePath);
+    }
+
+    static byte[] BuildFullBudgetRollbackConsumer(
+        string dependencyAssemblyName)
+    {
+        var metadata = NewMetadata(
+            $"FullBudgetRollback{Guid.NewGuid():N}");
+        AssemblyReferenceHandle dependencyAssembly =
+            AddAssemblyReference(
+                metadata,
+                dependencyAssemblyName);
+        TypeReferenceHandle sharedBase =
+            metadata.AddTypeReference(
+                dependencyAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"));
+
+        AddTypeDefinition(metadata, "<Module>", TypeAttributes.NotPublic);
+        AddConstrainedType("AcceptedBefore`1");
+        TypeDefinitionHandle rejected =
+            AddConstrainedType("Rejected`1");
+        AddConstrainedType("AcceptedAfter`1");
+
+        var malformedInterface = new BlobBuilder();
+        malformedInterface.WriteByte(0xff);
+        metadata.AddInterfaceImplementation(
+            rejected,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(malformedInterface)));
+        return SerializePe(metadata);
+
+        TypeDefinitionHandle AddConstrainedType(string name)
+        {
+            TypeDefinitionHandle type =
+                AddTypeDefinition(metadata, name);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                sharedBase);
+            return type;
+        }
     }
 
     static (string ConsumerPath, string DependencyPath, string BasePath)

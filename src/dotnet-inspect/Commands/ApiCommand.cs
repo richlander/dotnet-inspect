@@ -636,6 +636,7 @@ public class ApiCommand
             IsByRefLike = type.IsByRefLike,
             IsReadOnly = type.IsReadOnly,
             SourceAssemblyPath = type.SourceAssemblyPath,
+            MetadataToken = type.MetadataToken,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,
@@ -823,22 +824,19 @@ public class ApiCommand
                 continue;
             }
 
-            string assembly =
-                failure.SubjectAssembly is null
-                    ? ""
-                    : $" in '{failure.SubjectAssembly.Name}'";
-            CommandError.WriteWarning(
-                "Generic-constraint classification was incomplete"
-                    + $"{assembly} at 0x{failure.SubjectToken:X8} "
-                    + $"({failure.Mechanism}/{failure.Kind}): "
-                    + failure.Detail);
+            WriteConstraintResolutionDiagnostic(failure);
         }
     }
 
     internal static int WriteSelectedSurfaceDiagnostics(
-        ApiSurface api)
+        ApiSurface api,
+        ApiType selectedType,
+        HashSet<string>? selectedMemberNames = null)
     {
-        WriteConstraintResolutionDiagnostics(api);
+        WarnSelectedApiInspectionIncomplete(
+            api,
+            selectedType,
+            selectedMemberNames);
         int rejectedRows = CountRejectedMetadataRows(api);
         if (rejectedRows == 0)
             return 0;
@@ -966,6 +964,103 @@ public class ApiCommand
         }
 
         return successExitCode;
+    }
+
+    internal static bool WarnSelectedApiInspectionIncomplete(
+        ApiSurface api,
+        ApiType selectedType,
+        HashSet<string>? selectedMemberNames = null)
+    {
+        HashSet<int> subjectTokens = [];
+        if (selectedType.MetadataToken is int typeToken)
+            subjectTokens.Add(typeToken);
+        foreach (ApiMember member in selectedType.Members)
+        {
+            if (selectedMemberNames is { Count: > 0 }
+                && !TypeMatcher.MatchesMemberFilter(
+                    member.Name,
+                    selectedMemberNames))
+            {
+                continue;
+            }
+
+            Add(member.MetadataToken);
+            Add(member.GetterToken);
+            Add(member.SetterToken);
+            Add(member.AdderToken);
+            Add(member.RemoverToken);
+        }
+
+        var failures =
+            api.ConstraintResolutionFailuresBySubject
+                .Where(pair =>
+                    subjectTokens.Contains(pair.Key.SubjectToken)
+                    && (pair.Key.SourceAssemblyPath is null
+                        || string.Equals(
+                            pair.Key.SourceAssemblyPath,
+                            selectedType.SourceAssemblyPath,
+                            StringComparison.Ordinal)))
+                .SelectMany(pair => pair.Value)
+                .Where(failure =>
+                    failure.SourceAssemblyPath is null
+                    || string.Equals(
+                        failure.SourceAssemblyPath,
+                        selectedType.SourceAssemblyPath,
+                        StringComparison.Ordinal))
+                .DistinctBy(failure => (
+                    failure.SubjectAssembly,
+                    failure.SubjectToken,
+                    failure.Mechanism,
+                    failure.Kind,
+                    failure.Detail))
+                .Take(
+                    ApiSurface.MaxVisibleConstraintResolutionFailures + 1)
+                .ToList();
+        if (failures.Count == 0)
+            return false;
+
+        foreach (ApiSurfaceInspectionFailure failure in failures.Take(
+            ApiSurface.MaxVisibleConstraintResolutionFailures))
+        {
+            WriteConstraintResolutionDiagnostic(failure);
+        }
+        if (failures.Count
+            > ApiSurface.MaxVisibleConstraintResolutionFailures)
+        {
+            CommandError.WriteWarning(
+                "Additional generic-constraint classification diagnostics "
+                    + "were suppressed.");
+        }
+        return true;
+
+        void Add(int? token)
+        {
+            if (token is int value)
+                subjectTokens.Add(value);
+        }
+    }
+
+    static void WriteConstraintResolutionDiagnostic(
+        ApiSurfaceInspectionFailure failure)
+    {
+        if (failure.SubjectToken == 0
+            && failure.Kind == "ResourceLimit")
+        {
+            CommandError.WriteWarning(
+                "Generic-constraint classification was incomplete: "
+                    + failure.Detail);
+            return;
+        }
+
+        string assembly =
+            failure.SubjectAssembly is null
+                ? ""
+                : $" in '{failure.SubjectAssembly.Name}'";
+        CommandError.WriteWarning(
+            "Generic-constraint classification was incomplete"
+                + $"{assembly} at 0x{failure.SubjectToken:X8} "
+                + $"({failure.Mechanism}/{failure.Kind}): "
+                + failure.Detail);
     }
 
     /// <summary>

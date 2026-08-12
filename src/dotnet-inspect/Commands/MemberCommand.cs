@@ -75,7 +75,6 @@ public static class MemberCommand
             var api = loaded.Api;
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
-
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
@@ -384,7 +383,10 @@ public static class MemberCommand
             }
 
             int selectedSurfaceExitCode =
-                ApiCommand.WriteSelectedSurfaceDiagnostics(api);
+                ApiCommand.WriteSelectedSurfaceDiagnostics(
+                api,
+                apiType,
+                effectiveOptions.MemberFilter);
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;

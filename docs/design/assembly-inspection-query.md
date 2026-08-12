@@ -322,7 +322,10 @@ When a same-image constructed-base walk terminates at an external base, the term
 definition owns the dependency evidence; both successful authentication and a selected
 dependency failure survive the intermediate TypeDef hops
 (`SameImageConstructedBaseHopPreservesTerminalKindDependency` and
-`SameImageConstructedBaseHopPreservesTerminalFailure`).
+`SameImageConstructedBaseHopPreservesTerminalFailure`), including when the
+constraint and intermediate definitions share the source image
+(`SameImageConstraintPreservesTerminalKindDependency` and
+`SameImageConstraintPreservesTerminalFailure`).
 Cross-handle TypeSpec traversal distinguishes active nodes from completed nodes, so cycles
 fail closed while shared acyclic dependencies remain valid;
 `CyclicTypeSpecificationBaseFailsClosed` and

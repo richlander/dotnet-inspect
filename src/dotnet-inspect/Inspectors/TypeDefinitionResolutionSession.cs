@@ -99,10 +99,7 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
 
             ApiSurface surface = read.Surface;
             if (source.Path is { } path)
-            {
-                foreach (ApiType type in surface.Types)
-                    type.SourceAssemblyPath = path;
-            }
+                surface.SetInspectionSourceAssemblyPath(path);
 
             return surface;
         }
