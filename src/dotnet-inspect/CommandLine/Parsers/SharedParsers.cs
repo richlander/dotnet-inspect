@@ -84,6 +84,13 @@ public static class SharedParsers
         if (overloadHead.EndsWith("..cctor", StringComparison.Ordinal))
             return (overloadHead[..^7], ".cctor" + typeName[^suffixLength..]);
 
+        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
+        {
+            var markerIndex = typeName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex > 0)
+                return (typeName[..markerIndex], typeName[(markerIndex + 1)..]);
+        }
+
         var lastDot = FqnParser.LastTopLevelDot(typeName);
         if (lastDot <= 0)
             return (typeName, null);

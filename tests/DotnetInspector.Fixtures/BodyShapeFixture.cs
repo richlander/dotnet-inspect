@@ -1,0 +1,56 @@
+namespace DotnetInspector.Fixtures;
+
+public interface IBodyShapeValue
+{
+    object Value { get; }
+    event Action Changed;
+}
+
+public sealed class BodyShapeFixture : IBodyShapeValue
+{
+    public static object PublicCreation() => new object();
+
+    private static object PrivateCreation() => new Version(1, 2);
+
+    object IBodyShapeValue.Value => new object();
+
+    event Action IBodyShapeValue.Changed
+    {
+        add => GC.KeepAlive(new object());
+        remove { }
+    }
+
+    public static string Classify(int value) =>
+        value switch
+        {
+            < 0 => "negative",
+            0 => "zero",
+            _ => "positive"
+        };
+
+    public static string Branch(bool value)
+    {
+        if (value)
+        {
+            return "yes";
+        }
+
+        return "no";
+    }
+
+    public static string ReadableLocal(int value)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.Append(value);
+        if (value >= 0)
+            builder.Append('+');
+        else
+            builder.Append('-');
+        return builder.ToString();
+    }
+}
+
+public sealed class GenericBodyShapeFixture<T>
+{
+    public static object Create() => new object();
+}

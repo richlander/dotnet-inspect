@@ -68,9 +68,10 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 ```
 
-`@` names a category of sections. Examples include `@Library`, `@Surface`,
-`@Audit`, `@Context`, `@Source`, `@SourceLink`, `@Integrations`,
-`@Performance`, and `@Metadata`. `Switches` is a plain section, not a category.
+`@` names a category of sections. Examples include `@Package`, `@Files`,
+`@Dependencies`, `@Library`, `@Surface`, `@Audit`, `@Context`, `@Source`,
+`@SourceLink`, `@Integrations`, `@Performance`, and `@Metadata`. `Switches` is
+a plain section, not a category.
 Some large families expose only their category door in the top-level catalog;
 drill in with `-D @Performance` or `-D @Metadata`. Row formats
 (`--tsv`/`--jsonl`/`--table`) require one concrete section or a supported

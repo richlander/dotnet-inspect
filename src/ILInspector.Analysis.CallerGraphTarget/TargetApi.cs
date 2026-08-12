@@ -18,6 +18,12 @@ namespace Target
         public static void Ping(string value)
         {
         }
+
+        public static void Forward() => Leaf();
+
+        public static void Leaf()
+        {
+        }
     }
 
     // Generic target surfaces (#1339). A cross-assembly caller graph rooted at the open
@@ -86,6 +92,18 @@ namespace Target
     {
         public bool Recurse(int depth) =>
             depth > 0 && Recurse(depth - 1);
+
+        public int RecurseTwice(int depth) =>
+            depth <= 0
+                ? 0
+                : RecurseTwice(depth - 1)
+                    + RecurseTwice(depth - 2);
+
+        public bool IsEven(int value) =>
+            value == 0 || IsOdd(value - 1);
+
+        bool IsOdd(int value) =>
+            value != 0 && IsEven(value - 1);
     }
 
     public interface IBodilessApi

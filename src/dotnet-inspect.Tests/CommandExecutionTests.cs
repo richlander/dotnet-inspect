@@ -7687,6 +7687,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallGraph_ScopeTraversesCalleesAcrossAssembly()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+        var scoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--bin",
+            Path.GetDirectoryName(target)!,
+            "--tips",
+            "q");
+        var unscoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Contains("Target.Api.Forward()", scoped.Output);
+        Assert.Contains("Target.Api.Leaf()", scoped.Output);
+        Assert.DoesNotContain("(external)", scoped.Output);
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Contains(
+            "Target.Api.Forward() (external)",
+            unscoped.Output);
+        Assert.DoesNotContain("Target.Api.Leaf()", unscoped.Output);
+    }
+
+    [Fact]
     public async Task Member_BareNameCallersWithCallerScope_AutoSelectsSingleOverload()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
@@ -15094,6 +15139,7 @@ public partial class CommandExecutionTests
             Assert.Contains("Manifest", output);
             // SourceLink: Files is reachable through its door rather than the top-level
             // catalog, so the door is what discovery has to advertise.
+            Assert.Contains("| @Package | category |", output);
             Assert.Contains("| @SourceLink | category |", output);
             Assert.DoesNotContain("| SourceLink: Files | section |", output);
             Assert.DoesNotContain("Vulnerabilities", output);
@@ -15154,7 +15200,10 @@ public partial class CommandExecutionTests
             Assert.Contains("Vulnerabilities", output);
             // @All/@Default/@Hidden are internal computed poles, not doors: curated discovery
             // advertises only the real category doors.
+            Assert.Contains("| @Audit | category |", output);
+            Assert.Contains("| @Dependencies | category |", output);
             Assert.Contains("| @Files | category |", output);
+            Assert.Contains("| @Package | category |", output);
             Assert.Contains("| @SourceLink | category |", output);
             Assert.DoesNotContain("@All", output);
             Assert.DoesNotContain("@Default", output);
@@ -15164,6 +15213,21 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_DiscoverPackageCategory_ListsPackageNativeSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-D", "@Package", "--schema", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Package Info | section |", output);
+        Assert.Contains("| Dependencies | section |", output);
+        Assert.Contains("| Package files | section |", output);
+        Assert.DoesNotContain("| Package README file | section |", output);
+        Assert.DoesNotContain("| SourceLink: Files | section |", output);
     }
 
     [Fact]
@@ -18488,7 +18552,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Dependency groups", output);
             Assert.Contains("Direct dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -18612,7 +18676,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Signals_RendersRegistryBackedRows()
+    public async Task Package_Signals_RendersAvailableRegistryBackedRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
@@ -18621,7 +18685,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.Contains("Dependencies with vulnerabilities", output);
             Assert.Contains("Deprecated dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);

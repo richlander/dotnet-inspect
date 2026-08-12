@@ -1638,13 +1638,10 @@ public static class ApiOutputFormatter
             // One bidirectional graph: inbound callers and outbound callees around the selected
             // member. The projection collapses the two trees onto shared node identity, so a member
             // that is both a caller and a callee is one node rather than two unrelated subtrees.
-            Analysis.CallTreeNode callerTree =
-                analysisInspection.BuildCallerTree(graphToken);
+            var projection =
+                analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
-            var projection = ILInspector.CallGraph.CallGraphProjection.Create(
-                callerTree,
-                analysisInspection.BuildCallTree(graphToken));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
             memberCode.CallGraphRowCount = selectedRows.Count;
             bool loweringNeedsSelectedGraph =
