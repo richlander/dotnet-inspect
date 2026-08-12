@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
@@ -171,6 +172,7 @@ public static class WorkspaceContextLoader
 
         if (Distinct(
                 context.Members,
+                member => KeyFor(member, framework, rid),
                 static member => member,
                 out ImmutableArray<WorkspaceMemberCoordinate> members)
             is { } duplicate)
@@ -285,6 +287,7 @@ public static class WorkspaceContextLoader
         // and it is dropped here, once, before any acquisition.
         if (Distinct(
                 members,
+                KeyFor,
                 Declare,
                 out ImmutableArray<RealizedMemberCoordinate> distinct)
             is { } duplicate)
@@ -336,58 +339,56 @@ public static class WorkspaceContextLoader
     }
 
     /// <summary>
-    /// Reduces a member list to its distinct coordinates in first-declared
+    /// Reduces a member list to its distinct acquisitions in first-declared
     /// order, or reports the conflict when one acquisition subject is named
-    /// twice with different values.
+    /// twice with genuinely different coordinates.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Two identical coordinates name one acquisition, so realizing them twice
-    /// would put one assembly in the group twice and make every in-context
-    /// reference to it bind ambiguously. Collapsing them is safe because they
-    /// cannot resolve differently.
+    /// Equivalence is decided by a canonical acquisition key, not by the
+    /// coordinate record as written. A context that declares
+    /// <c>Package("Example", "1.0")</c> and
+    /// <c>Package("example", "1.0.0", "NET8.0")</c> under a <c>net8.0</c>
+    /// context names one acquisition twice — a different id casing, an
+    /// unnormalized version, and an explicitly repeated target that the first
+    /// member inherits. Comparing records rejected that as a conflict, which is
+    /// the opposite of what the coordinates say.
     /// </para>
     /// <para>
-    /// Two <em>different</em> coordinates for one subject — one package id at
-    /// two versions, one content reference with two digests — are not
-    /// collapsible and cannot both be realized into one binding-consistent
-    /// group. That is a typed rejection before acquisition rather than a group
-    /// whose bindings are decided by declaration order.
+    /// Two identical acquisitions collapse, because realizing one twice would
+    /// put its assemblies in the group twice and make every in-context
+    /// reference to them bind ambiguously. Two <em>different</em> acquisitions
+    /// for one subject — one package id at two versions or from two producers,
+    /// one content reference with two digests — are not collapsible and cannot
+    /// both be realized into one binding-consistent group, so they are a typed
+    /// rejection before acquisition rather than a group whose bindings are
+    /// decided by declaration order.
     /// </para>
     /// </remarks>
     static WorkspaceContextLoadFailure? Distinct<T>(
         IReadOnlyList<T> members,
+        Func<T, AcquisitionKey> key,
         Func<T, WorkspaceMemberCoordinate> declare,
         out ImmutableArray<T> distinct)
-        where T : notnull
     {
-        var bySubject = new Dictionary<string, T>(StringComparer.Ordinal);
+        var bySubject = new Dictionary<string, string>(StringComparer.Ordinal);
         var kept = ImmutableArray.CreateBuilder<T>(members.Count);
         foreach (T member in members)
         {
-            WorkspaceMemberCoordinate declared = declare(member);
-            string subject = declared switch
+            AcquisitionKey acquisition = key(member);
+            if (!bySubject.TryGetValue(acquisition.Subject, out string? existing))
             {
-                WorkspaceMemberCoordinate.PackageMember package =>
-                    $"package:{package.PackageId.ToLowerInvariant()}",
-                WorkspaceMemberCoordinate.EmbeddedMember embedded =>
-                    $"embedded:{embedded.ContentRef}",
-                _ => $"other:{kept.Count}",
-            };
-
-            if (!bySubject.TryGetValue(subject, out T? existing))
-            {
-                bySubject.Add(subject, member);
+                bySubject.Add(acquisition.Subject, acquisition.Key);
                 kept.Add(member);
                 continue;
             }
 
-            if (!existing.Equals(member))
+            if (!string.Equals(existing, acquisition.Key, StringComparison.Ordinal))
             {
                 distinct = [];
                 return Failure(
                     WorkspaceContextLoadFailureKind.InvalidCoordinate,
-                    declared,
+                    declare(member),
                     "A workspace context names one acquisition subject more than once with different coordinates.");
             }
         }
@@ -395,6 +396,99 @@ public static class WorkspaceContextLoader
         distinct = kept.ToImmutable();
         return null;
     }
+
+    /// <summary>
+    /// What one member acquires: the subject it names, and the exact
+    /// acquisition of that subject it asks for.
+    /// </summary>
+    /// <remarks>
+    /// Two members are the same acquisition exactly when both parts match. The
+    /// subject alone identifies "this package" or "this bundle content", which
+    /// is what makes a mismatch a conflict rather than two independent members.
+    /// </remarks>
+    readonly record struct AcquisitionKey(string Subject, string Key);
+
+    /// <summary>
+    /// The canonical acquisition key for a declared member, resolved against
+    /// the context's effective targets.
+    /// </summary>
+    /// <remarks>
+    /// A member that inherits the context's framework and one that repeats it
+    /// in another casing are the same acquisition, so the effective target is
+    /// what the key carries. A floating member keeps a distinct key from any
+    /// exact pin of the same package: what it will resolve to is not knowable
+    /// here, and collapsing them would silently drop whichever the loader did
+    /// not keep.
+    /// </remarks>
+    static AcquisitionKey KeyFor(
+        WorkspaceMemberCoordinate member,
+        string? framework,
+        string? runtimeIdentifier)
+    {
+        switch (member)
+        {
+            case WorkspaceMemberCoordinate.PackageMember package:
+                string id = package.PackageId.ToLowerInvariant();
+                string version = package.Version is { } declared
+                    ? CanonicalVersion(declared)
+                    : "*";
+                string effectiveFramework =
+                    (package.Framework ?? framework ?? string.Empty)
+                        .ToLowerInvariant();
+                string effectiveRid =
+                    package.RuntimeIdentifier ?? runtimeIdentifier ?? string.Empty;
+                return new AcquisitionKey(
+                    $"package:{id}",
+                    $"package:{id}|{version}|{effectiveFramework}|{effectiveRid}");
+
+            case WorkspaceMemberCoordinate.EmbeddedMember embedded:
+                return new AcquisitionKey(
+                    $"embedded:{embedded.ContentRef}",
+                    $"embedded:{embedded.ContentRef}|{embedded.Digest}|{embedded.DeclaredName}");
+
+            default:
+                return new AcquisitionKey(
+                    $"other:{member.GetHashCode()}",
+                    $"other:{member.GetHashCode()}");
+        }
+    }
+
+    /// <summary>
+    /// The canonical acquisition key for a realized member.
+    /// </summary>
+    /// <remarks>
+    /// A realized coordinate is canonical by construction, so its own fields
+    /// are the key — no equivalence is invented here. The producer is part of
+    /// it: one id and version served by two feeds is two acquisitions, and
+    /// collapsing them would drop one feed's bytes.
+    /// </remarks>
+    static AcquisitionKey KeyFor(RealizedMemberCoordinate coordinate) =>
+        coordinate switch
+        {
+            RealizedMemberCoordinate.Package package => new AcquisitionKey(
+                $"package:{package.PackageId}",
+                $"package:{package.PackageId}|{package.Version}|{package.Framework}"
+                    + $"|{package.RuntimeIdentifier}|{package.Producer}"),
+            RealizedMemberCoordinate.Embedded embedded => new AcquisitionKey(
+                $"embedded:{embedded.ContentRef}",
+                $"embedded:{embedded.ContentRef}|{embedded.Digest}|{embedded.DeclaredName}"),
+            _ => new AcquisitionKey(
+                $"other:{coordinate.GetHashCode()}",
+                $"other:{coordinate.GetHashCode()}"),
+        };
+
+    /// <summary>
+    /// The normalized spelling of a declared version, or the declared text when
+    /// it is not a version this product would accept.
+    /// </summary>
+    /// <remarks>
+    /// Validation has already rejected an unparsable version by the time this
+    /// runs, so the fallback exists only so the key stays total.
+    /// </remarks>
+    static string CanonicalVersion(string declared) =>
+        NuGetVersion.TryParse(declared, out NuGetVersion? parsed)
+            ? parsed.ToNormalizedString().ToLowerInvariant()
+            : declared;
 
     /// <summary>
     /// The declared coordinate that names exactly what a realized coordinate
@@ -503,6 +597,38 @@ public static class WorkspaceContextLoader
             targets.Add(canonical);
     }
 
+    /// <summary>
+    /// Returns the failure for the first assembly identity two realized
+    /// participants share, or null when every identity is distinct.
+    /// </summary>
+    /// <remarks>
+    /// Identity equality is <see cref="AssemblyReferenceIdentity"/>'s own, which
+    /// is what <see cref="SourceRelativeAssemblyGroupBindingPolicy"/> compares
+    /// when it matches a reference against the group's roots — so this detects
+    /// exactly the groups that policy would answer ambiguously, and no others.
+    /// Two versions of one library have different identities and coexist.
+    /// </remarks>
+    static WorkspaceContextLoadFailure? FirstIdentityCollision(
+        ImmutableArray<RealizedMember>.Builder realized)
+    {
+        var seen = new Dictionary<AssemblyReferenceIdentity, RealizedMember>();
+        foreach (RealizedMember entry in realized)
+        {
+            if (seen.TryAdd(entry.Assembly.Identity, entry))
+                continue;
+
+            // The colliding identity is read out of an artifact, so it is not
+            // quoted. The member coordinate the caller declared is carried on
+            // the failure, which is what attributes it.
+            return Failure(
+                WorkspaceContextLoadFailureKind.ConflictingAssemblyIdentity,
+                entry.Declared,
+                "A workspace context realized more than one assembly with the same identity, so no in-context reference to it could bind to one descriptor.");
+        }
+
+        return null;
+    }
+
     static WorkspaceContextLoadOutcome CreateGroup(
         InspectionWorkspace workspace,
         ImmutableArray<RealizedMember>.Builder realized,
@@ -510,6 +636,20 @@ public static class WorkspaceContextLoader
         string? framework,
         string? runtimeIdentifier)
     {
+        // Two images can carry one assembly identity without either coordinate
+        // being duplicated: a package that ships the same assembly under two
+        // asset paths, two producers serving one library, or an embedded member
+        // that repeats a package's assembly. The binding policy compares
+        // identities exactly as this does, and it answers such a group with
+        // Multiple for every in-context reference — a group that resolves
+        // nothing is not a loaded context, and choosing one image by asset path
+        // or declaration order would make the group's meaning depend on
+        // enumeration. So the context fails, before any group exists.
+        if (FirstIdentityCollision(realized) is { } collision)
+        {
+            return new WorkspaceContextLoadOutcome.Failed([collision]);
+        }
+
         var groupPolicy = new SourceRelativeAssemblyGroupBindingPolicy(
             realized.Select(static entry =>
                 (entry.Assembly,

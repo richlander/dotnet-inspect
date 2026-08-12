@@ -317,6 +317,48 @@ public class HttpClientFactoryTests : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// <see cref="Uri.Host"/> preserves format characters: an IDN host carrying
+    /// U+2066 or U+200B survives normalization intact and was emitted raw as
+    /// <c>server.address</c>, next to a URL the same record had already
+    /// contained.
+    /// </summary>
+    [Theory]
+    [InlineData("\u2066")]
+    [InlineData("\u200b")]
+    public void NetworkTelemetry_ContainsAHostileHost(string hostile)
+    {
+        using var activitySource = new System.Diagnostics.ActivitySource("test");
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == "test",
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
+                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        using var activity = activitySource.StartActivity("command");
+        var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://ex{hostile}ample.test/source.cs");
+
+        // The request itself keeps the host exactly as written.
+        Assert.Contains(hostile, request.RequestUri!.Host, StringComparison.Ordinal);
+
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageDownload))
+        {
+            NetworkTelemetry.RecordRequestStarting(
+                request,
+                NetworkClientKinds.Shared);
+        }
+
+        var evt = Assert.Single(activity!.Events);
+        var tags = evt.Tags.ToDictionary(tag => tag.Key, tag => tag.Value);
+        var host = Assert.IsType<string>(tags["server.address"]);
+        Assert.DoesNotContain(hostile, host, StringComparison.Ordinal);
+        Assert.Contains("ample.test", host, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void NetworkTelemetry_AddsActivityEvent()
     {

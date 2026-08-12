@@ -208,7 +208,7 @@ public sealed record NetworkRequestObservation(
     string Method,
     InertString? Url,
     string? Scheme,
-    string? Host,
+    InertString? Host,
     string ClientKind,
     NetworkTrafficKind TrafficKind,
     bool IsAllowedByPolicy,
@@ -226,7 +226,14 @@ public sealed record NetworkRequestObservation(
             request.Method.Method,
             RedactUrl(uri),
             uri?.IsAbsoluteUri == true ? uri.Scheme : null,
-            uri?.IsAbsoluteUri == true ? uri.Host : null,
+            // Contained separately from the display URL rather than parsed back
+            // out of it: the typed URI is where the host actually is, and the
+            // display URL is a rendering. It is contained because Uri.Host
+            // preserves Cf text — an IDN host carrying U+2066 survives
+            // normalization intact and would reach `server.address` raw.
+            uri?.IsAbsoluteUri == true
+                ? new InertString(TextPolicy.Field, uri.Host)
+                : null,
             clientKind,
             trafficKind,
             isAllowedByPolicy,
@@ -248,8 +255,8 @@ public sealed record NetworkRequestObservation(
             tags["url.full"] = url.ToString();
         if (Scheme != null)
             tags["url.scheme"] = Scheme;
-        if (Host != null)
-            tags["server.address"] = Host;
+        if (Host is { } host)
+            tags["server.address"] = host.ToString();
         if (RequestWhat != null)
             tags["dotnet_inspect.request.what"] = RequestWhat;
         if (RequestWhy != null)

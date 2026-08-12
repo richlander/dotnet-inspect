@@ -168,6 +168,9 @@ public enum WorkspaceContextLoadFailureKind
     /// </summary>
     PackageProducerUnavailable,
 
+    /// <summary>More than one member realized the same assembly identity.</summary>
+    ConflictingAssemblyIdentity,
+
     /// <summary>The package carries no assembly assets for the acquisition target.</summary>
     PackageAssetUnavailable,
 

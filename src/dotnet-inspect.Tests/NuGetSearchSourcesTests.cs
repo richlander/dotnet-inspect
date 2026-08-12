@@ -1193,6 +1193,93 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
+    /// A search endpoint is feed-declared metadata that can carry a signature,
+    /// and the exception raised for a malformed response embedded it. Both the
+    /// endpoint and the remote's own message stay out of the failure a caller
+    /// prints — and the request that carried the signature is structurally
+    /// correct, which retaining the secret alone does not show.
+    /// </summary>
+    [Theory]
+    [InlineData("https://feed.example/v3/query")]
+    [InlineData("https://feed.example/v3/query?sig=SECRETVALUE")]
+    [InlineData("https://feed.example/v3/query?sig=SECRETVALUE&api-version=2")]
+    [InlineData("https://feed.example/v3/query?")]
+    [InlineData("https://feed.example/v3/query#anchor")]
+    public async Task SearchAsync_SignedEndpointWithInvalidDocument_ComposesTheQueryAndHidesTheEndpoint(
+        string declaredSearchUrl)
+    {
+        const string secret = "SECRETVALUE";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = ServiceIndex(declaredSearchUrl),
+            // A syntactically valid document of the wrong shape: no "data".
+            ["https://feed.example/v3/query"] = """{"totalHits":0}""",
+        };
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        // Every configured source failed, so the search surfaces the failure
+        // list rather than an empty result. That message is what a user sees.
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                log: logs.Add,
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        string requested = Assert.Single(
+            handler.Requested,
+            url => url.Contains("/v3/query", StringComparison.Ordinal));
+        var outbound = new Uri(requested, UriKind.Absolute);
+
+        // The path is untouched, the query has one boundary, and the fragment
+        // is gone: the parameters joined the query rather than extending an
+        // existing value.
+        Assert.Equal("/v3/query", outbound.AbsolutePath);
+        Assert.Equal(1, requested.Count(character => character == '?'));
+        Assert.Equal(string.Empty, outbound.Fragment);
+
+        Dictionary<string, string> parameters = QueryParameters(outbound);
+        Assert.Equal("Contoso", parameters["q"]);
+        Assert.Equal("0", parameters["skip"]);
+        Assert.Equal("20", parameters["take"]);
+        Assert.Equal("false", parameters["prerelease"]);
+
+        // A signature the endpoint declared survives as its own parameter,
+        // with its own value.
+        bool signed = declaredSearchUrl.Contains("sig=", StringComparison.Ordinal);
+        Assert.Equal(signed, parameters.ContainsKey("sig"));
+        if (signed)
+            Assert.Equal(secret, parameters["sig"]);
+        Assert.Equal(
+            declaredSearchUrl.Contains("api-version=", StringComparison.Ordinal),
+            parameters.ContainsKey("api-version"));
+
+        // And nothing that prints carries it.
+        Assert.DoesNotContain(secret, thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("search failed", thrown.Message, StringComparison.Ordinal);
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(secret, line, StringComparison.Ordinal));
+    }
+
+    static Dictionary<string, string> QueryParameters(Uri uri)
+    {
+        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string pair in uri.Query.TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int separator = pair.IndexOf('=', StringComparison.Ordinal);
+            string name = separator < 0 ? pair : pair[..separator];
+            string value = separator < 0 ? string.Empty : pair[(separator + 1)..];
+            parameters[Uri.UnescapeDataString(name)] =
+                Uri.UnescapeDataString(value);
+        }
+
+        return parameters;
+    }
+
+    /// <summary>
     /// The nuget.org shortcut answers from the well-known search endpoint without reading a
     /// service index. It must therefore key on the canonical service index URL and not merely on a
     /// nuget.org host: another path on that host is a different endpoint the user named

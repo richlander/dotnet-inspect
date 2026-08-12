@@ -639,6 +639,137 @@ public sealed class PackageCoordinateResolverTests
                 StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// With prereleases disabled the answer is the newest stable version or
+    /// nothing. Falling back to "the newest anything" turned "no stable release
+    /// exists" into a silent prerelease selection, which is the one outcome the
+    /// flag exists to prevent.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_WithOnlyPrereleases_IsUnavailable()
+    {
+        using var client = new HttpClient(
+            new ListedVersionsHandler("1.0.0-beta", "2.0.0-beta"));
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(ListedVersionsHandler.PackageId),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+    }
+
+    [Fact]
+    public async Task FloatingCoordinate_WithOnlyPrereleases_ResolvesWhenIncluded()
+    {
+        using var client = new HttpClient(
+            new ListedVersionsHandler("1.0.0-beta", "2.0.0-beta"));
+
+        var resolved = Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(ListedVersionsHandler.PackageId),
+                [NuGetOrg],
+                includePrerelease: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal("2.0.0-beta", resolved.Coordinate.Version);
+    }
+
+    [Theory]
+    [InlineData(false, "1.0.0")]
+    [InlineData(true, "2.0.0-beta")]
+    public async Task FloatingCoordinate_WithMixedVersions_HonoursThePrereleaseFlag(
+        bool includePrerelease,
+        string expected)
+    {
+        using var client = new HttpClient(
+            new ListedVersionsHandler("1.0.0", "2.0.0-beta"));
+
+        var resolved = Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(ListedVersionsHandler.PackageId),
+                [NuGetOrg],
+                includePrerelease: includePrerelease,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(expected, resolved.Coordinate.Version);
+    }
+
+    /// <summary>
+    /// An exact pin still names whatever version it names. The stable-only rule
+    /// governs what floating <em>discovery</em> may select, not what a caller
+    /// may pin.
+    /// </summary>
+    [Fact]
+    public async Task ExactPrereleasePin_ResolvesWithoutTheFlag()
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        var resolved = Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example", "1.0.0-beta"),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal("1.0.0-beta", resolved.Coordinate.Version);
+    }
+
+    /// <summary>
+    /// Serves nuget.org's flat-container index and registration page for one
+    /// package, with every version listed.
+    /// </summary>
+    sealed class ListedVersionsHandler(params string[] versions)
+        : HttpMessageHandler
+    {
+        internal const string PackageId = "listed.package";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url.Equals(
+                $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Json(
+                    $$"""{"versions":[{{string.Join(",", versions.Select(v => $"\"{v}\""))}}]}""");
+            }
+
+            if (url.Equals(
+                $"https://api.nuget.org/v3/registration5-gz-semver2/{PackageId}/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                string entries = string.Join(
+                    ",",
+                    versions.Select(v =>
+                        "{\"catalogEntry\":{\"version\":\""
+                        + v
+                        + "\",\"listed\":true}}"));
+                return Json($$"""{"items":[{"items":[{{entries}}]}]}""");
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
     sealed class SignedFlatContainerHandler : HttpMessageHandler
     {
         internal const string PackageId = "signed.package";

@@ -166,7 +166,7 @@ public static class NuGetCredentialScope
         }
 
         log?.Invoke(
-            $"Withholding credentials for source '{source.Name}': discovered endpoint "
+            $"Withholding credentials for source '{PackageSourceDisplay.ForDiagnostics(source)}': discovered endpoint "
             + $"'{UrlRedaction.ForDiagnostics(endpointUrl)}' is not on the source's origin.");
         return null;
     }

@@ -167,7 +167,7 @@ public static class PackagePayloadAcquisition
             if (content is not null)
                 return Result(content, PackagePayloadOrigin.Download);
 
-            failedSources.Add(source.Name);
+            failedSources.Add(PackageSourceDisplay.ForDiagnostics(source).ToString());
         }
 
         return new PackagePayloadResult.Unavailable(
@@ -222,7 +222,7 @@ public static class PackagePayloadAcquisition
         AuthenticationHeaderValue? auth =
             NuGetCredentialScope.AuthFor(source, nupkgUrl, log);
         log?.Invoke(
-            $"Downloading: {coordinate.PackageId} {coordinate.Version} from {source.Name}");
+            $"Downloading: {coordinate.PackageId} {coordinate.Version} from {PackageSourceDisplay.ForDiagnostics(source)}");
 
         // The transport's own advertised-size cap is raised out of the way so
         // an oversized payload stays a typed source failure here instead of
@@ -244,7 +244,7 @@ public static class PackagePayloadAcquisition
         if (response.Content.Headers.ContentLength > limits.MaxArchiveBytes)
         {
             log?.Invoke(
-                $"Source {source.Name} advertised a package payload above the configured archive limit.");
+                $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
             return null;
         }
 
@@ -263,7 +263,7 @@ public static class PackagePayloadAcquisition
                     is not { } received)
                 {
                     log?.Invoke(
-                        $"Source {source.Name} sent a package payload above the configured archive limit.");
+                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} sent a package payload above the configured archive limit.");
                     return null;
                 }
 
@@ -280,7 +280,7 @@ public static class PackagePayloadAcquisition
                 // source failed to serve the coordinate and nothing is
                 // committed. The next authorized source is tried.
                 log?.Invoke(
-                    $"Source {source.Name} did not deliver a usable package payload: {rejection.Reason}");
+                    $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload: {rejection.Reason}");
                 return null;
             }
 
@@ -298,7 +298,7 @@ public static class PackagePayloadAcquisition
             // failure is described by its redacted URL and the exception's
             // category instead.
             log?.Invoke(
-                $"Source {source.Name} did not deliver a package payload: "
+                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a package payload: "
                 + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
             return null;
         }
@@ -317,7 +317,7 @@ public static class PackagePayloadAcquisition
             // the caller actually requested is not caught here. The exception
             // text is not logged: an archive-derived name can reach it.
             log?.Invoke(
-                $"Source {source.Name} did not deliver a usable package payload.");
+                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
             return null;
         }
     }

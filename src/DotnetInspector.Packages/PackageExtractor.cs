@@ -455,7 +455,7 @@ public static class PackageExtractor
                     continue;
 
                 log?.Invoke(
-                    $"Downloading: {packageName} {version} from {source.Name}");
+                    $"Downloading: {packageName} {version} from {PackageSourceDisplay.ForDiagnostics(source)}");
 
                 try
                 {
@@ -478,7 +478,7 @@ public static class PackageExtractor
                     // The transport's message embeds the request URI, and that
                     // URI came from a feed-declared flat-container base.
                     log?.Invoke(
-                        $"Source {source.Name} failed: "
+                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} failed: "
                         + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
                 }
             }
@@ -781,7 +781,9 @@ public static class PackageExtractor
             }
             catch (HttpRequestException ex)
             {
-                log?.Invoke($"Nuspec fetch from {source.Name} failed: {ex.Message}");
+                log?.Invoke(
+                    $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(source)} failed: "
+                    + $"{ex.GetType().Name}");
             }
         }
 
@@ -845,7 +847,7 @@ public static class PackageExtractor
         if (!IsHttpSource(source))
         {
             log?.Invoke(
-                $"Skipping non-HTTP NuGet source '{source.Name}': {UrlRedaction.ForDiagnostics(source.Url)}");
+                $"Skipping non-HTTP NuGet source '{PackageSourceDisplay.ForDiagnostics(source)}': {UrlRedaction.ForDiagnostics(source.Url)}");
             return null;
         }
 
@@ -1261,7 +1263,8 @@ public static class PackageExtractor
                     NuGetCache.GetSourceKey(source.Url),
                     includePrerelease);
                 if (version is not null)
-                    log?.Invoke($"Using cached version from {source.Name}: {version}");
+                    log?.Invoke(
+                        $"Using cached version from {PackageSourceDisplay.ForDiagnostics(source)}: {version}");
             }
 
             if (version is null)
@@ -1694,6 +1697,18 @@ public static class PackageExtractor
     /// entries are ignored and the selected value is returned in canonical
     /// normalized form.
     /// </summary>
+    /// <summary>
+    /// Picks the newest acceptable version, or null when none is acceptable.
+    /// </summary>
+    /// <remarks>
+    /// With prereleases disabled the answer is the newest stable version or
+    /// nothing. It is deliberately not "the newest stable, else the newest
+    /// anything": a caller that did not ask for a prerelease is telling the
+    /// resolver which versions it is willing to bind, and a feed carrying only
+    /// <c>1.0.0-beta</c> has no answer for it. Falling back turned "no stable
+    /// release exists" into a silent prerelease selection, which is the one
+    /// outcome the flag exists to prevent.
+    /// </remarks>
     private static string? PickLatest(IEnumerable<string?> versions, bool includePrerelease)
     {
         NuGet.Versioning.NuGetVersion? latestStable = null;
@@ -1714,7 +1729,7 @@ public static class PackageExtractor
         }
         return (includePrerelease
             ? latestAny
-            : latestStable ?? latestAny)?.ToNormalizedString();
+            : latestStable)?.ToNormalizedString();
     }
 
     private static string? NormalizeCandidateVersion(string? candidate)
@@ -2342,7 +2357,8 @@ public static class PackageExtractor
                 listings = DeserializeListings(cached);
                 if (listings is not null)
                 {
-                    log?.Invoke($"Using cached version listings from {source.Name}");
+                    log?.Invoke(
+                        $"Using cached version listings from {PackageSourceDisplay.ForDiagnostics(source)}");
                     fromCache = true;
                 }
             }

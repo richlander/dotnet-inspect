@@ -1862,6 +1862,354 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(0, counting.Interactions);
     }
 
+    /// <summary>
+    /// One acquisition named twice, in two spellings: a different id casing, an
+    /// unnormalized version, and a target the first member inherits while the
+    /// second repeats it in another casing. Comparing coordinate records
+    /// rejected this as a conflict, which is the opposite of what it says.
+    /// </summary>
+    [Theory]
+    [InlineData("1.0.0", null, null)]
+    [InlineData("1.0", null, null)]
+    [InlineData("1.0.0", "NET10.0", null)]
+    [InlineData("1.0", "net10.0", null)]
+    [InlineData("1.0.0.0", "NET10.0", null)]
+    public async Task EquivalentDuplicateMembers_CollapseToOneAcquisition(
+        string secondVersion,
+        string? secondFramework,
+        string? secondRid)
+    {
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(PackageId, Version),
+                        WorkspaceMemberCoordinate.Package(
+                            PackageId.ToUpperInvariant(),
+                            secondVersion,
+                            secondFramework,
+                            secondRid),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, loaded.Group.Participants.Length);
+        Assert.Single(
+            loaded.Members
+                .Select(member => member.Realized)
+                .Distinct());
+    }
+
+    [Fact]
+    public async Task EquivalentFloatingDuplicates_CollapseToOneAcquisition()
+    {
+        byte[] nupkg = LibraryPackage();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new ListingHandler(nupkg, listedVersion: "1.5.0"));
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(PackageId),
+                        WorkspaceMemberCoordinate.Package(
+                            PackageId.ToUpperInvariant(),
+                            version: null,
+                            framework: "NET10.0"),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, loaded.Group.Participants.Length);
+        Assert.Single(
+            loaded.Members.Select(member => member.Realized).Distinct());
+    }
+
+    /// <summary>
+    /// The close negatives: coordinates that name genuinely different
+    /// acquisitions of one subject still cannot both be realized.
+    /// </summary>
+    [Theory]
+    [InlineData("2.0.0", null)]
+    [InlineData(null, null)]
+    [InlineData("1.0.0", "net8.0")]
+    public async Task DifferentAcquisitionsOfOneSubject_CreateNoGroup(
+        string? secondVersion,
+        string? secondFramework)
+    {
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+        var counting = new CountingPackageStore(store);
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(PackageId, Version),
+                        WorkspaceMemberCoordinate.Package(
+                            PackageId,
+                            secondVersion,
+                            secondFramework),
+                    ],
+                },
+                Options(client, counting),
+                TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(Failed(outcome).Failures);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.Equal(0, counting.Interactions);
+    }
+
+    [Fact]
+    public async Task RealizedDuplicatesFromDifferentProducers_CreateNoGroup()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Package(
+                        PackageId,
+                        Version,
+                        Producer(FeedA),
+                        Framework,
+                        runtimeIdentifier: null),
+                    new RealizedMemberCoordinate.Package(
+                        PackageId,
+                        Version,
+                        Producer(FeedB),
+                        Framework,
+                        runtimeIdentifier: null),
+                ],
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task EmbeddedDuplicatesWithDifferentDigests_CreateNoGroup()
+    {
+        byte[] embedded = File.ReadAllBytes(EmbeddedPath);
+        var provider = new StubEmbeddedContent(embedded);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        EmbeddedMember(embedded),
+                        WorkspaceMemberCoordinate.Embedded(
+                            "bundle/lookalike.dll",
+                            Digest(File.ReadAllBytes(TargetPath)),
+                            Path.GetFileNameWithoutExtension(EmbeddedPath)),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore(), provider),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, provider.OpenCount);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    /// <summary>
+    /// Two images can carry one identity without either coordinate being
+    /// duplicated. The binding policy answers such a group with
+    /// <c>Multiple</c> for every in-context reference, so the context is not
+    /// loadable and no group is created.
+    /// </summary>
+    [Fact]
+    public async Task DuplicateAssemblyIdentityInOnePackage_CreatesNoGroup()
+    {
+        byte[] target = File.ReadAllBytes(TargetPath);
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/{Framework}/{Path.GetFileName(TargetPath)}", target),
+                ($"lib/{Framework}/copies/{Path.GetFileName(TargetPath)}", target)));
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(Failed(outcome).Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.ConflictingAssemblyIdentity,
+            failure.Kind);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.DoesNotContain(
+            Path.GetFileNameWithoutExtension(TargetPath),
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DuplicateAssemblyIdentityAcrossProducers_CreatesNoGroup()
+    {
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, "alpha.package", Version, TargetPackage());
+        handler.Serve(FeedB, "bravo.package", Version, TargetPackage());
+        using var client = new HttpClient(handler);
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package("alpha.package", Version),
+                        WorkspaceMemberCoordinate.Package("bravo.package", Version),
+                    ],
+                },
+                Options(
+                    client,
+                    new InMemoryPackageStore(),
+                    sourceAuthorization: new PerPackageAuthorization
+                    {
+                        ["alpha.package"] = [FeedA],
+                        ["bravo.package"] = [FeedB],
+                    }),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.ConflictingAssemblyIdentity,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    /// <summary>
+    /// The close positive: two versions of one library are two identities and
+    /// coexist, and an exact reference binds to one descriptor.
+    /// </summary>
+    [Fact]
+    public async Task DistinctAssemblyVersions_LoadAndBindExactly()
+    {
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath)),
+                ($"lib/{Framework}/v2/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetV2Path))));
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, loaded.Group.Participants.Length);
+        Assert.Equal(
+            [IdentityVersion(TargetPath), IdentityVersion(TargetV2Path)],
+            loaded.Group.Participants
+                .Select(participant => participant.Assembly.Identity.Version)
+                .Order());
+
+        AssemblyContextParticipant first = loaded.Group.Participants[0];
+        foreach (AssemblyContextParticipant participant
+            in loaded.Group.Participants)
+        {
+            AssemblyBindingSelection selection = first.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(first.Assembly),
+                    AssemblyResolutionScope.Any));
+            Assert.Same(
+                participant.Assembly,
+                Assert.IsType<AssemblyBindingSelection.Selected>(selection)
+                    .Assembly);
+        }
+    }
+
+    /// <summary>
+    /// A hostile asset folder whose framework text carries a non-ASCII sign
+    /// parsed as a negative version and threw out of the loader, after the
+    /// package had been committed. It is now an ordinary unusable folder.
+    /// </summary>
+    [Fact]
+    public async Task PackageWithASignBearingFrameworkFolder_IsTypedUnavailable()
+    {
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/netstandard\u22121.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath)),
+                ($"lib/net-1.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageAssetUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
     [Fact]
     public void RealizedCoordinate_IsCanonicalAndStructurallyEquatable()
     {

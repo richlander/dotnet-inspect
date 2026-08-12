@@ -646,6 +646,90 @@ public sealed class PackagePayloadAcquisitionTests
                 StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// An explicit <c>--source</c> that matches no configured entry is built
+    /// with its URL as its name, so every <c>{source.Name}</c> in a log line,
+    /// a failure list, or the unavailable message re-emitted the signature the
+    /// URL redaction was added to keep out of those sinks.
+    /// </summary>
+    [Fact]
+    public async Task ExplicitUrlNamedSignedSource_NeverReachesADiagnostic()
+    {
+        const string secret = "s3cr3t-signature-value";
+        string sourceUrl = $"https://primary.test/v3/index.json?x={secret}";
+        var urlNamed = new PackageSource(sourceUrl, sourceUrl);
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var handler = new ServiceIndexHandler(
+            baseAddress: $"https://primary.test/flat?x={secret}",
+            nupkgUrl:
+                $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}",
+            nupkg,
+            serviceIndexUrl: sourceUrl);
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(urlNamed),
+                new InMemoryPackageStore(),
+                log: line =>
+                {
+                    lock (logs)
+                        logs.Add(line);
+                },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Acquired>(result);
+        Assert.Contains(
+            handler.Requests,
+            url => url.Contains(secret, StringComparison.Ordinal));
+        Assert.NotEmpty(logs);
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(secret, line, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExplicitUrlNamedSignedSource_NeverReachesAFailureOrUnavailableMessage()
+    {
+        const string secret = "s3cr3t-signature-value";
+        string sourceUrl = $"https://primary.test/v3/index.json?x={secret}";
+        var urlNamed = new PackageSource(sourceUrl, sourceUrl);
+        var handler = new ServiceIndexHandler(
+            baseAddress: $"https://primary.test/flat?x={secret}",
+            nupkgUrl:
+                $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}",
+            nupkg: [],
+            payloadStatus: HttpStatusCode.InternalServerError,
+            serviceIndexUrl: sourceUrl);
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(urlNamed),
+                new InMemoryPackageStore(),
+                log: line =>
+                {
+                    lock (logs)
+                        logs.Add(line);
+                },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        // The unavailable message lists every source that failed, by name.
+        var unavailable =
+            Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.DoesNotContain(
+            secret,
+            unavailable.Message,
+            StringComparison.Ordinal);
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(secret, line, StringComparison.Ordinal));
+    }
+
     static AcquiredPackagePayload Acquired(PackagePayloadResult result)
         => Assert.IsType<PackagePayloadResult.Acquired>(result).Payload;
 
@@ -707,7 +791,8 @@ public sealed class PackagePayloadAcquisitionTests
         string baseAddress,
         string nupkgUrl,
         byte[] nupkg,
-        HttpStatusCode payloadStatus = HttpStatusCode.OK) : HttpMessageHandler
+        HttpStatusCode payloadStatus = HttpStatusCode.OK,
+        string? serviceIndexUrl = null) : HttpMessageHandler
     {
         readonly List<string> _requests = [];
 
@@ -728,7 +813,9 @@ public sealed class PackagePayloadAcquisitionTests
             lock (_requests)
                 _requests.Add(url);
 
-            if (url.Equals(Primary.Url, StringComparison.Ordinal))
+            if (url.Equals(
+                serviceIndexUrl ?? Primary.Url,
+                StringComparison.Ordinal))
             {
                 return Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.OK)

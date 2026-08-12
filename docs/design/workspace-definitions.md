@@ -963,10 +963,32 @@ resolution, acquisition, and asset-selection owners. It supplies:
   and
 - a one-acquisition-per-subject gate —
   `WorkspaceContextLoaderTests.RealizedLoad_RoundTripsAWholeContext`,
-  `DuplicateDeclaredMembers_RealizeOneGroup`, and
-  `ConflictingDuplicateMembers_CreateNoGroup`, so a context that names one
-  subject twice either collapses to one acquisition or fails typed, and never
-  produces a group whose in-context references bind to several descriptors.
+  `DuplicateDeclaredMembers_RealizeOneGroup`,
+  `EquivalentDuplicateMembers_CollapseToOneAcquisition`,
+  `EquivalentFloatingDuplicates_CollapseToOneAcquisition`,
+  `DifferentAcquisitionsOfOneSubject_CreateNoGroup`,
+  `RealizedDuplicatesFromDifferentProducers_CreateNoGroup`, and
+  `EmbeddedDuplicatesWithDifferentDigests_CreateNoGroup`, so equivalence is
+  decided by a canonical acquisition key — normalized id and version, effective
+  target, producer — rather than by coordinate spelling, and a context that
+  names one subject twice either collapses to one acquisition or fails typed;
+- a one-identity-per-group gate —
+  `WorkspaceContextLoaderTests.DuplicateAssemblyIdentityInOnePackage_CreatesNoGroup`
+  and `DuplicateAssemblyIdentityAcrossProducers_CreatesNoGroup` against their
+  close positive `DistinctAssemblyVersions_LoadAndBindExactly`, so a context
+  whose members realize two images of one assembly identity fails typed with no
+  group created, while two versions of one library coexist and bind exactly;
+- a stable-only floating gate —
+  `PackageCoordinateResolverTests.FloatingCoordinate_WithOnlyPrereleases_IsUnavailable`,
+  `FloatingCoordinate_WithMixedVersions_HonoursThePrereleaseFlag`, and
+  `ExactPrereleasePin_ResolvesWithoutTheFlag`, so a feed carrying no stable
+  release has no answer for a caller that did not ask for a prerelease; and
+- a hostile-moniker gate — `TfmResolverTests.TryGetFrameworkIdentity_RejectsEverythingOutsideTheDigitGrammar`
+  under the invariant and `sv-SE` cultures, with
+  `PackageAssetSelectorTests.Select_RejectsASignBearingFrameworkFolder` and
+  `WorkspaceContextLoaderTests.PackageWithASignBearingFrameworkFolder_IsTypedUnavailable`,
+  so an archive folder whose framework text carries a sign is an ordinary
+  unusable folder rather than an exception escaping the loader after commit.
 
 Nothing else on the list above exists yet. There is no record schema or
 serializer, no group catalog or grammar, no packet projection, no `platform`,

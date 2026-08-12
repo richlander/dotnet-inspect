@@ -218,6 +218,23 @@ public static class TfmResolver
     /// Returns false for an unrecognized or unparsable moniker rather than
     /// guessing a version for it.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Total and culture-independent by construction. A framework version is
+    /// ASCII digits and nothing else, so the digits are read here rather than
+    /// handed to a number parser: <see cref="int.TryParse(ReadOnlySpan{char}, out int)"/>
+    /// uses the ambient culture, which accepts a leading sign, surrounding
+    /// whitespace, and — under a culture whose negative sign is U+2212 — a
+    /// non-ASCII minus. An archive folder named <c>netstandard\u22121.0</c>
+    /// then parsed as version -1.0 and threw out of <see cref="Version"/>'s
+    /// constructor, after the payload it came from had already been committed.
+    /// </para>
+    /// <para>
+    /// The parser therefore accepts only <c>[0-9]+</c>, rejects an empty or
+    /// overlong run rather than overflowing, and requires a positive major and
+    /// a non-negative minor before any <see cref="Version"/> is constructed.
+    /// </para>
+    /// </remarks>
     public static bool TryGetFrameworkIdentity(
         string? tfm,
         out FrameworkIdentity identity)
@@ -253,14 +270,12 @@ public static class TfmResolver
             identity = default;
             int separator = version.IndexOf('.');
             if (separator <= 0
-                || !int.TryParse(version[..separator], out int major))
+                || !TryReadAsciiDigits(version[..separator], out int major)
+                || major <= 0
+                || !TryReadAsciiDigits(version[(separator + 1)..], out int minor))
             {
                 return false;
             }
-
-            ReadOnlySpan<char> rest = version[(separator + 1)..];
-            if (rest.Length == 0 || !int.TryParse(rest, out int minor))
-                return false;
 
             identity = new FrameworkIdentity(family, new Version(major, minor, 0));
             return true;
@@ -273,8 +288,12 @@ public static class TfmResolver
             out FrameworkIdentity identity)
         {
             identity = default;
-            if (version.Length is < 2 or > 3 || !int.TryParse(version, out int packed))
+            if (version.Length is < 2 or > 3
+                || !TryReadAsciiDigits(version, out int packed)
+                || packed < 10)
+            {
                 return false;
+            }
 
             (int major, int minor, int patch) = packed < 100
                 ? (packed / 10, packed % 10, 0)
@@ -284,6 +303,32 @@ public static class TfmResolver
                 new Version(major, minor, patch));
             return true;
         }
+    }
+
+    /// <summary>
+    /// Reads a run of ASCII digits as a non-negative number, or returns false.
+    /// </summary>
+    /// <remarks>
+    /// No sign, no whitespace, no digit separator, no non-ASCII digit, and no
+    /// culture. The length bound is what makes overflow unreachable rather than
+    /// caught: nine digits cannot exceed <see cref="int.MaxValue"/>, and no
+    /// framework version has nine.
+    /// </remarks>
+    private static bool TryReadAsciiDigits(ReadOnlySpan<char> value, out int number)
+    {
+        number = 0;
+        if (value.Length is 0 or > 9)
+            return false;
+
+        foreach (char character in value)
+        {
+            if (!char.IsAsciiDigit(character))
+                return false;
+
+            number = (number * 10) + (character - '0');
+        }
+
+        return true;
     }
 
     /// <summary>

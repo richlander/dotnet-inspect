@@ -1,3 +1,4 @@
+using System.Globalization;
 using NuGetFetch;
 using Xunit;
 
@@ -5,6 +6,96 @@ namespace NuGetFetch.Tests;
 
 public class TfmResolverTests
 {
+    // --- Framework identity parsing is total and culture-independent ---
+
+    /// <summary>
+    /// The version text in a TFM is ASCII digits. A number parser is not that
+    /// grammar: it takes the ambient culture's sign and separators, so under a
+    /// culture whose negative sign is U+2212 an archive folder named
+    /// <c>netstandard\u22121.0</c> parsed as version -1.0 and threw out of
+    /// <see cref="Version"/>'s constructor — after the package it came from had
+    /// been committed.
+    /// </summary>
+    [Theory]
+    [InlineData("netstandard-1.0")]
+    [InlineData("netstandard\u22121.0")]
+    [InlineData("netstandard+1.0")]
+    [InlineData("net-1.0")]
+    [InlineData("net\u22121.0")]
+    [InlineData("netcoreapp-1.0")]
+    [InlineData("netstandard 1.0")]
+    [InlineData("netstandard1 .0")]
+    [InlineData("netstandard1. 0")]
+    [InlineData("netstandard\u0661.\u0660")]
+    [InlineData("netstandard１.０")]
+    [InlineData("netstandard1_000.0")]
+    [InlineData("netstandard.0")]
+    [InlineData("netstandard1.")]
+    [InlineData("netstandard0.0")]
+    [InlineData("netstandard99999999999.0")]
+    [InlineData("net9999999999.0")]
+    [InlineData("net-45")]
+    [InlineData("net\u221245")]
+    [InlineData("net 45")]
+    [InlineData("net4x")]
+    [InlineData("net09")]
+    public void TryGetFrameworkIdentity_RejectsEverythingOutsideTheDigitGrammar(
+        string tfm)
+    {
+        foreach (CultureInfo culture in
+            new[] { CultureInfo.InvariantCulture, new CultureInfo("sv-SE") })
+        {
+            using var scope = new CultureScope(culture);
+
+            Assert.False(
+                TfmResolver.TryGetFrameworkIdentity(tfm, out _),
+                $"{tfm} under {culture.Name}");
+
+            // Totality: the compatibility and ranking answers built on it must
+            // not throw for the same input, in either direction.
+            _ = TfmResolver.IsFrameworkCompatible(tfm, "net10.0");
+            _ = TfmResolver.IsFrameworkCompatible("net10.0", tfm);
+            _ = TfmResolver.GetFrameworkFallbackRank(tfm, "net10.0");
+            _ = TfmResolver.GetFrameworkFallbackRank("net10.0", tfm);
+        }
+    }
+
+    [Theory]
+    [InlineData("net10.0", 10, 0, 0)]
+    [InlineData("netstandard1.0", 1, 0, 0)]
+    [InlineData("netcoreapp1.0", 1, 0, 0)]
+    [InlineData("net45", 4, 5, 0)]
+    [InlineData("net481", 4, 8, 1)]
+    public void TryGetFrameworkIdentity_KeepsLegitimateMonikersUnderAnyCulture(
+        string tfm,
+        int major,
+        int minor,
+        int build)
+    {
+        foreach (CultureInfo culture in
+            new[] { CultureInfo.InvariantCulture, new CultureInfo("sv-SE") })
+        {
+            using var scope = new CultureScope(culture);
+
+            Assert.True(
+                TfmResolver.TryGetFrameworkIdentity(
+                    tfm,
+                    out TfmResolver.FrameworkIdentity identity),
+                $"{tfm} under {culture.Name}");
+            Assert.Equal(new Version(major, minor, build), identity.Version);
+        }
+    }
+
+    sealed class CultureScope : IDisposable
+    {
+        readonly CultureInfo _previous = CultureInfo.CurrentCulture;
+
+        internal CultureScope(CultureInfo culture) =>
+            CultureInfo.CurrentCulture = culture;
+
+        public void Dispose() => CultureInfo.CurrentCulture = _previous;
+    }
+
     // --- Version-aware framework compatibility ---
 
     /// <summary>

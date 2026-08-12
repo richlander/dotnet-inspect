@@ -37,6 +37,21 @@ public sealed class PackageAssetSelectorTests
         Assert.Equal("netstandard2.0", Selected(selection).TargetFramework);
     }
 
+    /// <summary>
+    /// An asset folder whose framework text carries a sign is not a framework
+    /// this resolver recognizes, whatever the ambient culture reads it as.
+    /// </summary>
+    [Theory]
+    [InlineData("lib/netstandard\u22121.0/Sample.dll")]
+    [InlineData("lib/net-1.0/Sample.dll")]
+    [InlineData("lib/netstandard\u0661.\u0660/Sample.dll")]
+    public void Select_RejectsASignBearingFrameworkFolder(string entryPath)
+    {
+        PackageAssetSelection selection = Select("net10.0", null, entryPath);
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
     [Fact]
     public void Select_RejectsAnIncompatibleFrameworkFamily()
     {
