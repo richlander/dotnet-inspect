@@ -7,6 +7,7 @@ using ILInspector.MetadataPrimitives;
 using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -327,6 +328,37 @@ public sealed class BodyShapeCommandTests
     }
 
     [Fact]
+    public async Task PdbAcquisition_PropagatesCallerCancellation()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shape-pdb-cancellation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string runtimeAssembly = typeof(object).Assembly.Location;
+        string assemblyPath = Path.Combine(directory, Path.GetFileName(runtimeAssembly));
+        File.Copy(runtimeAssembly, assemblyPath);
+        try
+        {
+            using var httpClient = new HttpClient();
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                ApiCommand.TryAcquirePdbPathAsync(
+                    assemblyPath,
+                    new ApiOptions { AssemblyPath = assemblyPath },
+                    new VerboseLogger(enabled: false),
+                    httpClient,
+                    cancellation.Token));
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
     public async Task Command_MarkdownHonorsColumnProjection()
     {
         var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
@@ -415,5 +447,21 @@ public sealed class BodyShapeCommandTests
 
         Assert.Equal(1, unreadable.ExitCode);
         Assert.Contains("Could not find file", unreadable.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Command_CountAppliesTheRenderedRowWindow()
+    {
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            BodyShapeCommand.Execute(new BodyShapeOptions
+            {
+                Kind = "ObjectCreationExpression",
+                LibraryPath = FixturePath,
+                Rows = RowWindow.Range(2, 3),
+                Count = true
+            })));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
     }
 }

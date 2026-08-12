@@ -25,17 +25,26 @@ public static class BodyShapeCommand
             return Execute(options, cancellationToken);
         }
 
-        var context = new CommandContext(options.Verbose);
-        string? pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
-            options.LibraryPath,
-            new ApiOptions
-            {
-                AssemblyPath = options.LibraryPath,
-                Verbose = options.Verbose
-            },
-            context.Logger,
-            context.HttpClient);
-        return Execute(options with { PdbPath = pdbPath }, cancellationToken);
+        try
+        {
+            var context = new CommandContext(options.Verbose);
+            string? pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
+                options.LibraryPath,
+                new ApiOptions
+                {
+                    AssemblyPath = options.LibraryPath,
+                    Verbose = options.Verbose
+                },
+                context.Logger,
+                context.HttpClient,
+                cancellationToken);
+            return Execute(options with { PdbPath = pdbPath }, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            CommandError.Write("Body-shape search was cancelled.");
+            return 1;
+        }
     }
 
     public static int Execute(BodyShapeOptions options, CancellationToken cancellationToken = default)
@@ -96,7 +105,10 @@ public static class BodyShapeCommand
 
             if (options.Count)
             {
-                CountOutput.WriteCount(result.Matches.Count);
+                var countedMatches = options.Rows is { } rows
+                    ? rows.Apply(result.Matches)
+                    : result.Matches;
+                CountOutput.WriteCount(countedMatches.Count);
             }
             else if (options.JsonOutput)
             {
