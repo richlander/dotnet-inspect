@@ -263,7 +263,8 @@ public static class TypeCommand
                             return 1;
                     }
 
-                    ApiCommand.WriteConstraintResolutionDiagnostics(api);
+                    int selectedSurfaceExitCode =
+                        ApiCommand.WriteSelectedSurfaceDiagnostics(api);
                     if (tabularProjection)
                     {
                         // Capture output so we can warn when a requested column produced no data
@@ -327,6 +328,9 @@ public static class TypeCommand
 
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }
+
+                    if (selectedSurfaceExitCode != 0)
+                        return selectedSurfaceExitCode;
                 }
                 else if (options.EffectiveDiscovery)
                 {

@@ -383,7 +383,8 @@ public static class MemberCommand
                     return 1;
             }
 
-            ApiCommand.WriteConstraintResolutionDiagnostics(api);
+            int selectedSurfaceExitCode =
+                ApiCommand.WriteSelectedSurfaceDiagnostics(api);
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
@@ -424,7 +425,7 @@ public static class MemberCommand
                 Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
             }
 
-            return 0;
+            return selectedSurfaceExitCode;
         }
         catch (Exception ex)
         {

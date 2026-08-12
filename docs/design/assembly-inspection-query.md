@@ -318,6 +318,11 @@ with explicit bounded worklists rather than process recursion.
 use across TypeSpec handles, while
 `NestedTypeSpecificationDepthBoundaryUsesBoundedStack` gates both sides of the structural
 depth limit for one signature blob before SRM's recursive decoder runs.
+When a same-image constructed-base walk terminates at an external base, the terminal
+definition owns the dependency evidence; both successful authentication and a selected
+dependency failure survive the intermediate TypeDef hops
+(`SameImageConstructedBaseHopPreservesTerminalKindDependency` and
+`SameImageConstructedBaseHopPreservesTerminalFailure`).
 Cross-handle TypeSpec traversal distinguishes active nodes from completed nodes, so cycles
 fail closed while shared acyclic dependencies remain valid;
 `CyclicTypeSpecificationBaseFailsClosed` and
@@ -363,7 +368,9 @@ to the target image rather than appearing to address a row in the facade
 (`ApiServices_PreservesForwardedConstraintFailures`). Type listings, selected types, and
 selected members present these failures consistently as nonfatal constraint-classification
 diagnostics rather than rejected metadata rows
-(`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). An extraction lease keeps retained
+(`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). True rejected-row
+failures remain visible and fatal even when a selected type or member is successfully rendered
+(`RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open

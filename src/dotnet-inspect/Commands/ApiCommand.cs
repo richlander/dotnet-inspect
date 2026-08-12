@@ -800,7 +800,11 @@ public class ApiCommand
 
     internal static bool HasRejectedMetadataRows(
         ApiSurface api) =>
-        api.InspectionFailures.Any(
+        CountRejectedMetadataRows(api) > 0;
+
+    internal static int CountRejectedMetadataRows(
+        ApiSurface api) =>
+        api.InspectionFailures.Count(
             static failure =>
                 failure.Operation
                     != ApiSurfaceInspectionFailure
@@ -831,6 +835,20 @@ public class ApiCommand
         }
     }
 
+    internal static int WriteSelectedSurfaceDiagnostics(
+        ApiSurface api)
+    {
+        WriteConstraintResolutionDiagnostics(api);
+        int rejectedRows = CountRejectedMetadataRows(api);
+        if (rejectedRows == 0)
+            return 0;
+
+        CommandError.WriteWarning(
+            $"API inspection rejected {rejectedRows} metadata row(s); "
+            + "selected output excludes failure details.");
+        return 1;
+    }
+
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
@@ -856,12 +874,7 @@ public class ApiCommand
             && !options.Count;
         if (!failureDetailsRendered)
         {
-            int rejectedRows =
-                api.InspectionFailures.Count(
-                    static failure =>
-                        failure.Operation
-                            != ApiSurfaceInspectionFailure
-                                .GenericParameterConstraintResolutionOperation);
+            int rejectedRows = CountRejectedMetadataRows(api);
             if (rejectedRows > 0)
             {
                 CommandError.WriteWarning(

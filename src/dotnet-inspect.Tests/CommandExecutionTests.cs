@@ -317,6 +317,72 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, bytes);
     }
 
+    private static void WritePartiallyMalformedTypeNameAssembly(
+        string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("PartiallyMalformed"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Good"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Broken"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int brokenTypeNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+            + (2 * reader.GetTableRowSize(TableIndex.TypeDef))
+            + sizeof(uint);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(
+                brokenTypeNameOffset,
+                sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
+    }
+
     private static void WriteOverflowingMetadataStreamCountAssembly(
         string sourcePath,
         string destinationPath)
@@ -9724,6 +9790,70 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "Generic-constraint classification",
                 selectedMember.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"selected-row-failure-{Guid.NewGuid():N}.dll");
+        WritePartiallyMalformedTypeNameAssembly(path);
+        try
+        {
+            string[][] typeOutputOptions =
+            [
+                [],
+                ["--json"],
+                ["--table"],
+                ["-S", "Type Info", "--count"],
+            ];
+            string[][] memberOutputOptions =
+            [
+                [],
+                ["--json"],
+                ["--table"],
+                ["-S", "Member Index", "--count"],
+            ];
+            for (int i = 0; i < typeOutputOptions.Length; i++)
+            {
+                var selectedType = await RunAppAsync(
+                    [
+                        "type",
+                        "N.Good",
+                        "--library",
+                        path,
+                        "--tips",
+                        "q",
+                        .. typeOutputOptions[i],
+                    ]);
+                var selectedMember = await RunAppAsync(
+                    [
+                        "member",
+                        "N.Good",
+                        "--library",
+                        path,
+                        "--tips",
+                        "q",
+                        .. memberOutputOptions[i],
+                    ]);
+
+                Assert.Equal(1, selectedType.Exit);
+                Assert.Contains(
+                    "rejected 1 metadata row",
+                    selectedType.Error,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Equal(1, selectedMember.Exit);
+                Assert.Contains(
+                    "rejected 1 metadata row",
+                    selectedMember.Error,
+                    StringComparison.OrdinalIgnoreCase);
+            }
         }
         finally
         {

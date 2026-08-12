@@ -644,6 +644,75 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void SameImageConstructedBaseHopPreservesTerminalKindDependency()
+    {
+        byte[] dependencyImage =
+            BuildGenericType("Dependency", "Base`1");
+        byte[] middleImage =
+            BuildSameImageConstructedBaseHop();
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Middle",
+                "Outer`1",
+                constructed: true);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference middle = Descriptor(middleImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(middle, dependency));
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
+    public void SameImageConstructedBaseHopPreservesTerminalFailure()
+    {
+        byte[] dependencyImage =
+            BuildGenericType("Dependency", "Base`1");
+        byte[] middleImage =
+            BuildSameImageConstructedBaseHop();
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Middle",
+                "Outer`1",
+                constructed: true);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference middle = Descriptor(middleImage);
+        ResolvedAssemblyReference dependency =
+            UnreadableDescriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(middle, dependency));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+        Assert.Contains(
+            "dependency could not be opened",
+            Assert.Single(surface.InspectionFailures).Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TransitiveDependencyOpenFailurePreservesResolvedIdentity()
     {
         byte[] dependencyImage =
@@ -1020,6 +1089,32 @@ public class ConstraintResolutionHardeningTests
             genericDefinition: false,
             "Dependency",
             "Base`1");
+
+    static byte[] BuildSameImageConstructedBaseHop()
+    {
+        MetadataBuilder metadata = NewMetadata("Middle");
+        AssemblyReferenceHandle dependency =
+            AddReference(metadata, "Dependency");
+        TypeReferenceHandle terminal =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+        TypeDefinitionHandle inner =
+            AddType(
+                metadata,
+                "Inner`1",
+                AddConstructedClass(metadata, terminal));
+        AddGenericParameter(metadata, inner);
+        TypeDefinitionHandle outer =
+            AddType(
+                metadata,
+                "Outer`1",
+                AddConstructedClass(metadata, inner));
+        AddGenericParameter(metadata, outer);
+        return Serialize(metadata);
+    }
 
     static byte[] BuildTypeWithExternalConstructedBase(
         string assemblyName,

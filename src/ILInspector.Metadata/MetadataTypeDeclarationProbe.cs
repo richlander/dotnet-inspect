@@ -477,7 +477,8 @@ public static class MetadataTypeDeclarationProbe
                 ClassifyDefinitionKind(
                     reader,
                     handle,
-                    declaringAssemblyDefinesCoreLibraryRoot);
+                    declaringAssemblyDefinesCoreLibraryRoot,
+                    out TypeDefinitionHandle dependencyOwner);
             bool hasValidGenericParameters =
                 TryGetGenericParameterCount(
                     reader,
@@ -496,7 +497,7 @@ public static class MetadataTypeDeclarationProbe
                     && kind == MetadataTypeDefinitionKind.Unknown
                     ? ReadDefinitionKindDependency(
                         reader,
-                        handle,
+                        dependencyOwner,
                         referenceProjection)
                     : null);
         }
@@ -536,13 +537,26 @@ public static class MetadataTypeDeclarationProbe
     internal static MetadataTypeDefinitionKind ClassifyDefinitionKind(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        bool declaringAssemblyDefinesCoreLibraryRoot)
+        bool declaringAssemblyDefinesCoreLibraryRoot) =>
+        ClassifyDefinitionKind(
+            reader,
+            handle,
+            declaringAssemblyDefinesCoreLibraryRoot,
+            out _);
+
+    static MetadataTypeDefinitionKind ClassifyDefinitionKind(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        out TypeDefinitionHandle dependencyOwner)
     {
         var visited = new HashSet<TypeDefinitionHandle>();
         TypeDefinitionHandle current = handle;
+        dependencyOwner = handle;
         bool requiresClass = false;
         while (true)
         {
+            dependencyOwner = current;
             if (visited.Count
                     >= MetadataSafetyPolicy.MaxRelationshipNodes
                 || !visited.Add(current))
