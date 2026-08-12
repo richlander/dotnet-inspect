@@ -4,7 +4,6 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
-using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -139,7 +138,7 @@ public sealed class PackageIntegrationsWorkspaceTests
 
             var observed = await workspace.UseAssemblyAsync(
                 first,
-                (retained, integrations) =>
+                (retained, integrations, _) =>
                 {
                     Assert.NotNull(retained);
                     AssemblyIntegrationsEntry.Available available =
@@ -189,51 +188,79 @@ public sealed class PackageIntegrationsWorkspaceTests
     public void OpportunityOnlyDemand_RequiresGroupedIntegrations()
     {
         HashSet<InspectionQueryDefinition> queries =
-            [AssemblyContextIntegrationsQuery.Definition];
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
         Assert.True(
             Commands.PackageCommand.RequiresGroupedIntegrations(
-                queries));
+                queries,
+                out bool includeIntegrationOpportunities));
+        Assert.True(includeIntegrationOpportunities);
         Assert.Empty(queries);
     }
 
     [Fact]
-    public void IntegrationFailure_SuppressesOpportunities()
+    public async Task OpportunityDemand_UsesTheStreamingParticipantSnapshot()
+    {
+        string path = typeof(Npgsql.NpgsqlConnection).Assembly.Location;
+        using var workspace = PackageIntegrationsWorkspace.Create(
+            [new(path, "net11.0")],
+            "Test.Package",
+            "1.0.0",
+            includeIntegrationOpportunities: true);
+
+        await workspace.UseAssemblyAsync(
+            path,
+            (retained, integrations, opportunities) =>
+            {
+                Assert.NotNull(retained);
+                var availableIntegrations = Assert.IsType<
+                    AssemblyIntegrationsEntry.Available>(
+                        integrations);
+                var available = Assert.IsType<
+                    AssemblyIntegrationOpportunitiesEntry.Available>(
+                        opportunities);
+                Assert.Same(
+                    availableIntegrations.Subject.Registration,
+                    available.Subject.Registration);
+                Assert.Contains(
+                    available.Opportunities,
+                    opportunity =>
+                        opportunity.Integration
+                        == EcosystemIntegrationNames.HealthChecks);
+                Assert.True(workspace.RetainedImageBytes > 0);
+                return Task.FromResult(true);
+            });
+
+        Assert.Equal(0, workspace.RetainedImageBytes);
+    }
+
+    [Fact]
+    public async Task IntegrationRejection_SuppressesOpportunities()
     {
         string path =
             typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        var subject = new FindingSubject(
-            path,
-            Path.GetFileName(path));
-        var model = new LibraryInspection
-        {
-            EcosystemIntegrationInspection =
-                new FindingInspection<
-                    EcosystemIntegrationSignalInfo>.Failed(
-                    new InspectionError(
-                        subject,
-                        MetadataFindings.EcosystemIntegrationDescriptor,
-                        "failed")),
-            OpenTelemetryInspection =
-                new FindingInspection<OpenTelemetrySignalInfo>.Failed(
-                    new InspectionError(
-                        subject,
-                        MetadataFindings.OpenTelemetrySignalDescriptor,
-                        "failed")),
-            IntegrationOpportunities =
-            [
-                new("Logging", "AddLogging", "API", "package"),
-            ],
-        };
+        using var workspace = PackageIntegrationsWorkspace.Create(
+            [new(path, "net11.0")],
+            PackageIntegrationAcquisition.Remote(
+                "Test.Package",
+                "1.0.0"),
+            maxRetainedImageBytes: 1,
+            includeIntegrationOpportunities: true);
 
-        using var session = AssemblyInspectionSession.Open(path);
-        LibraryMetadataService.ScanIntegrationOpportunities(
-            session,
+        await workspace.UseAssemblyAsync(
             path,
-            model,
-            new VerboseLogger(enabled: false));
-
-        Assert.Null(model.IntegrationOpportunities);
+            (_, integrations, opportunities) =>
+            {
+                var rejected = Assert.IsType<
+                    AssemblyIntegrationsEntry.Rejected>(integrations);
+                var opportunityRejected = Assert.IsType<
+                    AssemblyIntegrationOpportunitiesEntry.Rejected>(
+                        opportunities);
+                Assert.Equal(
+                    rejected.Failure,
+                    opportunityRejected.Failure);
+                return Task.FromResult(true);
+            });
     }
 
     [Fact]
@@ -248,7 +275,7 @@ public sealed class PackageIntegrationsWorkspaceTests
         AssemblyIntegrationsEntry entry =
             await workspace.UseAssemblyAsync(
                 path,
-                static (_, integrations) =>
+                static (_, integrations, _) =>
                     Task.FromResult(integrations!));
         var model = new LibraryInspection();
         var logger = new VerboseLogger(enabled: false);
@@ -280,7 +307,7 @@ public sealed class PackageIntegrationsWorkspaceTests
 
         await workspace.UseAssemblyAsync(
             first,
-            (retained, _) =>
+            (retained, _, _) =>
             {
                 Assert.NotNull(retained);
                 Assert.True(workspace.RetainedImageBytes > 0);
@@ -290,7 +317,7 @@ public sealed class PackageIntegrationsWorkspaceTests
 
         await workspace.UseAssemblyAsync(
             second,
-            (retained, _) =>
+            (retained, _, _) =>
             {
                 Assert.NotNull(retained);
                 Assert.True(workspace.RetainedImageBytes > 0);
@@ -374,7 +401,7 @@ public sealed class PackageIntegrationsWorkspaceTests
         LibraryInspection? inspection =
             await workspace.UseAssemblyAsync(
                 path,
-                async (retained, integrations) =>
+                async (retained, integrations, _) =>
                 {
                     var available = Assert.IsType<
                         AssemblyIntegrationsEntry.Available>(
@@ -428,7 +455,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 path,
                 "ref/net11.0/Test.dll",
                 failures,
-                (_, _) =>
+                (_, _, _) =>
                 {
                     inspectionCount++;
                     return Task.FromResult<LibraryInspection?>(new());
@@ -476,7 +503,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                         path,
                         "ref/net11.0/Locked.dll",
                         failures,
-                        (_, _) =>
+                        (_, _, _) =>
                         {
                             inspectionCount++;
                             return Task.FromResult<

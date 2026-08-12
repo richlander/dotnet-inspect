@@ -26,20 +26,20 @@ public sealed record FindingComparison<T> where T : notnull
 
     public FindingInspection<T> OldInspection => this switch
     {
-        Complete complete => complete.OldInspection,
-        Failed failed => failed.OldInspection,
+        Complete => ((Complete)Value).OldInspection,
+        Failed => ((Failed)Value).OldInspection,
     };
 
     public FindingInspection<T> NewInspection => this switch
     {
-        Complete complete => complete.NewInspection,
-        Failed failed => failed.NewInspection,
+        Complete => ((Complete)Value).NewInspection,
+        Failed => ((Failed)Value).NewInspection,
     };
 
     public string? Failure => this switch
     {
         Complete => null,
-        Failed failed => failed.Failure,
+        Failed => ((Failed)Value).Failure,
     };
 
     public bool IsExact => this is Complete { IsExact: true };
@@ -54,7 +54,7 @@ public sealed record FindingComparison<T> where T : notnull
         ArgumentNullException.ThrowIfNull(transform);
         var complete = this switch
         {
-            Complete value => value,
+            Complete => (Complete)Value,
             Failed => null,
         };
         if (complete is null)
@@ -156,9 +156,9 @@ public sealed record FindingComparison<T> where T : notnull
             get
             {
                 var failures = new List<string>(2);
-                if (OldInspection is FindingInspection<T>.Failed oldFailed)
+                if (OldInspection.Value is FindingInspection<T>.Failed oldFailed)
                     failures.Add($"old: {oldFailed.Error.Reason}");
-                if (NewInspection is FindingInspection<T>.Failed newFailed)
+                if (NewInspection.Value is FindingInspection<T>.Failed newFailed)
                     failures.Add($"new: {newFailed.Error.Reason}");
                 return string.Join("; ", failures);
             }
@@ -249,7 +249,8 @@ public static class FindingComparison
         where T : notnull
         => inspection switch
         {
-            FindingInspection<T>.Complete complete => complete.Findings,
+            FindingInspection<T>.Complete
+                => ((FindingInspection<T>.Complete)inspection.Value!).Findings,
             FindingInspection<T>.Absent => [],
             FindingInspection<T>.Failed => throw new InvalidOperationException(
                 "A failed inspection cannot be matched."),
