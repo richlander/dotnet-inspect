@@ -103,6 +103,31 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void ResourcesQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(LibraryInspection).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+
+        LibraryMetadataService.ApplyResourcesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            ResourcesQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.ResourceInspection.Findings(),
+            finding => finding.Payload.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        var row = Assert.Single(
+            inspection.Resources!,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+
+        Assert.Same(MetadataFindings.ResourceDescriptor, finding.Descriptor);
+        Assert.True(finding.Payload.IsEmbedded);
+        Assert.True(row.Size > 0);
+    }
+
+    [Fact]
     public void LibraryJson_ProjectsFindingPayloadsWithExistingShape()
     {
         AssemblyAttributeInfo[] attributes =
@@ -201,7 +226,6 @@ public class LibraryFindingConsumerTests
         var logger = new VerboseLogger(enabled: false);
         var inspection = new LibraryInspection
         {
-            ResourceInspection = LibraryMetadataService.ScanResources(missingPath, logger),
             UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(missingPath, logger),
             SwitchInspection = LibraryMetadataService.ScanSwitches(missingPath, logger),
         };
@@ -219,6 +243,12 @@ public class LibraryFindingConsumerTests
             logger,
             new CustomAttributesResult.Failed(
                 new FileNotFoundException("Custom attribute input was not found.", missingPath)));
+        LibraryMetadataService.ApplyResourcesResult(
+            missingPath,
+            inspection,
+            logger,
+            new ResourcesResult.Failed(
+                new FileNotFoundException("Resource input was not found.", missingPath)));
         inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
