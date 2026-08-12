@@ -370,7 +370,7 @@ substrate atom or a control-flow helper first.
 `ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOverCoreLib` gates the
 overlap between those models. It runs the real pipeline to the pre-switch
 boundary, compares `StructuringFlowFacts` explicit transfers with `Cfg.Build`,
-and compares switch raising's private successor view with `Cfg.Build` wherever
+and compares switch raising's internal successor view with `Cfg.Build` wherever
 switch raising accepts the block. An independent terminator projection checks
 `Cfg.Build`'s implicit fall-through multiplicity and method/region-exit
 classification, including switch default edges, `EndFinally`, and successor
