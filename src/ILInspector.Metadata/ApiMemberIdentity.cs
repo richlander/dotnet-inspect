@@ -312,19 +312,13 @@ public static class ApiMemberIdentity
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind)
-            => Encoded(
-                TypeResolver.GetFullName(
-                    reader,
-                    reader.GetTypeDefinition(handle)).Replace('+', '.'));
+            => Encoded(FormatDefinitionTypeName(reader, handle));
 
         public AnchorSignatureType GetTypeFromReference(
             MetadataReader reader,
             TypeReferenceHandle handle,
             byte rawTypeKind)
-            => Encoded(
-                TypeResolver.GetTypeNameFromReference(
-                    reader,
-                    handle).Replace('+', '.'));
+            => Encoded(FormatReferenceTypeName(reader, handle));
 
         public AnchorSignatureType GetTypeFromSpecification(
             MetadataReader reader,
@@ -401,6 +395,103 @@ public static class ApiMemberIdentity
             AnchorSignatureType unmodifiedType,
             bool isRequired)
             => unmodifiedType;
+
+        static string FormatDefinitionTypeName(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0
+                || !terminal.IsNil)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid declaring-type chain.");
+            }
+
+            var builder = new StringBuilder();
+            var outer = reader.GetTypeDefinition(chain[0]);
+            AppendSignatureTypeName(
+                builder,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    outer.Namespace));
+            for (int i = 0; i < consumed; i++)
+            {
+                if (builder.Length > 0)
+                    AppendSignatureTypeName(builder, ".");
+                AppendSignatureTypeName(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetTypeDefinition(chain[i]).Name));
+            }
+            return builder.ToString();
+        }
+
+        static string FormatReferenceTypeName(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out _,
+                    out var rejection)
+                || consumed == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid resolution-scope chain.");
+            }
+
+            var builder = new StringBuilder();
+            var outer = reader.GetTypeReference(chain[0]);
+            AppendSignatureTypeName(
+                builder,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    outer.Namespace));
+            for (int i = 0; i < consumed; i++)
+            {
+                if (builder.Length > 0)
+                    AppendSignatureTypeName(builder, ".");
+                AppendSignatureTypeName(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetTypeReference(chain[i]).Name));
+            }
+            return builder.ToString();
+        }
+
+        static void AppendSignatureTypeName(
+            StringBuilder builder,
+            string value)
+        {
+            if (builder.Length
+                > MetadataSafetyPolicy.MaxStructuralSignatureChars
+                    - value.Length)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor signature exceeds the encoded-character budget.");
+            }
+            builder.Append(value);
+        }
 
         static AnchorSignatureType Encoded(string text)
             => new EncodedAnchorSignatureType(text);
@@ -607,7 +698,10 @@ public static class ApiMemberIdentity
             propertySignature.ReturnType,
             markerSignature.ParameterTypes,
             propertySignature.ParameterTypes);
-        string propertyName = reader.GetString(property.Name);
+        string propertyName =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                property.Name);
         string typeFullName = FormatDefinitionName(reader, extensionClassHandle);
         string extendedType = markerSignature.ParameterTypes[0].Render();
         ImmutableArray<string> propertyParameterTypes =
@@ -634,7 +728,10 @@ public static class ApiMemberIdentity
         bool isExtensionMethod)
     {
         var type = reader.GetTypeDefinition(typeHandle);
-        string methodName = reader.GetString(method.Name);
+        string methodName =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                method.Name);
         GenericContext context =
             GenericContext.ForMethod(reader, type, method);
         var decoded = GuardedProviderDecode.MethodResult(
@@ -761,8 +858,10 @@ public static class ApiMemberIdentity
         }
 
         var builder = new StringBuilder();
-        string @namespace = reader.GetString(
-            reader.GetTypeDefinition(chain[0]).Namespace);
+        string @namespace =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                reader.GetTypeDefinition(chain[0]).Namespace);
         if (!string.IsNullOrEmpty(@namespace))
         {
             AppendAnchorName(builder, @namespace);
@@ -775,7 +874,10 @@ public static class ApiMemberIdentity
                 AppendAnchorName(builder, ".");
 
             var type = reader.GetTypeDefinition(chain[i]);
-            string name = reader.GetString(type.Name);
+            string name =
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    type.Name);
             int tick = name.IndexOf('`');
             AppendAnchorName(
                 builder,
@@ -794,7 +896,8 @@ public static class ApiMemberIdentity
                     AppendAnchorName(builder, ",");
                 AppendAnchorName(
                     builder,
-                    reader.GetString(
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
                         reader.GetGenericParameter(parameter).Name));
             }
             AppendAnchorName(builder, ">");

@@ -247,6 +247,60 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void Resolve_OversizedMethodNameRejectsBeforeLargeAllocation()
+    {
+        byte[] image = BuildOversizedMethodNameImage(
+            8 * 1024 * 1024);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("metadata string", result.Failure);
+        Assert.True(
+            allocated < 2 * 1024 * 1024,
+            $"Oversized method-name rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Resolve_OversizedAnchorTypeNameRejectsBeforeLargeAllocation()
+    {
+        byte[] image = BuildOversizedTypeReferenceNameImage(
+            8 * 1024 * 1024);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("metadata string", result.Failure);
+        Assert.True(
+            allocated < 2 * 1024 * 1024,
+            $"Oversized anchor type-name rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -727,6 +781,54 @@ public sealed class MethodCorrespondenceResolverTests
             assembly,
             metadata.GetOrAddString("Dependency"),
             metadata.GetOrAddString("Token"));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger((1 << 2) | 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildOversizedMethodNameImage(int nameLength)
+    {
+        var metadata = CreateSingleTypeMetadata(
+            "OversizedMethodName");
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(new string('M', nameLength)),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildOversizedTypeReferenceNameImage(int nameLength)
+    {
+        var metadata = CreateSingleTypeMetadata(
+            "OversizedTypeReferenceName");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Dependency"),
+            metadata.GetOrAddString(
+                new string('T', nameLength)));
         var signature = new BlobBuilder();
         signature.WriteByte(0x00);
         signature.WriteCompressedInteger(1);

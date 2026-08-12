@@ -45,6 +45,33 @@ public static class MetadataSafetyPolicy
     /// relationship chain.
     /// </summary>
     public const int MaxRelationshipNodes = 256;
+
+    /// <summary>
+    /// Decodes one metadata string only after its UTF-8 storage is within the
+    /// structural-signature ceiling. Projected virtual strings may be materialized
+    /// by SRM while their storage length is obtained, but remain subject to the
+    /// same decoded-length ceiling. Gated by
+    /// <c>Resolve_OversizedMethodNameRejectsBeforeLargeAllocation</c>.
+    /// </summary>
+    public static string ReadStructuralString(
+        MetadataReader reader,
+        StringHandle handle)
+    {
+        if (reader.GetBlobReader(handle).Length
+            > MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The metadata string exceeds the structural-signature budget.");
+        }
+
+        string value = reader.GetString(handle);
+        if (value.Length > MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The metadata string exceeds the structural-signature budget.");
+        }
+        return value;
+    }
 }
 
 /// <summary>Bounded iterative walks over SRM metadata relationships.</summary>

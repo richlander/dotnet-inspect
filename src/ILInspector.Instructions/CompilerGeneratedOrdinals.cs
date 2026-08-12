@@ -338,11 +338,28 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             Dictionary<MethodDefinitionHandle, string> resolvedMethods)
         {
             var named = new Dictionary<FieldDefinitionHandle, string>();
+            var siblingNames =
+                new Dictionary<MethodDefinitionHandle, string>();
             foreach (var (fieldHandle, sibling) in index.FieldSiblings)
             {
-                string siblingName = resolvedMethods.TryGetValue(sibling, out var elided)
-                    ? elided
-                    : reader.GetString(reader.GetMethodDefinition(sibling).Name);
+                if (!siblingNames.TryGetValue(
+                        sibling,
+                        out string? composedName))
+                {
+                    string siblingName =
+                        resolvedMethods.TryGetValue(
+                            sibling,
+                            out var elided)
+                            ? elided
+                            : MetadataSafetyPolicy.ReadStructuralString(
+                                reader,
+                                reader.GetMethodDefinition(sibling).Name);
+                    composedName =
+                        LambdaCacheFieldPrefix
+                        + CacheFieldNameSeparator
+                        + siblingName;
+                    siblingNames.Add(sibling, composedName);
+                }
 
                 // CacheFieldNameSeparator, not bare concatenation, and for the reason spelled out on
                 // OrdinalPlaceholder: this string is substituted into the compared operand
@@ -361,8 +378,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 // forged name is written against NUL. The unspellability itself is
                 // CacheFieldNameSeparatorCannotBeSpelledByAMetadataName, which drives its assertion
                 // from the constant and so fails for any spellable value.
-                named[fieldHandle] =
-                    LambdaCacheFieldPrefix + CacheFieldNameSeparator + siblingName;
+                named[fieldHandle] = composedName;
             }
 
             return named;
@@ -717,7 +733,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
             string DecodeName(StringHandle handle)
             {
-                string name = reader.GetString(handle);
+                string name =
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        handle);
                 workBudget.Charge(name.Length);
                 return name;
             }
@@ -1024,18 +1043,31 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     if (member.Parent.Kind != HandleKind.TypeReference)
                         return false;
                     var typeRef = reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                    return Matches(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+                    return Matches(
+                        reader,
+                        typeRef.Namespace,
+                        typeRef.Name);
                 case HandleKind.MethodDefinition:
                     var ctor = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
                     var typeDef = reader.GetTypeDefinition(ctor.GetDeclaringType());
-                    return Matches(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+                    return Matches(
+                        reader,
+                        typeDef.Namespace,
+                        typeDef.Name);
                 default:
                     return false;
             }
 
-            static bool Matches(string ns, string name)
-                => name == "CompilerGeneratedAttribute"
-                    && ns == "System.Runtime.CompilerServices";
+            static bool Matches(
+                MetadataReader reader,
+                StringHandle namespaceHandle,
+                StringHandle nameHandle)
+                => reader.StringComparer.Equals(
+                        nameHandle,
+                        "CompilerGeneratedAttribute")
+                    && reader.StringComparer.Equals(
+                        namespaceHandle,
+                        "System.Runtime.CompilerServices");
         }
     }
 }

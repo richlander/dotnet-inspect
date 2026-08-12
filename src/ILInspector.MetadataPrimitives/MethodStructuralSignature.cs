@@ -79,7 +79,11 @@ public static class TypeStructuralSignature
         }
 
         var outer = reader.GetTypeDefinition(chain[0]);
-        string @namespace = reader.GetString(outer.Namespace);
+        string @namespace =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                outer.Namespace);
+        workBudget.Charge(@namespace.Length);
         StructuralTypeKey? parent = null;
         for (int i = 0; i < consumed; i++)
         {
@@ -95,7 +99,9 @@ public static class TypeStructuralSignature
                 string name = typeNameOverrides is not null
                     && typeNameOverrides.TryGetValue(chain[i], out var replacement)
                         ? replacement
-                        : reader.GetString(segment.Name);
+                        : MetadataSafetyPolicy.ReadStructuralString(
+                            reader,
+                            segment.Name);
                 var segmentBuilder = new StringBuilder();
                 StructuralSignatureKey.AppendPart(segmentBuilder, name);
                 StructuralSignatureKey.AppendGenericParameters(
@@ -466,7 +472,10 @@ public sealed class StructuralSignatureBuilder
         {
             _workBudget.EnsureAvailable();
             string resolvedMethodName =
-                methodName ?? _reader.GetString(method.Name);
+                methodName
+                    ?? MetadataSafetyPolicy.ReadStructuralString(
+                        _reader,
+                        method.Name);
             _workBudget.Charge(resolvedMethodName.Length);
             string genericParameters =
                 StructuralSignatureKey.EncodeGenericParameters(
@@ -706,9 +715,15 @@ static class StructuralSignatureKey
                 var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)scope);
                 AppendAssembly(
                     builder,
-                    reader.GetString(assembly.Name),
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        assembly.Name),
                     assembly.Version,
-                    assembly.Culture.IsNil ? "" : reader.GetString(assembly.Culture),
+                    assembly.Culture.IsNil
+                        ? ""
+                        : MetadataSafetyPolicy.ReadStructuralString(
+                            reader,
+                            assembly.Culture),
                     ReadAssemblyKey(reader, assembly.PublicKeyOrToken),
                     (int)assembly.Flags);
                 break;
@@ -716,12 +731,18 @@ static class StructuralSignatureKey
                 builder.Append('r');
                 AppendPart(
                     builder,
-                    reader.GetString(
-                        reader.GetModuleReference((ModuleReferenceHandle)scope).Name));
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetModuleReference(
+                            (ModuleReferenceHandle)scope).Name));
                 break;
             case HandleKind.ModuleDefinition:
                 builder.Append('m');
-                AppendPart(builder, reader.GetString(reader.GetModuleDefinition().Name));
+                AppendPart(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetModuleDefinition().Name));
                 break;
             default:
                 if (!scope.IsNil)
@@ -1326,7 +1347,11 @@ static class StructuralTypeName
 
         var builder = new StringBuilder("D");
         var outer = reader.GetTypeDefinition(chain[0]);
-        StructuralSignatureKey.AppendPart(builder, reader.GetString(outer.Namespace));
+        StructuralSignatureKey.AppendPart(
+            builder,
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                outer.Namespace));
         StructuralSignatureKey.AppendNumber(builder, consumed);
         for (int i = 0; i < consumed; i++)
         {
@@ -1334,7 +1359,9 @@ static class StructuralTypeName
             string name = typeNameOverrides is not null
                 && typeNameOverrides.TryGetValue(chain[i], out var replacement)
                     ? replacement
-                    : reader.GetString(definition.Name);
+                    : MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        definition.Name);
             StructuralSignatureKey.AppendPart(builder, name);
         }
         return builder.ToString();
@@ -1364,13 +1391,19 @@ static class StructuralTypeName
             builder,
             StructuralSignatureKey.ReferenceScope(reader, terminal));
         var outer = reader.GetTypeReference(chain[0]);
-        StructuralSignatureKey.AppendPart(builder, reader.GetString(outer.Namespace));
+        StructuralSignatureKey.AppendPart(
+            builder,
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                outer.Namespace));
         StructuralSignatureKey.AppendNumber(builder, consumed);
         for (int i = 0; i < consumed; i++)
         {
             StructuralSignatureKey.AppendPart(
                 builder,
-                reader.GetString(reader.GetTypeReference(chain[i]).Name));
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetTypeReference(chain[i]).Name));
         }
         return builder.ToString();
     }
