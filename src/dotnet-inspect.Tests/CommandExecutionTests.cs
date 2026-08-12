@@ -6664,7 +6664,10 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
-        Assert.False(document.RootElement.TryGetProperty("results", out _));
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        var firstResult = document.RootElement.EnumerateArray().First();
+        Assert.True(firstResult.TryGetProperty("type", out _));
+        Assert.False(firstResult.TryGetProperty("results", out _));
     }
 
     [Theory]
@@ -10203,8 +10206,14 @@ public partial class CommandExecutionTests
             "find", ".Serialize", "--platform", "System.Text.Json", "--json");
 
         Assert.Equal(0, exit);
-        Assert.Contains("\"member\":\"Serialize\"", output);
-        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            element =>
+                element.GetProperty("member").GetString() == "Serialize"
+                && element.GetProperty("declaring_type").GetString()
+                    == "System.Text.Json.JsonSerializer");
     }
 
     [Fact]

@@ -68,17 +68,20 @@ public class FindCommand
             else if (options.JsonOutput)
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
-                // naming one opts into the lowered display view; plain --json keeps the
-                // pre-lowered typed document (#3494). This combination used to fail closed
-                // (#3386) only because the lowered JSON view did not exist yet.
+                // naming one opts into the lowered display view; plain --json keeps the typed
+                // result document (#3494). This combination used to fail closed (#3386) only
+                // because the lowered JSON view did not exist yet.
                 if (IsColumnProjectionRequested(options))
                 {
                     WriteProjectedJson(results, title, options);
                 }
                 else
                 {
-                    var writer = new FindJsonWriter();
-                    writer.Write(results, new WriterOptions(), Console.Out);
+                    JsonOutputHelper.Write(
+                        results,
+                        TypeFindResultJsonContext.Default.ListTypeFindResult,
+                        TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
+                        options.CompactJson);
                 }
             }
             else
@@ -130,8 +133,11 @@ public class FindCommand
             }
             else
             {
-                var writer = new MemberFindJsonWriter();
-                writer.Write(results, new WriterOptions(), Console.Out);
+                JsonOutputHelper.Write(
+                    results,
+                    MemberFindResultJsonContext.Default.ListMemberFindResult,
+                    MemberFindResultCompactJsonContext.Default.ListMemberFindResult,
+                    options.CompactJson);
             }
         }
         else
