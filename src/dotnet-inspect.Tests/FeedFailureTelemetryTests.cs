@@ -248,7 +248,7 @@ public class FeedFailureTelemetryTests
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal(
-            "//private.example/F/auth/REDACTED/api?access_token=REDACTED",
+            "//private.example/F/auth/REDACTED/api?REDACTED",
             failure.Url.ToString());
     }
 
@@ -265,7 +265,7 @@ public class FeedFailureTelemetryTests
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal(
-            "https://[invalid.example/F/auth/REDACTED/api?access_token=REDACTED",
+            "<unparsable-url>?REDACTED",
             failure.Url.ToString());
     }
 
@@ -286,7 +286,7 @@ public class FeedFailureTelemetryTests
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.DoesNotContain(Secret, failure.Url.ToString(), StringComparison.Ordinal);
         Assert.Equal(
-            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            "https:///F/feed/auth/REDACTED/api?REDACTED",
             failure.Url.ToString());
     }
 

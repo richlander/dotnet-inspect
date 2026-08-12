@@ -78,6 +78,23 @@ public class UrlRedactionTests
         Assert.Equal("https://feed.test/flat/a.nupkg", redacted);
     }
 
+    [Theory]
+    [InlineData("//user:{0}@feed.test/F/auth/{0}/api?x={0}",
+        "//feed.test/F/auth/REDACTED/api?REDACTED")]
+    [InlineData("\\/user:{0}@feed.test/F/auth/{0}/api?x={0}",
+        "\\/feed.test/F/auth/REDACTED/api?REDACTED")]
+    public void ForDiagnostics_DropsUserInfoFromNetworkPathReferences(
+        string template,
+        string expected)
+    {
+        string redacted = UrlRedaction
+            .ForDiagnostics(string.Format(template, Secret))
+            .ToString();
+
+        Assert.Equal(expected, redacted);
+        Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ForDiagnostics_KeepsTheKnownPathTokenRule()
     {
@@ -87,6 +104,20 @@ public class UrlRedactionTests
 
         Assert.Equal(
             "https://host.test/F/feed/auth/REDACTED/api/v3/index.json",
+            redacted);
+        Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ForDiagnostics_RedactsConsecutivePathTokens()
+    {
+        string redacted = UrlRedaction
+            .ForDiagnostics(
+                $"https://host.test/F/auth/auth/{Secret}/api/v3/index.json")
+            .ToString();
+
+        Assert.Equal(
+            "https://host.test/F/auth/REDACTED/REDACTED/api/v3/index.json",
             redacted);
         Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
     }

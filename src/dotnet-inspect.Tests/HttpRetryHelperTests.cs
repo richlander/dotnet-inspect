@@ -236,7 +236,7 @@ public class HttpRetryHelperTests
             message.Contains("(not retryable)", StringComparison.Ordinal));
         Assert.DoesNotContain(Secret, branchLog, StringComparison.Ordinal);
         Assert.Contains(
-            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            "https:///F/feed/auth/REDACTED/api?REDACTED",
             branchLog,
             StringComparison.Ordinal);
     }

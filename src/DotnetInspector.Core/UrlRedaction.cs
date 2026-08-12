@@ -1,3 +1,4 @@
+using System.Text;
 using InertText;
 
 namespace DotnetInspector.Core;
@@ -89,6 +90,8 @@ public static class UrlRedaction
             Uri.TryCreate(locator, UriKind.Absolute, out Uri? absolute)
                 && IsHttpScheme(absolute)
                 ? RenderAuthorityAndPath(absolute)
+                : TryRedactNetworkPath(locator, out string networkPath)
+                    ? networkPath
                 : NamesAnAuthority(locator)
                     ? UnparsableMarker
                     : RedactPath(locator);
@@ -182,6 +185,48 @@ public static class UrlRedaction
         return true;
     }
 
+    private static bool TryRedactNetworkPath(
+        string locator,
+        out string redacted)
+    {
+        int start = 0;
+        while (start < locator.Length
+            && locator[start] is ' ' or '\t' or '\r' or '\n')
+        {
+            start++;
+        }
+
+        if (start + 1 >= locator.Length
+            || !IsPathSeparator(locator[start])
+            || !IsPathSeparator(locator[start + 1]))
+        {
+            redacted = "";
+            return false;
+        }
+
+        int authorityStart = start + 2;
+        int authorityEnd =
+            locator.IndexOfAny(['/', '\\'], authorityStart);
+        if (authorityEnd < 0)
+            authorityEnd = locator.Length;
+
+        int authorityLength = authorityEnd - authorityStart;
+        int userInfoEnd = authorityLength > 0
+            ? locator.LastIndexOf('@', authorityEnd - 1, authorityLength)
+            : -1;
+        if (userInfoEnd >= authorityStart)
+        {
+            locator = string.Concat(
+                locator.AsSpan(0, authorityStart),
+                locator.AsSpan(userInfoEnd + 1));
+        }
+
+        redacted = RedactPath(locator);
+        return true;
+    }
+
+    private static bool IsPathSeparator(char value) => value is '/' or '\\';
+
     /// <summary>
     /// Splits text at the first <c>?</c> or <c>#</c>, reporting whether a
     /// non-empty query was present. The fragment is dropped outright: it is
@@ -226,7 +271,19 @@ public static class UrlRedaction
         };
 
         builder.Path = RedactPath(builder.Path);
-        return builder.Uri.ToString();
+        try
+        {
+            return builder.Uri.ToString();
+        }
+        catch (UriFormatException)
+        {
+            // HttpClient can carry an effective URI whose malformed host
+            // cannot be reconstructed. UriBuilder still exposes the already
+            // separated components, so render those after redaction rather
+            // than reparsing the original text or replacing the request
+            // failure with a diagnostic failure.
+            return builder.ToString();
+        }
     }
 
     // Some feeds carry the credential in the path rather than the query. MyGet publishes
@@ -239,16 +296,28 @@ public static class UrlRedaction
         if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
             return path;
 
-        var segments = path.Split('/');
-        for (var i = 1; i < segments.Length; i++)
+        var builder = new StringBuilder(path.Length);
+        int segmentStart = 0;
+        bool previousWasAuth = false;
+        bool changed = false;
+        for (int index = 0; index <= path.Length; index++)
         {
-            if (segments[i].Length > 0
-                && segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase))
-            {
-                segments[i] = "REDACTED";
-            }
+            if (index < path.Length && !IsPathSeparator(path[index]))
+                continue;
+
+            ReadOnlySpan<char> segment =
+                path.AsSpan(segmentStart, index - segmentStart);
+            bool redact = segment.Length > 0 && previousWasAuth;
+            builder.Append(redact ? "REDACTED" : segment);
+            if (index < path.Length)
+                builder.Append(path[index]);
+
+            changed |= redact;
+            previousWasAuth =
+                segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
+            segmentStart = index + 1;
         }
 
-        return string.Join('/', segments);
+        return changed ? builder.ToString() : path;
     }
 }
