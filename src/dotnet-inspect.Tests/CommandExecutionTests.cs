@@ -6768,11 +6768,18 @@ public partial class CommandExecutionTests
     {
         // Boundary: the row-oriented formats keep honoring column projection. Only document
         // --json is rejected.
-        var (exit, _, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+        var (exit, output, error) = await RunAppAsync(
+            "find", "ILSampleClass", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        foreach (var line in lines)
+        {
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        }
     }
 
     [Fact]
@@ -10337,8 +10344,14 @@ public partial class CommandExecutionTests
             "find", ".Serialize", "--platform", "System.Text.Json", "--json");
 
         Assert.Equal(0, exit);
-        Assert.Contains("\"member\":\"Serialize\"", output);
-        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            element =>
+                element.GetProperty("member").GetString() == "Serialize"
+                && element.GetProperty("declaring_type").GetString()
+                    == "System.Text.Json.JsonSerializer");
     }
 
     [Fact]
