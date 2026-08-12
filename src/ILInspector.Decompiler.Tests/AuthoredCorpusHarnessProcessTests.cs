@@ -262,6 +262,107 @@ public class AuthoredCorpusHarnessProcessTests
         }
     }
 
+    [Theory]
+    [InlineData("\"start\": 0, ", "", "start")]
+    [InlineData("\"start\": 0, \"length\": 7", "\"start\": 0", "length")]
+    public void Harness_RejectsMissingStructuralSpanField(
+        string oldValue,
+        string newValue,
+        string expected)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(oldValue, newValue, StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(expected, run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsMissingStructuralFactField()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"facts\": []",
+                """
+                "facts": [
+                  {
+                    "id": 0,
+                    "descriptor": "test",
+                    "category": "Semantics",
+                    "conditionality": "Always",
+                    "detail": null,
+                    "source_offset": -1
+                  }
+                ]
+                """,
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("origin", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsMissingStructuralTargetField()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"facts\": []",
+                """
+                "facts": [
+                  {
+                    "id": 0,
+                    "descriptor": "test",
+                    "category": "Semantics",
+                    "conditionality": "Always",
+                    "detail": null,
+                    "source_offset": -1,
+                    "origin": "Body"
+                  }
+                ]
+                """,
+                StringComparison.Ordinal)
+            .Replace("\"targets\": []", "\"targets\": [ { \"fact_id\": 0 } ]", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("node_id", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     /// <summary>
     /// Every mode that dispatches before a gate must refuse rather than run instead of
     /// it. One representative earlier mode per gate is enough here: which modes precede

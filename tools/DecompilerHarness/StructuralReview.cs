@@ -13,8 +13,10 @@ internal static class StructuralReview
     {
         try
         {
+            string json = File.ReadAllText(path);
+            ValidateRequiredValueTypeProperties(json);
             var input = JsonSerializer.Deserialize(
-                File.ReadAllText(path),
+                json,
                 StructuralReviewJsonContext.Default.CSharpStructuralComparisonInput)
                 ?? throw new JsonException("Structural comparison input is null.");
             var comparison = CSharpBodyDiff.CompareStructure(input);
@@ -30,6 +32,92 @@ internal static class StructuralReview
             Console.Error.WriteLine(CSharpText.CSharpIdentifier.ContainRenderedText(
                 $"Error: Could not render structural review '{path}': {ex.Message}"));
             return 1;
+        }
+    }
+
+    static void ValidateRequiredValueTypeProperties(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            return;
+
+        ValidateDocument(document.RootElement, "before");
+        ValidateDocument(document.RootElement, "after");
+    }
+
+    static void ValidateDocument(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var document)
+            || document.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        ValidateSpans(document, "nodes");
+        ValidateSpans(document, "regions");
+        ValidateObjectArray(
+            document,
+            "facts",
+            "id",
+            "descriptor",
+            "category",
+            "conditionality",
+            "detail",
+            "source_offset",
+            "origin");
+        ValidateObjectArray(document, "targets", "fact_id", "node_id");
+    }
+
+    static void ValidateSpans(JsonElement document, string propertyName)
+    {
+        if (!document.TryGetProperty(propertyName, out var owners)
+            || owners.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var owner in owners.EnumerateArray())
+        {
+            if (owner.ValueKind != JsonValueKind.Object
+                || !owner.TryGetProperty("spans", out var spans)
+                || spans.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var span in spans.EnumerateArray())
+                RequireProperties(span, "start", "length");
+        }
+    }
+
+    static void ValidateObjectArray(
+        JsonElement document,
+        string propertyName,
+        params string[] requiredProperties)
+    {
+        if (!document.TryGetProperty(propertyName, out var values)
+            || values.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var value in values.EnumerateArray())
+            RequireProperties(value, requiredProperties);
+    }
+
+    static void RequireProperties(JsonElement value, params string[] requiredProperties)
+    {
+        if (value.ValueKind != JsonValueKind.Object)
+            return;
+
+        string[] missing =
+        [
+            .. requiredProperties.Where(propertyName => !value.TryGetProperty(propertyName, out _))
+        ];
+        if (missing.Length > 0)
+        {
+            throw new JsonException(
+                $"JSON object is missing required properties: {string.Join(", ", missing)}.");
         }
     }
 
