@@ -262,6 +262,211 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void FocusCyclesAreShortestThenStableEdgeRowOrder()
+    {
+        MemberRef focus = Member("A", "A");
+        var projection = CallGraphProjection.FromCallees(
+            Node(
+                focus,
+                CallTreeStatus.Expanded,
+                [
+                    Node(
+                        Member("B", "B"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(focus, CallTreeStatus.AlreadyShown)]),
+                    Leaf(focus, CallTreeStatus.AlreadyShown),
+                    Node(
+                        Member("E", "E"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(focus, CallTreeStatus.AlreadyShown)]),
+                    Node(
+                        Member("C", "C"),
+                        CallTreeStatus.Expanded,
+                        [
+                            Node(
+                                Member("D", "D"),
+                                CallTreeStatus.Expanded,
+                                [Leaf(focus, CallTreeStatus.AlreadyShown)]),
+                        ]),
+                ]));
+
+        CallGraphCycleSearchResult result =
+            projection.FindFocusCycles();
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(
+            [[3], [1, 2], [4, 5], [6, 7, 8]],
+            result.Witnesses.Select(witness =>
+                witness.EdgeRows.ToArray()));
+        Assert.True(result.Witnesses[0].IsDirect);
+        Assert.False(result.Witnesses[1].IsDirect);
+    }
+
+    [Fact]
+    public void FocusCycleSearchReportsIndependentCostLimits()
+    {
+        MemberRef focus = Member("A", "A");
+        var projection = CallGraphProjection.FromCallees(
+            Node(
+                focus,
+                CallTreeStatus.Expanded,
+                [
+                    Node(
+                        Member("B", "B"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(focus, CallTreeStatus.AlreadyShown)]),
+                    Leaf(focus, CallTreeStatus.AlreadyShown),
+                ]));
+
+        CallGraphCycleSearchResult witnessLimited =
+            projection.FindFocusCycles(
+                new CallGraphCycleSearchOptions
+                {
+                    MaxWitnesses = 1,
+                });
+        CallGraphCycleSearchResult pathLimited =
+            projection.FindFocusCycles(
+                new CallGraphCycleSearchOptions
+                {
+                    MaxPaths = 1,
+                });
+
+        Assert.Single(witnessLimited.Witnesses);
+        Assert.Equal(
+            CallGraphCycleSearchLimit.WitnessBudget,
+            witnessLimited.Limits);
+        Assert.Single(pathLimited.Witnesses);
+        Assert.Equal([3], pathLimited.Witnesses[0].EdgeRows);
+        Assert.Equal(
+            CallGraphCycleSearchLimit.PathBudget,
+            pathLimited.Limits);
+    }
+
+    [Fact]
+    public void ExhaustedTraversalProducesACompleteEmptyCycleCensus()
+    {
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Leaf(Member("A", "A")));
+
+        CallGraphCycleSearchResult result =
+            projection.FindFocusCycles();
+
+        Assert.True(result.IsComplete);
+        Assert.Empty(result.Witnesses);
+        Assert.False(
+            projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void FocusCycleSearchDoesNotRepeatNodesWithinAWitness()
+    {
+        MemberRef focus = Member("A", "A");
+        MemberRef b = Member("B", "B");
+        MemberRef c = Member("C", "C");
+        var projection = CallGraphProjection.FromCallees(
+            Node(
+                focus,
+                CallTreeStatus.Expanded,
+                [
+                    Node(
+                        b,
+                        CallTreeStatus.Expanded,
+                        [
+                            Node(
+                                c,
+                                CallTreeStatus.Expanded,
+                                [
+                                    Leaf(
+                                        b,
+                                        CallTreeStatus.AlreadyShown),
+                                    Leaf(
+                                        focus,
+                                        CallTreeStatus.AlreadyShown),
+                                ]),
+                        ]),
+                ]));
+
+        CallGraphCycleWitness witness =
+            Assert.Single(
+                projection.FindFocusCycles().Witnesses);
+
+        Assert.Equal([1, 2, 4], witness.EdgeRows);
+    }
+
+    [Fact]
+    public void CycleCompletenessCollapsesBoundariesWithinOneDirection()
+    {
+        MemberRef shared = Member("Shared", "Work");
+        CallGraphProjection complete =
+            CallGraphProjection.FromCallees(
+                Node(
+                    Member("A", "A"),
+                    CallTreeStatus.Expanded,
+                    [
+                        Node(
+                            Member("B", "B"),
+                            CallTreeStatus.Expanded,
+                            [
+                                Leaf(
+                                    shared,
+                                    CallTreeStatus.DepthLimited),
+                            ]),
+                        Leaf(
+                            shared,
+                            CallTreeStatus.Expanded),
+                    ]));
+        CallGraphProjection incomplete =
+            CallGraphProjection.FromCallees(
+                Node(
+                    Member("A", "A"),
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(
+                            shared,
+                            CallTreeStatus.DepthLimited),
+                    ]));
+
+        Assert.False(
+            complete.HasUnexploredTraversalBoundary);
+        Assert.True(
+            incomplete.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void OneCompleteDirectionProvesFocusCycleCompleteness()
+    {
+        MemberRef focus = Member("A", "A");
+        CallTreeNode completeCaller =
+            Leaf(focus);
+        CallTreeNode boundedCallee =
+            Node(
+                focus,
+                CallTreeStatus.Expanded,
+                [
+                    Leaf(
+                        Member("B", "B"),
+                        CallTreeStatus.DepthLimited),
+                ]);
+        CallTreeNode boundedCaller =
+            Leaf(focus, CallTreeStatus.DepthLimited);
+
+        CallGraphProjection oneComplete =
+            CallGraphProjection.Create(
+                completeCaller,
+                boundedCallee);
+        CallGraphProjection bothBounded =
+            CallGraphProjection.Create(
+                boundedCaller,
+                boundedCallee);
+
+        Assert.False(
+            oneComplete.HasUnexploredTraversalBoundary);
+        Assert.True(
+            bothBounded.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
     public void GenericSelfRecursionCollapsesOntoTheFocusNode()
     {
         // The root is built as an open definition while the recursive callee edge is a

@@ -125,12 +125,17 @@ public enum CallGraphRowMatch
 /// appear in first-seen order.
 /// </para>
 /// </summary>
-public sealed class CallGraphProjection
+public sealed partial class CallGraphProjection
 {
-    private CallGraphProjection(ImmutableArray<CallGraphNode> nodes, ImmutableArray<CallGraphEdge> edges)
+    private CallGraphProjection(
+        ImmutableArray<CallGraphNode> nodes,
+        ImmutableArray<CallGraphEdge> edges,
+        bool hasUnexploredTraversalBoundary)
     {
         Nodes = nodes;
         Edges = edges;
+        HasUnexploredTraversalBoundary =
+            hasUnexploredTraversalBoundary;
 
         var rows = ImmutableArray.CreateBuilder<CallGraphRow>(edges.Length);
         for (var i = 0; i < edges.Length; i++)
@@ -152,6 +157,13 @@ public sealed class CallGraphProjection
 
     /// <summary>The number of edge rows in this projection.</summary>
     public int RowCount => Rows.Length;
+
+    /// <summary>
+    /// Whether every supplied traversal direction stopped at an unresolved
+    /// external, depth, or node boundary. One exhaustive direction is enough
+    /// to prove the absence of a cycle containing the focus.
+    /// </summary>
+    public bool HasUnexploredTraversalBoundary { get; }
 
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];
@@ -268,7 +280,15 @@ public sealed class CallGraphProjection
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
             builder.WalkCallees(calleeRoot, focusId);
-        return builder.Build();
+        bool hasUnexploredTraversalBoundary =
+            !IsTraversalComplete(
+                callerRoot,
+                useGraphEvidence)
+            && !IsTraversalComplete(
+                calleeRoot,
+                useGraphEvidence);
+        return builder.Build(
+            hasUnexploredTraversalBoundary);
     }
 
     /// <summary>Projects the inbound (caller) half only, centered on the selected overload.</summary>
@@ -358,7 +378,8 @@ public sealed class CallGraphProjection
             }
         }
 
-        public CallGraphProjection Build()
+        public CallGraphProjection Build(
+            bool hasUnexploredTraversalBoundary)
         {
             var nodes = ImmutableArray.CreateBuilder<CallGraphNode>(_nodes.Count);
             foreach (var node in _nodes)
@@ -372,7 +393,10 @@ public sealed class CallGraphProjection
                         node.Perf,
                         [.. node.GraphEvidence]));
             }
-            return new CallGraphProjection(nodes.MoveToImmutable(), [.. _edges]);
+            return new CallGraphProjection(
+                nodes.MoveToImmutable(),
+                [.. _edges],
+                hasUnexploredTraversalBoundary);
         }
 
         private int GetOrAdd(
@@ -459,6 +483,37 @@ public sealed class CallGraphProjection
         }
 
         return true;
+    }
+
+    static bool IsTraversalComplete(
+        CallTreeNode? root,
+        bool useGraphEvidence)
+    {
+        if (root is null)
+            return false;
+
+        var completeByIdentity =
+            new Dictionary<GraphNodeIdentity, bool>();
+        Add(root);
+        return completeByIdentity.Values.All(
+            static complete => complete);
+
+        void Add(CallTreeNode node)
+        {
+            GraphNodeIdentity identity =
+                Identity(node, useGraphEvidence);
+            bool complete = node.Status
+                is CallTreeStatus.Expanded
+                or CallTreeStatus.Leaf
+                or CallTreeStatus.AlreadyShown;
+            completeByIdentity.TryGetValue(
+                identity,
+                out bool alreadyComplete);
+            completeByIdentity[identity] =
+                alreadyComplete || complete;
+            foreach (CallTreeNode child in node.Children)
+                Add(child);
+        }
     }
 
     /// <summary>Compact, host-neutral member spelling offered as a default node label.</summary>

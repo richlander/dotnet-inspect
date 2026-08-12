@@ -107,6 +107,15 @@ The projection owns everything a host must not re-invent in JavaScript:
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
+  `FindFocusCycles` derives simple cycles that start and end at the selected
+  member from those existing rows; it never reopens an image or rebuilds a
+  traversal. Witnesses are ordered shortest first and then by stable edge-row
+  sequence. `MaxWitnesses` bounds retained results and `MaxPaths` bounds the
+  breadth-first search itself, so dense projections cannot turn witness
+  discovery into unbounded path enumeration. `FocusCyclesAreShortestThenStableEdgeRowOrder`,
+  `FocusCycleSearchReportsIndependentCostLimits`, and
+  `FocusCycleSearchDoesNotRepeatNodesWithinAWitness` gate those properties,
+  including the equal-length ordering tie-break.
 - **Boundary and external classification.** `External` callees carry
   `CallGraphNodeKind.External`; `DepthLimited` / `Truncated` nodes carry
   `Truncated`, meaning "more beyond here". An occurrence expanded elsewhere
@@ -114,6 +123,15 @@ The projection owns everything a host must not re-invent in JavaScript:
   misclassified as a dead end. How a host *shows* those kinds is the host's
   choice — the CLI groups external nodes and suffixes their labels; the browser
   styles them with a CSS class.
+- **Directional traversal completeness.**
+  `HasUnexploredTraversalBoundary` is separate from the merged display kind.
+  Caller expansion measures incoming edges and cannot satisfy a missing callee
+  expansion (or vice versa). Within each direction, an expanded occurrence
+  satisfies boundary duplicates of the same typed graph identity. A cycle
+  containing the focus is exhaustively discoverable when either the forward or
+  reverse traversal is complete; otherwise absence remains bounded.
+  `CycleCompletenessCollapsesBoundariesWithinOneDirection` gates duplicate
+  collapsing without conflating the two directions.
 - **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
   outbound, `loop call` inbound), read from the child node's loop flag.
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source
@@ -246,10 +264,35 @@ projection and the supplied relationship facts; omission under a
 Caller-only views are rejected because they contain no outbound topology to
 which body-local call sites could map.
 
+The overlay also carries an `AnnotatedCallGraphCycleInspection`. Each observed
+focus cycle is a `Finding<CallGraphCycleWitness>` whose payload is the ordered
+stable edge-row path. Its `FindingKey` comes from the typed member-identity path,
+not those projection-local row numbers, so an unrelated earlier edge does not
+rename the observation; `CycleFindingIdentityDoesNotDependOnEdgeRowNumbers`
+gates that separation. Operation completeness remains separate from the durable
+Finding: `TraversalBoundary`, `IncompleteCorrespondence`, `WitnessBudget`, and
+`PathBudget` are independent flags. A positive cycle therefore remains valid
+when unrelated work was bounded, while an empty bounded census means only "not
+observed in this tier and budget," never "not recursive." The projection retains
+directional traversal completeness separately from display node kinds, so a
+depth-limited occurrence does not make the census incomplete when that same
+logical node was expanded elsewhere in the same direction.
+`CycleFindingSurvivesUnrelatedGraphAndCorrespondenceLimits` and
+`AnnotatedMemberDocument_HonorsACalleeNodeBudget` gate the positive and empty
+bounded cases.
+
 The query declares no graph or Analysis acquisition.
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test
 gates graph-session reuse by asserting unchanged session build/source-open
 counts and the two-occurrences/one-edge shape.
+`AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls` extends that
+gate to the cycle projection: two physical recursive calls retain two source
+occurrences, share one logical edge, produce one cycle Finding, and leave the
+session build/source-open counts unchanged.
+`AnnotatedMemberDocument_ReportsAMutualCycleAtTheCallerTier` proves the same
+composition over a compiler-produced two-method cycle without another target
+index or source open. `ExhaustedTraversalProducesACompleteEmptyCycleCensus`
+gates the only empty result that supports an absence claim.
 `Registry_UnionsProducerAnalysisRequirementsBeforeAcquisition` pins the
 call-only Research profile to `ResearchFactRequirements.None`, and
 `RequirementsNone_DoesNotResolveAnAssemblyContext` is the non-vacuity gate that
