@@ -378,7 +378,10 @@ override that configuration for one invocation. The original
 `dotnet_inspect_style_readable_local_names = false` spelling remains accepted
 for compatibility. The same config file
 (discovered by walking up from the working directory) selects other class-3
-spellings using `.editorconfig` key names. `--taste` requests the whole
+spellings using `.editorconfig` key names. Named enum labels that share one
+switch body are alphabetical by default; set
+`dotnet_inspect_style_enum_case_label_order = value` to retain recovered numeric
+order. `--taste` requests the whole
 oracle-endorsed set for one invocation without a config file. `Annotated Source`
 names the applied spellings in a trailing comment on the member signature, and
 drops its interleaved IL for any member a byte-divergent lens actually rewrote.

@@ -1,13 +1,19 @@
 namespace ILInspector.Decompiler.Pipeline;
 
+/// <summary>Ordering for named enum labels that share one switch-section body.</summary>
+public enum EnumCaseLabelOrder
+{
+    /// <summary>Keep the recovered numeric/value order.</summary>
+    Value,
+
+    /// <summary>Sort by ordinal enum member name.</summary>
+    Alphabetical,
+}
+
 /// <summary>
 /// Opt-in render knobs for <see cref="CSharpPrinter"/>. Every field defaults to
-/// the shipped behavior, so <see cref="Default"/> reproduces today's output
-/// byte-for-byte — the fidelity gate, <c>--skip-pdb</c> deterministic reading,
-/// and annotated-IL alignment all depend on that. This is the single home for
-/// render-quality options (readable names today; declaration placement and other
-/// knobs as the #998 row grows), keeping them off the printer's positional
-/// signature.
+/// the shipped behavior. This is the single home for render-quality options,
+/// keeping them off the printer's positional signature.
 /// </summary>
 public sealed record PrinterOptions
 {
@@ -96,6 +102,15 @@ public sealed record PrinterOptions
     /// <c>dotnet_style_qualification_for_event</c>.
     /// </summary>
     public bool QualifyEventAccess { get; init; }
+
+    /// <summary>
+    /// Named enum labels that already share one switch-section body render in
+    /// ordinal member-name order by default. The compiler erases their authored
+    /// order, and reordering labels within one body has no control-flow or IL
+    /// consequence. Sections containing an unnamed or non-enum label retain
+    /// recovered value order.
+    /// </summary>
+    public EnumCaseLabelOrder EnumCaseLabelOrder { get; init; } = EnumCaseLabelOrder.Alphabetical;
 
     /// <summary>
     /// When set, a local declaration whose declared type is a C# built-in
@@ -200,6 +215,6 @@ public sealed record PrinterOptions
     /// </summary>
     public bool PreferLongLiteralSuffix { get; init; }
 
-    /// <summary>The shipped defaults — every knob off.</summary>
+    /// <summary>The shipped rendering defaults.</summary>
     public static PrinterOptions Default { get; } = new();
 }

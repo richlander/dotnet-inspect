@@ -437,6 +437,7 @@ public sealed partial class CSharpPrinter
             QualifyPropertyAccess = _options.QualifyPropertyAccess,
             QualifyMethodAccess = _options.QualifyMethodAccess,
             QualifyEventAccess = _options.QualifyEventAccess,
+            EnumCaseLabelOrder = _options.EnumCaseLabelOrder,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null, string? dedupDiscriminator = null)
@@ -2497,7 +2498,7 @@ public sealed partial class CSharpPrinter
                 // pattern guard could, in principle, contain a lambda).
                 _statementIndent = indent;
                 int caseStart = -1;
-                foreach (var label in section.Labels)
+                foreach (var label in SwitchLabelsForRendering(section, labelEnum))
                 {
                     sb.Append(labelPad);
                     if (caseStart < 0)
@@ -6014,6 +6015,42 @@ public sealed partial class CSharpPrinter
     /// </summary>
     TypeRef? SwitchLabelEnumType(IrExpression value)
         => SwitchTypeFacts.EnumType(_function, value);
+
+    IReadOnlyList<Constant> SwitchLabelsForRendering(SwitchSection section, TypeRef? enumType)
+    {
+        if (_options.EnumCaseLabelOrder != EnumCaseLabelOrder.Alphabetical
+            || enumType is null
+            || section.Labels.Length < 2
+            || !_function.EnumMembers.TryGetValue(enumType, out var members))
+        {
+            return section.Labels;
+        }
+
+        var named = new List<(Constant Label, string Name)>(section.Labels.Length);
+        foreach (var label in section.Labels)
+        {
+            if (label.Value is not (int or long))
+                return section.Labels;
+            long value = label.Value is int i ? i : (long)label.Value;
+            if (!members.TryGetValue(value, out var name))
+                return section.Labels;
+            named.Add((label, name));
+        }
+
+        var ordered = named.OrderBy(item => item.Name, StringComparer.Ordinal).ToArray();
+        if (named.Select(item => item.Label).SequenceEqual(ordered.Select(item => item.Label)))
+            return section.Labels;
+
+        AddDecision(
+            "enum-case-label-order",
+            DecompilerDecisionCategories.Taste,
+            _function.Name,
+            $"Sorted {named.Count} named enum labels sharing one switch body by ordinal member name.",
+            oldValue: "value",
+            newValue: "alphabetical",
+            dedupDiscriminator: string.Join("\0", named.Select(item => item.Name)));
+        return ordered.Select(item => item.Label).ToArray();
+    }
 
     /// <summary>
     /// Renders a <c>switch</c> case label. When the governing expression is an
