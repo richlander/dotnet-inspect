@@ -64,7 +64,14 @@ public sealed class CSharpConstructorInitializer
 
 public sealed record CSharpBlockBody(
     string Source,
-    CSharpConstructorInitializer? ConstructorInitializer = null) : CSharpMemberBody;
+    CSharpConstructorInitializer? ConstructorInitializer = null) : CSharpMemberBody
+{
+    /// <summary>
+    /// Selects this exact rendered block as the compilation unit's replaceable
+    /// body. A print batch may select at most one body.
+    /// </summary>
+    public bool IsReplacementTarget { get; init; }
+}
 
 public sealed record CSharpFieldInitializer(string Source) : CSharpMemberBody;
 
@@ -83,6 +90,12 @@ public sealed record CSharpAccessorBody(CSharpAccessorBodyKind Kind, string? Sou
 
     public static CSharpAccessorBody Block(string source)
         => new(CSharpAccessorBodyKind.Block, source);
+
+    /// <summary>
+    /// Selects this exact rendered accessor block as the compilation unit's
+    /// replaceable body. A print batch may select at most one body.
+    /// </summary>
+    public bool IsReplacementTarget { get; init; }
 }
 
 public sealed record CSharpPropertyBody(
@@ -224,6 +237,12 @@ public sealed class CSharpTypePrintRequest
             throw new ArgumentException("Block accessor source cannot be null.", parameterName);
         if (accessor.Kind != CSharpAccessorBodyKind.Block && accessor.Source is not null)
             throw new ArgumentException("Only block accessors can carry source.", parameterName);
+        if (accessor.IsReplacementTarget && accessor.Kind != CSharpAccessorBodyKind.Block)
+        {
+            throw new ArgumentException(
+                "Only block accessors can be selected as replacement targets.",
+                parameterName);
+        }
     }
 }
 
@@ -291,37 +310,59 @@ public sealed record CSharpTypePrintDiagnostic(string TypeName, string Message);
 
 public sealed record CSharpTypePrintResult
 {
-    readonly Lazy<string> _source;
+    readonly Lazy<CSharpSourceArtifact> _sourceArtifact;
 
     public CSharpTypePrintResult(
         ImmutableArray<CSharpTypeSourceUnit> units,
+        ImmutableSortedSet<string> usings,
         ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
-        ImmutableHashSet<string> usings,
         Func<string> sourceFactory)
+        : this(
+            units,
+            usings,
+            diagnostics,
+            () => new CSharpSourceArtifact(sourceFactory(), null, null))
+    {
+    }
+
+    public CSharpTypePrintResult(
+        ImmutableArray<CSharpTypeSourceUnit> units,
+        ImmutableSortedSet<string> usings,
+        ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
+        Func<CSharpSourceArtifact> sourceFactory)
     {
         ArgumentNullException.ThrowIfNull(usings);
         ArgumentNullException.ThrowIfNull(sourceFactory);
         Units = units;
+        Usings = usings.ToImmutableSortedSet(StringComparer.Ordinal);
         Diagnostics = diagnostics;
-        Usings = usings.ToImmutableHashSet(StringComparer.Ordinal);
-        _source = new Lazy<string>(sourceFactory);
+        _sourceArtifact = new Lazy<CSharpSourceArtifact>(sourceFactory);
     }
 
     public ImmutableArray<CSharpTypeSourceUnit> Units { get; }
 
-    public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
-
     /// <summary>
-    /// The immutable set of raw namespace identities emitted as using directives
-    /// in <see cref="Source"/>. Names are escaped only while rendering source.
+    /// The raw namespace names required by the shortened references in
+    /// <see cref="Units"/>, plus any namespaces explicitly supplied in
+    /// <see cref="CSharpTypePrintOptions.Usings"/>. Values are de-duplicated and
+    /// ordinal-sorted namespace identities, not rendered <c>using ...;</c> lines.
+    /// Empty when using emission is disabled.
     /// </summary>
-    public ImmutableHashSet<string> Usings { get; }
+    public ImmutableSortedSet<string> Usings { get; }
+
+    public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
 
     /// <summary>
     /// The composed compilation-unit source. Composed lazily on first access so
     /// callers that only read <see cref="Units"/> do not pay for it.
     /// </summary>
-    public string Source => _source.Value;
+    public string Source => SourceArtifact.Source;
+
+    /// <summary>
+    /// The immutable composed source and any exact body-replacement range selected
+    /// while rendering.
+    /// </summary>
+    public CSharpSourceArtifact SourceArtifact => _sourceArtifact.Value;
 
     // Value equality excludes the lazy source field so comparison does not force
     // composition or degrade to reference identity of the Lazy wrapper.

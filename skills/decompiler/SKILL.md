@@ -20,9 +20,10 @@ dnx dotnet-inspect -y -- <command>
 
 ## Decompiled source and IL
 
-A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
-Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the full
-zero-network evidence set:
+A selected overload and bare `-S` both render its bounded `Signature` overview.
+Select `Decompiled Source` explicitly when implementation evidence is the
+question. Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the
+full zero-network evidence set:
 
 - `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
   PDB names use byte-preserving type/role-derived names by default.
@@ -43,6 +44,28 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Seria
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source" --bare
 dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled Source,Annotated Source,IL"
 ```
+
+## Search rendered body shapes
+
+Use `body-shape` when the question is "which methods contain this C# syntax?"
+The query is exact and assembly-scoped: its positional value is a stable
+rendered-syntax kind such as `ObjectCreationExpression`, `TryStatement`, or
+`ElementAccessExpression`, not an IR class name or text pattern. It returns the
+containing stable member selector and MethodDef token, a one-based start/end
+range, and the exact selected text. Public surface members are searched by
+default; add `--all` for non-public, hidden, and obsolete members. Bodies below
+`Full` fidelity are skipped and reported; add `--verbose` for per-member detail.
+
+```bash
+dnx dotnet-inspect -y -- body-shape ObjectCreationExpression --library MyLib.dll
+dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
+dnx dotnet-inspect -y -- body-shape ElementAccessExpression --library MyLib.dll --limit 20 --tsv
+```
+
+The search runs the decompiler for each candidate body; it is intentionally
+explicit and may be expensive on a large library. `--json` preserves multi-line
+match text and zero-based `extent` coordinates; table and TSV output present
+the same coordinates as one-based line/column fields.
 
 ### Readability and taste
 

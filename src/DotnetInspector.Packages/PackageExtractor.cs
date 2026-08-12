@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
@@ -66,7 +67,7 @@ internal sealed record PackageVersionResolution(
 public static class PackageExtractor
 {
     private const int MaxToolWrapperRedirectHops = 8;
-    private static readonly TimeSpan CachedVersionResolutionTimeout =
+    internal static TimeSpan CachedVersionResolutionTimeout { get; } =
         TimeSpan.FromSeconds(1);
 
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
@@ -787,30 +788,24 @@ public static class PackageExtractor
             cancellationToken: default);
 
     /// <summary>
-    /// Reads a V3 service index and returns the <c>@id</c> of the first resource whose
-    /// <c>@type</c> starts with <paramref name="resourceTypePrefix"/>. Service-index types are
-    /// versioned by suffix (<c>SearchQueryService/3.5.0</c>), so matching is by prefix.
+    /// Reads all resources advertised by a V3 service index.
     /// </summary>
-    private static async Task<string?> GetServiceIndexResourceAsync(
+    /// <returns>
+    /// The advertised resources, an empty list for a valid index with no resources, or
+    /// <see langword="null"/> when the source is not HTTP or its index cannot be read or parsed.
+    /// </returns>
+    public static async Task<IReadOnlyList<ServiceResource>?> GetServiceIndexResourcesAsync(
         HttpClient client,
         NuGetSource source,
-        string resourceTypePrefix,
-        Action<string>? log,
-        CancellationToken cancellationToken)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
-        // Skip non-HTTP sources (e.g. local folder feeds from NuGet.Config).
-        // Passing a file: URL or raw filesystem path to HttpClient throws
-        // NotSupportedException ("net_http_unsupported_requesturi_scheme, file"),
-        // which would crash version resolution / package download. Issue #310.
         if (!IsHttpSource(source))
         {
             log?.Invoke($"Skipping non-HTTP NuGet source '{source.Name}': {source.Url}");
             return null;
         }
 
-        // The source URL should be the V3 index.json. Inspect only the URI
-        // path so a query-bearing service index is not mistaken for a feed
-        // root and corrupted by appending after the query.
         string indexUrl = source.Url;
         var indexUri = new Uri(source.Url, UriKind.Absolute);
         if (!indexUri.AbsolutePath.EndsWith(
@@ -828,7 +823,9 @@ public static class PackageExtractor
         log?.Invoke($"Querying service index: {indexUrl}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-            client, indexUrl, auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
+            client,
+            indexUrl,
+            auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
             cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
         if (json == null)
@@ -837,23 +834,115 @@ public static class PackageExtractor
         try
         {
             using var doc = HardenedJson.Parse(json);
-            var resources = doc.RootElement.GetProperty("resources");
-
-            foreach (var resource in resources.EnumerateArray())
+            if (!doc.RootElement.TryGetProperty(
+                    "resources",
+                    out JsonElement resources)
+                || resources.ValueKind != JsonValueKind.Array)
             {
-                var type = resource.GetProperty("@type").GetString();
-                if (type != null && type.StartsWith(resourceTypePrefix, StringComparison.OrdinalIgnoreCase))
+                log?.Invoke($"Invalid service index from '{source.Name}': missing resources array.");
+                return null;
+            }
+            var result = new List<ServiceResource>();
+
+            foreach (JsonElement resource in resources.EnumerateArray())
+            {
+                if (resource.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                string? id = resource.TryGetProperty("@id", out JsonElement idElement)
+                    && idElement.ValueKind == JsonValueKind.String
+                    ? idElement.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(id)
+                    || !resource.TryGetProperty(
+                        "@type",
+                        out JsonElement typeElement))
                 {
-                    return resource.GetProperty("@id").GetString();
+                    continue;
+                }
+
+                IEnumerable<string> types = typeElement.ValueKind switch
+                {
+                    JsonValueKind.String when !string.IsNullOrWhiteSpace(
+                        typeElement.GetString()) =>
+                        [typeElement.GetString()!],
+                    JsonValueKind.Array =>
+                        typeElement
+                            .EnumerateArray()
+                            .Where(item => item.ValueKind == JsonValueKind.String)
+                            .Select(item => item.GetString())
+                            .Where(type => !string.IsNullOrWhiteSpace(type))
+                            .Cast<string>(),
+                    _ => [],
+                };
+                foreach (string type in types)
+                {
+                    bool isHttpEndpoint =
+                        IsServiceType(type, "RegistrationsBaseUrl")
+                        || IsServiceType(type, "SearchQueryService")
+                        || IsServiceType(type, "PackageBaseAddress")
+                        || IsServiceType(type, "VulnerabilityInfo");
+                    if (!isHttpEndpoint)
+                    {
+                        result.Add(new ServiceResource(id, type));
+                    }
+                    else if (Uri.TryCreate(
+                            id,
+                            UriKind.Absolute,
+                            out Uri? resourceUri)
+                        && resourceUri.Scheme is "http" or "https")
+                    {
+                        result.Add(new ServiceResource(
+                            resourceUri.AbsoluteUri,
+                            type));
+                    }
+                    else
+                    {
+                        log?.Invoke(
+                            $"Ignoring invalid {type} resource URL from '{source.Name}'.");
+                    }
                 }
             }
-        }
-        catch
-        {
-            // Invalid service index
-        }
 
-        return null;
+            return result;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            log?.Invoke($"Invalid service index from '{source.Name}': {ex.Message}");
+            return null;
+        }
+    }
+
+    private static bool IsServiceType(string type, string prefix) =>
+        type.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+        || type.StartsWith($"{prefix}/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Reads a V3 service index and returns the <c>@id</c> of the first resource whose
+    /// <c>@type</c> starts with <paramref name="resourceTypePrefix"/>. Service-index types are
+    /// versioned by suffix (<c>SearchQueryService/3.5.0</c>), so matching is by prefix.
+    /// </summary>
+    private static async Task<string?> GetServiceIndexResourceAsync(
+        HttpClient client,
+        NuGetSource source,
+        string resourceTypePrefix,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ServiceResource>? resources =
+            await GetServiceIndexResourcesAsync(
+                client,
+                source,
+                log,
+                cancellationToken).ConfigureAwait(false);
+        if (resources is null)
+            return null;
+
+        return resources
+            .Where(resource =>
+                IsServiceType(resource.Type, resourceTypePrefix))
+            .Select(resource => resource.Id)
+            .FirstOrDefault();
     }
 
     /// Parses a package reference string into name and optional version.
@@ -1893,7 +1982,9 @@ public static class PackageExtractor
         }
     }
 
-    internal static async Task<List<PackageVersionResolution>?> GetVersionCandidatesAsync(
+    internal static async Task<(
+        List<PackageVersionResolution>? Candidates,
+        bool HasIncompleteMetadata)> GetVersionCandidatesAsync(
         HttpClient client,
         string packageName,
         bool includePrerelease,
@@ -1911,9 +2002,9 @@ public static class PackageExtractor
             sources,
             log).ConfigureAwait(false);
         if (perSource is null)
-            return null;
+            return (null, HasIncompleteMetadata: false);
         if (perSource.Any(candidate => !candidate.Authoritative))
-            return null;
+            return (null, HasIncompleteMetadata: true);
 
         var candidates = new Dictionary<
             string,
@@ -1948,14 +2039,15 @@ public static class PackageExtractor
             }
         }
 
-        return
-        [
-            .. candidates.Values
-                .OrderBy(candidate => candidate.Parsed)
-                .Select(candidate => new PackageVersionResolution(
-                    candidate.Original,
-                    candidate.Reporters)),
-        ];
+        return (
+            [
+                .. candidates.Values
+                    .OrderBy(candidate => candidate.Parsed)
+                    .Select(candidate => new PackageVersionResolution(
+                        candidate.Original,
+                        candidate.Reporters)),
+            ],
+            HasIncompleteMetadata: false);
     }
 
     /// <summary>

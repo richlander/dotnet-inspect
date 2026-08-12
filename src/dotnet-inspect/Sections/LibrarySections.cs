@@ -21,12 +21,10 @@ public static class LibrarySections
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
-    public const string ScannerResources = "Resources";
     public const string ScannerUnionTypes = "UnionTypes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerAuditSignals = "AuditSignals";
-    public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
     public const string ScannerSwitches = "Switches";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
@@ -76,7 +74,11 @@ public static class LibrarySections
             .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
-                [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition])
+                [
+                    CustomAttributesQuery.Definition,
+                    ExtensionMethodsQuery.Definition,
+                    ResourcesQuery.Definition,
+                ])
             .Add<InspectionFailures>()
             .Add<ILOffset>()
             .Add<MemberContext>()
@@ -88,6 +90,7 @@ public static class LibrarySections
             .Add<SafetyContext>()
             .Add<CostContext>()
             .Add<SourceFiles>(SourceLinkDiscoverable)
+            .Add<SourceLinkDiagnostics>(SourceLinkDiscoverable)
             .Add<SourceLinkAudit>(
                 SourceAvailabilityQuery.Definition,
                 SourceLinkDiscoverable)
@@ -101,7 +104,7 @@ public static class LibrarySections
             .Add<Signals>(HasAssemblyInfo)
             .Add<Switches>()
             .Add<IntegrationOpportunities>(
-                AssemblyContextIntegrationsQuery.Definition)
+                AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<AI>(AssemblyContextIntegrationsQuery.Definition)
             .Add<AspNetCore>(AssemblyContextIntegrationsQuery.Definition)
             .Add<Authentication>(AssemblyContextIntegrationsQuery.Definition)
@@ -131,7 +134,7 @@ public static class LibrarySections
             .Add<ArrayPoolEscapes>(HasMethodBodies)
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
-            .Add<Resources>()
+            .Add<Resources>(ResourcesQuery.Definition)
             .Add<CustomAttributes>(CustomAttributesQuery.Definition)
             .Add<UnionTypes>()
             .Add<TypeForwarders>()
@@ -156,12 +159,14 @@ public static class LibrarySections
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles,
                 SectionNames.SourceLinkIntegrity)
@@ -186,12 +191,10 @@ public static class LibrarySections
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerResources, SectionCost.NetworkFree, ctx =>
-                ctx.Model.ResourceInspection = ctx.Scan(
-                    session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
-                ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.UnionTypeInspection = ctx.Scan(
+                    session => LibraryMetadataService.ScanUnionTypes(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
                 ctx.Model.TypeForwarderInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanTypeForwarders(session, ctx.AssemblyPath, ctx.Logger),
@@ -199,7 +202,6 @@ public static class LibrarySections
             .AddBundle(
                 ScannerInfoCounts,
                 ScannerClassifiedMethods,
-                ScannerResources,
                 ScannerTypeForwarders)
             .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
@@ -207,7 +209,9 @@ public static class LibrarySections
                     () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
             .Add(ScannerSwitches, SectionCost.NetworkFree, ctx =>
-                ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.SwitchInspection = ctx.Scan(
+                    session => LibraryMetadataService.ScanSwitches(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
@@ -225,10 +229,6 @@ public static class LibrarySections
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger)))
-            .Add(ScannerIntegrationOpportunities, SectionCost.NetworkFree, ctx =>
-                ctx.Scan(
-                    session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
-                    () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
             ;
     }
 
@@ -302,6 +302,10 @@ public static class LibrarySections
                             return new ExtensionMethodsResult.Failed(ex);
                         }
                     }))
+            .Add(ResourcesQuery.Definition, ctx =>
+                ctx.Query(
+                    ResourcesQuery.Execute,
+                    ex => new ResourcesResult.Failed(ex)))
             .AddSourceLinkQueries(RequireSourceLinkContext);
     }
 
@@ -311,7 +315,11 @@ public static class LibrarySections
         => new InspectionQueryRegistry<AssemblyContextGroup>()
             .Add(
                 AssemblyContextIntegrationsQuery.Definition,
-                AssemblyContextIntegrationsQuery.Execute);
+                AssemblyContextIntegrationsQuery.Execute)
+            .Add(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                AssemblyContextIntegrationsQuery.Definition);
 
     private static SourceLinkQueryContext RequireSourceLinkContext(ScannerContext context)
         => context.SourceLinkContext
@@ -477,7 +485,7 @@ public static class LibrarySections
         public static string Name => IntegrationSectionNames.Opportunities;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => ScannerIntegrationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
     }
@@ -813,7 +821,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Resources;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerResources;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceInspection.CanRenderWithPresence(model.HasManifestResources);
     }
@@ -851,6 +859,18 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
+    }
+
+    public sealed class SourceLinkDiagnostics : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.SourceLinkDiagnostics;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.NetworkFree;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => model.SourceLinkMap?.HasDiagnostics == true;
     }
 
 }

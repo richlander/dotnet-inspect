@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -79,7 +81,8 @@ public class HttpClientFactoryTests : IDisposable
     {
         const string ClosedPort = "http://127.0.0.1:1/";
         var observeCreation = new AsyncLocal<bool>();
-        using var decoratorEntered = new ManualResetEventSlim();
+        var decoratorEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var continueCreation = new ManualResetEventSlim();
 
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
@@ -92,7 +95,7 @@ public class HttpClientFactoryTests : IDisposable
             if (!observeCreation.Value)
                 return handler;
 
-            decoratorEntered.Set();
+            decoratorEntered.SetResult();
             if (!continueCreation.Wait(
                 TimeSpan.FromSeconds(10),
                 TestContext.Current.CancellationToken))
@@ -103,7 +106,7 @@ public class HttpClientFactoryTests : IDisposable
         using HttpClient unrelated = await Task.Run(
             DotnetInspector.Core.HttpClientFactory.CreateClient,
             TestContext.Current.CancellationToken);
-        Assert.False(decoratorEntered.IsSet);
+        Assert.False(decoratorEntered.Task.IsCompleted);
 
         Task<HttpClient> creation = Task.Run(
             () =>
@@ -114,9 +117,9 @@ public class HttpClientFactoryTests : IDisposable
             TestContext.Current.CancellationToken);
         try
         {
-            Assert.True(decoratorEntered.Wait(
+            await decoratorEntered.Task.WaitAsync(
                 TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
 
             DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
             {
@@ -157,6 +160,77 @@ public class HttpClientFactoryTests : IDisposable
 
         Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, untrusted.Timeout);
         Assert.Equal(TimeSpan.FromSeconds(600), standard.Timeout);
+    }
+
+    [Fact]
+    public void CreateUntrustedFetchClient_DoesNotUseAnAmbientProxy()
+    {
+        using SocketsHttpHandler handler =
+            DotnetInspector.Core.HttpClientFactory.CreateUntrustedSocketsHandler();
+
+        Assert.False(handler.UseProxy);
+    }
+
+    [Fact]
+    public void GetPackageSourceClient_ReusesOneClientPerOrigin()
+    {
+        HttpClient first =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://private.example/v3/index.json");
+        HttpClient sameOrigin =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://PRIVATE.example/query");
+        HttpClient differentPort =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://private.example:8443/v3/index.json");
+
+        Assert.Same(first, sameOrigin);
+        Assert.NotSame(first, differentPort);
+    }
+
+    [Fact]
+    public async Task PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int sourcePort =
+            ((IPEndPoint)listener.LocalEndpoint).Port;
+        int redirectPort = sourcePort == ushort.MaxValue
+            ? sourcePort - 1
+            : sourcePort + 1;
+        string sourceUrl = $"http://127.0.0.1:{sourcePort}/index.json";
+        string response =
+            "HTTP/1.1 302 Found\r\n"
+            + $"Location: http://127.0.0.1:{redirectPort}/secret\r\n"
+            + "Content-Length: 0\r\n"
+            + "Connection: close\r\n\r\n";
+
+        Task server = Task.Run(
+            async () =>
+            {
+                using TcpClient connection = await listener.AcceptTcpClientAsync(
+                    TestContext.Current.CancellationToken);
+                await using NetworkStream stream = connection.GetStream();
+                var request = new byte[1024];
+                _ = await stream.ReadAsync(
+                    request,
+                    TestContext.Current.CancellationToken);
+                await stream.WriteAsync(
+                    Encoding.ASCII.GetBytes(response),
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        using HttpClient client =
+            DotnetInspector.Core.HttpClientFactory.CreatePackageSourceClient(sourceUrl);
+        HttpRequestException exception =
+            await Assert.ThrowsAsync<HttpRequestException>(
+                () => client.GetAsync(
+                    sourceUrl,
+                    TestContext.Current.CancellationToken));
+        await server;
+
+        Assert.Contains("Blocked request to non-public address", exception.ToString());
     }
 
     /// <summary>

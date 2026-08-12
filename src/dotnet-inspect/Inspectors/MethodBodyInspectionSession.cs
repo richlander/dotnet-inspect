@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using DotnetInspector.Services;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -139,7 +140,8 @@ public sealed class MethodBodyInspectionSession
         string assemblyPath,
         PdbContext context,
         Analysis.LibraryBodyAnalysisFeatures features,
-        IAssemblyReferenceResolver? resolver = null)
+        IAssemblyReferenceResolver? resolver = null,
+        ResolvedAssemblyReference? assembly = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
@@ -148,10 +150,11 @@ public sealed class MethodBodyInspectionSession
                 context.GetPrefetchedImage(),
                 features,
                 resolver),
-            ResolvedAssemblyReference.CreateFromPath(
-                assemblyPath,
-                AssemblyResolutionProvenance.Local(
-                    "prefetched method body inspection")),
+            assembly
+                ?? ResolvedAssemblyReference.CreateFromPath(
+                    assemblyPath,
+                    AssemblyResolutionProvenance.Local(
+                        "prefetched method body inspection")),
             Path.GetFileNameWithoutExtension(assemblyPath),
             BindingPolicyFor(resolver));
     }
@@ -186,7 +189,7 @@ public sealed class MethodBodyInspectionSession
         Analysis.CallTreeNode tree =
             BodyIndex.BuildCallerTree(methodToken, scope);
         diagnostics = scope.Diagnostics;
-        return WithoutGraphEvidence(tree);
+        return scope.Detach(tree);
     }
 
     internal Analysis.CallTreeNode CallerTree(
@@ -194,16 +197,58 @@ public sealed class MethodBodyInspectionSession
         Analysis.CatalogCallGraphScope scope) =>
         BodyIndex.BuildCallerTree(methodToken, scope);
 
-    static Analysis.CallTreeNode WithoutGraphEvidence(
-        Analysis.CallTreeNode node) =>
-        node with
+    /// <summary>
+    /// Builds one bidirectional projection over direction-specific assembly
+    /// scopes.
+    /// </summary>
+    public CallGraphProjection CallGraph(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? callerScopes,
+        IReadOnlyList<MethodBodyInspectionSession>? calleeScopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        if (callerScopes is not null || calleeScopes is not null)
         {
-            GraphEvidence = null,
-            Children =
-            [
-                .. node.Children.Select(WithoutGraphEvidence),
-            ],
-        };
+            callerScopes ??= [];
+            calleeScopes ??= [];
+        }
+
+        Analysis.CallTreeNode callerRoot = CallerTree(
+            methodToken,
+            callerScopes,
+            out Analysis.CatalogCallGraphDiagnostics callerDiagnostics);
+        Analysis.CallTreeNode calleeRoot = CalleeTree(
+            methodToken,
+            calleeScopes,
+            out Analysis.CatalogCallGraphDiagnostics calleeDiagnostics);
+        diagnostics = new Analysis.CatalogCallGraphDiagnostics(
+            callerDiagnostics.IncompleteNodeCount
+                + calleeDiagnostics.IncompleteNodeCount,
+            callerDiagnostics.IncompleteEdgeCount
+                + calleeDiagnostics.IncompleteEdgeCount,
+            callerDiagnostics.BindingIdentityConflictCount
+                + calleeDiagnostics.BindingIdentityConflictCount);
+        return CallGraphProjection.Create(callerRoot, calleeRoot);
+    }
+
+    Analysis.CallTreeNode CalleeTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        if (scopes is null)
+        {
+            diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
+            return BodyIndex.BuildCallTree(methodToken);
+        }
+
+        using Analysis.CatalogCallGraphScope scope =
+            CreateCallGraphScope([this, .. scopes]);
+        Analysis.CallTreeNode tree =
+            BodyIndex.BuildCallTree(methodToken, scope);
+        diagnostics = scope.Diagnostics;
+        return scope.Detach(tree);
+    }
 
     internal static Analysis.CatalogCallGraphScope CreateCallGraphScope(
         IReadOnlyList<MethodBodyInspectionSession> sessions)

@@ -7,13 +7,37 @@ using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
-public sealed record ResearchAssemblyContext(
-    LibraryBodyIndex Index,
-    IReadOnlyDictionary<int, MethodSignals> Signals,
-    IReadOnlyDictionary<int, MethodLeverage> LeverageByToken,
-    IReadOnlyDictionary<int, IReadOnlyList<DirectCall>> CallsByCaller,
-    IReadOnlyDictionary<int, IReadOnlyList<UnsafeEvidence>> UnsafeEvidenceByToken)
+public sealed class ResearchAssemblyContext
 {
+    readonly Lazy<IReadOnlyDictionary<int, MethodSignals>> _signals;
+    readonly Lazy<IReadOnlyDictionary<int, MethodLeverage>> _leverageByToken;
+    readonly Lazy<IReadOnlyDictionary<int, IReadOnlyList<DirectCall>>> _callsByCaller;
+    readonly Lazy<IReadOnlyDictionary<int, IReadOnlyList<UnsafeEvidence>>> _unsafeEvidenceByToken;
+
+    ResearchAssemblyContext(LibraryBodyIndex index)
+    {
+        Index = index;
+        _signals = new(() => index.GetMethodSignals());
+        _leverageByToken = new(() => index.TopLeverage(int.MaxValue)
+            .ToDictionary(entry => entry.Method.MetadataToken, entry => entry));
+        _callsByCaller = new(() => index.DirectCalls
+            .GroupBy(call => call.Caller.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<DirectCall>)group.ToArray()));
+        _unsafeEvidenceByToken = new(() => index.UnsafeEvidence
+            .GroupBy(evidence => evidence.Member.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<UnsafeEvidence>)group.ToArray()));
+    }
+
+    public LibraryBodyIndex Index { get; }
+    public IReadOnlyDictionary<int, MethodSignals> Signals => _signals.Value;
+    public IReadOnlyDictionary<int, MethodLeverage> LeverageByToken => _leverageByToken.Value;
+    public IReadOnlyDictionary<int, IReadOnlyList<DirectCall>> CallsByCaller => _callsByCaller.Value;
+    public IReadOnlyDictionary<int, IReadOnlyList<UnsafeEvidence>> UnsafeEvidenceByToken => _unsafeEvidenceByToken.Value;
+
     public ImmutableArray<Finding<DirectCall>> InspectCallSites(int methodToken)
     {
         if (!CallsByCaller.TryGetValue(methodToken, out var calls) || calls.Count == 0)
@@ -24,31 +48,15 @@ public sealed record ResearchAssemblyContext(
             new FindingSubject(subject.Id, subject.Display));
     }
 
-    public static ResearchAssemblyContext Create(LibraryBodyIndex index)
-    {
-        var leverage = index.TopLeverage(int.MaxValue)
-            .ToDictionary(entry => entry.Method.MetadataToken, entry => entry);
-        var callsByCaller = index.DirectCalls
-            .GroupBy(call => call.Caller.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<DirectCall>)group.ToArray());
-        var unsafeEvidence = index.UnsafeEvidence
-            .GroupBy(evidence => evidence.Member.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<UnsafeEvidence>)group.ToArray());
-        return new ResearchAssemblyContext(index, index.GetMethodSignals(), leverage, callsByCaller, unsafeEvidence);
-    }
+    public static ResearchAssemblyContext Create(LibraryBodyIndex index) =>
+        new(index);
 }
 
 /// <summary>
 /// Memoizes <see cref="ResearchAssemblyContext.Create"/> per <see cref="LibraryBodyIndex"/> instance.
-/// <c>Create</c> groups every call site and unsafe-evidence record in the assembly and computes
-/// method signals for the whole body index, so it must be built once per assembly (per the shared,
-/// parsed-once design in docs/design/assembly-inspection-query.md) rather than once per queried
-/// member — callers that resolve a context per method (e.g. a corpus sweep over every method in an
-/// assembly) would otherwise redo this whole-assembly work on every call.
+/// The context's assembly-wide projections are lazy, and sharing the context
+/// ensures each projection is computed at most once for an index when multiple
+/// producers or member queries request it.
 /// </summary>
 static class ResearchAssemblyContextCache
 {
@@ -74,7 +82,62 @@ static class ResearchAssemblyContextCache
 public sealed record ResearchFactContext(
     MetadataSource Source,
     IrFunction Imported,
-    ResearchAssemblyContext? Assembly = null);
+    ResearchAssemblyContext? Assembly = null,
+    IReadOnlyList<DirectCall>? CallSites = null);
+
+/// <summary>How much Analysis state one fact producer requires.</summary>
+public enum ResearchAnalysisScope
+{
+    None,
+    Member,
+    Assembly,
+}
+
+/// <summary>
+/// Analysis acquisition required by a fact producer. The registry unions these
+/// declarations before opening an index.
+/// </summary>
+public readonly record struct ResearchFactRequirements
+{
+    ResearchFactRequirements(
+        ResearchAnalysisScope scope,
+        LibraryBodyAnalysisFeatures features)
+    {
+        Scope = scope;
+        Features = features;
+    }
+
+    public ResearchAnalysisScope Scope { get; }
+    public LibraryBodyAnalysisFeatures Features { get; }
+
+    public static ResearchFactRequirements None { get; } =
+        new(ResearchAnalysisScope.None, LibraryBodyAnalysisFeatures.None);
+
+    public static ResearchFactRequirements ForMember(
+        LibraryBodyAnalysisFeatures features) =>
+        Create(ResearchAnalysisScope.Member, features);
+
+    public static ResearchFactRequirements ForAssembly(
+        LibraryBodyAnalysisFeatures features) =>
+        Create(ResearchAnalysisScope.Assembly, features);
+
+    internal ResearchFactRequirements Union(
+        ResearchFactRequirements other) =>
+        Scope >= other.Scope
+            ? new(Scope, Features | other.Features)
+            : new(other.Scope, Features | other.Features);
+
+    static ResearchFactRequirements Create(
+        ResearchAnalysisScope scope,
+        LibraryBodyAnalysisFeatures features)
+    {
+        if (features == LibraryBodyAnalysisFeatures.None)
+            throw new ArgumentException("An Analysis-backed fact producer must request at least one feature.", nameof(features));
+        if ((features & ~LibraryBodyAnalysisFeatures.All) != 0)
+            throw new ArgumentOutOfRangeException(nameof(features));
+        return new(scope, features);
+    }
+}
 
 public sealed record ResearchHeaderFact(
     AnnotationDescriptor Descriptor,
@@ -91,6 +154,7 @@ public interface IResearchFactProducer
     string Name { get; }
     IReadOnlyList<string> Produces { get; }
     IReadOnlyList<string> DependsOn { get; }
+    ResearchFactRequirements Requirements => ResearchFactRequirements.None;
     IReadOnlyList<IAnnotation> Produce(ResearchFactContext context);
     IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context) => [];
 }
@@ -101,12 +165,21 @@ public interface IResearchFactProducer
 /// </summary>
 public sealed class ResearchFactRegistry
 {
+    public const string CallRelationshipDescriptorId = "call.edge";
+
     readonly IReadOnlyList<IResearchFactProducer> _producers;
 
     public ResearchFactRegistry(params IResearchFactProducer[] producers)
-        => _producers = Order(producers);
+    {
+        _producers = Order(producers);
+        Requirements = _producers.Aggregate(
+            ResearchFactRequirements.None,
+            static (requirements, producer) =>
+                requirements.Union(producer.Requirements));
+    }
 
     public IReadOnlyList<string> ProducerNames => [.. _producers.Select(producer => producer.Name)];
+    public ResearchFactRequirements Requirements { get; }
 
     public static ResearchFactRegistry Default { get; } = new(
         new AllocationOccurrenceFactProducer(),
@@ -115,6 +188,17 @@ public sealed class ResearchFactRegistry
         new CallSiteSemanticsFactProducer(),
         new MethodHeaderLeverageFactProducer(),
         new DecompilerLifetimeFactProducer());
+
+    /// <summary>
+    /// The body-local relationship dimension. Its call evidence is supplied by
+    /// the graph session, so producing the document opens no second Analysis
+    /// index. <c>Registry_UnionsProducerAnalysisRequirementsBeforeAcquisition</c>
+    /// pins the profile's declaration, while
+    /// <c>RequirementsNone_DoesNotResolveAnAssemblyContext</c> gates the
+    /// declaration-to-acquisition wiring.
+    /// </summary>
+    public static ResearchFactRegistry CallRelationships { get; } = new(
+        new DirectCallFactProducer());
 
     public IReadOnlyList<IAnnotation> Collect(ResearchFactContext context)
         => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];

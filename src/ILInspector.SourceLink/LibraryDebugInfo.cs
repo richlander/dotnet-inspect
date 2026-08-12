@@ -15,6 +15,8 @@ public class LibraryDebugInfo
     public string? PdbFormat { get; set; }
     public bool HasSourceLink { get; set; }
     public string? SourceLinkJson { get; set; }
+    public SourceLinkMapInspection SourceLinkMap { get; set; } =
+        SourceLinkMapInspection.Absent;
     public string? RepositoryUrl { get; set; }
     public List<string>? NonNormalizedPaths { get; set; }
     public bool IsDeterministic { get; set; }

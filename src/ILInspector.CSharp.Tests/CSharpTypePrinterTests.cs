@@ -678,6 +678,231 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void SourceArtifactReplacesTheSelectedNestedMethodBlockOnly()
+    {
+        var target = CreateMethod("Run");
+        var nested = CreateEmptyType("Samples", "Inner");
+        nested.Members.Add(target);
+        var outer = CreateEmptyType("Samples", "Outer");
+        var targetRequest = new CSharpTypePrintRequest(
+            nested,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    target,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody("return;") { IsReplacementTarget = true })
+            ]);
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(CreateEmptyType("Other", "Peer")),
+            new CSharpTypePrintRequest(outer, nestedTypes: [targetRequest])
+        ],
+        new CSharpTypePrintOptions
+        {
+            EmitPragmaWarningDisable = true,
+            Usings = ["System"]
+        });
+
+        var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
+        Assert.Equal(
+            "            {\n"
+            + "                return;\n"
+            + "            }",
+            result.Source.Substring(range.Start, range.Length));
+
+        string replacement = result.SourceArtifact.ReplaceBody(
+            """
+            System.Console.WriteLine(42);
+            return;
+            """);
+
+        Assert.Equal(
+            result.Source[..range.Start]
+            + "            {\n"
+            + "System.Console.WriteLine(42);\n"
+            + "return;\n"
+            + "            }"
+            + result.Source[range.End..],
+            replacement);
+        Assert.Contains("public class Peer", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceArtifactReplacementPreservesMultilineLiteralBytes()
+    {
+        var target = CreateMethod("Run");
+        var type = CreateEmptyType("Samples", "Literal");
+        type.Members.Add(target);
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    target,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody("return;") { IsReplacementTarget = true })
+            ]));
+        const string body = "return @\"alpha\r\n\r\nomega\";";
+
+        string replacement = result.SourceArtifact.ReplaceBody(body);
+        var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
+
+        Assert.Equal(
+            result.Source[..range.Start]
+            + "    {\n"
+            + body
+            + "\n"
+            + "    }"
+            + result.Source[range.End..],
+            replacement);
+    }
+
+    [Fact]
+    public void SourceArtifactReplacementPreservesConstructorInitializer()
+    {
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature()
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(constructor);
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    constructor,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(
+                        "_value = 1;",
+                        new CSharpConstructorInitializer(
+                            CSharpConstructorInitializerKind.Base,
+                            ["1"]))
+                    {
+                        IsReplacementTarget = true
+                    })
+            ]));
+
+        string replacement = result.SourceArtifact.ReplaceBody("_value = 2;");
+
+        Assert.Contains("public Widget() : base(1)", replacement, StringComparison.Ordinal);
+        Assert.Contains("_value = 2;", replacement, StringComparison.Ordinal);
+        Assert.DoesNotContain("_value = 1;", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceArtifactReplacesOnlyTheSelectedIndexerAccessor()
+    {
+        var indexer = new ApiMember
+        {
+            Name = "Item",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "this[]",
+                Parameters = [new ApiParameter { Type = "int", Name = "index" }],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                    new ApiAccessor { Kind = "set" }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Values");
+        type.Members.Add(indexer);
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    indexer,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block("return index;") with { IsReplacementTarget = true },
+                        CSharpAccessorBody.Block("_values[index] = value;")))
+            ]));
+
+        string replacement = result.SourceArtifact.ReplaceBody("return _values[index];");
+
+        Assert.Contains("return _values[index];", replacement, StringComparison.Ordinal);
+        Assert.Contains("_values[index] = value;", replacement, StringComparison.Ordinal);
+        Assert.DoesNotContain("return index;", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceArtifactReplacesOnlyTheSelectedEventAccessor()
+    {
+        var eventMember = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Events");
+        type.Members.Add(eventMember);
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    eventMember,
+                    CSharpBodyPolicy.Full,
+                    new CSharpEventBody(
+                        CSharpAccessorBody.Block("_changed += value;"),
+                        CSharpAccessorBody.Block("_changed -= value;")
+                            with { IsReplacementTarget = true }))
+            ]));
+
+        string replacement = result.SourceArtifact.ReplaceBody("Remove(value);");
+
+        Assert.Contains("_changed += value;", replacement, StringComparison.Ordinal);
+        Assert.Contains("Remove(value);", replacement, StringComparison.Ordinal);
+        Assert.DoesNotContain("_changed -= value;", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceArtifactFailsWhenNoBodyOrMultipleBodiesAreSelected()
+    {
+        var unselected = _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "Empty")));
+        Assert.Throws<InvalidOperationException>(() => unselected.SourceArtifact.ReplaceBody("return;"));
+
+        var first = CreateMethod("First");
+        var second = CreateMethod("Second");
+        var type = CreateEmptyType("Samples", "Ambiguous");
+        type.Members.AddRange([first, second]);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    first,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody("return;") { IsReplacementTarget = true }),
+                new CSharpMemberPolicy(
+                    second,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody("return;") { IsReplacementTarget = true })
+            ]);
+
+        var exception = Assert.Throws<ArgumentException>(() => _printer.Print(request));
+        Assert.Contains("at most one replacement target", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FullBodyModifiersDoNotLeakIntoSkeletons()
     {
         var type = CreateEmptyType("Samples", "Worker");
@@ -724,6 +949,60 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
         Assert.Equal(["System.Threading.Tasks"], result.Usings);
         Assert.Contains("public Task Run();", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullMemberUsesBareTypesBackedByNamespaceSet()
+    {
+        var type = CreateEmptyType("Samples", "FieldWriter");
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        };
+        type.Members.Add(constructor);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    constructor,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(
+                        """
+                        this.writer = writer;
+                        this.formatter = formatter;
+                        _options = options ?? new MarkoutWriterOptions();
+                        """))
+            ]));
+
+        Assert.Equal(
+            ["Markout", "Markout.Formatting", "System.IO"],
+            result.Usings);
+        Assert.Contains(
+            "public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "using Markout;\nusing Markout.Formatting;\nusing System.IO;\n",
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -858,6 +1137,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.DoesNotContain("using Alpha;", result.Source, StringComparison.Ordinal);
         Assert.DoesNotContain("using Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
         Assert.Contains(
             "public Alpha.Widget Convert(Beta.Widget value);",
             result.Units[0].Source,
@@ -1180,13 +1460,13 @@ public sealed class CSharpTypePrinterTests
     {
         var insensitive = new CSharpTypePrintResult(
             [],
+            ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "Alpha"),
             [],
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "Alpha"),
             () => "");
         var ordinal = new CSharpTypePrintResult(
             [],
+            ImmutableSortedSet.Create(StringComparer.Ordinal, "alpha"),
             [],
-            ImmutableHashSet.Create(StringComparer.Ordinal, "alpha"),
             () => "");
 
         Assert.False(insensitive.Equals(ordinal));
@@ -1838,15 +2118,19 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void SourceEscapesAndDeduplicatesUsings()
+    public void SourceEscapesDeduplicatesAndSortsEmittedUsings()
     {
         var result = _printer.Print(
             new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
             new CSharpTypePrintOptions
             {
-                Usings = ["System", "System", "Some.namespace.Value"]
+                Usings = ["Alpha", "event", "System", "System", "Some.namespace.Value"]
             });
 
+        Assert.StartsWith(
+            "using @event;\nusing Alpha;\nusing Some.@namespace.Value;\nusing System;\n",
+            result.Source,
+            StringComparison.Ordinal);
         Assert.Contains("using Some.@namespace.Value;", result.Source, StringComparison.Ordinal);
         Assert.Single(
             result.Source.Split('\n'),
@@ -1864,6 +2148,55 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("namespace Samples\n{\n", result.Source, StringComparison.Ordinal);
         Assert.Contains("namespace Other\n{\n", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BlockScopedBatchPreservesNamespaceIndentationForMultilineInitializers()
+    {
+        var field = new ApiMember
+        {
+            Name = "Values",
+            Kind = "field",
+            ReturnType = "int[]"
+        };
+        var type = CreateEmptyType("Samples", "First");
+        type.Members.Add(field);
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        field,
+                        CSharpBodyPolicy.Full,
+                        new CSharpFieldInitializer(
+                            """
+                            [
+                                1,
+                                2
+                            ]
+                            """))
+                ]),
+            new CSharpTypePrintRequest(CreateEmptyType("Other", "Second"))
+        ]);
+
+        Assert.Contains(
+            """
+            namespace Samples
+            {
+                public class First
+                {
+                    public int[] Values = [
+                    1,
+                    2
+                ];
+                }
+            }
+            """,
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     static ApiType CreateEmptyType(string? @namespace, string name)

@@ -32,7 +32,29 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
 - `--print` — print one document behind a selected printable row; use `--row N` when multiple printable rows exist.
-- `--mermaid` — graph-shaped output.
+- `--tree` — a standalone tree for graph sections that support tree lowering.
+- `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
+  the diagram in a Markdown document.
+
+For `member -S "Call Graph"`, default Markdown is an edge table. Choose the
+view for the task without changing the graph or its ordered edge rows:
+
+```bash
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tree
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --markdown --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tsv
+```
+
+Use the Markdown table when edge evidence belongs in a document, `--tree` when
+call paths are the natural reading order, Mermaid for a diagram, and
+`--tsv`/`--jsonl` for one machine-readable edge row per relationship.
+`from` and `to` are always present; `from_group`, `to_group`, and `label`
+appear only when the whole graph uses them. A row window can therefore retain
+an optional field even when its selected values are empty. `--tree` and
+standalone `--mermaid` do not mix with another explicitly selected output
+format.
 
 ## Discover and select sections
 
@@ -46,9 +68,10 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 ```
 
-`@` names a category of sections. Examples include `@Library`, `@Surface`,
-`@Audit`, `@Context`, `@Source`, `@SourceLink`, `@Integrations`,
-`@Performance`, and `@Metadata`. `Switches` is a plain section, not a category.
+`@` names a category of sections. Examples include `@Package`, `@Files`,
+`@Dependencies`, `@Library`, `@Surface`, `@Audit`, `@Context`, `@Source`,
+`@SourceLink`, `@Integrations`, `@Performance`, and `@Metadata`. `Switches` is
+a plain section, not a category.
 Some large families expose only their category door in the top-level catalog;
 drill in with `-D @Performance` or `-D @Metadata`. Row formats
 (`--tsv`/`--jsonl`/`--table`) require one concrete section or a supported

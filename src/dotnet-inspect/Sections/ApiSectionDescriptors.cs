@@ -695,6 +695,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.Signature;
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1;

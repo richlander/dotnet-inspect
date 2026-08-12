@@ -21,7 +21,8 @@ internal readonly record struct LibrarySourceSectionPlan(
     string Name,
     LibrarySourcePlanModes Modes,
     bool DownloadPdb,
-    bool CollectSourceFiles);
+    bool CollectSourceFiles,
+    bool ReadCachedPdb);
 
 internal static class LibrarySourcePlans
 {
@@ -29,8 +30,10 @@ internal static class LibrarySourcePlans
     [
         Section<LibrarySections.ILOffset>(downloadPdb: true),
         Section<LibrarySections.SourceFiles>(downloadPdb: true, collectSourceFiles: true),
+        Section<LibrarySections.SourceLinkDiagnostics>(readCachedPdb: true),
         Section<LibrarySections.Symbols>(downloadPdb: true),
         Section<LibrarySections.Signals>(downloadPdb: true),
+        Section<LibrarySections.NonNormalizedPaths>(readCachedPdb: true),
     ];
 
     internal static ReadOnlySpan<LibrarySourceSectionPlan> Sections => s_sections;
@@ -71,6 +74,7 @@ internal static class LibrarySourcePlans
 
             downloadPdb |= section.DownloadPdb;
             collectSourceFiles |= section.CollectSourceFiles;
+            readCachedPdb |= section.ReadCachedPdb;
         }
 
         return new LibrarySourcePlan(
@@ -81,7 +85,8 @@ internal static class LibrarySourcePlans
 
     private static LibrarySourceSectionPlan Section<TDescriptor>(
         bool downloadPdb = false,
-        bool collectSourceFiles = false)
+        bool collectSourceFiles = false,
+        bool readCachedPdb = false)
         where TDescriptor : ISectionDescriptor<LibraryInspection>
         => new(
             TDescriptor.Name,
@@ -89,5 +94,6 @@ internal static class LibrarySourcePlans
                 ? LibrarySourcePlanModes.Explicit
                 : LibrarySourcePlanModes.All,
             downloadPdb,
-            collectSourceFiles);
+            collectSourceFiles,
+            readCachedPdb);
 }

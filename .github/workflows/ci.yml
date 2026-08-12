@@ -73,6 +73,123 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
+      # Trend rows are reproducible evidence only when their recorded commit
+      # landed on main and its source declared the recorded methodology. This
+      # job already has the full history needed to prove both, so keep the gate
+      # here rather than making test jobs deepen otherwise-shallow checkouts.
+      - name: Check EVIL history provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          history=tools/DecompilerHarness/corpus/evil-runs/history.jsonl
+          line_number=0
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            ((line_number += 1))
+            [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+            if ! printf '%s\n' "$line" |
+              jq -s -e 'length == 1 and (.[0] | type == "object")' > /dev/null
+            then
+              echo "EVIL history line $line_number must contain exactly one JSON object." >&2
+              exit 1
+            fi
+          done < "$history"
+          jq -s -e '
+            ([.[] | select(.commit == null)] | length) == 1
+            and (.[0].commit == null)
+            and (.[0].date == "2026-07-20")
+            and (.[0].methodologyVersion == null)
+            and (.[0].invalidBreakdown == null)
+            and any(.[]; .commit != null)
+            and all(
+              .[];
+              (.methodologyVersion == null)
+              or (
+                ((.methodologyVersion | type) == "number")
+                and (.methodologyVersion >= 1)
+                and (.methodologyVersion == (.methodologyVersion | floor))
+              )
+            )
+            and all(
+              .[] | select(.commit != null);
+              ((.commit | type) == "string")
+              and (.commit | test("^[0-9a-f]{8,40}$"))
+            )
+          ' "$history" > /dev/null
+
+          methodology_at() {
+            local commit=$1
+            local benchmark_content
+            local content
+            local value
+
+            if ! benchmark_content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusBenchmark.cs" 2>/dev/null); then
+              return 1
+            fi
+
+            if content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusMethodology.cs" 2>/dev/null); then
+              value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int Version = ([0-9]+);$/\1/p' | head -1)
+              test -n "$value" || return 1
+              printf '%s\n' "$value"
+              return
+            fi
+
+            if content=$(git show "$commit:tools/DecompilerHarness/SpanAttribution.cs" 2>/dev/null); then
+              value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int MethodologyVersion = ([0-9]+);$/\1/p' | head -1)
+              if [ -n "$value" ]; then
+                printf '%s\n' "$value"
+                return
+              fi
+            fi
+
+            value=$(printf '%s\n' "$benchmark_content" | sed -nE 's/^[[:space:]]*internal const int MethodologyVersion = ([0-9]+);$/\1/p' | head -1)
+            if [ -n "$value" ]; then
+              printf '%s\n' "$value"
+              return
+            fi
+
+            printf '1\n'
+          }
+
+          pre_benchmark_commits=$(git rev-list --max-parents=0 HEAD)
+          while IFS= read -r pre_benchmark_commit; do
+            if methodology_at "$pre_benchmark_commit" > /dev/null 2>&1; then
+              echo "::error file=$history::Methodology lookup accepted pre-benchmark commit '$pre_benchmark_commit'."
+              exit 1
+            fi
+          done <<< "$pre_benchmark_commits"
+
+          benchmarkless_index=$(mktemp)
+          rm "$benchmarkless_index"
+          GIT_INDEX_FILE="$benchmarkless_index" git read-tree HEAD
+          GIT_INDEX_FILE="$benchmarkless_index" \
+            git rm --cached --quiet -- tools/DecompilerHarness/AuthoredCorpusBenchmark.cs
+          benchmarkless_tree=$(GIT_INDEX_FILE="$benchmarkless_index" git write-tree)
+          rm "$benchmarkless_index"
+          if methodology_at "$benchmarkless_tree" > /dev/null 2>&1; then
+            echo "::error file=$history::Methodology lookup accepted a tree with no authored-corpus benchmark."
+            exit 1
+          fi
+
+          provenance_rows=$(
+            jq -r \
+              'select(.commit != null) | [.commit, (.methodologyVersion // 1)] | @tsv' \
+              "$history"
+          )
+          while IFS=$'\t' read -r commit recorded_methodology; do
+            if ! git merge-base --is-ancestor "$commit" origin/main; then
+              echo "::error file=$history::Recorded commit '$commit' is not an ancestor of origin/main."
+              exit 1
+            fi
+            if ! source_methodology=$(methodology_at "$commit"); then
+              echo "::error file=$history::Could not read the methodology implemented by '$commit'."
+              exit 1
+            fi
+            if [ "$recorded_methodology" != "$source_methodology" ]; then
+              echo "::error file=$history::Recorded methodology $recorded_methodology was not produced by '$commit' (source implements $source_methodology)."
+              exit 1
+            fi
+          done <<< "$provenance_rows"
+
       - name: Self-test change detection
         shell: bash
         run: dotnet run eng/test-ci-change-detection.cs
@@ -1105,7 +1222,9 @@ jobs:
         # tools/netX.0/any/. This makes the pointer TFM-agnostic: any SDK that
         # understands RID-specific tools can read it, regardless of TFM. The
         # pointer carries no implementation, so SelfContained pulls in no runtime.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+        # RID-specific packages are built by their dedicated steps; disabling
+        # inner RID packs keeps this step pointer-only on .NET 11 Preview 7+.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7

@@ -114,7 +114,9 @@ The workflow then:
 1. Runs the full publish-time product, CLI, decompiler, Analysis, and IL
    round-trip checks against the resolved commit.
 2. Builds each Native AOT package on its supported host.
-3. Builds the pointer and managed fallback packages.
+3. Builds the TFM-agnostic pointer without inner RID packages, then builds the
+   managed fallback. Dedicated native jobs own RID-specific packages; the
+   pointer contains only their mapping under `tools/any/any`.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
 5. Publishes Native AOT packages, then the managed fallback, then the pointer.
@@ -130,6 +132,9 @@ runtime-specific packages.
 - **Resolved SHA is wrong:** cancel the workflow; do not publish a nearby run.
 - **Publish-time tests fail:** fix the product on a new commit, obtain a new
   successful CI run, and dispatch again with that run ID.
+- **`ilasm`/`ildasm` restoration fails:** the remaining test suites still
+  report, but the terminal oracle check fails the test lane and blocks every
+  package job. Restore the pinned tools successfully before retrying.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
 - **A package version already exists:** advance `VersionPrefix`; published
