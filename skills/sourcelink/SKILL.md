@@ -37,7 +37,10 @@ dnx dotnet-inspect -y -- library System.Text.Json --il-offset 0x06000001+0x0
 `-S "Original Source"` returns the original source body when SourceLink can
 resolve it (also part of the `-S @Source` bundle alongside the decompiled and IL
 views). Use `--print` to fetch the source body behind one printable SourceLink
-row; add `--row N` when the selected section has multiple printable rows.
+row. When the section renders multiple rows, add `--row N|first|last`; `N`
+addresses the displayed 1-based row number, while `first` and `last` mean the
+rendered endpoints. If that row has no printable document, the command reports
+it instead of silently choosing another row.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
