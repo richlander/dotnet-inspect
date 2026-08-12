@@ -293,9 +293,13 @@ public static class PackagePayloadAcquisition
         }
         catch (HttpRequestException ex)
         {
-            // Transport failure text is the client's own, not the payload's.
+            // The transport's own message embeds the request URI, and that URI
+            // is feed-declared and may carry a signature or token, so the
+            // failure is described by its redacted URL and the exception's
+            // category instead.
             log?.Invoke(
-                $"Source {source.Name} did not deliver a package payload: {ex.Message}");
+                $"Source {source.Name} did not deliver a package payload: "
+                + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
             return null;
         }
         catch (Exception ex) when (

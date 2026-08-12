@@ -349,8 +349,11 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal("package-download", tags["dotnet_inspect.network.kind"]);
         Assert.Equal(true, tags["dotnet_inspect.network.policy.allowed"]);
         var url = Assert.IsType<string>(tags["url.full"]);
-        Assert.Equal("https://example.test/source.cs?access_token=REDACTED&ok=1", url);
+        // The whole query goes, not the parameters a name list recognizes: a
+        // feed picks the names too, so "ok=1" is no safer than "access_token".
+        Assert.Equal("https://example.test/source.cs?REDACTED", url);
         Assert.DoesNotContain("secret", url);
+        Assert.DoesNotContain("ok=1", url);
         Assert.DoesNotContain("user:password", url);
     }
 
@@ -374,8 +377,9 @@ public class HttpClientFactoryTests : IDisposable
 
         var stderr = error.ToString();
         Assert.Contains(
-            "Network traffic [source-fetch]: GET https://example.test/source.cs?token=REDACTED&ok=1",
+            "Network traffic [source-fetch]: GET https://example.test/source.cs?REDACTED",
             stderr);
+        Assert.DoesNotContain("ok=1", stderr);
         Assert.DoesNotContain("Network policy error", stderr);
         Assert.DoesNotContain("secret", stderr);
         Assert.DoesNotContain("user:password", stderr);
@@ -488,8 +492,9 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Contains("flowchart TD", mermaid);
         Assert.Contains("n0[\"dotnet-inspect\"]", mermaid);
         Assert.Contains("cache miss<br/>versions markout", mermaid);
-        Assert.Contains("package-search<br/>GET https://azuresearch-usnc.nuget.org/query?q=packageid:markout", mermaid);
-        Assert.Contains("package-download<br/>GET https://api.nuget.org/v3-flatcontainer/markout/1.0.0/markout.1.0.0.nupkg?token=REDACTED", mermaid);
+        Assert.Contains("package-search<br/>GET https://azuresearch-usnc.nuget.org/query?REDACTED", mermaid);
+        Assert.Contains("package-download<br/>GET https://api.nuget.org/v3-flatcontainer/markout/1.0.0/markout.1.0.0.nupkg?REDACTED", mermaid);
+        Assert.DoesNotContain("token=", mermaid);
         Assert.Contains("n0 --> n1", mermaid);
         Assert.Contains("n1 --> n2", mermaid);
         Assert.Contains("n2 --> n3", mermaid);
@@ -524,8 +529,9 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal("package Markout", tags["dotnet_inspect.request.what"]);
         Assert.Equal("package versions", tags["dotnet_inspect.request.why"]);
         var key = Assert.IsType<string>(tags["dotnet_inspect.cache.key"]);
-        Assert.Contains("token=REDACTED", key);
+        Assert.Equal("https://api.nuget.org/v3/index.json?REDACTED", key);
         Assert.DoesNotContain("secret", key);
+        Assert.DoesNotContain("token=", key);
     }
 
     [Fact]

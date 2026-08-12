@@ -344,6 +344,27 @@ public static class PackageCoordinateResolver
         return true;
     }
 
+    /// <summary>
+    /// True when <paramref name="value"/> is a canonical runtime identifier: an
+    /// acquisition target moniker in its lowercase spelling.
+    /// </summary>
+    /// <remarks>
+    /// Runtime identifiers are published lowercase, and the asset selector
+    /// matches a <c>runtimes/{rid}</c> folder ordinally by deliberate design —
+    /// folding case there would let a package direct a request at a folder its
+    /// own manifest never named. So a differently cased spelling is refused
+    /// here, before any source, cache, or network work, rather than normalized
+    /// into a match the selector would then have to make case-insensitive.
+    /// Frameworks take the other route, because they already compare
+    /// case-insensitively everywhere.
+    /// </remarks>
+    public static bool IsCanonicalRuntimeIdentifier(string? value) =>
+        IsAcquisitionTargetText(value)
+        && string.Equals(
+            value,
+            value!.ToLowerInvariant(),
+            StringComparison.Ordinal);
+
     static PackageCoordinateResolution.Invalid? ValidateCoordinate(
         PackageCoordinate coordinate,
         out NuGetVersion? exactVersion)
@@ -366,10 +387,11 @@ public static class PackageCoordinateResolver
                 "A package coordinate framework must be a moniker of ASCII letters and digits joined by single '.', '-', or '+' separators.");
         }
 
-        if (InvalidOptionalTarget(coordinate.RuntimeIdentifier))
+        if (coordinate.RuntimeIdentifier is not null
+            && !IsCanonicalRuntimeIdentifier(coordinate.RuntimeIdentifier))
         {
             return new PackageCoordinateResolution.Invalid(
-                "A package coordinate runtime identifier must be a moniker of ASCII letters and digits joined by single '.', '-', or '+' separators.");
+                "A package coordinate runtime identifier must be a lowercase moniker of ASCII letters and digits joined by single '.', '-', or '+' separators.");
         }
 
         if (coordinate.Version is not { } version)

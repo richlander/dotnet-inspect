@@ -259,37 +259,7 @@ public sealed record NetworkRequestObservation(
     }
 
     internal static InertString? RedactUrl(Uri? uri)
-    {
-        if (uri == null)
-            return null;
-
-        if (!uri.IsAbsoluteUri)
-            return new InertString(TextPolicy.Field, RedactRawUrl(uri.ToString()));
-
-        var builder = new UriBuilder(uri)
-        {
-            Fragment = "",
-            UserName = "",
-            Password = ""
-        };
-
-        builder.Query = RedactQuery(builder.Query);
-        builder.Path = RedactPath(builder.Path);
-
-        string redacted;
-        try
-        {
-            redacted = builder.Uri.ToString();
-        }
-        catch (UriFormatException)
-        {
-            // HttpClient accepts some absolute URIs whose normalized host is empty. Preserve a
-            // safe display for those instead of letting diagnostics replace the request failure.
-            redacted = builder.ToString();
-        }
-
-        return new InertString(TextPolicy.Field, redacted);
-    }
+        => UrlRedaction.ForDiagnostics(uri);
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
@@ -300,7 +270,7 @@ public sealed record NetworkRequestObservation(
     public static InertString RedactSensitiveUrl(Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
-        return RedactUrl(uri) ?? throw new UnreachableException();
+        return UrlRedaction.ForDiagnostics(uri) ?? throw new UnreachableException();
     }
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
@@ -310,189 +280,7 @@ public sealed record NetworkRequestObservation(
     /// <c>FeedFailureTelemetryTests.AnUnparseableRawUrlIsConservativelyRedactedBeforeStorage</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrlText(string value)
-    {
-        value = RemoveFragment(value);
-
-        if (!Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out var uri))
-            return new InertString(TextPolicy.Field, RedactRawUrl(value));
-
-        if (uri.IsAbsoluteUri)
-            return RedactUrl(uri) ?? new InertString(TextPolicy.Field, value);
-
-        return new InertString(TextPolicy.Field, RedactRawUrl(uri.ToString()));
-    }
-
-    private static string RedactRawUrl(string value)
-    {
-        value = RemoveFragment(value);
-        int authorityStart = FindRawAuthorityStart(value);
-        if (authorityStart < 0)
-            return RedactRelativeUrl(value);
-
-        int authorityEnd = value.IndexOfAny(['/', '\\', '?', '#'], authorityStart);
-        if (authorityEnd < 0)
-            authorityEnd = value.Length;
-
-        int authorityLength = authorityEnd - authorityStart;
-        int userInfoEnd = authorityLength > 0
-            ? value.LastIndexOf('@', authorityEnd - 1, authorityLength)
-            : -1;
-        if (userInfoEnd >= authorityStart)
-        {
-            value = string.Concat(
-                value.AsSpan(0, authorityStart),
-                value.AsSpan(userInfoEnd + 1));
-        }
-
-        return RedactRelativeUrl(value);
-    }
-
-    private static int FindRawAuthorityStart(string value)
-    {
-        int start = 0;
-        while (start < value.Length && value[start] is ' ' or '\t' or '\r' or '\n')
-            start++;
-
-        if (start + 1 < value.Length
-            && IsPathSeparator(value[start])
-            && IsPathSeparator(value[start + 1]))
-        {
-            return start + 2;
-        }
-
-        int colon = value.IndexOf(':', start);
-        if (colon <= start || !IsScheme(value.AsSpan(start, colon - start)))
-            return -1;
-
-        int separatorStart = colon + 1;
-        return separatorStart + 1 < value.Length
-            && IsPathSeparator(value[separatorStart])
-            && IsPathSeparator(value[separatorStart + 1])
-                ? separatorStart + 2
-                : -1;
-    }
-
-    private static bool IsScheme(ReadOnlySpan<char> value)
-    {
-        if (value.IsEmpty || !IsAsciiLetter(value[0]))
-            return false;
-
-        foreach (char character in value[1..])
-        {
-            if (!IsAsciiLetter(character)
-                && !char.IsAsciiDigit(character)
-                && character is not ('+' or '-' or '.'))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static bool IsAsciiLetter(char value) =>
-        value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
-
-    private static bool IsPathSeparator(char value) => value is '/' or '\\';
-
-    private static string RedactRelativeUrl(string url)
-    {
-        url = RemoveFragment(url);
-        var queryIndex = url.IndexOf('?', StringComparison.Ordinal);
-        if (queryIndex < 0)
-            return RedactPath(url);
-
-        var path = url[..queryIndex];
-        var query = url[queryIndex..];
-        return $"{RedactPath(path)}?{RedactQuery(query)}";
-    }
-
-    private static string RemoveFragment(string value)
-    {
-        int fragmentIndex = value.IndexOf('#', StringComparison.Ordinal);
-        return fragmentIndex < 0 ? value : value[..fragmentIndex];
-    }
-
-    // Some feeds carry the credential in the path rather than the query. MyGet publishes
-    // service index URLs shaped like https://host/F/<feed>/auth/<token>/api/v3/index.json,
-    // so the segment following an "auth" segment is a secret. Only that segment is removed:
-    // the rest of the path is the feed's identity (an Azure DevOps organization, project and
-    // feed all live in the path) and is exactly what a reader needs to tell sources apart.
-    private static string RedactPath(string path)
-    {
-        if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
-            return path;
-
-        var builder = new StringBuilder(path.Length);
-        int segmentStart = 0;
-        bool previousWasAuth = false;
-        bool changed = false;
-        for (int i = 0; i <= path.Length; i++)
-        {
-            if (i < path.Length && path[i] is not ('/' or '\\'))
-                continue;
-
-            ReadOnlySpan<char> segment = path.AsSpan(segmentStart, i - segmentStart);
-            bool redact = segment.Length > 0 && previousWasAuth;
-            if (redact)
-                builder.Append("REDACTED");
-            else
-                builder.Append(segment);
-            if (i < path.Length)
-                builder.Append(path[i]);
-
-            changed |= redact;
-            previousWasAuth = segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
-            segmentStart = i + 1;
-        }
-
-        return changed ? builder.ToString() : path;
-    }
-
-    private static string RedactQuery(string query)
-    {
-        if (string.IsNullOrEmpty(query))
-            return "";
-
-        var trimmed = query[0] == '?' ? query[1..] : query;
-        if (trimmed.Length == 0)
-            return "";
-
-        var parts = trimmed.Split('&');
-        for (var i = 0; i < parts.Length; i++)
-        {
-            var part = parts[i];
-            var separator = part.IndexOf('=', StringComparison.Ordinal);
-            var name = separator >= 0 ? part[..separator] : part;
-            if (IsSensitiveQueryName(Uri.UnescapeDataString(name)))
-                parts[i] = separator >= 0 ? $"{name}=REDACTED" : $"{name}=REDACTED";
-        }
-
-        return string.Join('&', parts);
-    }
-
-    // Matched on fragments rather than whole names: the same secret travels under
-    // access_token, accessToken, apiKey, x-api-key and personalAccessToken depending on the
-    // feed, and an exact-name list silently passes every spelling it has not met yet.
-    private static readonly string[] SensitiveNameFragments =
-        ["token", "key", "secret", "password", "credential", "auth", "sig"];
-
-    private static bool IsSensitiveQueryName(string name)
-    {
-        if (name.Equals("code", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var normalized = name.Replace("_", "", StringComparison.Ordinal)
-                             .Replace("-", "", StringComparison.Ordinal);
-
-        foreach (var fragment in SensitiveNameFragments)
-        {
-            if (normalized.Contains(fragment, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
+        => UrlRedaction.ForDiagnostics(value);
 }
 
 public static class CacheTelemetry

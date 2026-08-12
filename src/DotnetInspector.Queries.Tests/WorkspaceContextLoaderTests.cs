@@ -941,12 +941,16 @@ public sealed class WorkspaceContextLoaderTests
                 Options(client, store, provider),
                 TestContext.Current.CancellationToken));
 
+        // Exactly what a loaded context reports, with no caller-side
+        // de-duplication: the package carries two assemblies, so its realized
+        // coordinate appears twice in Members, and the boundary has to be the
+        // one that collapses it.
         ImmutableArray<RealizedMemberCoordinate> realized =
         [
-            .. loaded.Members
-                .Select(member => member.Realized)
-                .Distinct(),
+            .. loaded.Members.Select(member => member.Realized),
         ];
+        Assert.Equal(3, realized.Length);
+        Assert.Equal(2, realized.Distinct().Count());
 
         using var second = new InspectionWorkspace();
         var reloaded = Loaded(
@@ -963,13 +967,33 @@ public sealed class WorkspaceContextLoaderTests
             loaded.Members.Select(member => member.Realized),
             reloaded.Members.Select(member => member.Realized));
         Assert.Equal(Framework, reloaded.Framework);
+
+        string[] identities =
+        [
+            .. reloaded.Group.Participants
+                .Select(participant => participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal),
+        ];
         Assert.Equal(
             loaded.Group.Participants
                 .Select(participant => participant.Assembly.Identity.Name)
                 .Order(StringComparer.Ordinal),
-            reloaded.Group.Participants
-                .Select(participant => participant.Assembly.Identity.Name)
-                .Order(StringComparer.Ordinal));
+            identities);
+        Assert.Equal(identities.Length, identities.Distinct(StringComparer.Ordinal).Count());
+
+        // The repeated coordinate would have put one assembly in the group
+        // twice, and every in-context reference to it would then bind to
+        // several descriptors rather than one.
+        AssemblyContextParticipant caller = Participant(reloaded, CallerPath);
+        AssemblyContextParticipant target = Participant(reloaded, TargetPath);
+        AssemblyBindingSelection selection = caller.BindingPolicy.Select(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(target.Assembly.Identity),
+                AssemblyBindingOrigin.FromAssembly(caller.Assembly),
+                AssemblyResolutionScope.Any));
+        Assert.Same(
+            target.Assembly,
+            Assert.IsType<AssemblyBindingSelection.Selected>(selection).Assembly);
     }
 
     [Fact]
@@ -1511,6 +1535,333 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(0, provider.OpenCount);
     }
 
+    /// <summary>
+    /// The realized coordinate is composed after acquisition, from an id and
+    /// version the resolver produced. Holding those to the framework and
+    /// runtime-identifier grammar rejected real package ids — every id with an
+    /// underscore — after the payload had already been committed.
+    /// </summary>
+    [Fact]
+    public async Task PackageMember_WithAnUnderscoreId_RealizesAfterAcquisition()
+    {
+        const string underscoreId = "sqlitepclraw.bundle_e_sqlite3";
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, underscoreId, Version, TargetPackage());
+        using var client = new HttpClient(handler);
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            underscoreId,
+                            Version),
+                    ],
+                },
+                Options(
+                    client,
+                    new InMemoryPackageStore(),
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA])),
+                TestContext.Current.CancellationToken));
+
+        var realized = Assert.IsType<RealizedMemberCoordinate.Package>(
+            loaded.Members[0].Realized);
+        Assert.Equal(underscoreId, realized.PackageId);
+        Assert.Equal(Version, realized.Version);
+    }
+
+    /// <summary>
+    /// A prerelease label may begin, end, or consist of hyphens. A feed can
+    /// select such a version for a floating member, so the realized coordinate
+    /// has to be able to name it — the moniker grammar could not, and threw
+    /// after the payload was acquired and committed.
+    /// </summary>
+    [Theory]
+    [InlineData("1.0.0--beta")]
+    [InlineData("1.0.0-beta-")]
+    [InlineData("1.0.0---")]
+    public async Task FloatingMember_SelectingAHyphenRichPrerelease_Realizes(
+        string selected)
+    {
+        byte[] nupkg = TargetPackage();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new ListingHandler(nupkg, listedVersion: selected));
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(PackageId),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore()) with
+                {
+                    IncludePrerelease = true,
+                },
+                TestContext.Current.CancellationToken));
+
+        var realized = Assert.IsType<RealizedMemberCoordinate.Package>(
+            loaded.Members[0].Realized);
+        Assert.Equal(selected, realized.Version);
+        Assert.Single(loaded.Group.Participants);
+    }
+
+    [Fact]
+    public void RealizedCoordinate_AcceptsRealPackageIdentitiesAndVersions()
+    {
+        Assert.True(
+            RealizedMemberCoordinate.IsCanonicalPackageIdentity(
+                "sqlitepclraw.bundle_e_sqlite3"));
+        Assert.True(
+            RealizedMemberCoordinate.IsCanonicalPackageIdentity("a_b-c.d"));
+        Assert.False(
+            RealizedMemberCoordinate.IsCanonicalPackageIdentity(
+                "SQLitePCLRaw.bundle_e_sqlite3"));
+        Assert.False(
+            RealizedMemberCoordinate.IsCanonicalPackageIdentity("../../admin"));
+
+        foreach (string version in
+            new[] { "1.0.0--beta", "1.0.0-beta-", "1.0.0---", "1.0.0-rc.1" })
+        {
+            Assert.True(
+                RealizedMemberCoordinate.IsCanonicalPackageVersion(version),
+                version);
+        }
+
+        foreach (string version in
+            new[] { "1.0", "1.0.0.0", "1.0.0-BETA", "1.0.0+build", "latest", "" })
+        {
+            Assert.False(
+                RealizedMemberCoordinate.IsCanonicalPackageVersion(version),
+                version);
+        }
+    }
+
+    /// <summary>
+    /// Two casings of one framework are one target, so they must realize one
+    /// coordinate. Carrying the declared spelling forward made them transport
+    /// as different identities and handed the asset selector a moniker its
+    /// ordinal framework parser does not recognize.
+    /// </summary>
+    [Fact]
+    public async Task EquivalentFrameworkCasing_RealizesEqualCoordinates()
+    {
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+
+        RealizedMemberCoordinate lower = await RealizeAsync("net10.0");
+        RealizedMemberCoordinate upper = await RealizeAsync("NET10.0");
+
+        Assert.Equal(lower, upper);
+        Assert.Equal(
+            "net10.0",
+            Assert.IsType<RealizedMemberCoordinate.Package>(upper).Framework);
+
+        async Task<RealizedMemberCoordinate> RealizeAsync(string framework)
+        {
+            using var workspace = new InspectionWorkspace();
+            var loaded = Loaded(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken));
+            Assert.Equal("net10.0", loaded.Framework);
+            return loaded.Members[0].Realized;
+        }
+    }
+
+    /// <summary>
+    /// A runtime identifier is matched ordinally against a package's own
+    /// folder names, so a non-canonical casing is refused rather than folded —
+    /// and refused before any authorization, source, store, or network work,
+    /// not after acquiring a payload that then matches nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("Browser-Wasm", null)]
+    [InlineData(null, "LINUX-X64")]
+    public async Task NonCanonicalRuntimeIdentifier_IsRejectedBeforeAnyAcquisition(
+        string? contextRid,
+        string? memberRid)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        var authorization = new RecordingAuthorization();
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    RuntimeIdentifier = contextRid,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            PackageId,
+                            Version,
+                            runtimeIdentifier: memberRid),
+                    ],
+                },
+                Options(client, store, sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            Failed(outcome).Failures,
+            failure => failure.Kind
+                == WorkspaceContextLoadFailureKind.InvalidCoordinate);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.Equal(0, store.Interactions);
+        Assert.Equal(0, authorization.Requests);
+    }
+
+    /// <summary>
+    /// A bidirectional override is not a control character, so a
+    /// control-only grammar admitted it into an embedded coordinate and then
+    /// into the typed failure that reports the coordinate as unusable.
+    /// </summary>
+    [Theory]
+    [InlineData("assets/\u202eevil", "Sample")]
+    [InlineData("assets/\u200bhidden", "Sample")]
+    [InlineData("assets/ok.dll", "Sam\u202eple")]
+    [InlineData("assets/ok.dll", "Sam\u200dple")]
+    public async Task EmbeddedCoordinateWithANonGraphicScalar_IsRejectedBeforeProviderAccess(
+        string contentRef,
+        string declaredName)
+    {
+        byte[] embedded = File.ReadAllBytes(EmbeddedPath);
+        var provider = new StubEmbeddedContent(embedded);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Embedded(
+                            contentRef,
+                            Digest(embedded),
+                            declaredName),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore(), provider),
+                TestContext.Current.CancellationToken);
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(Failed(outcome).Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            failure.Kind);
+        Assert.Equal(0, provider.OpenCount);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.DoesNotContain('\u202e', failure.Message);
+        Assert.DoesNotContain('\u200b', failure.Message);
+        Assert.DoesNotContain('\u200d', failure.Message);
+    }
+
+    [Fact]
+    public void EmbeddedGrammars_KeepLegitimateSpellings()
+    {
+        Assert.True(
+            RealizedMemberCoordinate.IsCanonicalContentRef(
+                "bundle/lib/net10.0/Sample.dll"));
+        Assert.True(
+            RealizedMemberCoordinate.IsAssemblySimpleName("System.Text.Json"));
+        Assert.True(
+            RealizedMemberCoordinate.IsAssemblySimpleName("Ünïcødé.Løbrary"));
+        Assert.False(
+            RealizedMemberCoordinate.IsCanonicalContentRef("assets/\u202eevil"));
+        Assert.False(
+            RealizedMemberCoordinate.IsAssemblySimpleName("Sam\u202eple"));
+    }
+
+    /// <summary>
+    /// Two identical declared members name one acquisition, so realizing both
+    /// would put each of the package's assemblies in the group twice and make
+    /// every in-context reference bind ambiguously.
+    /// </summary>
+    [Fact]
+    public async Task DuplicateDeclaredMembers_RealizeOneGroup()
+    {
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version), PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, loaded.Group.Participants.Length);
+        Assert.Equal(
+            2,
+            loaded.Group.Participants
+                .Select(participant => participant.Assembly.Identity.Name)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+
+        AssemblyContextParticipant caller = Participant(loaded, CallerPath);
+        AssemblyContextParticipant target = Participant(loaded, TargetPath);
+        Assert.IsType<AssemblyBindingSelection.Selected>(
+            caller.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(target.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(caller.Assembly),
+                    AssemblyResolutionScope.Any)));
+    }
+
+    [Fact]
+    public async Task ConflictingDuplicateMembers_CreateNoGroup()
+    {
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+        var counting = new CountingPackageStore(store);
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version), PackageMember("2.0.0")],
+                },
+                Options(client, counting),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.Equal(0, counting.Interactions);
+    }
+
     [Fact]
     public void RealizedCoordinate_IsCanonicalAndStructurallyEquatable()
     {
@@ -1941,6 +2292,23 @@ public sealed class WorkspaceContextLoaderTests
                 ? PackageSourceAuthorization.Authorize(sources)
                 : PackageSourceAuthorization.Deny(
                     "No source is authorized for this package.");
+    }
+
+    /// <summary>
+    /// Records how many times authorization was consulted, so a test can prove
+    /// a front-door rejection happened before any host policy was asked.
+    /// </summary>
+    sealed class RecordingAuthorization : IPackageSourceAuthorization
+    {
+        int _requests;
+
+        internal int Requests => Volatile.Read(ref _requests);
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(string packageId)
+        {
+            Interlocked.Increment(ref _requests);
+            return PackageSourceAuthorization.Authorize([NuGetOrg]);
+        }
     }
 
     /// <summary>

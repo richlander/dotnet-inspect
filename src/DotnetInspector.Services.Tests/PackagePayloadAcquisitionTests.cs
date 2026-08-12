@@ -509,6 +509,143 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.Equal(0, store.Commits);
     }
 
+    /// <summary>
+    /// A feed-declared package URL can carry the credential in its query, under
+    /// a parameter name the feed also chooses. The request must use it exactly;
+    /// nothing that prints may — and the unfamiliar name is the point, because
+    /// recognizing familiar ones is what a redaction can do and still leak.
+    /// </summary>
+    [Fact]
+    public async Task SignedPackageUrl_NeverReachesALogLine()
+    {
+        const string secret = "s3cr3t-signature-value";
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var handler = new ServiceIndexHandler(
+            baseAddress: $"https://primary.test/flat?x={secret}",
+            nupkgUrl:
+                $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}",
+            nupkg);
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary),
+                new InMemoryPackageStore(),
+                log: line =>
+                {
+                    lock (logs)
+                        logs.Add(line);
+                },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Acquired>(result);
+
+        // The signature travelled on the wire, exactly as the feed declared it.
+        Assert.Contains(
+            handler.Requests,
+            url => url.Contains(secret, StringComparison.Ordinal));
+
+        // And nowhere else.
+        Assert.NotEmpty(logs);
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(
+                secret,
+                line,
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The retry path prints the URL it is retrying and, on a transport
+    /// failure, the exception whose own message embeds the request URI. Both
+    /// are diagnostics, and both carried the signature.
+    /// </summary>
+    [Fact]
+    public async Task SignedPackageUrl_NeverReachesARetryFailureLogLine()
+    {
+        const string secret = "s3cr3t-signature-value";
+        var handler = new ServiceIndexHandler(
+            baseAddress: $"https://primary.test/flat?x={secret}",
+            nupkgUrl:
+                $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}",
+            nupkg: [],
+            payloadStatus: HttpStatusCode.InternalServerError);
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary),
+                new InMemoryPackageStore(),
+                log: line =>
+                {
+                    lock (logs)
+                        logs.Add(line);
+                },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.Contains(
+            logs,
+            line => line.Contains("retryable", StringComparison.Ordinal)
+                || line.Contains("Max retries", StringComparison.Ordinal));
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(
+                secret,
+                line,
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A cross-origin signed URL also reaches the credential scope, which
+    /// explains why it withheld the source's credentials by naming the
+    /// endpoint.
+    /// </summary>
+    [Fact]
+    public async Task CrossOriginSignedUrl_IsNotNamedInTheCredentialScopeLog()
+    {
+        const string secret = "s3cr3t-signature-value";
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var credentialed = new PackageSource(
+            "primary",
+            Primary.Url,
+            new PackageSourceCredential("user", "pass"));
+        var handler = new ServiceIndexHandler(
+            baseAddress: $"https://elsewhere.test/flat?x={secret}",
+            nupkgUrl:
+                $"https://elsewhere.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}",
+            nupkg);
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(credentialed),
+                new InMemoryPackageStore(),
+                log: line =>
+                {
+                    lock (logs)
+                        logs.Add(line);
+                },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Acquired>(result);
+        Assert.Contains(
+            logs,
+            line => line.Contains("Withholding credentials", StringComparison.Ordinal));
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(
+                secret,
+                line,
+                StringComparison.Ordinal));
+    }
+
     static AcquiredPackagePayload Acquired(PackagePayloadResult result)
         => Assert.IsType<PackagePayloadResult.Acquired>(result).Payload;
 
@@ -569,7 +706,8 @@ public sealed class PackagePayloadAcquisitionTests
     sealed class ServiceIndexHandler(
         string baseAddress,
         string nupkgUrl,
-        byte[] nupkg) : HttpMessageHandler
+        byte[] nupkg,
+        HttpStatusCode payloadStatus = HttpStatusCode.OK) : HttpMessageHandler
     {
         readonly List<string> _requests = [];
 
@@ -602,13 +740,19 @@ public sealed class PackagePayloadAcquisitionTests
                     });
             }
 
+            if (!url.Equals(nupkgUrl, StringComparison.Ordinal))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+
             return Task.FromResult(
-                url.Equals(nupkgUrl, StringComparison.Ordinal)
+                payloadStatus == HttpStatusCode.OK
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new ByteArrayContent(nupkg),
                     }
-                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+                    : new HttpResponseMessage(payloadStatus));
         }
     }
 

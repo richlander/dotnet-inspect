@@ -475,7 +475,11 @@ public static class PackageExtractor
                 }
                 catch (HttpRequestException ex)
                 {
-                    log?.Invoke($"Source {source.Name} failed: {ex.Message}");
+                    // The transport's message embeds the request URI, and that
+                    // URI came from a feed-declared flat-container base.
+                    log?.Invoke(
+                        $"Source {source.Name} failed: "
+                        + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
                 }
             }
 
@@ -632,6 +636,23 @@ public static class PackageExtractor
         bool Offline);
 
     private sealed record HttpClientIdentity(long Value);
+
+    /// <summary>
+    /// Builds the flat-container version-index URL
+    /// (<c>{base}/{id}/index.json</c>), or null when the base address is not a
+    /// usable absolute HTTP(S) resource URL.
+    /// </summary>
+    /// <remarks>
+    /// The base address is feed-declared metadata, so it goes through
+    /// <see cref="PackageResourceUrl.Combine"/> like every other package
+    /// resource: appending to it as text would put the package path inside a
+    /// signed base's query, and would hand a relative or non-HTTP <c>@id</c> to
+    /// the request layer instead of ending that one source.
+    /// </remarks>
+    private static string? GetVersionIndexUrl(
+        string? baseAddress,
+        string packageName)
+        => PackageResourceUrl.Combine(baseAddress, packageName, "index.json");
 
     /// <summary>
     /// Gets the download URL for a package from a specific source.
@@ -823,7 +844,8 @@ public static class PackageExtractor
     {
         if (!IsHttpSource(source))
         {
-            log?.Invoke($"Skipping non-HTTP NuGet source '{source.Name}': {source.Url}");
+            log?.Invoke(
+                $"Skipping non-HTTP NuGet source '{source.Name}': {UrlRedaction.ForDiagnostics(source.Url)}");
             return null;
         }
 
@@ -841,7 +863,8 @@ public static class PackageExtractor
             indexUrl = builder.Uri.AbsoluteUri;
         }
 
-        log?.Invoke($"Querying service index: {indexUrl}");
+        log?.Invoke(
+            $"Querying service index: {UrlRedaction.ForDiagnostics(indexUrl)}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client,
@@ -1391,15 +1414,14 @@ public static class PackageExtractor
         CancellationToken cancellationToken = default)
     {
         // Try flat-container index first
-        var flatContainerUrl = source.GetFlatContainerUrl();
-        if (flatContainerUrl != null)
+        if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
+            is { } wellKnownIndexUrl)
         {
-            string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
             var versions = await FetchVersionListAsync(
                 client,
-                indexUrl,
+                wellKnownIndexUrl,
                 log,
-                NuGetCredentialScope.AuthFor(source, indexUrl, log),
+                NuGetCredentialScope.AuthFor(source, wellKnownIndexUrl, log),
                 cancellationToken).ConfigureAwait(false);
             if (versions != null)
                 return versions;
@@ -1411,12 +1433,8 @@ public static class PackageExtractor
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (baseAddress != null)
+        if (GetVersionIndexUrl(baseAddress, packageName) is { } indexUrl)
         {
-            if (!baseAddress.EndsWith('/'))
-                baseAddress += "/";
-
-            string indexUrl = $"{baseAddress}{packageName}/index.json";
             var versions = await FetchVersionListAsync(
                 client,
                 indexUrl,
@@ -1435,7 +1453,8 @@ public static class PackageExtractor
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
-        log?.Invoke($"Fetching versions from: {indexUrl}");
+        log?.Invoke(
+            $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: auth,
             cancellationToken: cancellationToken,
@@ -1567,7 +1586,8 @@ public static class PackageExtractor
         CancellationToken cancellationToken = default)
     {
         string indexUrl = $"{NuGetOrgRegistrationBase}/{packageName}/index.json";
-        log?.Invoke($"Fetching listing status from: {indexUrl}");
+        log?.Invoke(
+            $"Fetching listing status from: {UrlRedaction.ForDiagnostics(indexUrl)}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl,
@@ -1755,16 +1775,16 @@ public static class PackageExtractor
         }
 
         // Fall back to flat-container index (enumerates all versions)
-        var flatContainerUrl = source.GetFlatContainerUrl();
-        if (flatContainerUrl != null)
+        if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
+            is { } wellKnownIndexUrl)
         {
-            string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
-            log?.Invoke($"Fetching versions from: {indexUrl}");
+            log?.Invoke(
+                $"Fetching versions from: {UrlRedaction.ForDiagnostics(wellKnownIndexUrl)}");
 
             var version = await ParseVersionIndexAsync(
                 client,
-                indexUrl,
-                NuGetCredentialScope.AuthFor(source, indexUrl, log),
+                wellKnownIndexUrl,
+                NuGetCredentialScope.AuthFor(source, wellKnownIndexUrl, log),
                 includePrerelease,
                 cancellationToken).ConfigureAwait(false);
             if (version != null)
@@ -1777,13 +1797,10 @@ public static class PackageExtractor
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (baseAddress != null)
+        if (GetVersionIndexUrl(baseAddress, packageName) is { } indexUrl)
         {
-            if (!baseAddress.EndsWith('/'))
-                baseAddress += "/";
-
-            string indexUrl = $"{baseAddress}{packageName}/index.json";
-            log?.Invoke($"Fetching versions from: {indexUrl}");
+            log?.Invoke(
+                $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
 
             var version = await ParseVersionIndexAsync(
                 client,
@@ -1805,7 +1822,8 @@ public static class PackageExtractor
         CancellationToken cancellationToken)
     {
         string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{packageName}&take=1&prerelease=false";
-        log?.Invoke($"Fetching latest version from: {searchUrl}");
+        log?.Invoke(
+            $"Fetching latest version from: {UrlRedaction.ForDiagnostics(searchUrl)}");
 
         try
         {

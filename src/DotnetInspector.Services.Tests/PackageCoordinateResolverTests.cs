@@ -557,6 +557,144 @@ public sealed class PackageCoordinateResolverTests
                 cancellationToken: cancellation.Token));
     }
 
+    /// <summary>
+    /// A flat-container base can carry a signature in its query. Appending the
+    /// version-index path as text puts that path inside the query value, so the
+    /// request asks the container root for nothing; the path has to be appended
+    /// to the path, with the signature preserved.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_WithASignedFlatContainerBase_Resolves()
+    {
+        var handler = new SignedFlatContainerHandler();
+        using var client = new HttpClient(handler);
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(SignedFlatContainerHandler.PackageId),
+                [SignedFlatContainerHandler.Feed],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+        Assert.Equal("1.5.0", resolved.Coordinate.Version);
+
+        string indexRequest = Assert.Single(
+            handler.Requests,
+            url => url.Contains("/flat/", StringComparison.Ordinal));
+        var requested = new Uri(indexRequest);
+        Assert.Equal(
+            $"/flat/{SignedFlatContainerHandler.PackageId}/index.json",
+            requested.AbsolutePath);
+        Assert.Equal("?sig=abc", requested.Query);
+    }
+
+    /// <summary>
+    /// Floating resolution logs the version-index URL before the retry helper
+    /// ever runs, so the signature a signed flat-container base carries reaches
+    /// a log line on the resolution path, not only the download path.
+    /// </summary>
+    [Fact]
+    public async Task FloatingResolution_SignedIndexUrl_NeverReachesALogLine()
+    {
+        const string secret = "s3cr3t-signature-value";
+        var handler = new SignedFlatContainerHandler(secret);
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(SignedFlatContainerHandler.PackageId),
+                [SignedFlatContainerHandler.Feed],
+                log: line =>
+                {
+                    lock (logs)
+                        logs.Add(line);
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+
+        // The signature travelled on the wire, exactly as the feed declared it.
+        Assert.Contains(
+            handler.Requests,
+            url => url.Contains(secret, StringComparison.Ordinal));
+
+        // And nowhere else. The "Fetching versions from" line is the one this
+        // covers; it is emitted before the shared retry helper sees the URL.
+        Assert.Contains(
+            logs,
+            line => line.Contains(
+                "Fetching versions from",
+                StringComparison.Ordinal));
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(
+                secret,
+                line,
+                StringComparison.Ordinal));
+    }
+
+    sealed class SignedFlatContainerHandler : HttpMessageHandler
+    {
+        internal const string PackageId = "signed.package";
+        internal static readonly PackageSource Feed =
+            new("signed", "https://feed.test/v3/index.json");
+
+        readonly string _signature;
+        readonly string _indexUrl;
+        readonly List<string> _requests = [];
+
+        internal SignedFlatContainerHandler(string signature = "abc")
+        {
+            _signature = signature;
+            _indexUrl =
+                $"https://feed.test/flat/{PackageId}/index.json?sig={signature}";
+        }
+
+        internal IReadOnlyList<string> Requests
+        {
+            get
+            {
+                lock (_requests)
+                    return [.. _requests];
+            }
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            lock (_requests)
+                _requests.Add(url);
+
+            if (url.Equals(Feed.Url, StringComparison.Ordinal))
+            {
+                return Json(
+                    $$"""
+                    {"resources":[{"@id":"https://feed.test/flat?sig={{_signature}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """);
+            }
+
+            return url.Equals(_indexUrl, StringComparison.Ordinal)
+                ? Json("""{"versions":["1.0.0","1.5.0"]}""")
+                : Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound));
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
     sealed class NuGetOrgHandler : HttpMessageHandler
     {
         int _requestCount;

@@ -935,10 +935,38 @@ resolution, acquisition, and asset-selection owners. It supplies:
   applicability follows the support matrix rather than a cross-family age
   comparison; and
 - a resource-URL gate — `PackageResourceUrlTests` with
-  `PackagePayloadAcquisitionTests.SignedFlatContainerBase_ComposesThePackagePath`
-  and `MalformedFlatContainerBase_IsATypedSourceFailure`, so a feed-declared
-  base address is parsed rather than concatenated onto, a signed query survives,
-  and unusable resource metadata ends one source instead of the acquisition.
+  `PackagePayloadAcquisitionTests.SignedFlatContainerBase_ComposesThePackagePath`,
+  `MalformedFlatContainerBase_IsATypedSourceFailure`, and
+  `PackageCoordinateResolverTests.FloatingCoordinate_WithASignedFlatContainerBase_Resolves`,
+  so every flat-container path — payload, manifest, and version index — is
+  composed from a parsed base rather than concatenated onto, a signed query
+  survives, and unusable resource metadata ends one source instead of the
+  acquisition;
+- a URL-diagnostic gate —
+  `PackagePayloadAcquisitionTests.SignedPackageUrl_NeverReachesALogLine`,
+  `SignedPackageUrl_NeverReachesARetryFailureLogLine`, and
+  `CrossOriginSignedUrl_IsNotNamedInTheCredentialScopeLog`, so a signature the
+  request must carry reaches the wire and no log line, with one redaction owner
+  (`DotnetInspector.Core.UrlRedaction`) in front of the retry, credential-scope,
+  and package-acquisition diagnostics;
+- a coordinate-canonicalization gate —
+  `WorkspaceContextLoaderTests.PackageMember_WithAnUnderscoreId_RealizesAfterAcquisition`,
+  `FloatingMember_SelectingAHyphenRichPrerelease_Realizes`,
+  `RealizedCoordinate_AcceptsRealPackageIdentitiesAndVersions`,
+  `EquivalentFrameworkCasing_RealizesEqualCoordinates`,
+  `NonCanonicalRuntimeIdentifier_IsRejectedBeforeAnyAcquisition`, and
+  `EmbeddedCoordinateWithANonGraphicScalar_IsRejectedBeforeProviderAccess`, so a
+  realized coordinate is held to the grammar of the thing it names — NuGet's id
+  and version rules, a normalized framework, a canonical runtime identifier, and
+  a bundle reference free of scalars that can act on a sink — rather than to a
+  moniker grammar that rejects real packages after their bytes are committed;
+  and
+- a one-acquisition-per-subject gate —
+  `WorkspaceContextLoaderTests.RealizedLoad_RoundTripsAWholeContext`,
+  `DuplicateDeclaredMembers_RealizeOneGroup`, and
+  `ConflictingDuplicateMembers_CreateNoGroup`, so a context that names one
+  subject twice either collapses to one acquisition or fails typed, and never
+  produces a group whose in-context references bind to several descriptors.
 
 Nothing else on the list above exists yet. There is no record schema or
 serializer, no group catalog or grammar, no packet projection, no `platform`,

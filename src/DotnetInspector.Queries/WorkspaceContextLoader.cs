@@ -169,9 +169,18 @@ public static class WorkspaceContextLoader
         if (!rejections.IsEmpty)
             return new WorkspaceContextLoadOutcome.Failed(rejections);
 
+        if (Distinct(
+                context.Members,
+                static member => member,
+                out ImmutableArray<WorkspaceMemberCoordinate> members)
+            is { } duplicate)
+        {
+            return new WorkspaceContextLoadOutcome.Failed([duplicate]);
+        }
+
         var realized =
             ImmutableArray.CreateBuilder<RealizedMember>();
-        foreach (WorkspaceMemberCoordinate member in context.Members)
+        foreach (WorkspaceMemberCoordinate member in members)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -267,8 +276,24 @@ public static class WorkspaceContextLoader
         if (!rejections.IsEmpty)
             return new WorkspaceContextLoadOutcome.Failed(rejections);
 
+        // A loaded context reports one member per participant, so a package
+        // carrying several assemblies repeats its realized coordinate. Handing
+        // those values straight back would expand each repeat independently and
+        // put the same assembly in the group twice, which makes every in-context
+        // reference bind ambiguously. Two identical exact coordinates cannot
+        // name different bytes, so the repeat is dropped rather than rejected —
+        // and it is dropped here, once, before any acquisition.
+        if (Distinct(
+                members,
+                Declare,
+                out ImmutableArray<RealizedMemberCoordinate> distinct)
+            is { } duplicate)
+        {
+            return new WorkspaceContextLoadOutcome.Failed([duplicate]);
+        }
+
         var realized = ImmutableArray.CreateBuilder<RealizedMember>();
-        foreach (RealizedMemberCoordinate coordinate in members)
+        foreach (RealizedMemberCoordinate coordinate in distinct)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -308,6 +333,67 @@ public static class WorkspaceContextLoader
         }
 
         return CreateGroup(workspace, realized, options, framework, rid);
+    }
+
+    /// <summary>
+    /// Reduces a member list to its distinct coordinates in first-declared
+    /// order, or reports the conflict when one acquisition subject is named
+    /// twice with different values.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two identical coordinates name one acquisition, so realizing them twice
+    /// would put one assembly in the group twice and make every in-context
+    /// reference to it bind ambiguously. Collapsing them is safe because they
+    /// cannot resolve differently.
+    /// </para>
+    /// <para>
+    /// Two <em>different</em> coordinates for one subject — one package id at
+    /// two versions, one content reference with two digests — are not
+    /// collapsible and cannot both be realized into one binding-consistent
+    /// group. That is a typed rejection before acquisition rather than a group
+    /// whose bindings are decided by declaration order.
+    /// </para>
+    /// </remarks>
+    static WorkspaceContextLoadFailure? Distinct<T>(
+        IReadOnlyList<T> members,
+        Func<T, WorkspaceMemberCoordinate> declare,
+        out ImmutableArray<T> distinct)
+        where T : notnull
+    {
+        var bySubject = new Dictionary<string, T>(StringComparer.Ordinal);
+        var kept = ImmutableArray.CreateBuilder<T>(members.Count);
+        foreach (T member in members)
+        {
+            WorkspaceMemberCoordinate declared = declare(member);
+            string subject = declared switch
+            {
+                WorkspaceMemberCoordinate.PackageMember package =>
+                    $"package:{package.PackageId.ToLowerInvariant()}",
+                WorkspaceMemberCoordinate.EmbeddedMember embedded =>
+                    $"embedded:{embedded.ContentRef}",
+                _ => $"other:{kept.Count}",
+            };
+
+            if (!bySubject.TryGetValue(subject, out T? existing))
+            {
+                bySubject.Add(subject, member);
+                kept.Add(member);
+                continue;
+            }
+
+            if (!existing.Equals(member))
+            {
+                distinct = [];
+                return Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    declared,
+                    "A workspace context names one acquisition subject more than once with different coordinates.");
+            }
+        }
+
+        distinct = kept.ToImmutable();
+        return null;
     }
 
     /// <summary>
@@ -369,8 +455,8 @@ public static class WorkspaceContextLoader
             if (coordinate is not RealizedMemberCoordinate.Package package)
                 continue;
 
-            AddTarget(frameworks, package.Framework);
-            AddTarget(rids, package.RuntimeIdentifier);
+            AddTarget(frameworks, package.Framework, lowercase: true);
+            AddTarget(rids, package.RuntimeIdentifier, lowercase: false);
         }
 
         if (frameworks.Count > 1 || rids.Count > 1)
@@ -392,18 +478,29 @@ public static class WorkspaceContextLoader
         return failures.ToImmutable();
     }
 
-    static void AddTarget(List<string> targets, string? value)
+    /// <summary>
+    /// Adds one declared target to the context's effective set, in its
+    /// canonical spelling.
+    /// </summary>
+    /// <remarks>
+    /// A framework is normalized to lowercase rather than kept as written.
+    /// Frameworks compare case-insensitively everywhere in this product, so
+    /// <c>NET8.0</c> and <c>net8.0</c> are one target; carrying both spellings
+    /// forward would realize two coordinates that transport as different
+    /// identities and would hand the asset selector a moniker its ordinal
+    /// framework parser does not recognize. A runtime identifier is not folded
+    /// — <see cref="PackageCoordinateResolver.IsCanonicalRuntimeIdentifier"/>
+    /// refuses a non-canonical one before this point, because the selector
+    /// matches runtime folders ordinally.
+    /// </remarks>
+    static void AddTarget(List<string> targets, string? value, bool lowercase)
     {
         if (value is null || IsBlankOrPadded(value))
             return;
 
-        if (!targets.Any(target => string.Equals(
-                target,
-                value,
-                StringComparison.OrdinalIgnoreCase)))
-        {
-            targets.Add(value);
-        }
+        string canonical = lowercase ? value.ToLowerInvariant() : value;
+        if (!targets.Contains(canonical, StringComparer.Ordinal))
+            targets.Add(canonical);
     }
 
     static WorkspaceContextLoadOutcome CreateGroup(
@@ -469,20 +566,34 @@ public static class WorkspaceContextLoader
             return failures.ToImmutable();
         }
 
-        if (IsInvalidOptionalTarget(context.Framework)
-            || IsInvalidOptionalTarget(context.RuntimeIdentifier))
+        if (IsInvalidOptionalTarget(context.Framework))
         {
             failures.Add(
                 Failure(
                     WorkspaceContextLoadFailureKind.InvalidCoordinate,
                     member: null,
-                    "A context acquisition target cannot be empty, have surrounding whitespace, or carry a control character."));
+                    "A context acquisition framework must be a moniker of ASCII letters and digits joined by single '.', '-', or '+' separators."));
+        }
+
+        if (context.RuntimeIdentifier is not null
+            && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                context.RuntimeIdentifier))
+        {
+            // Refused here, before any authorization, source, store, or network
+            // work: the asset selector matches runtime folders ordinally, so a
+            // non-canonical spelling would acquire a payload and then match
+            // nothing inside it.
+            failures.Add(
+                Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member: null,
+                    "A context acquisition runtime identifier must be a lowercase moniker of ASCII letters and digits joined by single '.', '-', or '+' separators."));
         }
 
         List<string> frameworks = [];
         List<string> rids = [];
-        AddTarget(frameworks, context.Framework);
-        AddTarget(rids, context.RuntimeIdentifier);
+        AddTarget(frameworks, context.Framework, lowercase: true);
+        AddTarget(rids, context.RuntimeIdentifier, lowercase: false);
         bool hasPackageMember = false;
 
         foreach (WorkspaceMemberCoordinate member in context.Members)
@@ -518,8 +629,8 @@ public static class WorkspaceContextLoader
                         break;
                     }
 
-                    AddTarget(frameworks, package.Framework);
-                    AddTarget(rids, package.RuntimeIdentifier);
+                    AddTarget(frameworks, package.Framework, lowercase: true);
+                    AddTarget(rids, package.RuntimeIdentifier, lowercase: false);
                     break;
 
                 case WorkspaceMemberCoordinate.EmbeddedMember embedded:
@@ -901,13 +1012,29 @@ public static class WorkspaceContextLoader
                     $"Package '{coordinate.PackageId}' carries no managed assembly for the acquisition target."));
         }
 
-        return new MemberRealization(
-            new RealizedMemberCoordinate.Package(
+        // The realized coordinate is composed here, after the payload has been
+        // acquired and committed, from values three owners produced. If those
+        // grammars ever drift apart, this is where it shows — so it is a typed
+        // failure rather than an exception escaping a caller that has already
+        // paid for the bytes.
+        if (!RealizedMemberCoordinate.Package.TryCreate(
                 coordinate.PackageId,
                 coordinate.Version,
                 acquired.ProducerKey,
                 framework,
-                runtimeIdentifier),
+                runtimeIdentifier,
+                out RealizedMemberCoordinate.Package? realizedCoordinate,
+                out string? problem))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"The acquired package could not be named by a canonical realized coordinate: {problem}."));
+        }
+
+        return new MemberRealization(
+            realizedCoordinate,
             assemblies.ToImmutable());
     }
 

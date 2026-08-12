@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
+using InertText;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Queries;
@@ -262,24 +263,17 @@ public abstract record RealizedMemberCoordinate
             string framework,
             string? runtimeIdentifier)
         {
-            if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+            if (!IsCanonicalPackageIdentity(packageId))
             {
                 throw new ArgumentException(
-                    "A realized package id is a canonical NuGet package id.",
+                    "A realized package id is a canonical NuGet package id in its normalized lowercase spelling.",
                     nameof(packageId));
             }
 
-            PackageId = Canonical(packageId, nameof(packageId), lowercase: true);
-            Version = Canonical(version, nameof(version), lowercase: true);
-            if (Version.Contains('+', StringComparison.Ordinal)
-                || !NuGetVersion.TryParse(Version, out NuGetVersion? parsed)
-                || !string.Equals(
-                    parsed.ToNormalizedString().ToLowerInvariant(),
-                    Version,
-                    StringComparison.Ordinal))
+            if (!IsCanonicalPackageVersion(version))
             {
                 throw new ArgumentException(
-                    "A realized package version is exact and normalized.",
+                    "A realized package version is one exact NuGet version in its normalized lowercase spelling.",
                     nameof(version));
             }
 
@@ -290,14 +284,26 @@ public abstract record RealizedMemberCoordinate
                     nameof(producer));
             }
 
+            if (!IsCanonicalFramework(framework))
+            {
+                throw new ArgumentException(
+                    "A realized acquisition framework is a canonical lowercase moniker.",
+                    nameof(framework));
+            }
+
+            if (runtimeIdentifier is not null
+                && !IsCanonicalRuntimeIdentifier(runtimeIdentifier))
+            {
+                throw new ArgumentException(
+                    "A realized runtime identifier is a canonical lowercase moniker.",
+                    nameof(runtimeIdentifier));
+            }
+
+            PackageId = packageId;
+            Version = version;
             Producer = producer;
-            Framework = Canonical(framework, nameof(framework), lowercase: false);
-            RuntimeIdentifier = runtimeIdentifier is null
-                ? null
-                : Canonical(
-                    runtimeIdentifier,
-                    nameof(runtimeIdentifier),
-                    lowercase: false);
+            Framework = framework;
+            RuntimeIdentifier = runtimeIdentifier;
         }
 
         private protected override int Discriminator => 0;
@@ -325,6 +331,55 @@ public abstract record RealizedMemberCoordinate
 
         /// <summary>The context's effective acquisition runtime identifier.</summary>
         public string? RuntimeIdentifier { get; }
+
+        /// <summary>
+        /// Creates the coordinate, or reports why the values are not canonical,
+        /// without throwing.
+        /// </summary>
+        /// <remarks>
+        /// The constructor throws because holding one of these is the evidence
+        /// that its fields are canonical, and a value that is not canonical is
+        /// a programming error at that boundary. A loader is a different
+        /// boundary: it composes these values out of a resolver's output after
+        /// bytes have already been acquired and committed, so a grammar that
+        /// drifts apart between the two owners would surface as an unhandled
+        /// exception after publication. This factory is what that path calls,
+        /// so the drift is a typed failure instead. The problem text names the
+        /// rule that failed and never the value that failed it.
+        /// </remarks>
+        public static bool TryCreate(
+            string packageId,
+            string version,
+            string producer,
+            string framework,
+            string? runtimeIdentifier,
+            [NotNullWhen(true)] out Package? coordinate,
+            [NotNullWhen(false)] out string? problem)
+        {
+            coordinate = null;
+            problem = !IsCanonicalPackageIdentity(packageId)
+                ? "a realized package id must be a canonical NuGet package id in its normalized lowercase spelling"
+                : !IsCanonicalPackageVersion(version)
+                    ? "a realized package version must be one exact NuGet version in its normalized lowercase spelling"
+                    : !IsCanonicalProducer(producer)
+                        ? "a realized package producer must be a canonical content-cache producer key"
+                        : !IsCanonicalFramework(framework)
+                            ? "a realized acquisition framework must be a canonical lowercase moniker"
+                            : runtimeIdentifier is not null
+                                && !IsCanonicalRuntimeIdentifier(runtimeIdentifier)
+                                ? "a realized runtime identifier must be a canonical lowercase moniker"
+                                : null;
+            if (problem is not null)
+                return false;
+
+            coordinate = new Package(
+                packageId,
+                version,
+                producer,
+                framework,
+                runtimeIdentifier);
+            return true;
+        }
     }
 
     /// <summary>One exact bundle-content acquisition.</summary>
@@ -379,7 +434,7 @@ public abstract record RealizedMemberCoordinate
     /// True when <paramref name="value"/> is a bundle-relative,
     /// <c>/</c>-separated content identifier. It is a string grammar, not a
     /// filesystem path: no path API interprets it, and rooted, traversing,
-    /// empty, padded, backslash-bearing, and control-bearing forms are refused
+    /// empty, padded, backslash-bearing, and non-graphic forms are refused
     /// rather than repaired.
     /// </summary>
     public static bool IsCanonicalContentRef(string? value)
@@ -387,7 +442,7 @@ public abstract record RealizedMemberCoordinate
         if (value is not { Length: > 0 }
             || !string.Equals(value, value.Trim(), StringComparison.Ordinal)
             || value.Contains('\\', StringComparison.Ordinal)
-            || value.Any(char.IsControl))
+            || ContainsNonGraphicText(value))
         {
             return false;
         }
@@ -439,41 +494,118 @@ public abstract record RealizedMemberCoordinate
 
     /// <summary>
     /// True when <paramref name="value"/> can be an assembly simple name. Any
-    /// legal Unicode identifier text is accepted; only empty, padded, control,
+    /// legal Unicode identifier text is accepted; empty, padded, non-graphic,
     /// and assembly-display-name punctuation are refused.
     /// </summary>
+    /// <remarks>
+    /// "Non-graphic" is not "control": a bidirectional override is neither a
+    /// control character nor invisible, and a name carrying one reorders every
+    /// message it appears in, including the typed failure that reports the name
+    /// as unusable. The categories that can act on a sink are already decided
+    /// by <see cref="InertText.TextPolicy.Field"/>, so this asks that owner
+    /// rather than keeping a second list.
+    /// </remarks>
     public static bool IsAssemblySimpleName(string? value) =>
         value is { Length: > 0 }
         && !string.IsNullOrWhiteSpace(value)
         && string.Equals(value, value.Trim(), StringComparison.Ordinal)
+        && !ContainsNonGraphicText(value)
         && !value.Any(static character =>
-            char.IsControl(character)
-            || character is '/' or '\\' or ':' or ',' or '\'' or '"' or '=');
+            character is '/' or '\\' or ':' or ',' or '\'' or '"' or '=');
 
-    static string Canonical(string value, string name, bool lowercase)
-    {
-        // The same predicate every front door uses, so a target this
-        // constructor would refuse can never pass validation upstream.
-        if (!PackageCoordinateResolver.IsAcquisitionTargetText(value))
-        {
-            throw new ArgumentException(
-                $"A realized coordinate requires a non-empty '{name}' without surrounding whitespace or control characters.",
-                name);
-        }
+    /// <summary>
+    /// True when <paramref name="value"/> is a canonical NuGet package id: the
+    /// published id grammar, in its normalized lowercase spelling.
+    /// </summary>
+    /// <remarks>
+    /// The id grammar is owned by
+    /// <see cref="PackageCoordinateResolver.IsCanonicalPackageId"/> and is not
+    /// restated here; a realized coordinate adds only the normalized spelling,
+    /// because two casings of one id would otherwise be two coordinates for one
+    /// package. Validating an id against the framework and runtime-identifier
+    /// grammar instead would reject real ids — every id containing <c>_</c>,
+    /// which that grammar has no reason to admit.
+    /// </remarks>
+    public static bool IsCanonicalPackageIdentity(string? value) =>
+        PackageCoordinateResolver.IsCanonicalPackageId(value)
+        && string.Equals(
+            value,
+            value!.ToLowerInvariant(),
+            StringComparison.Ordinal);
 
-        if (lowercase
-            && !string.Equals(
-                value,
-                value.ToLowerInvariant(),
-                StringComparison.Ordinal))
-        {
-            throw new ArgumentException(
-                $"A realized coordinate requires the normalized lowercase '{name}'.",
-                name);
-        }
+    /// <summary>
+    /// True when <paramref name="value"/> is one exact NuGet version in its
+    /// normalized lowercase spelling.
+    /// </summary>
+    /// <remarks>
+    /// The contract is NuGet's own normalization, not a moniker grammar. A
+    /// prerelease label may legitimately begin, end, or consist of hyphens —
+    /// <c>1.0.0--beta</c> and <c>1.0.0-beta-</c> both parse and both normalize
+    /// to themselves — and a version like those can be selected by a feed,
+    /// acquired, and committed. Holding it to a separator grammar written for
+    /// frameworks would reject it only after those bytes were published.
+    /// </remarks>
+    public static bool IsCanonicalPackageVersion(string? value) =>
+        value is { Length: > 0 }
+        && !string.IsNullOrWhiteSpace(value)
+        && string.Equals(value, value.Trim(), StringComparison.Ordinal)
+        && !ContainsNonGraphicText(value)
+        && !value.Contains('+', StringComparison.Ordinal)
+        && string.Equals(
+            value,
+            value.ToLowerInvariant(),
+            StringComparison.Ordinal)
+        && NuGetVersion.TryParse(value, out NuGetVersion? parsed)
+        && string.Equals(
+            parsed.ToNormalizedString().ToLowerInvariant(),
+            value,
+            StringComparison.Ordinal);
 
-        return value;
-    }
+    /// <summary>
+    /// True when <paramref name="value"/> is a canonical acquisition framework:
+    /// the shared target grammar, in its normalized lowercase spelling.
+    /// </summary>
+    /// <remarks>
+    /// Frameworks compare case-insensitively throughout the product, so two
+    /// casings of one moniker name one target; a realized coordinate holds the
+    /// normalized spelling of it, so those two declarations realize equal
+    /// coordinates rather than two coordinates that transport as different
+    /// identities.
+    /// </remarks>
+    public static bool IsCanonicalFramework(string? value) =>
+        PackageCoordinateResolver.IsAcquisitionTargetText(value)
+        && string.Equals(
+            value,
+            value!.ToLowerInvariant(),
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when <paramref name="value"/> is a canonical runtime identifier.
+    /// </summary>
+    /// <remarks>
+    /// Owned by
+    /// <see cref="PackageCoordinateResolver.IsCanonicalRuntimeIdentifier"/>:
+    /// runtime identifiers are canonically lowercase and are matched ordinally,
+    /// so a differently cased spelling is refused rather than folded.
+    /// </remarks>
+    public static bool IsCanonicalRuntimeIdentifier(string? value) =>
+        PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(value);
+
+    /// <summary>
+    /// True when <paramref name="value"/> carries a scalar that can act on a
+    /// sink — a control, a format or bidirectional character, a separator, or
+    /// an unpaired surrogate.
+    /// </summary>
+    /// <remarks>
+    /// The classification is <see cref="InertText"/>'s, reached by asking it to
+    /// encode the value: it encodes exactly the scalars its field policy
+    /// considers non-graphic, so a value that survives unencoded contains none
+    /// of them. Restating the category list here would be a second policy free
+    /// to drift from the one the renderers enforce.
+    /// </remarks>
+    static bool ContainsNonGraphicText(string value) =>
+        new InertString(TextPolicy.Field, value).WasEncoded;
+
 }
 
 /// <summary>One typed reason a context did not produce an assembly group.</summary>

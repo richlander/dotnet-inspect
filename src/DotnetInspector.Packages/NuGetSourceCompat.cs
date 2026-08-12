@@ -450,7 +450,7 @@ public static class NuGetSourceResolver
                 throw new PackageSourceMappingException(
                     PackageSourceMappingFailure.ConflictingCredentials,
                     $"Package '{packageId}' is eligible from multiple configured names for "
-                    + $"'{first.Url}', but those names use conflicting credentials.");
+                    + $"'{UrlRedaction.ForDiagnostics(first.Url)}', but those names use conflicting credentials.");
             }
 
             producers.Add(first);
@@ -614,13 +614,14 @@ public static class NuGetSearchService
                     FeedFailureTelemetry.Current!.Failures;
                 failures.Add(sourceFailures.Count > 0
                     ? DescribeServiceIndexFailure(source, sourceFailures)
-                    : $"{source.Name}: no searchable endpoint for '{source.Url}' "
+                    : $"{source.Name}: no searchable endpoint for '{UrlRedaction.ForDiagnostics(source.Url)}' "
                         + "(service index unavailable, or advertises no SearchQueryService)");
                 continue;
             }
 
             var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
-            log?.Invoke($"Searching {source.Name}: {searchUrl}");
+            log?.Invoke(
+                $"Searching {source.Name}: {UrlRedaction.ForDiagnostics(searchUrl)}");
 
             IReadOnlyList<SearchResult> found;
             try
