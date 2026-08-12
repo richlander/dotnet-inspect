@@ -130,6 +130,16 @@ public class InspectionResultView
             new InertString(TextPolicy.Field, TextConcernDisplay.Describe(value.Concerns))))
         .ToList();
 
+    [MarkoutIgnore]
+    public bool HasIdentifierConfusion =>
+        IdentifierConfusionAudit.InspectPackage(_data).Count > 0;
+
+    [MarkoutSection(
+        Name = PackageSections.AuditIdentifierConfusion,
+        ShowWhenProperty = nameof(HasIdentifierConfusion))]
+    public List<IdentifierConfusionRow> IdentifierConfusion =>
+        IdentifierConfusionRows.Create(IdentifierConfusionAudit.InspectPackage(_data));
+
     [MarkoutSection(Name = PackageSections.Signature)]
     public SigningSection? SigningSectionData => Text.SignatureResult is { } signature
         ? new SigningSection(
@@ -957,6 +967,7 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(AuditSignalRow))]
 [MarkoutContext(typeof(PackageAuditSignalRow))]
 [MarkoutContext(typeof(PackageTextConcernRow))]
+[MarkoutContext(typeof(IdentifierConfusionRow))]
 [MarkoutContext(typeof(InspectionFailureRow))]
 [MarkoutContext(typeof(SwitchRow))]
 [MarkoutContext(typeof(IntegrationOpportunityRow))]

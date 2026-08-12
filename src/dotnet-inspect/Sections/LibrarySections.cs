@@ -100,6 +100,7 @@ public static class LibrarySections
                 SourceLinkDiscoverable)
             .Add<Symbols>()
             .Add<Signals>(HasAssemblyInfo)
+            .Add<IdentifierConfusion>()
             .Add<Switches>(SwitchesQuery.Definition)
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
@@ -159,6 +160,7 @@ public static class LibrarySections
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
+                SectionNames.IdentifierConfusion,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
@@ -455,6 +457,17 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
+    }
+
+    public sealed class IdentifierConfusion : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.IdentifierConfusion;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => IdentifierConfusionAudit.InspectLibrary(model).Count > 0;
     }
 
     public sealed class Switches : ISectionDescriptor<LibraryInspection>

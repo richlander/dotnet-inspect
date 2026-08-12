@@ -50,6 +50,7 @@ public static class PackageSectionDescriptors
             .Add<PackageReadme>()
             .Add<Signals>()
             .Add<AuditArtifactText>()
+            .Add<AuditIdentifierConfusion>()
             .Add<Statistics>()
             .Add<TargetFrameworks>()
             .Add<NuspecFiles>()
@@ -98,6 +99,7 @@ public static class PackageSectionDescriptors
                 SectionCategoryNames.Audit,
                 PackageSections.Signals,
                 PackageSections.AuditArtifactText,
+                PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
                 PackageSections.SourceLinkAvailability,
@@ -176,6 +178,17 @@ public static class PackageSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => new PackageInspectionText(model).ConcernCases.Count > 0;
+    }
+
+    public sealed class AuditIdentifierConfusion : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.AuditIdentifierConfusion;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => IdentifierConfusionAudit.InspectPackage(model).Count > 0;
     }
 
     // ===== Network-bound sections =====

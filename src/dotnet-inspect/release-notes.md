@@ -140,6 +140,11 @@
 - Adds the explicit `Audit: Artifact Text` package section under `@Audit`,
   listing package-model field locations and concern kinds without echoing
   artifact values.
+- Adds an `Identifier confusion` Signal for package IDs, dependency IDs,
+  assembly names, and assembly references. Explicit package and library audit
+  sections report content-free locations, classifications, similarity, and
+  code points, including bounded Greek/Cyrillic homoglyph checks for `System`,
+  `Microsoft`, and `Azure`.
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a

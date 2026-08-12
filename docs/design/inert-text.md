@@ -685,6 +685,17 @@ edit. Category rules cannot catch it and none should, since refusing every
 non-Latin letter would break most of the world's text. A corpus containing only
 what the policies catch would quietly imply they are sufficient.
 
+The identifier audit handles that boundary separately from `TextPolicy`.
+Package IDs and assembly names have an identity role in which non-ASCII
+characters are useful evidence even though they are safe graphic text. The
+audit therefore reports every non-ASCII identifier and gives high-similarity
+`System`, `Microsoft`, and `Azure` candidates a bounded Greek/Cyrillic
+homoglyph classification. It does not change or contain the value, and it never
+echoes the identifier in the Signal or audit rows. Keeping this discriminator
+separate means `TextConcern` continues to answer whether rendering required
+containment while the identifier concern answers whether an identity deserves
+review.
+
 ## Placement
 
 `InertText` sits below every other project and references nothing. Every assembly

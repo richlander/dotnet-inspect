@@ -1031,6 +1031,18 @@ summary and detail reporting boundaries. This is intentionally not a global CLI 
 commands and projections still have their own presentation models, so adopting
 the flags at the root today would claim coverage they do not have.
 
+Identifier confusion is a separate semantic risk from rendering. Package IDs
+and assembly names containing non-ASCII characters remain safe to carry as
+graphic text, so `TextConcern` correctly stays empty. Package and library
+Signals nevertheless report those identifiers for review, and a bounded
+high-similarity check confirms Greek/Cyrillic homoglyphs in the ecosystem
+prefixes `System`, `Microsoft`, and `Azure`. The explicit
+`Audit: Identifier Confusion` section exposes model locations, classifications,
+matched prefixes, similarity, and code points without echoing identifier
+content. `IdentifierConfusionDetectorTests` gates the detector boundary and
+`PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
+gates content-free Markdown and structured output.
+
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
 is a design error.
 

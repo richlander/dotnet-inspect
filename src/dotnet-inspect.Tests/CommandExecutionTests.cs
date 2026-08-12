@@ -14730,6 +14730,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverSchema_ListsIdentifierConfusionAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditIdentifierConfusion,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Location | column |", output);
+        Assert.Contains("| Kind | column |", output);
+        Assert.Contains("| Concern | column |", output);
+        Assert.Contains("| Reserved Prefix | column |", output);
+        Assert.Contains("| Similarity | column |", output);
+        Assert.Contains("| Characters | column |", output);
+    }
+
+    [Fact]
     public async Task Package_DiscoverTree_UsesDiscoveryTreeNotFileTree()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(

@@ -319,7 +319,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(54 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -1308,6 +1308,7 @@ public class SectionPipelineTests
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
+                SectionNames.IdentifierConfusion,
                 SectionNames.Symbols
             ],
             sections);
@@ -5350,6 +5351,7 @@ public class SectionPipelineTests
             [
                 PackageSections.Signals,
                 PackageSections.AuditArtifactText,
+                PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
                 PackageSections.SourceLinkAvailability,
@@ -5377,6 +5379,26 @@ public class SectionPipelineTests
         Assert.Equal(
             expected,
             PackageSectionDescriptors.AuditArtifactText.CanRender(model));
+    }
+
+    [Theory]
+    [InlineData("Contoso.Utilities", false)]
+    [InlineData("C:\\tmp\\package", false)]
+    [InlineData("Δelta.Tools", true)]
+    [InlineData("Ѕystem.Text.Json", true)]
+    public void PackagePipeline_IdentifierConfusionEffectivenessUsesTypedConcerns(
+        string packageName,
+        bool expected)
+    {
+        var model = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = "1.0.0",
+        };
+
+        Assert.Equal(
+            expected,
+            PackageSectionDescriptors.AuditIdentifierConfusion.CanRender(model));
     }
 
     [Fact]
@@ -5440,7 +5462,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(19, pipeline.AllSectionNames.Length);
+        Assert.Equal(20, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -5454,6 +5476,7 @@ public class SectionPipelineTests
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
         Assert.Contains(PackageSections.AuditArtifactText, names);
+        Assert.Contains(PackageSections.AuditIdentifierConfusion, names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Statistics", names);
@@ -5774,6 +5797,7 @@ public class SectionPipelineTests
         {
             AssemblyInfo = new AssemblyInfo
             {
+                AssemblyName = "Ѕystem.Test",
                 References = [new AssemblyReference("System.Runtime", "1.0.0.0", null, null)],
                 TransitiveReferences = [new AssemblyReferenceNode { Name = "System.Runtime", Version = "1.0.0.0" }]
             },
@@ -5904,7 +5928,7 @@ public class SectionPipelineTests
             LibraryFiles = ["lib/net8.0/Test.dll"],
             SourceFiles = [new PackageSourceFileInfo("lib/net8.0/Test.dll", "T", "https://example.com/T.cs")],
             SignatureResult = new SignatureVerificationResult { AuthorVerified = true, Publisher = "test" },
-            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }],
+            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Ѕystem.Dep", Version = "1.0" }] }],
             Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }],
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Runtime.Dep", Version = "1.0" }],

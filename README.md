@@ -201,13 +201,28 @@ coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
 and `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
 summary, provenance, and listing.
 
+Library and package Signals also report `Identifier confusion` for assembly
+names and package IDs. Every non-ASCII identifier character is reported as an
+identity concern. Names whose leading characters are at least 80% similar to
+`System`, `Microsoft`, or `Azure` receive the more specific
+`reserved-prefix homoglyph` classification when a bounded Greek/Cyrillic
+homoglyph check confirms the apparent prefix. The summary reports only counts
+and matched prefixes. Select `Audit: Identifier Confusion` (or `@Audit`) for
+content-free locations, classifications, similarity, and code points; the
+Signal and audit rows never repeat the identifier value. This is separate from
+artifact-text containment: a homoglyph is ordinary graphic text and does not
+require `InertString` encoding, while an ASCII backslash triggers neither
+concern.
+
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
-| `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
+| `library X -S Signals` | Metadata + provenance | Library metadata/provenance and identifier-confusion signals; a missing library PDB is acquired to resolve SourceLink. |
+| `library X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name and reference locations, classifications, similarity, and code points. |
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `package X -S Signals` | Full package signals | Package and dependency signals, including artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 | `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
+| `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
 | `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
 | `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
 

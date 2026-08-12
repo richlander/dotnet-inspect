@@ -4,9 +4,11 @@ The `Signals` section reports package and library observations. It is an evidenc
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 ```
@@ -69,6 +71,50 @@ presentation model still unwraps containment to bare strings at individual row
 properties rather than carrying `InertString` through the complete model.
 Reporting a library-wide result before that migration would overstate its
 coverage.
+
+## Identifier confusion
+
+Library and package Signals include an `Identifier confusion` row. The package
+scope covers the selected package ID, alternate package ID, dependency IDs,
+runtime dependency IDs, and RID companion-package IDs. The library scope covers
+the assembly name plus direct and transitive assembly-reference names.
+
+| Value | Meaning |
+| ----- | ------- |
+| `None` | Every identifier inspected in that scope uses only ASCII characters. |
+| `Detected` | At least one inspected identifier contains a non-ASCII character. Evidence reports counts and any confirmed reserved prefixes. |
+
+The detector first applies a non-ASCII filter. It then compares the leading
+characters of each candidate with `System`, `Microsoft`, and `Azure`. A raw
+Levenshtein similarity of at least 80% opens a bounded Greek/Cyrillic homoglyph
+check; the stronger `reserved-prefix homoglyph` classification is emitted only
+when each differing prefix character maps to the corresponding ASCII character.
+This is a deliberately high-confidence catalog, not an implementation of the
+complete Unicode confusables table. A non-ASCII identifier can therefore carry
+only the general classification, including when several substitutions lower
+the raw similarity below the threshold.
+
+Select `Audit: Identifier Confusion` for the detected cases, or select
+`@Audit` to include them with the other audit evidence:
+
+```bash
+dotnet-inspect library X -S "Signals,Audit: Identifier Confusion"
+dotnet-inspect package X -S "Signals,Audit: Identifier Confusion"
+```
+
+The detail table reports `Location`, `Kind`, `Concern`, `Reserved Prefix`,
+`Similarity`, and `Characters`. `Characters` contains code-point evidence such
+as `U+0405→S`; neither the Signal nor the audit rows repeat the identifier.
+The filter is scoped to identifiers, so it does not reject ordinary non-English
+prose. An ASCII backslash is not non-ASCII and does not trigger this audit or
+artifact-text containment.
+
+`IdentifierConfusionDetectorTests` gates the similarity threshold, confirmed
+homoglyphs, generic non-ASCII cases, and ASCII close negatives.
+`PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
+gates the content-free Markdown and JSONL shapes, and
+`PackageAudit_InspectsPackageAndDependencyIdentifierLocations` plus
+`LibraryAudit_InspectsAssemblyAndReferenceNames` gate the two identifier scopes.
 
 ## Build Audit Fields
 

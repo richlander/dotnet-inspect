@@ -223,6 +223,7 @@ internal static class AuditSignalBuilder
         [
             LibrarySignalRows.ProvenanceSourceLink,
             LibrarySignalRows.ProvenanceDeterministic,
+            LibrarySignalRows.IdentityIdentifierConfusion,
             LibrarySignalRows.DependenciesDirectAssemblyReferences,
             LibrarySignalRows.CompatibilityAsyncKind,
             LibrarySignalRows.DependenciesTransitiveAssemblyReferences,
@@ -249,6 +250,7 @@ internal static class AuditSignalBuilder
         [
             PackageSignalRows.CompatibilitySupportedTfm,
             PackageSignalRows.CompatibilityPortable,
+            PackageSignalRows.IdentityIdentifierConfusion,
             PackageSignalRows.DocumentationReadme,
             PackageSignalRows.DocumentationAgentDocumentation,
             PackageSignalRows.LegalLicense,
@@ -287,6 +289,9 @@ internal static class AuditSignalBuilder
 
         public static SignalRow<LibrarySignalContext> ProvenanceDeterministic =>
             new("Provenance", "Deterministic", ResolveProvenanceDeterministic);
+
+        public static SignalRow<LibrarySignalContext> IdentityIdentifierConfusion =>
+            new("Identity", "Identifier confusion", ResolveIdentityIdentifierConfusion);
 
         public static SignalRow<LibrarySignalContext> DependenciesDirectAssemblyReferences =>
             new("Dependencies", "Direct assembly references", ResolveDependenciesDirectAssemblyReferences);
@@ -338,6 +343,13 @@ internal static class AuditSignalBuilder
 
         private static SignalValue? ResolveProvenanceDeterministic(in LibrarySignalContext context) =>
             new(FormatBool(context.Inspection.IsDeterministic), "PE debug directory and path normalization");
+
+        private static SignalValue? ResolveIdentityIdentifierConfusion(
+            in LibrarySignalContext context) =>
+            IdentifierConfusionAudit.Summarize(
+                    IdentifierConfusionAudit.InspectLibrary(context.Inspection),
+                    "assembly names")
+                .ToSignalValue();
 
         private static SignalValue? ResolveDependenciesDirectAssemblyReferences(
             in LibrarySignalContext context) =>
@@ -423,6 +435,9 @@ internal static class AuditSignalBuilder
         public static SignalRow<PackageSignalContext> CompatibilityPortable =>
             new("Compatibility", "Portable", ResolveCompatibilityPortable);
 
+        public static SignalRow<PackageSignalContext> IdentityIdentifierConfusion =>
+            new("Identity", "Identifier confusion", ResolveIdentityIdentifierConfusion);
+
         public static SignalRow<PackageSignalContext> DocumentationReadme =>
             new("Documentation", "README", ResolveDocumentationReadme);
 
@@ -461,6 +476,13 @@ internal static class AuditSignalBuilder
 
         private static SignalValue? ResolveCompatibilityPortable(in PackageSignalContext context) =>
             FormatPortability(context.Result).ToSignalValue();
+
+        private static SignalValue? ResolveIdentityIdentifierConfusion(
+            in PackageSignalContext context) =>
+            IdentifierConfusionAudit.Summarize(
+                    IdentifierConfusionAudit.InspectPackage(context.Result),
+                    "package IDs")
+                .ToSignalValue();
 
         private static SignalValue? ResolveDocumentationReadme(in PackageSignalContext context) =>
             new(FormatBool(context.Result.HasReadme), context.Result.PackageReadmeFile ?? "package files");
