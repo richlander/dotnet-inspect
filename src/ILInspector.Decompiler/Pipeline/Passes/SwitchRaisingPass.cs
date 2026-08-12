@@ -1022,11 +1022,16 @@ public sealed class SwitchRaisingPass : IIrPass
         return true;
     }
 
-    /// <summary>Successor block indices (including the conditional / no-terminator fall-through), or false for an unsupported section shape.</summary>
+    /// <summary>
+    /// Successor block indices (including conditional/no-terminator fall-through),
+    /// or false for an unsupported section shape such as an escaping structured transfer.
+    /// </summary>
     internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
         succs = [];
         var block = blocks[idx];
+        if (ContainsStructuredTransferLeavingBlock(block))
+            return false;
         for (int i = 0; i < block.Children.Count - 1; i++)
             if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
                 return false;
@@ -1055,6 +1060,35 @@ public sealed class SwitchRaisingPass : IIrPass
                     succs.Add(idx + 1);
                 return true;
         }
+    }
+
+    static bool ContainsStructuredTransferLeavingBlock(Block block)
+    {
+        foreach (var transfer in block.Descendants)
+        {
+            if (transfer is Break && !HasOwnerInsideBlock(transfer, block, breakCanTargetSwitch: true))
+                return true;
+            if (transfer is Continue && !HasOwnerInsideBlock(transfer, block, breakCanTargetSwitch: false))
+                return true;
+        }
+        return false;
+    }
+
+    static bool HasOwnerInsideBlock(IrNode transfer, Block block, bool breakCanTargetSwitch)
+    {
+        for (var ancestor = transfer.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ReferenceEquals(ancestor, block))
+                return false;
+            if (ancestor is Lambda or LocalFunctionStatement)
+                return true;
+            if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                || (breakCanTargetSwitch && ancestor is Switch))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>Grows the single-entry region rooted at <paramref name="head"/>: a block joins when all its predecessors are already inside. Exits are the targets that escape it.</summary>

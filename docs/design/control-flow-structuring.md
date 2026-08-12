@@ -373,22 +373,33 @@ boundary, compares `StructuringFlowFacts` explicit transfers with `Cfg.Build`,
 and compares switch raising's private successor view with `Cfg.Build` wherever
 switch raising accepts the block. An independent terminator projection checks
 `Cfg.Build`'s implicit fall-through multiplicity and method/region-exit
-classification, including switch default edges and `EndFinally`/`EndFilter`.
-The gate separately requires terminal `Leave` coverage, pinning the intentional
-distinction: `Cfg.Build` marks a terminal `Leave` as a region exit with no
-successor, switch raising declines it, and structuring does not classify it as a
-jump predecessor. Nested `Leave` clone ownership has no executable-edge overlap;
-`StructuringFlowFactsTests` owns that separate contract.
+classification, including switch default edges, `EndFinally`, and successor
+range validity. CoreLib contains no `EndFilter` at this boundary, so a synthetic
+case owns that classification instead of letting a combined EH counter hide the
+empty corpus domain. The gate separately requires terminal `Leave` coverage,
+pinning the intentional distinction: `Cfg.Build` marks a terminal `Leave` as a
+region exit with no successor, switch raising declines it, and structuring does
+not classify it as a jump predecessor. Nested `Leave` clone ownership has no
+executable-edge overlap; `StructuringFlowFactsTests` owns that separate contract.
+
+The pre-switch corpus also contains blocks whose structured `Break`/`Continue`
+leaves the current block container. Those are not lexical fall-through edges:
+switch raising now declines the 57 blocks explicitly, while the differential
+reports their population and excludes `Cfg.Build`'s current default projection
+from the agreement claim. This is the measured prerequisite for consolidation:
+`Cfg.Build` must first represent or reject structured transfers before switch
+raising can consume it wholesale.
 
 On the .NET 11 Preview 7 CoreLib, the gate covers 42,640 methods, 45,505
-containers, 48,559 explicit edges, 53,379 implicit fall-through edges (including
-342 switch default edges), 122,981 switch-modeled blocks, 113 terminal
-`Leave`s, and 10 `EndFinally`/`EndFilter` terminators with zero differences.
-That evidence makes `Cfg.Build` the owner of structural edge semantics. Switch
-raising's view has a narrower acceptance domain, not different edges, so it
-should consume `Cfg.Build` in a behavior-preserving follow-up.
-`StructuringFlowFacts` remains a separate region-aware projection because its
-label and clone-ownership facts are not executable edges.
+containers, 48,559 explicit edges, 53,322 implicit fall-through edges (including
+342 switch default edges), 122,924 switch-modeled blocks, 113 terminal
+`Leave`s, 10 `EndFinally` terminators, zero `EndFilter` terminators, and 57
+structured-transfer blocks with zero differences over the supported overlap.
+That evidence makes `Cfg.Build` the owner of flat structural edge semantics, but
+not yet the owner for structured transfers. Switch raising's supported view has
+a narrower acceptance domain, not different edges. `StructuringFlowFacts`
+remains a separate region-aware projection because its label and
+clone-ownership facts are not executable edges.
 
 ### Review triggers and canaries
 

@@ -27,7 +27,9 @@ public class ControlFlowModelDifferentialTests
         public long SwitchFallthroughEdges;
         public long SwitchSuccessorBlocks;
         public long TerminalLeaves;
-        public long OtherEhTerminators;
+        public long EndFinallyTerminators;
+        public long EndFilterTerminators;
+        public long StructuredTransferBlocks;
         public long DifferenceCount;
         public readonly List<string> Differences = [];
     }
@@ -53,8 +55,10 @@ public class ControlFlowModelDifferentialTests
                 + $"{comparison.SwitchSuccessorBlocks} blocks.");
         Assert.True(comparison.TerminalLeaves > 0,
             "The corpus did not exercise the terminal Leave divergence domain.");
-        Assert.True(comparison.OtherEhTerminators > 0,
-            "The corpus did not exercise EndFinally/EndFilter terminators.");
+        Assert.True(comparison.EndFinallyTerminators > 0,
+            "The corpus did not exercise EndFinally terminators.");
+        Assert.True(comparison.StructuredTransferBlocks > 0,
+            "The corpus did not expose the structured-transfer boundary.");
         Assert.True(comparison.DifferenceCount == 0,
             $"{comparison.DifferenceCount} control-flow difference(s)"
                 + (comparison.Differences.Count < comparison.DifferenceCount
@@ -69,7 +73,54 @@ public class ControlFlowModelDifferentialTests
             + $"switch-fallthrough-edges={comparison.SwitchFallthroughEdges} "
             + $"switch-successor-blocks={comparison.SwitchSuccessorBlocks} "
             + $"terminal-leaves={comparison.TerminalLeaves} "
-            + $"other-eh-terminators={comparison.OtherEhTerminators}");
+            + $"end-finally-terminators={comparison.EndFinallyTerminators} "
+            + $"end-filter-terminators={comparison.EndFilterTerminators} "
+            + $"structured-transfer-blocks={comparison.StructuredTransferBlocks}");
+    }
+
+    [Fact]
+    public void ControlFlowViews_AgreeOnSyntheticBoundaryTerminators()
+    {
+        var comparison = new Comparison();
+        var int32 = TypeRef.CoreLib("System", "Int32");
+
+        var endFilter = new Block(0x00);
+        endFilter.Add(new EndFilter(new Constant(1, int32)));
+        var afterFilter = new Block(0x08);
+        afterFilter.Add(new Return(null));
+        CompareContainer([endFilter, afterFilter], "synthetic/end-filter", comparison);
+
+        var finalSwitch = new Block(0x10);
+        finalSwitch.Add(new SwitchBranch(new Constant(0, int32), [0x10]));
+        CompareContainer([finalSwitch], "synthetic/final-switch", comparison);
+
+        var breakBlock = new Block(0x20);
+        breakBlock.Add(new Break());
+        var afterBreak = new Block(0x28);
+        afterBreak.Add(new Return(null));
+        CompareContainer([breakBlock, afterBreak], "synthetic/structured-break", comparison);
+
+        var continueBlock = new Block(0x30);
+        continueBlock.Add(new Continue());
+        var afterContinue = new Block(0x38);
+        afterContinue.Add(new Return(null));
+        CompareContainer([continueBlock, afterContinue], "synthetic/structured-continue", comparison);
+
+        var loopBody = new BlockContainer();
+        var ownedBreak = new Block(0x40);
+        ownedBreak.Add(new Break());
+        loopBody.Add(ownedBreak);
+        var loopBlock = new Block(0x48);
+        loopBlock.Add(new DoWhileLoop(
+            loopBody,
+            new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
+        var afterLoop = new Block(0x50);
+        afterLoop.Add(new Return(null));
+        CompareContainer([loopBlock, afterLoop], "synthetic/owned-break", comparison);
+
+        Assert.Equal(1, comparison.EndFilterTerminators);
+        Assert.Equal(2, comparison.StructuredTransferBlocks);
+        Assert.Equal(0, comparison.DifferenceCount);
     }
 
     static Comparison CompareCoreLib()
@@ -140,6 +191,35 @@ public class ControlFlowModelDifferentialTests
         for (int from = 0; from < cfg.Count; from++)
         {
             var terminator = blocks[from].Children.LastOrDefault();
+            bool switchModelsBlock = SwitchRaisingPass.TrySuccessors(
+                blocks,
+                from,
+                facts.OffsetToIndex,
+                out var switchSuccessors);
+
+            foreach (int successor in cfg[from].Successors)
+            {
+                if ((uint)successor >= (uint)blocks.Count)
+                {
+                    AddDifference(comparison,
+                        $"{identity}: Cfg.Build edge {from}->{successor} is outside "
+                            + $"the {blocks.Count}-block container");
+                }
+            }
+
+            bool hasStructuredTransfer = ContainsStructuredTransferLeavingBlock(blocks[from]);
+            if (hasStructuredTransfer)
+            {
+                comparison.StructuredTransferBlocks++;
+                if (switchModelsBlock)
+                {
+                    AddDifference(comparison,
+                        $"{identity}: switch successor view accepts block {from}, whose structured "
+                            + "Break/Continue transfer leaves the block container");
+                }
+                continue;
+            }
+
             foreach (int to in cfg[from].Successors.Distinct())
             {
                 if (to != from + 1 && !resolvedFactEdges.Contains((from, to)))
@@ -194,15 +274,11 @@ public class ControlFlowModelDifferentialTests
                 }
             }
 
-            bool switchModelsBlock = SwitchRaisingPass.TrySuccessors(
-                blocks,
-                from,
-                facts.OffsetToIndex,
-                out var switchSuccessors);
             if (switchModelsBlock)
             {
                 comparison.SwitchSuccessorBlocks++;
-                if (cfg[from].LeavesRegion
+                if (switchSuccessors.Any(successor => (uint)successor >= (uint)blocks.Count)
+                    || cfg[from].LeavesRegion
                     || cfg[from].ExternalTargets.Count > 0
                     || !switchSuccessors.ToHashSet().SetEquals(cfg[from].Successors))
                 {
@@ -231,7 +307,10 @@ public class ControlFlowModelDifferentialTests
             }
             else if (terminator is EndFinally or EndFilter)
             {
-                comparison.OtherEhTerminators++;
+                if (terminator is EndFinally)
+                    comparison.EndFinallyTerminators++;
+                else
+                    comparison.EndFilterTerminators++;
                 if (!cfg[from].LeavesRegion
                     || cfg[from].Successors.Count > 0
                     || cfg[from].ExternalTargets.Count > 0
@@ -245,11 +324,42 @@ public class ControlFlowModelDifferentialTests
         }
     }
 
+    static bool ContainsStructuredTransferLeavingBlock(Block block)
+    {
+        foreach (var transfer in block.Descendants)
+        {
+            if (transfer is Break && !HasOwnerInsideBlock(transfer, block, breakCanTargetSwitch: true))
+                return true;
+            if (transfer is Continue && !HasOwnerInsideBlock(transfer, block, breakCanTargetSwitch: false))
+                return true;
+        }
+        return false;
+    }
+
+    static bool HasOwnerInsideBlock(IrNode transfer, Block block, bool breakCanTargetSwitch)
+    {
+        for (var ancestor = transfer.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ReferenceEquals(ancestor, block))
+                return false;
+            if (ancestor is Lambda or LocalFunctionStatement)
+                return true;
+            if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                || (breakCanTargetSwitch && ancestor is Switch))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static bool HasImplicitFallthrough(IrNode? terminator)
         => terminator switch
         {
             ConditionalBranch or SwitchBranch => true,
             Branch or Return or Throw or Leave or EndFinally or EndFilter => false,
+            Break or Continue => throw new InvalidOperationException(
+                "Structured transfers must be excluded before projecting fall-through."),
             _ => true,
         };
 
