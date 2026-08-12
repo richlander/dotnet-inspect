@@ -125,13 +125,14 @@ The projection owns everything a host must not re-invent in JavaScript:
   styles them with a CSS class.
 - **Directional traversal completeness.**
   `HasUnexploredTraversalBoundary` is separate from the merged display kind.
-  Caller expansion measures incoming edges and cannot satisfy a missing callee
-  expansion (or vice versa). Within each direction, an expanded occurrence
-  satisfies boundary duplicates of the same typed graph identity. A cycle
-  containing the focus is exhaustively discoverable when either the forward or
-  reverse traversal is complete; otherwise absence remains bounded.
-  `CycleCompletenessCollapsesBoundariesWithinOneDirection` gates duplicate
-  collapsing without conflating the two directions.
+  Only the outbound callee traversal can prove absence: its edges come from
+  each reached method's own body, while a caller-tree `Leaf` means only "no
+  callers in this indexed scope." Within the outbound direction, an expanded
+  occurrence satisfies boundary duplicates of the same typed graph identity.
+  `AlreadyShown` defers to that primary occurrence and cannot override a
+  `Truncated` primary. `CycleCompletenessCollapsesBoundariesWithinOneDirection`,
+  `CallerLeafDoesNotHideAnOutboundTraversalBoundary`, and
+  `AlreadyShownDoesNotHideATruncatedPrimaryOccurrence` gate those distinctions.
 - **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
   outbound, `loop call` inbound), read from the child node's loop flag.
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source

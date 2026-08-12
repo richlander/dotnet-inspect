@@ -434,10 +434,10 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void OneCompleteDirectionProvesFocusCycleCompleteness()
+    public void CallerLeafDoesNotHideAnOutboundTraversalBoundary()
     {
         MemberRef focus = Member("A", "A");
-        CallTreeNode completeCaller =
+        CallTreeNode scopeLocalCallerLeaf =
             Leaf(focus);
         CallTreeNode boundedCallee =
             Node(
@@ -448,22 +448,48 @@ public class CallGraphProjectionTests
                         Member("B", "B"),
                         CallTreeStatus.DepthLimited),
                 ]);
-        CallTreeNode boundedCaller =
-            Leaf(focus, CallTreeStatus.DepthLimited);
 
-        CallGraphProjection oneComplete =
+        CallGraphProjection projection =
             CallGraphProjection.Create(
-                completeCaller,
+                scopeLocalCallerLeaf,
                 boundedCallee);
-        CallGraphProjection bothBounded =
+
+        Assert.True(
+            projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void CompleteCalleeTraversalProvesFocusCycleCompleteness()
+    {
+        MemberRef focus = Member("A", "A");
+        CallGraphProjection projection =
             CallGraphProjection.Create(
-                boundedCaller,
-                boundedCallee);
+                Leaf(
+                    focus,
+                    CallTreeStatus.DepthLimited),
+                Leaf(focus));
 
         Assert.False(
-            oneComplete.HasUnexploredTraversalBoundary);
+            projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void AlreadyShownDoesNotHideATruncatedPrimaryOccurrence()
+    {
+        MemberRef focus = Member("A", "A");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Truncated,
+                    [
+                        Leaf(
+                            focus,
+                            CallTreeStatus.AlreadyShown),
+                    ]));
+
         Assert.True(
-            bothBounded.HasUnexploredTraversalBoundary);
+            projection.HasUnexploredTraversalBoundary);
     }
 
     [Fact]

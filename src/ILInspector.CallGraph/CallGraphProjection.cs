@@ -159,9 +159,8 @@ public sealed partial class CallGraphProjection
     public int RowCount => Rows.Length;
 
     /// <summary>
-    /// Whether every supplied traversal direction stopped at an unresolved
-    /// external, depth, or node boundary. One exhaustive direction is enough
-    /// to prove the absence of a cycle containing the focus.
+    /// Whether the outbound traversal stopped at an unresolved external,
+    /// depth, or node boundary.
     /// </summary>
     public bool HasUnexploredTraversalBoundary { get; }
 
@@ -280,11 +279,11 @@ public sealed partial class CallGraphProjection
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
             builder.WalkCallees(calleeRoot, focusId);
+        // A reverse tree is closed only over its indexed caller scope: a Leaf
+        // means "no callers here", not "no callers anywhere". Only the body-owned
+        // outbound traversal can prove that no focus cycle exists.
         bool hasUnexploredTraversalBoundary =
             !IsTraversalComplete(
-                callerRoot,
-                useGraphEvidence)
-            && !IsTraversalComplete(
                 calleeRoot,
                 useGraphEvidence);
         return builder.Build(
@@ -504,8 +503,7 @@ public sealed partial class CallGraphProjection
                 Identity(node, useGraphEvidence);
             bool complete = node.Status
                 is CallTreeStatus.Expanded
-                or CallTreeStatus.Leaf
-                or CallTreeStatus.AlreadyShown;
+                or CallTreeStatus.Leaf;
             completeByIdentity.TryGetValue(
                 identity,
                 out bool alreadyComplete);
