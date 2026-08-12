@@ -14,4 +14,15 @@ internal sealed record MethodBodyAnalysisContext(
     MethodIdentity Method,
     MethodInstructions Instructions,
     ImmutableArray<ExceptionRegion> ExceptionRegions,
-    IReadOnlyList<(int Start, int End)> LoopRegions);
+    IReadOnlyList<(int Start, int End)> LoopRegions,
+    ImmutableArray<TypeRef> LocalTypes)
+{
+    ImmutableArray<TypeRef> _localTypes =
+        LocalTypes.IsDefault ? [] : LocalTypes;
+
+    public ImmutableArray<TypeRef> LocalTypes
+    {
+        get => _localTypes;
+        init => _localTypes = value.IsDefault ? [] : value;
+    }
+}

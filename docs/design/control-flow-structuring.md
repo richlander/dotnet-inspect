@@ -351,8 +351,10 @@ Every pass in this layer carries these proof obligations in code review:
 
 Prefer shared helpers over pass-local folklore:
 
-- `Cfg.BlockEdges`, `PostDominators`, and `StructuringDiagnostics` for branch
-  ownership, target classification, and measured stop reasons.
+- `Cfg.BlockEdges` and `PostDominators` for executable per-container successors
+  and dominance; `StructuringFlowFacts` for the structurer's region-aware label
+  preservation and clone ownership, including nested `leave` targets; and
+  `StructuringDiagnostics` for measured stop reasons.
 - `PlaceIdentity` for re-evaluable local/argument/slot/operand identity.
 - `MemberIdentity` and `GeneratedCodeIdentity` for compiler/BCL scaffold proof.
 - `StackSlotLiveRangePass` and any future liveness helper for reused synthetic
@@ -430,11 +432,16 @@ only when the post-dominator machinery is proven.
    yet.
 
    *Concrete first-PR shape.* The infrastructure to build on already exists, and
-   the new code is its dual: `ILInspector.Decompiler.Pipeline.Cfg.Build(IReadOnlyList<Block>)`
-   returns per-block `BlockEdges(Successors, ExternalTargets, ExitsMethod,
-   LeavesRegion)` over the pipeline container — the same edge model
-   `StructuringPass` and the printer's definite-assignment walk consume, so a
-   post-dominator built here can never disagree with them about successors.
+   the new code is its dual:
+   `ILInspector.Decompiler.Pipeline.Cfg.Build(IReadOnlyList<Block>)` returns
+   per-block `BlockEdges(Successors, ExternalTargets, ExitsMethod, LeavesRegion)`
+   over the pipeline container. `PostDominators`, `Dominators`, the printer's
+   definite-assignment walk, and other structural-CFG consumers share that
+   executable edge model. `StructuringPass` does not currently consume it: the
+   pass uses `StructuringFlowFacts`, a separate region-aware projection that
+   also preserves labels and clone ownership for transfers nested inside
+   already-raised regions. Any future post-dominator-driven structurer must
+   reconcile those additional ownership requirements explicitly.
 
    The first PR adds `Pipeline.PostDominators` over `Cfg.BlockEdges`: reverse
    the edge set, add a single virtual exit that all method-exit blocks (and

@@ -193,6 +193,8 @@ public interface IMatchedPairFinding : IPairFinding
 /// inherits <typeparamref name="T"/> from the enclosing union. Pattern-match the union itself
 /// (<c>pair switch { PairFinding&lt;T&gt;.Added … }</c>, not <c>pair.Value switch</c>) for
 /// compiler-checked exhaustiveness; a fifth case then breaks the build rather than falling through.
+/// Union case patterns discriminate without binding; read the already-selected payload through
+/// <see cref="Value"/> when an arm needs the case value.
 /// </para>
 /// </summary>
 [Union]
