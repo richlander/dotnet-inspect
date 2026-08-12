@@ -27,6 +27,13 @@ public sealed record AssemblyIdentityNames(
 /// </summary>
 public static class AssemblyIdentityScanner
 {
+    public static AssemblyIdentityNames Scan(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        return Scan(peReader);
+    }
+
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
         var reader = peReader.GetMetadataReader();
