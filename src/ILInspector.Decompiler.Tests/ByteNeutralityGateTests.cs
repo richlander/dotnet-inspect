@@ -54,11 +54,10 @@ namespace ILInspector.Decompiler.Tests;
 /// <para>
 /// The complement — the <see cref="StyleOptionTier.Lens"/> (<c>ByteDivergent = true</c>)
 /// knobs — is deliberately excluded from this byte gate: a lens is behavior-preserving
-/// but <em>not</em> opcode-faithful, so it earns a behavioral (100%) gate instead of a
-/// byte gate. Those live in <see cref="PreferConditionalReturnLensTests"/> and
-/// <see cref="PreferBranchlessBooleanLensTests"/>, which pin executed runtime
-/// equivalence over every input. <see cref="ByteDivergentKnobs_AreExcludedAndBehaviorGated"/>
-/// records that contract.
+/// but <em>not</em> opcode-faithful, so it earns a behavioral gate instead of a byte
+/// gate. <see cref="ByteDivergentGateTests"/> derives that gate's complete value set
+/// from the catalog, requires a firing specimen for each value, and executes each
+/// registered equivalence contract.
 /// </para>
 /// </summary>
 [Trait("Area", "Fidelity")]
@@ -356,12 +355,11 @@ public sealed class ByteNeutralityGateTests
     }
 
     [Fact]
-    public void ByteDivergentKnobs_AreExcludedAndBehaviorGated()
+    public void ByteDivergentKnobs_AreExcludedFromByteNeutralityGate()
     {
         // The complement of the byte gate. A byte-divergent knob is behavior-preserving
-        // but not opcode-faithful, so it is excluded from this byte gate by design and
-        // instead held to a behavioral (100%) contract — pinned by executed runtime
-        // equivalence in PreferConditionalReturnLensTests / PreferBranchlessBooleanLensTests.
+        // but not opcode-faithful, so it is excluded from this byte gate by design.
+        // ByteDivergentGateTests derives and enforces its behavioral contract separately.
         var byteDivergent = StyleOptionCatalog.Options.Where(o => o.ByteDivergent).ToArray();
         Assert.NotEmpty(byteDivergent);
         Assert.All(byteDivergent, o => Assert.Equal(StyleOptionTier.Lens, o.Tier));
