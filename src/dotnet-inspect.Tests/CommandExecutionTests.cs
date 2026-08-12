@@ -17635,7 +17635,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Dependency groups", output);
             Assert.Contains("Direct dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -17754,7 +17754,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Signals_RendersRegistryBackedRows()
+    public async Task Package_Signals_RendersAvailableRegistryBackedRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
@@ -17763,7 +17763,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.Contains("Dependencies with vulnerabilities", output);
             Assert.Contains("Deprecated dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
