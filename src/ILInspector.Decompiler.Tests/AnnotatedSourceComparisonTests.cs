@@ -329,7 +329,7 @@ public class AnnotatedSourceComparisonTests
     }
 
     [Fact]
-    public void CompareReportsMovementBetweenRepeatedRoleRegions()
+    public void CompareReportsContextChangeBetweenRepeatedRoleRegions()
     {
         const string beforeText = "case 0:\n    return;\ncase 1:\n";
         const string afterText = "case 0:\ncase 1:\n    return;";
@@ -394,6 +394,157 @@ public class AnnotatedSourceComparisonTests
     }
 
     [Fact]
+    public void IdenticalRepeatedRegionsStayPairedWhenOneSiblingChanges()
+    {
+        const string beforeText = """
+            if (a)
+            {
+                return;
+            }
+            if (b)
+            {
+                return;
+            }
+            """;
+        const string afterText = """
+            if (a)
+            {
+                Log();
+                return;
+            }
+            if (b)
+            {
+                return;
+            }
+            """;
+        int beforeFirst = NthIndexOf(beforeText, "return;", 0);
+        int beforeSecond = NthIndexOf(beforeText, "return;", 1);
+        int afterLog = afterText.IndexOf("Log();", StringComparison.Ordinal);
+        int afterFirst = NthIndexOf(afterText, "return;", 0);
+        int afterSecond = NthIndexOf(afterText, "return;", 1);
+        var before = Document(
+            beforeText,
+            [
+                NodeAt(0, "ReturnStatement", beforeFirst, "return;".Length),
+                NodeAt(1, "ReturnStatement", beforeSecond, "return;".Length),
+            ],
+            [
+                BracedBody(beforeText, beforeFirst),
+                BracedBody(beforeText, beforeSecond),
+            ]);
+        var after = Document(
+            afterText,
+            [
+                NodeAt(0, "ExpressionStatement", afterLog, "Log();".Length),
+                NodeAt(1, "ReturnStatement", afterFirst, "return;".Length),
+                NodeAt(2, "ReturnStatement", afterSecond, "return;".Length),
+            ],
+            [
+                BracedBody(afterText, afterFirst),
+                BracedBody(afterText, afterSecond),
+            ]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Added, change.Kind);
+        Assert.Equal("ExpressionStatement", change.After!.Kind);
+    }
+
+    [Fact]
+    public void InsertedRepeatedRegionDoesNotDisplaceSurvivingNodes()
+    {
+        const string beforeText = """
+            {
+                return;
+            }
+            {
+                Log();
+            }
+            """;
+        const string afterText = """
+            {
+                New();
+            }
+            {
+                // note
+                return;
+            }
+            {
+                Log();
+            }
+            """;
+        int beforeReturn = beforeText.IndexOf("return;", StringComparison.Ordinal);
+        int beforeLog = beforeText.IndexOf("Log();", StringComparison.Ordinal);
+        int afterNew = afterText.IndexOf("New();", StringComparison.Ordinal);
+        int afterReturn = afterText.IndexOf("return;", StringComparison.Ordinal);
+        int afterLog = afterText.IndexOf("Log();", StringComparison.Ordinal);
+        var before = Document(
+            beforeText,
+            [
+                NodeAt(0, "ReturnStatement", beforeReturn, "return;".Length),
+                NodeAt(1, "ExpressionStatement", beforeLog, "Log();".Length),
+            ],
+            [
+                BracedBody(beforeText, beforeReturn),
+                BracedBody(beforeText, beforeLog),
+            ]);
+        var after = Document(
+            afterText,
+            [
+                NodeAt(0, "ExpressionStatement", afterNew, "New();".Length),
+                NodeAt(1, "ReturnStatement", afterReturn, "return;".Length),
+                NodeAt(2, "ExpressionStatement", afterLog, "Log();".Length),
+            ],
+            [
+                BracedBody(afterText, afterNew),
+                BracedBody(afterText, afterReturn),
+                BracedBody(afterText, afterLog),
+            ]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Added, change.Kind);
+        Assert.Equal("New();", change.After!.SelectedText);
+    }
+
+    [Fact]
+    public void InsertedNestedConstructDoesNotChangeSurvivingBodyNodes()
+    {
+        const string beforeText = """
+            if (c0)
+            {
+                A();
+            }
+            if (c1)
+            {
+                B();
+            }
+            """;
+        const string afterText = """
+            if (c0)
+            {
+                New();
+            }
+            if (c1)
+            {
+                // note
+                A();
+            }
+            if (c2)
+            {
+                B();
+            }
+            """;
+        var before = NestedBodies(beforeText, "A();", "B();");
+        var after = NestedBodies(afterText, "New();", "A();", "B();");
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Added, change.Kind);
+        Assert.Equal("New();", change.After!.SelectedText);
+    }
+
+    [Fact]
     public void CompareProjectsInterleavedDocumentsToCSharp()
     {
         var before = InterleavedDocument("return;", "IL_0000: ret", "ReturnStatement");
@@ -429,7 +580,7 @@ public class AnnotatedSourceComparisonTests
             [],
             []);
 
-        var exception = Assert.Throws<InvalidOperationException>(
+        var exception = Assert.Throws<ArgumentException>(
             () => AnnotatedSourceComparer.Compare(document, document));
 
         Assert.Contains("unclassified", exception.Message);
@@ -530,6 +681,41 @@ public class AnnotatedSourceComparisonTests
                 ? text.IndexOf($"case {labels[index + 1]}:", StringComparison.Ordinal)
                 : text.Length;
             regions.Add(Region(PrintedRegionRole.Case, start, end - start));
+        }
+        return Document(text, nodes, regions);
+    }
+
+    static AnnotatedSourceRegion BracedBody(string text, int statement)
+    {
+        int start = text.LastIndexOf('{', statement);
+        int end = text.IndexOf('}', statement);
+        Assert.True(start >= 0 && end > start);
+        return Region(PrintedRegionRole.Body, start, end - start + 1);
+    }
+
+    static AnnotatedSourceDocument NestedBodies(
+        string text,
+        params string[] statements)
+    {
+        var nodes = new List<AnnotatedSourceNode>();
+        var regions = new List<AnnotatedSourceRegion>();
+        foreach (string statementText in statements)
+        {
+            int statement = text.IndexOf(statementText, StringComparison.Ordinal);
+            nodes.Add(NodeAt(
+                nodes.Count,
+                "ExpressionStatement",
+                statement,
+                statementText.Length));
+
+            var body = BracedBody(text, statement);
+            int constructStart = text.LastIndexOf("if (", statement, StringComparison.Ordinal);
+            int constructEnd = body.Spans[0].Start + body.Spans[0].Length;
+            regions.Add(Region(
+                PrintedRegionRole.Construct,
+                constructStart,
+                constructEnd - constructStart));
+            regions.Add(body);
         }
         return Document(text, nodes, regions);
     }

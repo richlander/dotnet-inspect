@@ -37,7 +37,7 @@ public static class AnnotatedSourceDocumentProjection
                 var pieces = textMap.Project(span);
                 if (pieces.IsDefaultOrEmpty)
                 {
-                    throw new InvalidOperationException(
+                    throw new ArgumentException(
                         $"IL node {node.Id} does not select line text and cannot define a C# projection boundary.");
                 }
                 foreach (var piece in pieces)
@@ -54,7 +54,7 @@ public static class AnnotatedSourceDocumentProjection
             {
                 if (piece.Column > coveredThrough)
                 {
-                    throw new InvalidOperationException(
+                    throw new ArgumentException(
                         $"IL nodes leave characters [{coveredThrough}, {piece.Column}) "
                         + $"unclassified on line {line.LineIndex}.");
                 }
@@ -62,7 +62,7 @@ public static class AnnotatedSourceDocumentProjection
             }
             if (coveredThrough < line.Text.Length)
             {
-                throw new InvalidOperationException(
+                throw new ArgumentException(
                     $"IL nodes leave characters [{coveredThrough}, {line.Text.Length}) "
                     + $"unclassified on line {line.LineIndex}.");
             }
@@ -180,7 +180,7 @@ public static class AnnotatedSourceDocumentProjection
                 if (interval.Start >= end)
                     break;
 
-                throw new InvalidOperationException(
+                throw new ArgumentException(
                     $"A retained C# coordinate [{span.Start}, {end}) overlaps an IL line "
                     + $"[{interval.Start}, {intervalEnd}).");
             }

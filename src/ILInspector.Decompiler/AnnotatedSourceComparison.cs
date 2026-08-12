@@ -54,6 +54,7 @@ public sealed record AnnotatedSourceNodeSnapshot
     public string RegionPath { get; }
     internal string RegionFingerprint { get; init; } = "";
     internal string RegionOrdinalPath { get; init; } = "";
+    internal string RegionSiblingSignature { get; init; } = "";
 }
 
 /// <summary>One added, removed, changed, or moved rendered-syntax node.</summary>
@@ -157,6 +158,15 @@ public static class AnnotatedSourceComparer
         {
             pairedBefore[edge.OldIndex] = true;
             pairedAfter[edge.NewIndex] = true;
+            if (HasContextChange(
+                    beforeNodes[edge.OldIndex],
+                    afterNodes[edge.NewIndex]))
+            {
+                changes.Add(new AnnotatedSourceNodeChange(
+                    AnnotatedSourceChangeKind.Changed,
+                    beforeNodes[edge.OldIndex],
+                    afterNodes[edge.NewIndex]));
+            }
         }
 
         foreach (var edge in match.Edges.Where(edge => edge.Kind == FindingEdgeKind.Moved))
@@ -312,6 +322,12 @@ public static class AnnotatedSourceComparer
                 " > ",
                 containing.Select(region =>
                     $"{region.Region.Role}[{region.SiblingOrdinal}]")),
+            RegionSiblingSignature = string.Join(
+                " > ",
+                containing.Select(region =>
+                    $"{region.Region.Role}:{regions.Count(candidate =>
+                        candidate.Parent == region.Parent
+                        && candidate.Region.Role == region.Region.Role)}")),
         };
     }
 
@@ -351,6 +367,19 @@ public static class AnnotatedSourceComparer
 
             PairByContext(
                 identity,
+                "exact-context",
+                oldIndices,
+                newIndices,
+                before,
+                after,
+                oldTokens,
+                newTokens,
+                node => node.RegionOrdinalPath.Length == 0
+                    || node.RegionFingerprint.Length == 0
+                        ? ""
+                        : Part(node.RegionOrdinalPath) + Part(node.RegionFingerprint));
+            PairByContext(
+                identity,
                 "fingerprint",
                 oldIndices,
                 newIndices,
@@ -370,17 +399,13 @@ public static class AnnotatedSourceComparer
                 newTokens,
                 node => node.RegionOrdinalPath);
 
-            if (oldIndices.All(index => before[index].RegionPath.Length == 0)
-                && newIndices.All(index => after[index].RegionPath.Length == 0))
-            {
-                PairInOrder(
-                    identity,
-                    "unscoped",
-                    oldIndices,
-                    newIndices,
-                    oldTokens,
-                    newTokens);
-            }
+            PairInOrder(
+                identity,
+                "residual",
+                oldIndices,
+                newIndices,
+                oldTokens,
+                newTokens);
         }
 
         for (int index = 0; index < oldTokens.Length; index++)
@@ -461,6 +486,15 @@ public static class AnnotatedSourceComparer
     }
 
     static string Part(string value) => $"{value.Length}:{value}";
+
+    static bool HasContextChange(
+        AnnotatedSourceNodeSnapshot before,
+        AnnotatedSourceNodeSnapshot after)
+        => before.RegionSiblingSignature.Length > 0
+            && before.RegionSiblingSignature == after.RegionSiblingSignature
+            && before.RegionPath == after.RegionPath
+            && before.RegionFingerprint != after.RegionFingerprint
+            && before.RegionOrdinalPath != after.RegionOrdinalPath;
 
     static ImmutableArray<RegionDescriptor> DescribeRegions(AnnotatedSourceDocument document)
     {
