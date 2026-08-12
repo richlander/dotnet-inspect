@@ -86,72 +86,109 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
-        CredentialScopeState credentialScope = _credentialScopes.GetOrAdd(
-            GetCredentialScope(request.RequestUri),
-            static _ => new CredentialScopeState());
-
-        bool acquiredCredentials = false;
+        HttpRequestMessage requestTemplate = request;
+        bool disposeRequestTemplate = false;
+        var acquiredScopes = new HashSet<string>(StringComparer.Ordinal);
         int attempts = 0;
 
-        while (true)
+        try
         {
-            // Snapshot before sending, so that if a concurrent request refreshes the credential
-            // while this one is in flight we can tell and simply retry rather than acquire again.
-            (PackageSourceCredential? credential, long version) = credentialScope.Read();
-
-            HttpRequestMessage attempt = CloneRequest(request);
-            HttpResponseMessage? response = null;
-            bool transferResponse = false;
-            bool transferAttempt = false;
-            try
+            while (true)
             {
-                if (credential is not null && attempt.Headers.Authorization is null)
+                Uri requestUri = requestTemplate.RequestUri!;
+                string credentialScopeKey = GetCredentialScope(requestUri);
+                CredentialScopeState credentialScope = _credentialScopes.GetOrAdd(
+                    credentialScopeKey,
+                    static _ => new CredentialScopeState());
+
+                // Snapshot before sending, so that if a concurrent request refreshes the credential
+                // while this one is in flight we can tell and simply retry rather than acquire again.
+                (PackageSourceCredential? credential, long version) = credentialScope.Read();
+
+                HttpRequestMessage attempt = CloneRequest(requestTemplate);
+                HttpResponseMessage? response = null;
+                bool transferResponse = false;
+                bool transferAttempt = false;
+                try
                 {
-                    attempt.Headers.Authorization = CreateBasicHeader(credential);
+                    if (credential is not null && attempt.Headers.Authorization is null)
+                    {
+                        attempt.Headers.Authorization = CreateBasicHeader(credential);
+                    }
+
+                    response = await base.SendAsync(attempt, cancellationToken).ConfigureAwait(false);
+
+                    if (!IsCredentialChallenge(response.StatusCode) || ++attempts >= MaxAuthRetries)
+                    {
+                        response.RequestMessage ??= attempt;
+                        transferAttempt = ReferenceEquals(response.RequestMessage, attempt);
+                        transferResponse = true;
+                        return response;
+                    }
+
+                    HttpRequestMessage challengedRequest = response.RequestMessage ?? attempt;
+                    Uri? challengedUri = challengedRequest.RequestUri;
+                    if (challengedUri is null)
+                    {
+                        transferAttempt = ReferenceEquals(challengedRequest, attempt);
+                        transferResponse = true;
+                        return response;
+                    }
+
+                    string challengedScopeKey = GetCredentialScope(challengedUri);
+                    CredentialScopeState challengedScope = _credentialScopes.GetOrAdd(
+                        challengedScopeKey,
+                        static _ => new CredentialScopeState());
+                    long challengedVersion = string.Equals(
+                        credentialScopeKey,
+                        challengedScopeKey,
+                        StringComparison.Ordinal)
+                        ? version
+                        : challengedScope.Read().Version;
+
+                    HttpRequestMessage nextTemplate = CloneRequest(challengedRequest);
+                    nextTemplate.Headers.Authorization = null;
+                    if (disposeRequestTemplate)
+                        requestTemplate.Dispose();
+                    requestTemplate = nextTemplate;
+                    disposeRequestTemplate = true;
+
+                    PackageSourceCredential? acquired = await AcquireAsync(
+                        challengedScope,
+                        challengedUri,
+                        challengedVersion,
+                        isRetry: !acquiredScopes.Add(challengedScopeKey),
+                        cancellationToken).ConfigureAwait(false);
+
+                    if (acquired is null)
+                    {
+                        // No plugin can serve this source. Surface the challenge unchanged so the caller
+                        // reports an authentication failure rather than a missing package.
+                        response.RequestMessage ??= attempt;
+                        transferAttempt = ReferenceEquals(response.RequestMessage, attempt);
+                        transferResponse = true;
+                        return response;
+                    }
                 }
-
-                response = await base.SendAsync(attempt, cancellationToken).ConfigureAwait(false);
-
-                if (!IsCredentialChallenge(response.StatusCode) || ++attempts >= MaxAuthRetries)
+                finally
                 {
-                    response.RequestMessage ??= attempt;
-                    transferAttempt = ReferenceEquals(response.RequestMessage, attempt);
-                    transferResponse = true;
-                    return response;
+                    if (!transferResponse && response is not null)
+                    {
+                        HttpRequestMessage? responseRequest = response.RequestMessage;
+                        response.Dispose();
+                        if (!ReferenceEquals(responseRequest, attempt))
+                            responseRequest?.Dispose();
+                    }
+
+                    if (!transferAttempt)
+                        attempt.Dispose();
                 }
-
-                PackageSourceCredential? acquired = await AcquireAsync(
-                    credentialScope,
-                    request.RequestUri,
-                    version,
-                    isRetry: acquiredCredentials,
-                    cancellationToken).ConfigureAwait(false);
-
-                if (acquired is null)
-                {
-                    // No plugin can serve this source. Surface the challenge unchanged so the caller
-                    // reports an authentication failure rather than a missing package.
-                    response.RequestMessage ??= attempt;
-                    transferAttempt = ReferenceEquals(response.RequestMessage, attempt);
-                    transferResponse = true;
-                    return response;
-                }
-
-                acquiredCredentials = true;
             }
-            finally
-            {
-                if (!transferResponse && response is not null)
-                {
-                    HttpRequestMessage? responseRequest = response.RequestMessage;
-                    response.Dispose();
-                    if (!ReferenceEquals(responseRequest, attempt))
-                        responseRequest?.Dispose();
-                }
-
-                if (!transferAttempt)
-                    attempt.Dispose();
-            }
+        }
+        finally
+        {
+            if (disposeRequestTemplate)
+                requestTemplate.Dispose();
         }
     }
 

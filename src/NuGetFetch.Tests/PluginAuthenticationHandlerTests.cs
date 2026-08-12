@@ -140,6 +140,29 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task RedirectedChallengeAcquiresForAndReplaysTheEffectiveUri()
+    {
+        var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
+        var transport = new RedirectedChallengeTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "http://origin.example/index.json",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            ["https://challenger.example/private/index.json"],
+            source.Uris.Select(uri => uri.AbsoluteUri));
+        Assert.Equal(
+            [
+                ("http://origin.example/index.json", (string?)null),
+                ("https://challenger.example/private/index.json", Basic("user", "token").Parameter),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
     public async Task PortAndSchemeArePartOfSourceIdentity()
     {
         var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
@@ -478,6 +501,33 @@ public sealed class PluginAuthenticationHandlerTests
             HttpResponseMessage response = respond(request.Headers);
             response.RequestMessage = request;
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class RedirectedChallengeTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
+
+            if (Requests.Count == 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = new HttpRequestMessage(
+                        request.Method,
+                        "https://challenger.example/private/index.json"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+            });
         }
     }
 }
