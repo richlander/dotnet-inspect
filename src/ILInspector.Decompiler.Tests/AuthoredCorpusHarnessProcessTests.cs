@@ -238,6 +238,30 @@ public class AuthoredCorpusHarnessProcessTests
         }
     }
 
+    [Fact]
+    public void Harness_RejectsCompositeStructuralRegionRole()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"role\": \"Case\"",
+                "\"role\": \"Header, Body\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unknown PrintedRegionRole value", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     /// <summary>
     /// Every mode that dispatches before a gate must refuse rather than run instead of
     /// it. One representative earlier mode per gate is enough here: which modes precede

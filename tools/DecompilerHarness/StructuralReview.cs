@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Annotations;
 using ILInspector.Instructions;
 
 namespace ILInspector.DecompilerHarness;
@@ -142,44 +143,57 @@ internal static class StructuralReview
     }
 }
 
-internal sealed class StrictIlBodyDiffOutcomeJsonConverter : JsonConverter<IlBodyDiffOutcome>
+internal sealed class StrictStringEnumJsonConverter<TEnum> : JsonConverter<TEnum>
+    where TEnum : struct, Enum
 {
-    public override IlBodyDiffOutcome Read(
+    static readonly IReadOnlyDictionary<string, TEnum> s_values = Enum
+        .GetNames<TEnum>()
+        .ToDictionary(static name => name, static name => Enum.Parse<TEnum>(name), StringComparer.Ordinal);
+
+    public override TEnum Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
         JsonSerializerOptions options)
     {
-        if (reader.TokenType != JsonTokenType.String)
-            throw new JsonException("Structural fidelity contains an unknown IL body-diff outcome.");
-
-        return reader.GetString() switch
+        if (reader.TokenType == JsonTokenType.String
+            && reader.GetString() is { } name
+            && s_values.TryGetValue(name, out var value))
         {
-            nameof(IlBodyDiffOutcome.Unavailable) => IlBodyDiffOutcome.Unavailable,
-            nameof(IlBodyDiffOutcome.Exact) => IlBodyDiffOutcome.Exact,
-            nameof(IlBodyDiffOutcome.OperandDiff) => IlBodyDiffOutcome.OperandDiff,
-            nameof(IlBodyDiffOutcome.OpcodeDiff) => IlBodyDiffOutcome.OpcodeDiff,
-            _ => throw new JsonException("Structural fidelity contains an unknown IL body-diff outcome."),
-        };
+            return value;
+        }
+
+        throw new JsonException(ErrorMessage);
     }
 
     public override void Write(
         Utf8JsonWriter writer,
-        IlBodyDiffOutcome value,
+        TEnum value,
         JsonSerializerOptions options)
     {
-        if (!Enum.IsDefined(value))
-            throw new JsonException("Structural fidelity contains an unknown IL body-diff outcome.");
+        string? name = Enum.GetName(value);
+        if (name is null)
+            throw new JsonException(ErrorMessage);
 
-        writer.WriteStringValue(value.ToString());
+        writer.WriteStringValue(name);
     }
+
+    static string ErrorMessage => typeof(TEnum) == typeof(IlBodyDiffOutcome)
+        ? "Structural fidelity contains an unknown IL body-diff outcome."
+        : $"Structural review contains an unknown {typeof(TEnum).Name} value.";
 }
 
 [JsonSourceGenerationOptions(
     AllowDuplicateProperties = false,
-    Converters = [typeof(StrictIlBodyDiffOutcomeJsonConverter)],
+    Converters =
+    [
+        typeof(StrictStringEnumJsonConverter<SourceLineKind>),
+        typeof(StrictStringEnumJsonConverter<PrintedRegionRole>),
+        typeof(StrictStringEnumJsonConverter<AnnotationConditionality>),
+        typeof(StrictStringEnumJsonConverter<AnnotatedSourceFactOrigin>),
+        typeof(StrictStringEnumJsonConverter<IlBodyDiffOutcome>),
+    ],
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     RespectRequiredConstructorParameters = true,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-    UseStringEnumConverter = true)]
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(CSharpStructuralComparisonInput))]
 internal sealed partial class StructuralReviewJsonContext : JsonSerializerContext;

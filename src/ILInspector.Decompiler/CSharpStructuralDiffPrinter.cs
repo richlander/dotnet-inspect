@@ -120,7 +120,8 @@ public static class CSharpStructuralDiffPrinter
 
             var facts = entries.Select(static entry => entry.Fact).ToArray();
             var extents = entries.ToDictionary(static entry => entry.Fact, static entry => entry.Extent);
-            output.AddRange(AnnotationCaret.Render(line.Text, memberIndent, facts, extents: extents));
+            var rendered = AnnotationCaret.Render(line.Text, memberIndent, facts, extents: extents);
+            output.AddRange(rendered.Count > 0 ? rendered : RenderExactFallback(entries));
         }
 
         return string.Join('\n', output);

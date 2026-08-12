@@ -350,6 +350,39 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_WhitespaceOnlyLineUsesExactFallbackCaret()
+    {
+        const string beforeText = "x\n      y";
+        const string afterText = "x\n       ";
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [new AnnotatedSourceNode(0, "ReturnStatement", SourceLineKind.CSharp, [new(6, 2)])],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [new AnnotatedSourceNode(0, "BreakStatement", SourceLineKind.CSharp, [new(6, 2)])],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.After)
+            .Split('\n');
+
+        Assert.Equal(afterText.Split('\n')[1], rendered[1]);
+        Assert.StartsWith("    ^^ raise: Break", rendered[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareStructure_RejectsUnknownFidelityOutcome()
     {
         var before = Document("return;", "ReturnStatement", "return;");
