@@ -163,6 +163,18 @@ that assumes the payload is dangerous and the wrapper is what holds it back. Her
 the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
+`TextConcern` retains why visual containment occurred: control, format/bidi,
+unpaired surrogate, line separator, or paragraph separator. The flags are
+captured while the untreated scalar is available and travel with the
+`InertString` through composition, policy tightening, bounding, and persistence
+restoration. An audit can therefore aggregate categories without importing the
+decoder or retaining a second raw copy. `RequiredContainment` is exactly
+`Concerns != None`; a literal backslash may affect `VisualForm` to preserve
+invertibility but contributes no concern.
+`Concerns_SurviveCompositionRestorationAndBounding` and
+`Concerns_RespectThePolicyThatProducedTheValue` gate that propagation, and
+`Concerns_ClassifyWhyContainmentOccurred` gates the categories.
+
 ## Where text becomes inert
 
 The tempting answer is "as early as possible": have every API that returns

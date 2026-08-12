@@ -133,6 +133,10 @@
   cannot impersonate tool headings or tables. Package projections expose
   aggregate containment evidence while explicit document payloads remain
   byte-preserving (#3679, #3772).
+- Reports that package aggregate in `Signals` as
+  `Artifact text containment`, with category-only evidence for control,
+  format/bidi, unpaired-surrogate, line-separator, and paragraph-separator
+  concerns. Literal backslashes do not trigger the concern.
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a
@@ -158,7 +162,6 @@
 - Adds Rung 7 `Performance Triage` shapes: `async-state-machine` (reported as
   amortized off-loop) and `materialize-in-loop` (loop-invariant
   `ToArray`/`ToList`), plus nested-type triage drilldown (#1948, #1889).
-
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,

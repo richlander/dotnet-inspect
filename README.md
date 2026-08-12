@@ -187,12 +187,22 @@ For libraries, SourceLink presence and map usability are separate observations.
 `Non-normalized Paths` separately lists SourceLink document keys that do not use
 the deterministic `/_/` prefix.
 
+Package Signals also reports `Artifact text containment`. `None` means no
+package-model text needed visual containment; `Required` names only the Unicode
+category kinds that were contained (`Cc`, `Cf`, `Cs`, `Zl`, or `Zp`), never the
+artifact text itself. Literal backslashes do not count as a concern even when
+the invertible encoding must disambiguate them. Library Signals will gain the
+same row when the library presentation model carries `InertString` through its
+complete text surface; until then, the package row does not claim library
+coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
+and `PackageSignals_ReportsNoArtifactTextConcernForBackslashes` gate the row.
+
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
 | `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 | `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
 | `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
 

@@ -4,6 +4,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Inspectors;
@@ -133,6 +134,40 @@ internal static class AuditSignalBuilder
         AddPackageSignals(signals, in context);
 
         result.AuditSignals = signals;
+        AddPackageTextContainmentSignal(result, signals);
+    }
+
+    private static void AddPackageTextContainmentSignal(
+        InspectionResult result,
+        List<AuditSignal> signals)
+    {
+        TextConcern concerns = new PackageInspectionText(result).Concerns;
+        Add(
+            signals,
+            "Text",
+            "Artifact text containment",
+            concerns == TextConcern.None ? "None" : "Required",
+            DescribeTextConcerns(concerns));
+    }
+
+    private static string DescribeTextConcerns(TextConcern concerns)
+    {
+        if (concerns == TextConcern.None)
+            return "no concerning scalars found";
+
+        List<string> kinds = [];
+        AddKind(TextConcern.Control, "control (Cc)");
+        AddKind(TextConcern.Format, "format/bidi (Cf)");
+        AddKind(TextConcern.Surrogate, "unpaired surrogate (Cs)");
+        AddKind(TextConcern.LineSeparator, "line separator (Zl)");
+        AddKind(TextConcern.ParagraphSeparator, "paragraph separator (Zp)");
+        return string.Join(", ", kinds);
+
+        void AddKind(TextConcern kind, string description)
+        {
+            if ((concerns & kind) != TextConcern.None)
+                kinds.Add(description);
+        }
     }
 
     private readonly record struct DependencySignalSummary(

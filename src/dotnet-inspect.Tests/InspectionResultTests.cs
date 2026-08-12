@@ -437,6 +437,91 @@ public class InspectionResultTests
         Assert.Equal("NuGet advisory data", signal.Evidence);
     }
 
+    [Theory]
+    [InlineData("ordinary text")]
+    [InlineData("C:\\tmp\\package")]
+    [InlineData("literal \\u202E text")]
+    public async Task PackageSignals_ReportsNoArtifactTextConcernForBackslashes(
+        string packageName)
+    {
+        var result = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = "1.0.0",
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            value => value.Signal == "Artifact text containment");
+        Assert.Equal("None", signal.Value);
+        Assert.Equal("no concerning scalars found", signal.Evidence);
+    }
+
+    [Fact]
+    public async Task PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent()
+    {
+        string unpairedSurrogate = new((char)0xD800, 1);
+        var result = new InspectionResult
+        {
+            PackageName = "prefix\u001B\u202E\u2028\u2029" + unpairedSurrogate + "SECRET",
+            Version = "1.0.0",
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            value => value.Signal == "Artifact text containment");
+        Assert.Equal("Required", signal.Value);
+        Assert.Equal(
+            "control (Cc), format/bidi (Cf), unpaired surrogate (Cs), "
+                + "line separator (Zl), paragraph separator (Zp)",
+            signal.Evidence);
+        Assert.DoesNotContain("SECRET", signal.Evidence, StringComparison.Ordinal);
+
+        string markdown = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+        Assert.Contains(
+            "| Text | Artifact text containment | Required | control (Cc), "
+                + "format/bidi (Cf), unpaired surrogate (Cs), line separator (Zl), "
+                + "paragraph separator (Zp) |",
+            markdown,
+            StringComparison.Ordinal);
+
+        string json = JsonSerializer.Serialize(
+            PackageInspectionJson.Create(result),
+            PackageInspectionJsonContext.Default.PackageInspectionJson);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement jsonSignal = document.RootElement
+            .GetProperty("audit_signals")
+            .EnumerateArray()
+            .Single(value => value.GetProperty("signal").GetString()
+                == "Artifact text containment");
+        Assert.Equal("Required", jsonSignal.GetProperty("value").GetString());
+        Assert.Equal(signal.Evidence, jsonSignal.GetProperty("evidence").GetString());
+
+        Assert.Equal(
+            new[]
+            {
+                TextConcern.None,
+                TextConcern.Control,
+                TextConcern.Format,
+                TextConcern.Surrogate,
+                TextConcern.LineSeparator,
+                TextConcern.ParagraphSeparator,
+            },
+            Enum.GetValues<TextConcern>());
+    }
+
     [Fact]
     public async Task PackageSignals_Symbols_ReportsMsdlPdbSource()
     {

@@ -12,7 +12,7 @@ internal sealed class PackageInspectionText
 {
     private readonly List<PackageFile>? _packageFileSource;
     private List<PackageFileText>? _packageFiles;
-    private readonly bool _requiredContainment;
+    private readonly TextConcern _concerns;
 
     public PackageInspectionText(InspectionResult data)
     {
@@ -156,7 +156,7 @@ internal sealed class PackageInspectionText
                 collector.Field(value.Evidence)))
             .ToList();
 
-        _requiredContainment = collector.RequiredContainment;
+        _concerns = collector.Concerns;
     }
 
     public InertString PackageName { get; }
@@ -201,9 +201,13 @@ internal sealed class PackageInspectionText
     public PackageSourceIntegrityText? SourceIntegrity { get; }
     public PackageSignatureText? SignatureResult { get; }
     public List<PackageAuditSignalText>? AuditSignals { get; }
-    public bool RequiredContainment =>
-        _requiredContainment
-        || PackageFiles?.Any(value => value.Path.RequiredContainment) == true;
+    public TextConcern Concerns =>
+        _concerns
+        | (PackageFiles?.Aggregate(
+            TextConcern.None,
+            static (concerns, value) => concerns | value.Path.Concerns)
+            ?? TextConcern.None);
+    public bool RequiredContainment => Concerns != TextConcern.None;
 
     public List<PackageFileText>? SelectPackageFiles(Func<PackageFile, bool> predicate)
     {
@@ -280,7 +284,7 @@ internal sealed class PackageInspectionText
 
     internal sealed class Collector
     {
-        public bool RequiredContainment { get; private set; }
+        public TextConcern Concerns { get; private set; }
 
         public InertString Field(string value)
             => Compose(new InertString(TextPolicy.Field, value));
@@ -296,7 +300,7 @@ internal sealed class PackageInspectionText
 
         public InertString Compose(InertString value)
         {
-            RequiredContainment |= value.RequiredContainment;
+            Concerns |= value.Concerns;
             return value;
         }
     }

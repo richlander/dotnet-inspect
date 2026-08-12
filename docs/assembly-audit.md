@@ -26,6 +26,33 @@ selected compatible/highest-TFM libraries and retain library provenance.
 See [SourceLink Exposure](sourcelink-exposure.md) for the product surfaces,
 PDB dependency, and network policy behind these sections.
 
+## Artifact text containment
+
+Package Signals includes an `Artifact text containment` row over the complete
+typed package presentation model.
+
+| Value | Meaning |
+| ----- | ------- |
+| `None` | No package-model scalar required visual containment. |
+| `Required` | At least one scalar required containment; Evidence lists its Unicode category kinds. |
+
+The reported kinds are control (`Cc`), format/bidi (`Cf`), unpaired surrogate
+(`Cs`), line separator (`Zl`), and paragraph separator (`Zp`). The row never
+echoes the concerning content. A literal backslash is not a concern: it may be
+rewritten solely to keep the visual encoding invertible, and that mechanical
+rewrite does not change the row to `Required`.
+
+The package result is gated by
+`PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
+which derives the expected text-source set from the package model and requires
+each source to contribute independently;
+`PackageSignals_ReportsNoArtifactTextConcernForBackslashes` gates the close
+negative. Library Signals does not yet report this row because the library
+presentation model still unwraps containment to bare strings at individual row
+properties rather than carrying `InertString` through the complete model.
+Reporting a library-wide result before that migration would overstate its
+coverage.
+
 ## Build Audit Fields
 
 ### Deterministic

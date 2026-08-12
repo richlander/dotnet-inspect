@@ -204,7 +204,22 @@ public class PackageInspectionTextTests
             Assert.True(
                 new PackageInspectionText(result).RequiredContainment,
                 $"{path} did not contribute to RequiredContainment.");
+            Assert.Equal(
+                TextConcern.Format,
+                new PackageInspectionText(result).Concerns);
         }
+    }
+
+    [Theory]
+    [InlineData("ordinary text")]
+    [InlineData("C:\\tmp\\package")]
+    [InlineData("literal \\u202E text")]
+    public void BackslashesDoNotContributeAPackageTextConcern(string value)
+    {
+        PackageInspectionText text = new(CompleteResult(value));
+
+        Assert.Equal(TextConcern.None, text.Concerns);
+        Assert.False(text.RequiredContainment);
     }
 
     [Fact]
