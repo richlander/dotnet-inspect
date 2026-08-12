@@ -228,6 +228,41 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             "jobs.changes must declare at least one output.");
     }
 
+    YamlMappingNode inspectWeb =
+        GetRequiredMapping(jobs, "inspect-web", "jobs");
+    YamlSequenceNode inspectWebSteps = GetRequiredSequence(
+        inspectWeb,
+        "steps",
+        "jobs.inspect-web");
+    List<YamlMappingNode> webSdkSteps = [];
+    foreach (YamlNode stepNode in inspectWebSteps.Children)
+    {
+        YamlMappingNode step = RequireMapping(
+            stepNode,
+            "jobs.inspect-web step");
+        if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v5")
+            webSdkSteps.Add(step);
+    }
+    if (webSdkSteps.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Expected one inspect-web setup-dotnet step, found {webSdkSteps.Count}.");
+    }
+    YamlMappingNode webSdkWith = GetRequiredMapping(
+        webSdkSteps[0],
+        "with",
+        "jobs.inspect-web setup-dotnet");
+    RequireScalarValue(
+        webSdkWith,
+        "dotnet-version",
+        "11.0.x",
+        "jobs.inspect-web setup-dotnet.with");
+    RequireScalarValue(
+        webSdkWith,
+        "dotnet-quality",
+        "preview",
+        "jobs.inspect-web setup-dotnet.with");
+
     YamlSequenceNode steps = GetRequiredSequence(
         changes,
         "steps",
