@@ -2365,6 +2365,51 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void ConfiguredUsingKeepsOtherDeclaredNamespaceReferenceQualified()
+    {
+        var exception = CreateEmptyType("Lib", "Exception");
+        var consumer = CreateEmptyType("App", "Consumer");
+        var getException = CreateMethod("GetException");
+        getException.SignatureModel!.ReturnType = "Lib.Exception";
+        consumer.Members.Add(getException);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(exception), new CSharpTypePrintRequest(consumer)],
+            new CSharpTypePrintOptions { Usings = ["System"] });
+
+        Assert.Equal(["System"], result.Usings);
+        Assert.DoesNotContain("using Lib;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public Lib.Exception GetException();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DerivedUsingKeepsOtherDeclaredNamespaceReferenceQualified()
+    {
+        var marker = CreateEmptyType("Lib", "Marker");
+        var consumer = CreateEmptyType("App", "Consumer");
+        var getMarker = CreateMethod("GetMarker");
+        getMarker.SignatureModel!.ReturnType = "Lib.Marker";
+        getMarker.SignatureModel.Parameters =
+        [
+            new ApiParameter { Type = "Other.Value", Name = "value" }
+        ];
+        consumer.Members.Add(getMarker);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(marker), new CSharpTypePrintRequest(consumer)]);
+
+        Assert.Equal(["Other"], result.Usings);
+        Assert.DoesNotContain("using Lib;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public Lib.Marker GetMarker(Value value);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GlobalTypeReferencePreventsCollidingDeclaredNamespaceImport()
     {
         var node = CreateEmptyType("Lib", "Node");

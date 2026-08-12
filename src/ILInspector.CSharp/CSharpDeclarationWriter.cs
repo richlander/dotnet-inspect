@@ -386,6 +386,7 @@ internal static class CSharpDeclarationWriter
         IEnumerable<string>? contextualNamespaces = null,
         IEnumerable<string>? additionalAttributes = null)
     {
+        var contextualNamespaceList = (contextualNamespaces ?? []).ToList();
         var scopeList = scopes
             .Select(scope => (
                 scope.Type,
@@ -435,7 +436,7 @@ internal static class CSharpDeclarationWriter
         var knownNamespaces = typeRefs
             .Select(typeRef => typeRef.Namespace)
             .Concat(attributeTypeRefs.Select(typeRef => typeRef.Namespace))
-            .Concat(contextualNamespaces ?? [])
+            .Concat(contextualNamespaceList)
             .Concat(scopeList.Select(scope => scope.Type.Namespace))
             .Where(ns => !string.IsNullOrWhiteSpace(ns))
             .Select(ns => ns!)
@@ -480,7 +481,7 @@ internal static class CSharpDeclarationWriter
         var usings = new SortedSet<string>(StringComparer.Ordinal);
         var potentiallyImportedNamespaces = typeRefs
             .Select(typeRef => typeRef.Namespace)
-            .Concat(contextualNamespaces ?? [])
+            .Concat(contextualNamespaceList)
             .Concat(scopeList
                 .Select(scope => scope.Type.Namespace)
                 .Where(ns => !string.IsNullOrWhiteSpace(ns))
@@ -535,13 +536,15 @@ internal static class CSharpDeclarationWriter
             typeRefs.Concat(attributeTypeRefs).ToList());
         unsafeNamespaces.UnionWith(unsafePrimaryAttributeNamespaces);
 
+        var importedDeclaredNamespaces = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
         {
             if (collidingSimpleNames.Contains(group.Key))
                 continue;
             if (shadowingNames.Contains(group.Key))
                 continue;
-            if (declaredTypeNames.Contains(group.Key)
+            bool importsDeclaredType = declaredTypeNames.Contains(group.Key);
+            if (importsDeclaredType
                 && !uniquelyImportableDeclaredTypeFullNames.Contains(group.First().FullName))
                 continue;
             var ns = group.First().Namespace;
@@ -550,6 +553,21 @@ internal static class CSharpDeclarationWriter
             if (unsafeNamespaces.Contains(ns))
                 continue;
             usings.Add(ns);
+            if (importsDeclaredType)
+                importedDeclaredNamespaces.Add(ns);
+        }
+
+        var effectiveImportedNamespaces = usings
+            .Concat(contextualNamespaceList)
+            .Where(ns => !string.IsNullOrWhiteSpace(ns))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var declaredNamespace in importedDeclaredNamespaces)
+        {
+            if (effectiveImportedNamespaces.Any(ns =>
+                !string.Equals(ns, declaredNamespace, StringComparison.Ordinal)))
+            {
+                usings.Remove(declaredNamespace);
+            }
         }
 
         var referencedTypeNames = typeRefs
