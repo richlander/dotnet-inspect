@@ -7160,6 +7160,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallGraph_ScopeTraversesCalleesAcrossAssembly()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+        var scoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--bin",
+            Path.GetDirectoryName(target)!,
+            "--tips",
+            "q");
+        var unscoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Contains("Target.Api.Forward()", scoped.Output);
+        Assert.Contains("Target.Api.Leaf()", scoped.Output);
+        Assert.DoesNotContain("(external)", scoped.Output);
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Contains(
+            "Target.Api.Forward() (external)",
+            unscoped.Output);
+        Assert.DoesNotContain("Target.Api.Leaf()", unscoped.Output);
+    }
+
+    [Fact]
     public async Task Member_BareNameCallersWithCallerScope_AutoSelectsSingleOverload()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
