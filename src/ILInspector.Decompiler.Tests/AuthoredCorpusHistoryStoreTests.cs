@@ -361,7 +361,7 @@ public class AuthoredCorpusHistoryStoreTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            DeleteDirectory(directory);
         }
     }
 
@@ -450,7 +450,7 @@ public class AuthoredCorpusHistoryStoreTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            DeleteDirectory(directory);
         }
     }
 
@@ -563,6 +563,19 @@ public class AuthoredCorpusHistoryStoreTests
             $"dotnet-inspect-{purpose}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    static void DeleteDirectory(string directory)
+    {
+        foreach (string path in Directory.EnumerateFileSystemEntries(
+            directory,
+            "*",
+            SearchOption.AllDirectories))
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+        }
+        File.SetAttributes(directory, FileAttributes.Normal);
+        Directory.Delete(directory, recursive: true);
     }
 
     static void CommitAll(string directory, string message)
