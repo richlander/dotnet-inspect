@@ -76,6 +76,10 @@ foreach ((string json, string count) in new[]
         "\"previous_filename\":\"\"," +
         "\"filename\":\"README.md\"" +
         "}]", "1"),
+    ("[" +
+        "{\"status\":\"modified\",\"filename\":\"README.md\"}," +
+        "{\"status\":\"modified\",\"filename\":\"README.md\"}" +
+        "]", "2"),
 })
 {
     Dictionary<string, string> malformed = RunDetection(
@@ -114,6 +118,15 @@ AssertAll(
         "README.md",
         outputs,
         nulPreviousFileRecord: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "src/dotnet-inspect/Program.cs",
+        outputs,
+        failDecodeAt: 1),
     "true");
 AssertAll(
     RunDetection(
@@ -340,6 +353,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     RequireAbsent(root, "defaults", "workflow");
     YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
     ValidateAggregateStructuralCheck(jobs);
+    ValidateOutputConsumers(jobs);
     YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
     RequireAbsent(changes, "if", "jobs.changes");
     RequireAbsent(changes, "continue-on-error", "jobs.changes");
@@ -620,6 +634,23 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
         aggregate,
         "steps",
         "jobs.ci-required");
+    if (steps.Children.Count != 4)
+    {
+        throw new InvalidOperationException(
+            "jobs.ci-required must contain checkout and exactly three enforcement steps.");
+    }
+    YamlMappingNode checkout = RequireMapping(
+        steps.Children[0],
+        "jobs.ci-required checkout step");
+    RequireExactKeys(
+        checkout,
+        ["uses"],
+        "jobs.ci-required checkout step");
+    RequireScalarValue(
+        checkout,
+        "uses",
+        "actions/checkout@v6",
+        "jobs.ci-required checkout step");
     var namedSteps = new Dictionary<string, (int Index, YamlMappingNode Step)>(
         StringComparer.Ordinal);
     int stepIndex = 0;
@@ -652,10 +683,9 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
                 $"jobs.ci-required is missing step: {name}.");
         }
     }
-    if (!(namedSteps[requiredStepNames[0]].Index <
-          namedSteps[requiredStepNames[1]].Index &&
-          namedSteps[requiredStepNames[1]].Index <
-          namedSteps[requiredStepNames[2]].Index))
+    if (namedSteps[requiredStepNames[0]].Index != 1 ||
+        namedSteps[requiredStepNames[1]].Index != 2 ||
+        namedSteps[requiredStepNames[2]].Index != 3)
     {
         throw new InvalidOperationException(
             "jobs.ci-required enforcement steps are out of order.");
@@ -718,6 +748,81 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
         "run",
         "8A91AD84EA333837F96705184446A0E7815286B01B21FA41C7998D6CCAFAC648",
         "ci-required result check");
+}
+
+static void ValidateOutputConsumers(YamlMappingNode jobs)
+{
+    var conditions = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["markdownlint"] = "needs.changes.outputs.docs == 'true'",
+        ["test"] =
+            "needs.changes.outputs.code == 'true' && " +
+            "github.event_name == 'pull_request'",
+        ["test-windows"] =
+            "needs.changes.outputs.code == 'true' && " +
+            "github.event_name == 'pull_request'",
+        ["build-net10"] =
+            "needs.changes.outputs.shipped == 'true' && " +
+            "github.event_name == 'pull_request'",
+        ["decompiler-gates"] =
+            "github.event_name == 'pull_request' && " +
+            "needs.changes.outputs.decompiler == 'true'",
+        ["csharp-diff-smoke"] =
+            "github.event_name == 'pull_request' && " +
+            "needs.changes.outputs.csharpdiff == 'true'",
+        ["il-diff-smoke"] =
+            "github.event_name == 'pull_request' && " +
+            "needs.changes.outputs.ildiff == 'true'",
+        ["pack"] =
+            "github.event_name == 'pull_request' && " +
+            "needs.changes.outputs.packaging == 'true'",
+    };
+    foreach ((string jobName, string condition) in conditions)
+    {
+        YamlMappingNode job = GetRequiredMapping(jobs, jobName, "jobs");
+        RequireScalarValue(job, "needs", "changes", $"jobs.{jobName}");
+        RequireScalarValue(job, "if", condition, $"jobs.{jobName}");
+        RequireAbsent(job, "continue-on-error", $"jobs.{jobName}");
+    }
+
+    YamlSequenceNode testSteps = GetRequiredSequence(
+        GetRequiredMapping(jobs, "test", "jobs"),
+        "steps",
+        "jobs.test");
+    var roundtripSteps = new Dictionary<string, YamlMappingNode>(
+        StringComparer.Ordinal);
+    foreach (YamlNode stepNode in testSteps.Children)
+    {
+        YamlMappingNode step = RequireMapping(stepNode, "jobs.test step");
+        string? name = GetOptionalScalar(step, "name");
+        if (name is "Restore vendored ILAssembler" or
+            "Run IL round-trip tests (fast)")
+        {
+            if (!roundtripSteps.TryAdd(name, step))
+            {
+                throw new InvalidOperationException(
+                    $"jobs.test contains duplicate step: {name}.");
+            }
+        }
+    }
+
+    string roundtripCondition =
+        "matrix.rid == 'linux-x64' && " +
+        "needs.changes.outputs.ilroundtrip == 'true'";
+    foreach (string name in new[]
+    {
+        "Restore vendored ILAssembler",
+        "Run IL round-trip tests (fast)",
+    })
+    {
+        if (!roundtripSteps.TryGetValue(name, out YamlMappingNode? step))
+        {
+            throw new InvalidOperationException(
+                $"jobs.test is missing step: {name}.");
+        }
+        RequireScalarValue(step, "if", roundtripCondition, $"jobs.test {name}");
+        RequireAbsent(step, "continue-on-error", $"jobs.test {name}");
+    }
 }
 
 static YamlMappingNode GetRequiredMapping(

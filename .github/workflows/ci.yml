@@ -260,7 +260,7 @@ jobs:
                         error("pull request files response contains an invalid record")
                       else
                         .[]
-                        | ":file",
+                        | ":file:" + (.filename | @base64),
                           ([.previous_filename?, .filename][]
                             | select(. != null)
                             | @base64)
@@ -268,8 +268,19 @@ jobs:
                     '
                 ) || exit 1
                 ACTUAL_FILES=0
+                SEEN_FILES=""
                 while IFS= read -r encoded; do
-                  if [ "$encoded" = ":file" ]; then
+                  if [[ "$encoded" == :file:* ]]; then
+                    identity=${encoded#:file:}
+                    if printf '%s' "$SEEN_FILES" | grep -Fqx "$identity"; then
+                      exit 1
+                    else
+                      grep_status=$?
+                      if [ "$grep_status" -ne 1 ]; then
+                        exit 1
+                      fi
+                    fi
+                    SEEN_FILES="${SEEN_FILES}${identity}"$'\n'
                     ACTUAL_FILES=$((ACTUAL_FILES + 1))
                   fi
                 done <<< "$RECORDS"
@@ -280,7 +291,7 @@ jobs:
                   exit 1
                 fi
                 while IFS= read -r encoded; do
-                  if [ -z "$encoded" ] || [ "$encoded" = ":file" ]; then
+                  if [ -z "$encoded" ] || [[ "$encoded" == :file:* ]]; then
                     continue
                   fi
                   if ! printf '%s' "$encoded" | base64 --decode; then
