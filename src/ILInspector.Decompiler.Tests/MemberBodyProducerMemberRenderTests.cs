@@ -73,6 +73,9 @@ public sealed class MemberBodyProducerMemberRenderTests
     {
         var type = Specimen();
         var constructor = Assert.Single(type.Members, member => member.Kind == "constructor");
+        Assert.Contains(
+            constructor.SignatureModel!.Parameters[0].Attributes,
+            attribute => attribute.Contains("ParameterMarker", StringComparison.Ordinal));
 
         var withAttributes = MemberBodyProducer.ProduceMember(
             type,
@@ -84,15 +87,21 @@ public sealed class MemberBodyProducerMemberRenderTests
             constructor,
             AssemblyPath,
             pdbPath: null,
-            includeCustomAttributes: false);
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
         var batch = MemberBodyProducer.ProduceMembers(
             type,
             AssemblyPath,
             pdbPath: null,
-            includeCustomAttributes: false);
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
 
         Assert.Contains("[Description(\"marker\")]", withAttributes.Text);
+        Assert.Contains("ParameterMarker", withAttributes.Text);
+        Assert.Contains("[SkipLocalsInit]", withAttributes.Text);
         Assert.DoesNotContain("[Description(\"marker\")]", withoutAttributes.Text);
+        Assert.DoesNotContain("ParameterMarker", withoutAttributes.Text);
+        Assert.Contains(
+            "[global::System.Runtime.CompilerServices.SkipLocalsInit]",
+            withoutAttributes.Text);
         Assert.Contains("System.ComponentModel", withAttributes.Namespaces);
         Assert.DoesNotContain("System.ComponentModel", withoutAttributes.Namespaces);
         Assert.Equal(withoutAttributes.Status, batch[constructor].Status);
@@ -259,7 +268,10 @@ public sealed class MemberBodyProducerMemberRenderTests
 public sealed class MemberRenderSpecimen
 {
     [System.ComponentModel.Description("marker")]
-    public MemberRenderSpecimen(int seed) => Value = seed;
+    [System.Runtime.CompilerServices.SkipLocalsInit]
+    public MemberRenderSpecimen(
+        [ParameterMarker] int seed)
+        => Value = seed;
 
     public int Value { get; }
 
@@ -331,4 +343,8 @@ public sealed class MemberRenderSpecimen
     public static int EscapedPlain(int n)
         => @event.Models.TypeNameShadow.M(n);
 }
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterMarkerAttribute : Attribute;
+
 #pragma warning restore CA1822

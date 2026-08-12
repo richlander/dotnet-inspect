@@ -30,6 +30,7 @@ internal sealed record CSharpDeclarationOptions
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
     public bool IncludeCustomAttributes { get; init; } = false;
+    public bool IncludeSignatureAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
@@ -62,7 +63,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var references = CollectMemberTypeReferences(member);
+        var references = CollectMemberTypeReferences(member, options.IncludeSignatureAttributes);
         var plan = TypeNamePlan.Create(references, options);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
@@ -81,7 +82,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var references = CollectMemberTypeReferences(member);
+        var references = CollectMemberTypeReferences(member, options.IncludeSignatureAttributes);
         var plan = TypeNamePlan.Create(references, options);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
@@ -98,7 +99,8 @@ internal static class CSharpDeclarationWriter
         options ??= new CSharpDeclarationOptions { NamespaceMode = CSharpNamespaceMode.FileScoped };
         var memberList = members?.ToList() ?? type.Members;
         var references = CollectTypeReferences(type)
-            .Concat(memberList.SelectMany(CollectMemberTypeReferences));
+            .Concat(memberList.SelectMany(member =>
+                CollectMemberTypeReferences(member, options.IncludeSignatureAttributes)));
         var plan = TypeNamePlan.Create(references, options);
 
         List<string> lines = [plan.Apply(RenderTypeDeclarationCore(type, options))];
@@ -149,7 +151,8 @@ internal static class CSharpDeclarationWriter
 
         var typeRefs = types
             .SelectMany(type => CollectTypeReferences(type)
-                .Concat(type.Members.SelectMany(CollectMemberTypeReferences)))
+                .Concat(type.Members.SelectMany(member =>
+                    CollectMemberTypeReferences(member, includeSignatureAttributes: true))))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
@@ -405,7 +408,8 @@ internal static class CSharpDeclarationWriter
         }
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             attributeLines.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
-        if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
+        if (options.IncludeSignatureAttributes
+            && member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
             attributeLines.Add($"[return: {string.Join(", ", returnAttributes)}]");
 
         List<string> parts = [];
@@ -502,16 +506,20 @@ internal static class CSharpDeclarationWriter
         }
     }
 
-    static IEnumerable<string> CollectMemberTypeReferences(ApiMember member)
+    static IEnumerable<string> CollectMemberTypeReferences(
+        ApiMember member,
+        bool includeSignatureAttributes)
     {
-        foreach (var expression in MemberTypeExpressions(member))
+        foreach (var expression in MemberTypeExpressions(member, includeSignatureAttributes))
         {
             foreach (var reference in ExtractQualifiedTypeNames(expression))
                 yield return reference;
         }
     }
 
-    static IEnumerable<string> MemberTypeExpressions(ApiMember member)
+    static IEnumerable<string> MemberTypeExpressions(
+        ApiMember member,
+        bool includeSignatureAttributes)
     {
         if (!string.IsNullOrWhiteSpace(member.ReturnType))
             yield return member.ReturnType!;
@@ -523,8 +531,9 @@ internal static class CSharpDeclarationWriter
             {
                 if (!string.IsNullOrWhiteSpace(parameter.Type))
                     yield return parameter.Type;
-                foreach (var attribute in parameter.Attributes)
-                    yield return StripAttributeArguments(attribute);
+                if (includeSignatureAttributes)
+                    foreach (var attribute in parameter.Attributes)
+                        yield return StripAttributeArguments(attribute);
             }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
@@ -971,7 +980,10 @@ internal static class CSharpDeclarationWriter
             return false;
         }
 
-        var parameters = string.Join(", ", model.Parameters.Select(FormatParameter));
+        var parameters = string.Join(
+            ", ",
+            model.Parameters.Select(parameter =>
+                FormatParameter(parameter, options.IncludeSignatureAttributes)));
         if (member.Name == ".cctor")
         {
             signature = $"{FormatConstructorTypeName(type.Name)}()";
@@ -1010,7 +1022,7 @@ internal static class CSharpDeclarationWriter
                     : model.MemberName!;
             signature = options.OmitPropertyAccessors
                 ? $"{head} {propertyMemberName}"
-                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
+                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes)))} }}";
             return true;
         }
         if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
@@ -1039,9 +1051,12 @@ internal static class CSharpDeclarationWriter
                         "System.Runtime.CompilerServices.DateTimeConstant(",
                         StringComparison.Ordinal));
 
-        static string AccessorDeclaration(ApiAccessor accessor)
+        static string AccessorDeclaration(
+            ApiAccessor accessor,
+            bool includeSignatureAttributes)
         {
-            var attributePrefix = accessor.ReturnAttributes.Count == 0
+            var attributePrefix = !includeSignatureAttributes
+                || accessor.ReturnAttributes.Count == 0
                 ? ""
                 : $"[return: {string.Join(", ", accessor.ReturnAttributes)}] ";
             return string.IsNullOrWhiteSpace(accessor.Accessibility)
@@ -1072,7 +1087,9 @@ internal static class CSharpDeclarationWriter
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors
             && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
 
-    internal static string FormatParameter(ApiParameter parameter)
+    internal static string FormatParameter(
+        ApiParameter parameter,
+        bool includeAttributes = true)
     {
         string type = EscapeTypeKeywords(parameter.Type);
         string head = string.IsNullOrEmpty(parameter.Modifier)
@@ -1084,7 +1101,7 @@ internal static class CSharpDeclarationWriter
         declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{declaration} = {parameter.DefaultValueText}"
             : declaration;
-        return parameter.Attributes.Count == 0
+        return !includeAttributes || parameter.Attributes.Count == 0
             ? declaration
             : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
     }

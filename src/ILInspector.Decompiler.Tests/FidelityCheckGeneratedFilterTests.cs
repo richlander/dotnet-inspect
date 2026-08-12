@@ -168,6 +168,7 @@ public class FidelityCheckGeneratedFilterTests
     {
         var assemblyPath = CompileFixture("""
             using System;
+            using System.Runtime.CompilerServices;
 
             [AttributeUsage(AttributeTargets.Constructor)]
             internal sealed class ConstructorTagAttribute : Attribute
@@ -179,6 +180,7 @@ public class FidelityCheckGeneratedFilterTests
                 private readonly int _value;
 
                 [ConstructorTag]
+                [SkipLocalsInit]
                 private ConstructorWholeMemberFixture()
                 {
                     _value = 42;
@@ -200,7 +202,7 @@ public class FidelityCheckGeneratedFilterTests
                 {
                 }
             }
-            """);
+            """, allowUnsafe: true);
         try
         {
             using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -241,6 +243,10 @@ public class FidelityCheckGeneratedFilterTests
                 wholeMember.Value.Text,
                 StringComparison.Ordinal);
             Assert.DoesNotContain("[ConstructorTag]", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains(
+                "[global::System.Runtime.CompilerServices.SkipLocalsInit]",
+                wholeMember.Value.Text,
+                StringComparison.Ordinal);
             Assert.Null(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
@@ -291,6 +297,24 @@ public class FidelityCheckGeneratedFilterTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void ConstructorShellAccessibility_PreservesBodySyntaxDiagnostics()
+    {
+        const string member = """
+                private Fixture()
+                {
+                    Consume(,);
+                }
+            """;
+
+        Assert.True(
+            FidelityCheck.TryForcePublicConstructorAccessibility(
+                member,
+                out string normalized));
+        Assert.Contains("public Fixture()", normalized, StringComparison.Ordinal);
+        Assert.Contains("Consume(,);", normalized, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1320,7 +1344,7 @@ public class FidelityCheckGeneratedFilterTests
             result.Detail);
     }
 
-    static string CompileFixture(string source)
+    static string CompileFixture(string source, bool allowUnsafe = false)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -1332,6 +1356,7 @@ public class FidelityCheckGeneratedFilterTests
             references,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
+                allowUnsafe: allowUnsafe,
                 optimizationLevel: OptimizationLevel.Release,
                 nullableContextOptions: NullableContextOptions.Disable));
 

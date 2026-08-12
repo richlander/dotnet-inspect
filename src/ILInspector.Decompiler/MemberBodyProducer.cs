@@ -62,6 +62,20 @@ public sealed record MemberRenderResult(
     public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
 }
 
+/// <summary>Controls custom attributes in a product-owned whole-member render.</summary>
+public enum MemberRenderAttributeMode
+{
+    /// <summary>Render the member, return, and parameter attributes in metadata.</summary>
+    All,
+
+    /// <summary>
+    /// Render only attributes required to preserve compilation semantics.
+    /// Currently this retains method-level <c>SkipLocalsInit</c>; declaration,
+    /// return, and parameter attributes are omitted with their namespace imports.
+    /// </summary>
+    CompilationRequired,
+}
+
 /// <summary>
 /// Projects a whole type as one C# listing: the type declaration, field
 /// declarations (including non-public fields, for context the bodies
@@ -73,7 +87,13 @@ public sealed record MemberRenderResult(
 public static class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
+    static readonly CSharpFormatter ShellDeclarationFormatter =
+        CreateDeclarationFormatter(includeSignatureAttributes: false);
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
+    static readonly CSharpFormatter ShellTerminatedDeclarationFormatter =
+        CreateDeclarationFormatter(
+            terminateMemberDeclaration: true,
+            includeSignatureAttributes: false);
 
     /// <summary>
     /// Resolves one module-scoped method address into another live metadata
@@ -242,9 +262,7 @@ public static class MemberBodyProducer
     /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
     /// caller needs identity- or stream-backed resolution.
     /// <paramref name="printerOptions"/> defaults to the shipped output.
-    /// Set <paramref name="includeCustomAttributes"/> to <see langword="false"/>
-    /// for a wrapping consumer that owns attribute projection; attribute-only
-    /// namespace imports are omitted with the attributes.
+    /// <paramref name="attributeMode"/> defaults to the shipped output.
     /// </summary>
     public static MemberRenderResult ProduceMember(
         ApiType type,
@@ -253,10 +271,10 @@ public static class MemberBodyProducer
         string? pdbPath,
         Pipeline.MetadataContext? context = null,
         Pipeline.PrinterOptions? printerOptions = null,
-        bool includeCustomAttributes = true)
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return ProduceMember(type, member, dllPath, pdbPath, resolver, context, printerOptions, includeCustomAttributes);
+        return ProduceMember(type, member, dllPath, pdbPath, resolver, context, printerOptions, attributeMode);
     }
 
     /// <summary>
@@ -270,8 +288,8 @@ public static class MemberBodyProducer
     /// members that produce no listing output, return
     /// <see cref="MemberBodyProductionStatus.Absent"/>. Omitting
     /// <paramref name="printerOptions"/> preserves the shipped output.
-    /// <paramref name="includeCustomAttributes"/> defaults to
-    /// <see langword="true"/>.
+    /// <paramref name="attributeMode"/> defaults to
+    /// <see cref="MemberRenderAttributeMode.All"/>.
     /// </summary>
     public static MemberRenderResult ProduceMember(
         ApiType type,
@@ -281,10 +299,12 @@ public static class MemberBodyProducer
         IAssemblyReferenceResolver resolver,
         Pipeline.MetadataContext? context = null,
         Pipeline.PrinterOptions? printerOptions = null,
-        bool includeCustomAttributes = true)
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
+        if (!Enum.IsDefined(attributeMode))
+            throw new ArgumentOutOfRangeException(nameof(attributeMode));
         var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
             AssemblyResolutionProvenance.Local("StartAssembly"));
@@ -299,7 +319,7 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions,
-            includeCustomAttributes);
+            attributeMode);
     }
 
     /// <summary>
@@ -307,18 +327,17 @@ public static class MemberBodyProducer
     /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
     /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
     /// caller needs identity- or stream-backed resolution.
-    /// Set <paramref name="includeCustomAttributes"/> to <see langword="false"/>
-    /// to omit custom attributes and their attribute-only namespace imports.
+    /// <paramref name="attributeMode"/> defaults to the shipped output.
     /// </summary>
     public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(
         ApiType type,
         string dllPath,
         string? pdbPath,
         Pipeline.MetadataContext? context = null,
-        bool includeCustomAttributes = true)
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return ProduceMembers(type, dllPath, pdbPath, resolver, context, includeCustomAttributes);
+        return ProduceMembers(type, dllPath, pdbPath, resolver, context, attributeMode);
     }
 
     /// <summary>
@@ -332,8 +351,8 @@ public static class MemberBodyProducer
     /// The returned map is keyed by the same <see cref="ApiMember"/> instances in
     /// <see cref="ApiType.Members"/> (reference identity). Members that produce no
     /// listing output are mapped to <see cref="MemberBodyProductionStatus.Absent"/>.
-    /// <paramref name="includeCustomAttributes"/> defaults to
-    /// <see langword="true"/>.
+    /// <paramref name="attributeMode"/> defaults to
+    /// <see cref="MemberRenderAttributeMode.All"/>.
     /// </summary>
     public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(
         ApiType type,
@@ -341,9 +360,11 @@ public static class MemberBodyProducer
         string? pdbPath,
         IAssemblyReferenceResolver resolver,
         Pipeline.MetadataContext? context = null,
-        bool includeCustomAttributes = true)
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         ArgumentNullException.ThrowIfNull(type);
+        if (!Enum.IsDefined(attributeMode))
+            throw new ArgumentOutOfRangeException(nameof(attributeMode));
         var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
             AssemblyResolutionProvenance.Local("StartAssembly"));
@@ -356,7 +377,7 @@ public static class MemberBodyProducer
                 resolver,
                 ctx),
             context,
-            includeCustomAttributes);
+            attributeMode);
     }
 
     static ResolvedTypeDefinition? ResolveDefinition(
@@ -512,7 +533,7 @@ public static class MemberBodyProducer
         Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions,
-        bool includeCustomAttributes)
+        MemberRenderAttributeMode attributeMode)
     {
         if (type.Kind is "delegate")
             return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
@@ -557,7 +578,7 @@ public static class MemberBodyProducer
                     ref any,
                     only: member,
                     printerOptions: printerOptions,
-                    includeCustomAttributes: includeCustomAttributes);
+                    attributeMode: attributeMode);
 
                 if (!any)
                     return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
@@ -602,7 +623,7 @@ public static class MemberBodyProducer
         Func<ResolvedTypeDefinition?> locateType,
         Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
-        bool includeCustomAttributes)
+        MemberRenderAttributeMode attributeMode)
     {
         var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
         if (type.Kind is "delegate")
@@ -646,7 +667,7 @@ public static class MemberBodyProducer
                         bodyNamespaces,
                         ref any,
                         only: member,
-                        includeCustomAttributes: includeCustomAttributes);
+                        attributeMode: attributeMode);
 
                     if (!any)
                     {
@@ -706,10 +727,12 @@ public static class MemberBodyProducer
     }
 
     static CSharpFormatter CreateDeclarationFormatter(
-        bool terminateMemberDeclaration = false)
+        bool terminateMemberDeclaration = false,
+        bool includeSignatureAttributes = true)
         => new(new CSharpFormatOptions
         {
             IncludeCustomAttributes = false,
+            IncludeSignatureAttributes = includeSignatureAttributes,
             IncludeObsoleteAttribute = false,
             OmitInterfaceMemberModifiers = true,
             TerminateMemberDeclaration = terminateMemberDeclaration
@@ -869,7 +892,8 @@ public static class MemberBodyProducer
         StringBuilder sb, ApiType type, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, UnionDeclarationInfo? union,
         SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null,
-        Pipeline.PrinterOptions? printerOptions = null, bool includeCustomAttributes = true)
+        Pipeline.PrinterOptions? printerOptions = null,
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         // Per-name running overload index — the same positional pairing the
         // member command uses for Name:N — used only when a member carries no
@@ -939,13 +963,21 @@ public static class MemberBodyProducer
                             member.Name,
                             index,
                             bodyPublicOnly);
-                    if (includeCustomAttributes)
+                    if (attributeMode == MemberRenderAttributeMode.All)
                     {
                         var attributes = memberHandle is { } attrHandle
                             ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
                             : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
                         foreach (var attribute in attributes)
                             sb.AppendLf($"    [{attribute}]");
+                    }
+                    else if (memberHandle is { } requiredAttributeHandle
+                        && AttributeReader.HasAttribute(
+                            reader,
+                            reader.GetMethodDefinition(requiredAttributeHandle).GetCustomAttributes(),
+                            KnownAttributeNames.SkipLocalsInitAttribute))
+                    {
+                        sb.AppendLf("    [global::System.Runtime.CompilerServices.SkipLocalsInit]");
                     }
 
                     string? constructorChain = null;
@@ -1006,9 +1038,12 @@ public static class MemberBodyProducer
                             // not silently re-inject the mandatory base call.
                             SuppressDestructorSyntax = member.IsFinalizer && !bodyIsDestructor
                         };
+                    var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
+                        ? DefaultDeclarationFormatter
+                        : ShellDeclarationFormatter;
                     var declaration = bodyShape is null
-                        ? DefaultDeclarationFormatter.FormatMember(type, member)
-                        : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
+                        ? declarationFormatter.FormatMember(type, member)
+                        : declarationFormatter.FormatMemberWithBody(type, member, bodyShape);
                     AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain, bodyIsSingleExpressionBody, DisableSignatureWrapping(printerOptions));
                     break;
                 }
@@ -1018,11 +1053,20 @@ public static class MemberBodyProducer
                     if (!first) sb.AppendLf();
                     first = false;
                     any = true;
-                    if (includeCustomAttributes)
+                    if (attributeMode == MemberRenderAttributeMode.All)
                         foreach (var attribute in AttributeReader.RenderPropertyAttributes(
                             reader, typeHandle, member.Name, bodyNamespaces))
                             sb.AppendLf($"    [{attribute}]");
-                    ComposeProperty(sb, pipelineSource, reader, typeHandle, type, member, bodyNamespaces, printerOptions);
+                    ComposeProperty(
+                        sb,
+                        pipelineSource,
+                        reader,
+                        typeHandle,
+                        type,
+                        member,
+                        bodyNamespaces,
+                        printerOptions,
+                        attributeMode);
                     break;
                 }
 
@@ -1031,11 +1075,13 @@ public static class MemberBodyProducer
                     if (!first) sb.AppendLf();
                     first = false;
                     any = true;
-                    if (includeCustomAttributes)
+                    if (attributeMode == MemberRenderAttributeMode.All)
                         foreach (var attribute in AttributeReader.RenderEventAttributes(
                             reader, typeHandle, member.Name, bodyNamespaces))
                             sb.AppendLf($"    [{attribute}]");
-                    string declaration = TerminatedDeclarationFormatter.FormatMember(type, member);
+                    string declaration = (attributeMode == MemberRenderAttributeMode.All
+                        ? TerminatedDeclarationFormatter
+                        : ShellTerminatedDeclarationFormatter).FormatMember(type, member);
                     sb.AppendLf($"    {declaration}");
                     break;
                 }
@@ -1302,10 +1348,14 @@ public static class MemberBodyProducer
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
-        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions)
+        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
+        MemberRenderAttributeMode attributeMode)
     {
         string typeFullName = type.FullName;
-        string signature = DefaultDeclarationFormatter.FormatMember(type, member);
+        var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
+            ? DefaultDeclarationFormatter
+            : ShellDeclarationFormatter;
+        string signature = declarationFormatter.FormatMember(type, member);
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
@@ -1327,7 +1377,7 @@ public static class MemberBodyProducer
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
-            signature = DefaultDeclarationFormatter.FormatMemberWithBody(
+            signature = declarationFormatter.FormatMemberWithBody(
                 type,
                 member,
                 new CSharpPropertyBody(null, null) { RequiresUnsafeModifier = true });

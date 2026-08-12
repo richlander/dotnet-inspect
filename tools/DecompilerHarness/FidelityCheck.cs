@@ -3244,18 +3244,22 @@ static class FidelityCheck
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
             if (hasTarget && target.WholeMember is { } wholeMember)
-                EmitPrerenderedMember(
-                    wholeMember,
-                    forcePublicAccessibility: reader.GetString(reader.GetMethodDefinition(mh).Name) == ".ctor",
-                    sb,
-                    pad + "    ");
-            else
-                EmitMethod(reader, typeHandle, mh,
-                    hasTarget ? target.Body : null,
-                    hasTarget ? target.Chain : null,
-                    hasTarget && target.RequiresAsync,
-                    accessibility,
-                    sb, pad + "    ");
+            {
+                string methodName = reader.GetString(reader.GetMethodDefinition(mh).Name);
+                if (methodName != ".ctor"
+                    || TryForcePublicConstructorAccessibility(wholeMember, out wholeMember))
+                {
+                    EmitPrerenderedMember(wholeMember, sb, pad + "    ");
+                    continue;
+                }
+            }
+
+            EmitMethod(reader, typeHandle, mh,
+                hasTarget ? target.Body : null,
+                hasTarget ? target.Chain : null,
+                hasTarget && target.RequiresAsync,
+                accessibility,
+                sb, pad + "    ");
         }
 
         // A reconstructed class whose base type has no parameterless constructor
@@ -3763,8 +3767,9 @@ static class FidelityCheck
     /// replacing the harness's self-spelled signature. Ordinary constructors are
     /// safe to migrate because the scaffold already applies the decompiler's
     /// separately captured lifted field initializers to the reconstructed fields.
-    /// Custom attributes are omitted because they do not affect contract-body IL
-    /// and the skeleton does not reproduce arbitrary attribute inheritance.
+    /// Non-essential custom attributes are omitted because the skeleton does not
+    /// reproduce arbitrary attribute inheritance; compilation-required attributes
+    /// such as <c>SkipLocalsInit</c> remain.
     /// A detected primary constructor remains type-header-owned and therefore
     /// declines the member render. Accessors still decline because the product
     /// renders their containing property. Broad evaluation renders the whole type
@@ -3790,6 +3795,12 @@ static class FidelityCheck
             : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
         if (result is null || !result.IsComplete || result.Text is null)
             return null;
+        if (entry.Member.Kind == "constructor"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not ConstructorDeclarationSyntax)
+        {
+            return null;
+        }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
     }
 
@@ -3805,13 +3816,13 @@ static class FidelityCheck
                     pdbPath: null,
                     context.Resolver,
                     context,
-                    includeCustomAttributes: false)
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired)
                 : MemberBodyProducer.ProduceMember(
                     type,
                     member,
                     source.Path,
                     pdbPath: null,
-                    includeCustomAttributes: false);
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired);
         }
         catch
         {
@@ -3843,12 +3854,12 @@ static class FidelityCheck
                     pdbPath: null,
                     context.Resolver,
                     context,
-                    includeCustomAttributes: false)
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired)
                 : MemberBodyProducer.ProduceMembers(
                     type,
                     source.Path,
                     pdbPath: null,
-                    includeCustomAttributes: false);
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired);
         }
         catch
         {
@@ -3867,13 +3878,9 @@ static class FidelityCheck
     /// </summary>
     static void EmitPrerenderedMember(
         string wholeMember,
-        bool forcePublicAccessibility,
         StringBuilder sb,
         string pad)
     {
-        if (forcePublicAccessibility)
-            wholeMember = ForcePublicConstructorAccessibility(wholeMember);
-
         int shift = pad.Length - 4;
         string prefix = shift > 0 ? new string(' ', shift) : "";
         foreach (var line in wholeMember.Split('\n'))
@@ -3885,12 +3892,15 @@ static class FidelityCheck
         }
     }
 
-    static string ForcePublicConstructorAccessibility(string wholeMember)
+    internal static bool TryForcePublicConstructorAccessibility(
+        string wholeMember,
+        out string normalized)
     {
-        if (SyntaxFactory.ParseMemberDeclaration(wholeMember) is not ConstructorDeclarationSyntax constructor
-            || constructor.ContainsDiagnostics)
+        normalized = wholeMember;
+        if (SyntaxFactory.ParseMemberDeclaration(wholeMember)
+            is not ConstructorDeclarationSyntax constructor)
         {
-            throw new InvalidOperationException("Product-rendered constructor is not valid constructor syntax.");
+            return false;
         }
 
         var accessibility = constructor.Modifiers
@@ -3900,7 +3910,7 @@ static class FidelityCheck
                 || token.IsKind(SyntaxKind.InternalKeyword))
             .ToArray();
         if (accessibility.Length == 0)
-            throw new InvalidOperationException("Product-rendered constructor has no accessibility modifier.");
+            return false;
 
         var publicToken = SyntaxFactory.Token(
             accessibility[0].LeadingTrivia,
@@ -3909,9 +3919,10 @@ static class FidelityCheck
         var remaining = constructor.Modifiers
             .Where(token => !accessibility.Contains(token))
             .ToArray();
-        return constructor
+        normalized = constructor
             .WithModifiers(SyntaxFactory.TokenList([publicToken, .. remaining]))
             .ToFullString();
+        return true;
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,

@@ -40,6 +40,7 @@ public sealed record CSharpFormatOptions
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
     public bool IncludeCustomAttributes { get; init; } = false;
+    public bool IncludeSignatureAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
@@ -531,6 +532,7 @@ public sealed class CSharpFormatter
             ForceAsync = options.ForceAsync,
             ForceUnsafe = options.ForceUnsafe,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
+            IncludeSignatureAttributes = options.IncludeSignatureAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,
             OmitInterfaceMemberModifiers = options.OmitInterfaceMemberModifiers,
             OmitPropertyAccessors = options.OmitPropertyAccessors

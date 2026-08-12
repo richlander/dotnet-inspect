@@ -191,6 +191,49 @@ public sealed class CSharpFormatterTests
             CSharpFormatter.FormatParameterList(parameters));
     }
 
+    [Fact]
+    public void CanOmitParameterAndReturnAttributesFromMemberUnits()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Create",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Create",
+                ReturnType = "Widget",
+                ReturnAttributes = ["System.Diagnostics.CodeAnalysis.NotNull"],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Runtime.InteropServices.Optional"],
+                        Type = "int",
+                        Name = "value"
+                    }
+                ]
+            }
+        };
+
+        var withAttributes = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+        }).FormatMemberUnit(type, member);
+        var withoutAttributes = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            IncludeSignatureAttributes = false,
+        }).FormatMemberUnit(type, member);
+
+        Assert.Contains("[return: System.Diagnostics.CodeAnalysis.NotNull]", withAttributes.Text);
+        Assert.Contains("[Optional]", withAttributes.Text);
+        Assert.DoesNotContain("CodeAnalysis.NotNull", withoutAttributes.Text);
+        Assert.DoesNotContain("Optional", withoutAttributes.Text);
+        Assert.Contains("System.Runtime.InteropServices", withAttributes.Usings);
+        Assert.DoesNotContain("System.Runtime.InteropServices", withoutAttributes.Usings);
+    }
+
     [Theory]
     [InlineData("await")]
     [InlineData("file")]
