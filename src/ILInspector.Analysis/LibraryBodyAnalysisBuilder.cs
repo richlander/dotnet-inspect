@@ -2244,6 +2244,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         MethodDefinition methodDefinition,
         MemberRef callee)
     {
+        var scope = new GenericScope(
+            GenericParameterNames(
+                reader,
+                declaringDefinition.GetGenericParameters()),
+            GenericParameterNames(
+                reader,
+                methodDefinition.GetGenericParameters()));
         if (!SignatureBlobGuard.IsSafeToDecode(
                 reader,
                 methodDefinition.Signature,
@@ -2252,13 +2259,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return null;
         }
 
-        var scope = new GenericScope(
-            GenericParameterNames(
-                reader,
-                declaringDefinition.GetGenericParameters()),
-            GenericParameterNames(
-                reader,
-                methodDefinition.GetGenericParameters()));
         var signature = methodDefinition.DecodeSignature(
             TypeRefDecoder.Instance,
             scope);
