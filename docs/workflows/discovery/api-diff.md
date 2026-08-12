@@ -21,6 +21,15 @@ export DOTNET_INSPECT_ISOLATED=api-diff
 dotnet-inspect cache clear
 ```
 
+Build the repository's deterministic implementation-diff pair:
+
+```bash
+dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj \
+  -c Release --nologo --verbosity quiet
+dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj \
+  -c Release --nologo --verbosity quiet
+```
+
 ## 1. Full API diff between versions
 
 > Goal: See all changes between two versions of a package.
@@ -37,7 +46,7 @@ dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 -v:q
 
 ```expect
 # API Diff: System.Text.Json
-Versions: **8.0.0** -> **10.0.0**
+| Versions | **8.0.0** → **10.0.0** |
 ## Breaking Changes
 ## Additive Changes
 ```
@@ -116,23 +125,42 @@ was added
 > Goal: See changes for one member only, using the same selectors as `member`.
 
 ```bash
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.0 -t JsonSerializer -m Serialize<TValue>:1 -v:q
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 \
+  -t JsonConverterAttribute -m 'ConverterType' -v:q
 ```
 
 ```expect
-Serialize
+JsonConverterAttribute
+ConverterType
+signature changed
 ```
 
 Use a type-qualified selector when there is no `-t` context:
 
 ```bash
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.0 -m JsonSerializer.Serialize<TValue>:1 -v:q
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 \
+  -m 'JsonConverterAttribute.ConverterType' -v:q
+```
+
+```expect
+# API Diff: System.Text.Json
+JsonConverterAttribute
+ConverterType
+signature changed
 ```
 
 Member filters also target body-signal diffs:
 
 ```bash
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" -m MyType.HotPath --changed
+dotnet-inspect diff \
+  --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
+  -S "Analysis Diff" \
+  -m 'DiffFixtureSample.DiffSample.RegressesAllocInLoop' --changed
+```
+
+```expect
+# Analysis Diff: DiffFixtureSample
+1 regression
 ```
 
 ## 6. Compare implementation evidence
@@ -143,15 +171,26 @@ Select the explicit `Implementation Diff` section. Rows are grouped by member
 identity and identify the producer in the `Mechanism` column:
 
 ```bash
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -t MyType -m HotPath
+dotnet-inspect diff \
+  --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
+  -S "Implementation Diff" \
+  -t DiffFixtureSample.DiffSample -m RegressesAllocInLoop -n 30
 ```
 
-The same section works for package and platform ranges. Use `--table`, `--tsv`,
-or `--jsonl` for columnar output:
+```expect
+# Implementation Diff: DiffFixtureSample
+| Member | Mechanism | Difference | Change | Evidence |
+RegressesAllocInLoop
+```
 
-```bash
+The same section works for package and platform ranges. The following is a
+command shape, not an executable fixture because `Foo` is a placeholder:
+
+```text
 dotnet-inspect diff --package Foo@1.0.0..2.0.0 -S "Implementation Diff" --jsonl
 ```
+
+Use `--table`, `--tsv`, or `--jsonl` for columnar output.
 
 This is implementation evidence, not an API compatibility classification or a
 semantic-equivalence proof. Omit `-S "Implementation Diff"` to retain the
@@ -186,11 +225,38 @@ only the supplied pair; it does not traverse the version range. Use
 Select an implementation producer to inspect the exact C# line or IL operation
 census for one method:
 
+### 7a. C# line transitions
+
 ```bash
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
-  --type Foo.Parser --member Parse:1 --finding csharp.line
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
-  --type Foo.Parser --member Parse:1 --finding il.op
+dotnet-inspect diff \
+  --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
+  --type DiffFixtureSample.DiffSample --member ConstantValue \
+  --finding csharp.line
+```
+
+```expect
+PairFinding.Added
+PairFinding.Removed
+csharp.line
+return 1;
+return 2;
+```
+
+### 7b. IL operation transitions
+
+```bash
+dotnet-inspect diff \
+  --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
+  --type DiffFixtureSample.DiffSample --member ConstantValue \
+  --finding il.op
+```
+
+```expect
+PairFinding.Added
+PairFinding.Removed
+il.op
+ldc.i4 1
+ldc.i4 2
 ```
 
 These lenses preserve complete, absent, and failed inspection outcomes.
@@ -231,9 +297,11 @@ dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table | head -5
 ```
 
 ```expect
-CHANGE
-TYPE
-DETAIL
+Field
+Value
+Change
+Type
+Detail
 ```
 
 ### 9b. Without header
@@ -247,7 +315,7 @@ additive
 ```
 
 ```expect-not
-CHANGE
+Change
 ```
 
 ## 10. Large migration diff (beta to stable)
@@ -259,14 +327,15 @@ What broke between System.CommandLine beta and the stable release?
 ```
 
 ```bash
-dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --breaking -v:q -n 20
+dotnet-inspect diff \
+  System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --breaking -v:q
 ```
 
 ```expect
 # API Diff: System.CommandLine
 ## Breaking Changes
-was removed
-signature changed
+Summary:
+breaking
 ```
 
 ```query
@@ -285,7 +354,7 @@ dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15
 
 ```expect
 # API Diff: System.Text.Json
-Versions: **8.0.0** -> **10.0.0**
+| Versions | **8.0.0** → **10.0.0** |
 ```
 
 ### 11b. Diff against preview SDK
@@ -300,5 +369,5 @@ dotnet-inspect diff --platform System.Text.Json@8.0.0..11.0.0 -v:q -n 15
 
 ```expect
 # API Diff: System.Text.Json
-Versions: **8.0.0** -> **11.0.0**
+| Versions | **8.0.0** → **11.0.0** |
 ```

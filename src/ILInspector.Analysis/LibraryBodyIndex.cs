@@ -691,6 +691,31 @@ public sealed class LibraryBodyIndex
     /// </summary>
     MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
 
+    readonly record struct LocalCalleeKey(
+        int DefinitionToken,
+        GraphNodeIdentity? StructuralIdentity);
+
+    MethodIdentity? DeclaredMethod(int metadataToken)
+    {
+        // The builder merges declarations in metadata order, so token lookup
+        // needs no retained per-index cache.
+        int low = 0;
+        int high = DeclaredMethods.Length - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            MethodIdentity candidate = DeclaredMethods[middle];
+            if (candidate.MetadataToken == metadataToken)
+                return candidate;
+            if (candidate.MetadataToken < metadataToken)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Distinct callers per callee definition token, over the whole assembly.
     ///
@@ -1014,13 +1039,18 @@ public sealed class LibraryBodyIndex
         var callsByCaller = GetDirectCallsByCaller();
 
         var methodMap = MethodMap;
+        var diagnosticsByToken = Diagnostics
+            .GroupBy(diagnostic => diagnostic.MethodToken)
+            .ToDictionary(group => group.Key, group => group.First());
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
         var expanded = new HashSet<int>();
 
         int ResolveCallee(DirectCall call)
-            => methodMap.Resolve(call);
+            => DeclaredMethod(call.CalleeDefinitionToken)
+                    ?.MetadataToken
+                ?? methodMap.Resolve(call);
 
         // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
         // members depend on this one"), and the reverse graph draws one edge per distinct
@@ -1028,13 +1058,47 @@ public sealed class LibraryBodyIndex
         // index because it is a whole-graph quantity that every request would otherwise rebuild.
         var incomingCounts = DistinctCallersByCallee();
 
-        CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth, bool inLoop = false)
+        CallTreeNode Build(
+            MemberRef member,
+            CallKind? kind,
+            int token,
+            int depth,
+            bool inLoop = false,
+            bool hasVirtualDispatchOccurrence = false)
         {
+            MethodIdentity? definition =
+                token == 0 ? null : DeclaredMethod(token);
             var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
+            diagnosticsByToken.TryGetValue(token, out AnalysisDiagnostic? diagnostic);
+            bool hasUnresolvedDispatch =
+                hasVirtualDispatchOccurrence
+                && definition?.IsVirtualDispatchOpen == true;
+
+            CallTreeNode Node(
+                CallTreeStatus status,
+                ImmutableArray<CallTreeNode> children,
+                CallTreePerf perf) =>
+                new(member, kind, status, children, perf)
+                {
+                    Diagnostic = diagnostic,
+                    HasUnresolvedDispatch =
+                        hasUnresolvedDispatch,
+                };
+
             if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
             {
-                var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+                var leafStatus = token == 0 && depth > 0
+                    ? CallTreeStatus.External
+                    : diagnostic is not null
+                        ? CallTreeStatus.AnalysisIncomplete
+                        : definition is not null
+                            && !methodMap.ContainsToken(token)
+                            ? CallTreeStatus.Bodiless
+                            : CallTreeStatus.Leaf;
+                return Node(
+                    leafStatus,
+                    [],
+                    new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
             }
 
             // True outbound degree (call sites), independent of how far the bounded
@@ -1043,14 +1107,49 @@ public sealed class LibraryBodyIndex
             // fan-out instead of reading like leaves.
             var fanout = edges.Length;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+            {
+                return Node(
+                    CallTreeStatus.DepthLimited,
+                    [],
+                    new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+            }
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+            {
+                return Node(
+                    CallTreeStatus.AlreadyShown,
+                    [],
+                    new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+            }
 
+            var collapsedEdges = edges
+                .Select(edge =>
+                    (
+                        Edge: edge,
+                        Token: ResolveCallee(edge)))
+                .GroupBy(item =>
+                    item.Token != 0
+                        ? new LocalCalleeKey(
+                            item.Token,
+                            null)
+                        : new LocalCalleeKey(
+                            0,
+                            GraphNodeIdentity.FromMember(
+                                item.Edge.Callee)))
+                .Select(group =>
+                    (
+                        Item: group.FirstOrDefault(
+                            item => item.Edge.InLoop,
+                            group.First()),
+                        HasVirtualDispatch:
+                            group.Any(item =>
+                                item.Edge.Kind
+                                    is CallKind.CallVirtual
+                                        or CallKind.LoadVirtualFunction)))
+                .ToImmutableArray();
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
-            foreach (var edge in edges)
+            foreach (var edgeGroup in collapsedEdges)
             {
                 if (created >= budget)
                 {
@@ -1058,15 +1157,28 @@ public sealed class LibraryBodyIndex
                     break;
                 }
                 created++;
-                children.Add(Build(edge.Callee, edge.Kind, ResolveCallee(edge), depth + 1, edge.InLoop));
+                DirectCall edge = edgeGroup.Item.Edge;
+                children.Add(
+                    Build(
+                        edge.Callee,
+                        edge.Kind,
+                        edgeGroup.Item.Token,
+                        depth + 1,
+                        edge.InLoop,
+                        edgeGroup.HasVirtualDispatch));
             }
 
             var status = truncated
                 ? CallTreeStatus.Truncated
-                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
+                : diagnostic is not null
+                    ? CallTreeStatus.AnalysisIncomplete
+                    : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
             var fanin = incomingCounts.TryGetValue(token, out var count) ? count : 0;
-            return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig));
+            return Node(
+                status,
+                children.ToImmutable(),
+                new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig));
         }
 
         return Build(rootMember, null, rootMethodToken, 0);

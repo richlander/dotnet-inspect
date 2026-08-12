@@ -22,17 +22,18 @@ dotnet-inspect -v:n
 ```
 
 ```expect
-├─ cache
-├─ depends
-├─ diff
-├─ extensions
-├─ find
-├─ implements
-├─ library
-├─ member
-├─ package
-├─ source
-└─ type
+cache  Manage the dotnet-inspect cache
+depends  Walk dependency graphs upward
+diff  Compare API surfaces
+extensions  Find extension methods for a type
+find  Search for types across packages and libraries
+implements  Find types implementing an interface
+library  Inspect a .NET library file
+member  Inspect type members
+package  Inspect a NuGet package
+project  Inspect restored project package references
+timeline  Correlate API or member-body Findings
+type  Discover types in a package or library
 ```
 
 ## 2. Deep view with descriptions
@@ -44,11 +45,11 @@ dotnet-inspect -v:d
 ```
 
 ```expect
-├─ type
-│  ├─ <args>
-│  ├─ --package
-│  ├─ --platform
-│  ├─ -v
+type  Discover types in a package or library
+<args>
+--package
+--platform
+-v <v>
 ```
 
 ## 3. Discover hidden commands
@@ -60,5 +61,5 @@ dotnet-inspect -v:n
 ```
 
 ```expect
-├─ router
+router  Auto-route bare input to a real command
 ```
