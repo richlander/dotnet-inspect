@@ -117,10 +117,10 @@ public sealed class LayeringTests
                 .Select(File.ReadAllText));
         string qualifiedIndexType =
             $@"(?:global\s*::\s*)?"
-            + $@"(?:@?\w+\s*\.\s*)*{nameof(LibraryBodyIndex)}";
+            + $@"(?:@?\w+\s*\.\s*)*@?{nameof(LibraryBodyIndex)}";
         string directIndexAccess =
             $@"\b{qualifiedIndexType}\s*\.\s*"
-            + $@"{nameof(LibraryBodyIndex.Open)}\w*\b";
+            + $@"@?{nameof(LibraryBodyIndex.Open)}\w*\b";
         string obscuredIndexImport =
             $@"\b(?:global\s+)?using\s+"
             + $@"(?:@?\w+\s*=\s*|static\s+)"
@@ -142,6 +142,9 @@ public sealed class LayeringTests
             $"global :: ILInspector . Analysis . {nameof(LibraryBodyIndex)} . "
                 + $"{nameof(LibraryBodyIndex.Open)}(path)");
         Assert.Matches(
+            directIndexAccess,
+            $"{nameof(LibraryBodyIndex)}.@{nameof(LibraryBodyIndex.Open)}(path)");
+        Assert.Matches(
             obscuredIndexImport,
             $"using BodyIndex = ILInspector.Analysis."
                 + $"{nameof(LibraryBodyIndex)};");
@@ -149,6 +152,10 @@ public sealed class LayeringTests
             obscuredIndexImport,
             $"using @BodyIndex = ILInspector . Analysis . "
                 + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredIndexImport,
+            $"using BodyIndex = ILInspector.Analysis."
+                + $"@{nameof(LibraryBodyIndex)};");
         Assert.Matches(
             obscuredIndexImport,
             $"global using static ILInspector.Analysis."
@@ -165,6 +172,10 @@ public sealed class LayeringTests
             obscuredGlobalIndexImport,
             $"global using static ILInspector . Analysis . "
                 + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredGlobalIndexImport,
+            $"global using static ILInspector.Analysis."
+                + $"@{nameof(LibraryBodyIndex)};");
         Assert.DoesNotMatch(directIndexAccess, source);
         Assert.DoesNotMatch(obscuredIndexImport, source);
         Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
