@@ -30,6 +30,7 @@ public sealed class PackageDependencyGroupsQueryTests
         Assert.Equal(PackageDependencyGroupSelectionStatus.Selected, result.SelectionStatus);
         Assert.Equal("netstandard2.0", result.RequestedTargetFramework);
         Assert.Equal(".NETStandard2.0", result.SelectedTargetFramework);
+        Assert.Equal(1, result.SelectedGroupIndex);
         Assert.Equal(
             ["net8.0", ".NETStandard2.0"],
             result.Groups.Select(group => group.TargetFramework));
@@ -109,6 +110,7 @@ public sealed class PackageDependencyGroupsQueryTests
             result.Groups.SelectMany(group =>
                 group.Dependencies.Select(dependency => dependency.Id)));
         Assert.Equal(3, result.Groups.Length);
+        Assert.Equal(0, result.SelectedGroupIndex);
     }
 
     [Fact]
@@ -133,6 +135,7 @@ public sealed class PackageDependencyGroupsQueryTests
             result.SelectionStatus);
         Assert.Equal("net9.0", result.RequestedTargetFramework);
         Assert.Null(result.SelectedTargetFramework);
+        Assert.Null(result.SelectedGroupIndex);
         Assert.Single(result.Groups);
     }
 

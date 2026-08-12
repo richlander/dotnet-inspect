@@ -28,6 +28,7 @@ public sealed record PackageDependencyGroups(
     ImmutableArray<DeclaredPackageDependencyGroup> Groups,
     string? RequestedTargetFramework,
     string? SelectedTargetFramework,
+    int? SelectedGroupIndex,
     PackageDependencyGroupSelectionStatus SelectionStatus);
 
 /// <summary>The typed outcome of projecting declared dependency groups from package content.</summary>
@@ -129,6 +130,14 @@ public static class PackageDependencyGroupsQuery
                     mutableGroups,
                     requested,
                     allowCompatibleFallbackForRequestedTfm: false);
+            int? selectedGroupIndex = selection.Group is null
+                ? null
+                : mutableGroups?.IndexOf(selection.Group);
+            if (selection.Group is not null && selectedGroupIndex is not >= 0)
+            {
+                throw new InvalidOperationException(
+                    "The selected dependency group does not belong to the manifest.");
+            }
 
             return new PackageDependencyGroupsResult.Available(
                 new PackageDependencyGroups(
@@ -148,6 +157,7 @@ public static class PackageDependencyGroupsQuery
                         ],
                     requested,
                     selection.Group?.TargetFramework,
+                    selectedGroupIndex,
                     selection.Status switch
                     {
                         DependencyResolutionService.DependencyGroupSelectionStatus.Selected =>

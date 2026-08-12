@@ -127,7 +127,7 @@ const state = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
-  dependenciesFramework: "",
+  dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
   workspaceDependencyLoads: new Set(),
@@ -1567,10 +1567,10 @@ function renderPackageDependencies() {
     return `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
   }
 
-  const selectedTfm = resolveDependenciesFramework(groups);
+  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   const orderedGroups = groups;
   const selectorChips = orderedGroups
-    .map(group => `<button class="type-chip ${group.framework === selectedTfm ? "active" : ""}" data-dep-framework="${escapeHtml(group.framework)}">${escapeHtml(group.framework)}</button>`)
+    .map(group => `<button class="type-chip ${group.index === selectedGroupIndex ? "active" : ""}" data-dep-group="${group.index}">${escapeHtml(group.framework)}</button>`)
     .join("");
   const selector = `
     <section class="document-section">
@@ -1578,7 +1578,7 @@ function renderPackageDependencies() {
       <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
 
-  const depList = dependencyListSectionHtml(groups, selectedTfm);
+  const depList = dependencyListSectionHtml(groups, selectedGroupIndex);
 
   const graphSection = `
     <section class="document-section">
@@ -1606,7 +1606,7 @@ function assemblyReferencesSectionHtml(data) {
       <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)} · ${references.length} direct reference${references.length === 1 ? "" : "s"}</span></div>
       ${references.length
         ? `<ul class="dep-list">${references.map(reference =>
-            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(reference.version)}</code></li>`).join("")}</ul>`
+            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(`${reference.version} · ${reference.culture || "neutral"} · ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`).join("")}</ul>`
         : `<div class="empty-list">This assembly declares no direct AssemblyRef rows.</div>`}
     </section>`;
 }
@@ -1614,8 +1614,8 @@ function assemblyReferencesSectionHtml(data) {
 // The NuGet dependency list for the selected TFM. Extracted so a framework switch can
 // replace just this section in place instead of re-rendering the whole page (which would
 // reset the dependency graph container to its loader and flash the diagram).
-function dependencyListSectionHtml(groups, selectedTfm) {
-  const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
+function dependencyListSectionHtml(groups, selectedGroupIndex) {
+  const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
   const deps = group.dependencies || [];
   const openIds = new Set(state.packages.map(item => item.id.toLowerCase()));
   return `
@@ -1636,14 +1636,16 @@ function dependencyListSectionHtml(groups, selectedTfm) {
 // Switch the dependency lens to a different target framework without a full page render:
 // toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
-function patchDependenciesFramework() {
+function patchDependenciesGroup() {
   const groups = state.packageDependencies?.dependencyGroups || [];
   const listSection = document.querySelector("#dep-list-section");
   if (!groups.length || !listSection) { render(); return; }
-  const selectedTfm = resolveDependenciesFramework(groups);
-  document.querySelectorAll("#dep-tfm-chips [data-dep-framework]").forEach(button =>
-    button.classList.toggle("active", button.dataset.depFramework === selectedTfm));
-  listSection.outerHTML = dependencyListSectionHtml(groups, selectedTfm);
+  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
+  document.querySelectorAll("#dep-tfm-chips [data-dep-group]").forEach(button =>
+    button.classList.toggle(
+      "active",
+      Number(button.dataset.depGroup) === selectedGroupIndex));
+  listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindDependencyListHandlers();
   renderDependencyGraph();
 }
@@ -1657,13 +1659,12 @@ function bindDependencyListHandlers() {
   });
 }
 
-function resolveDependenciesFramework(groups) {
-  const available = groups.map(group => group.framework);
-  if (state.dependenciesFramework && available.includes(state.dependenciesFramework)) {
-    return state.dependenciesFramework;
+function resolveDependenciesGroupIndex(groups) {
+  if (groups.some(group => group.index === state.dependenciesGroupIndex)) {
+    return state.dependenciesGroupIndex;
   }
   const active = groups.find(group => group.isActive);
-  return active ? active.framework : available[0];
+  return active?.index ?? groups[0]?.index ?? null;
 }
 
 async function loadPackageDependencies() {
@@ -3742,10 +3743,11 @@ function bindEvents() {
   document.querySelectorAll("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     switchPackageFramework(button.dataset.frameworkChip);
   }));
-  document.querySelectorAll("[data-dep-framework]").forEach(button => button.addEventListener("click", () => {
-    if (state.dependenciesFramework === button.dataset.depFramework) return;
-    state.dependenciesFramework = button.dataset.depFramework;
-    patchDependenciesFramework();
+  document.querySelectorAll("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
+    const index = Number(button.dataset.depGroup);
+    if (state.dependenciesGroupIndex === index) return;
+    state.dependenciesGroupIndex = index;
+    patchDependenciesGroup();
   }));
   bindDependencyListHandlers();
   document.querySelectorAll("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
@@ -6213,13 +6215,12 @@ function relatedTypeChip(name) {
   return `<span class="type-chip is-static" title="${escapeHtml(name)} — not in the loaded surface (in another assembly)">${short}</span>`;
 }
 
-// Projects the current package, its direct dependencies for the selected framework, and any
 // Projects the current package and its transitive dependency neighbourhood into a
 // call-graph-style Mermaid flowchart. Walks up to three levels of callees (from cached
 // dependency manifests) and three levels of callers (open packages that transitively
 // depend on the centre). Because only opened packages have cached manifests, the graph
 // grows as the user clicks around and opens more of the neighbourhood.
-function buildDependencyGraphMermaid(selectedTfm) {
+function buildDependencyGraphMermaid() {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
   const centerId = state.package.id;
@@ -6333,8 +6334,7 @@ async function renderDependencyGraph() {
   if (!container) return;
   const groups = state.packageDependencies?.dependencyGroups || [];
   if (!groups.length) return;
-  const selectedTfm = resolveDependenciesFramework(groups);
-  const built = buildDependencyGraphMermaid(selectedTfm);
+  const built = buildDependencyGraphMermaid();
   if (!built) {
     container.dataset.graphDef = "";
     delete container.dataset.graphPending;
@@ -6412,7 +6412,7 @@ function switchToPackageForDependencies(packageId) {
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
-  state.dependenciesFramework = "";
+  state.dependenciesGroupIndex = null;
   state.selectedTypeId = target.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -6438,7 +6438,7 @@ async function openDependencyPackage(packageId, versionRange) {
   if (!model) return;
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
-  state.dependenciesFramework = "";
+  state.dependenciesGroupIndex = null;
   render();
 }
 
@@ -7548,7 +7548,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     state.kindFilter = "";
     state.libraryScope = null;
     state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
-    state.dependenciesFramework = "";
+    state.dependenciesGroupIndex = null;
     const deep = options.deepLink;
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);

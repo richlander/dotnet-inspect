@@ -399,13 +399,23 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("net11.0", root.GetProperty("activeFramework").GetString());
         JsonElement group = Assert.Single(
             root.GetProperty("dependencyGroups").EnumerateArray());
+        Assert.Equal(0, group.GetProperty("index").GetInt32());
         Assert.True(group.GetProperty("isActive").GetBoolean());
         JsonElement dependency = Assert.Single(
             group.GetProperty("dependencies").EnumerateArray());
         Assert.Equal(
             "Browser.Dependency.Child",
             dependency.GetProperty("id").GetString());
-        Assert.NotEmpty(root.GetProperty("assemblyReferences").EnumerateArray());
+        JsonElement reference = Assert.Single(
+            root.GetProperty("assemblyReferences").EnumerateArray(),
+            reference =>
+                reference.GetProperty("name").GetString() == "System.Runtime");
+        Assert.Equal("11.0.0.0", reference.GetProperty("version").GetString());
+        Assert.True(reference.TryGetProperty("culture", out JsonElement culture));
+        Assert.True(
+            culture.ValueKind is JsonValueKind.Null or JsonValueKind.String);
+        Assert.False(string.IsNullOrWhiteSpace(
+            reference.GetProperty("publicKeyToken").GetString()));
         Assert.Equal(
             JsonValueKind.Null,
             root.GetProperty("dependencyGroupError").ValueKind);

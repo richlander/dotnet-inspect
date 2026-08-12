@@ -217,6 +217,7 @@ public sealed record BrowserPackageDependencies(
     string? AssemblyReferenceError);
 
 public sealed record BrowserPackageDependencyGroup(
+    int Index,
     string Framework,
     bool IsActive,
     BrowserPackageDependency[] Dependencies);
@@ -227,7 +228,9 @@ public sealed record BrowserPackageDependency(
 
 public sealed record BrowserAssemblyReference(
     string Name,
-    string Version);
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
 
 /// <summary>
 /// The annotated-source envelope: the product's portable <c>AnnotatedSourceDocument</c> serialized

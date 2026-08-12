@@ -403,15 +403,24 @@ public static partial class BrowserInspectionEngine
                 assemblyReferences =
                 [
                     .. available.Value
+                        .Select(reference => reference.ToReference())
                         .OrderBy(
                             reference => reference.Name,
                             StringComparer.OrdinalIgnoreCase)
                         .ThenBy(
                             reference => reference.Version,
-                            Comparer<Version?>.Default)
+                            StringComparer.Ordinal)
+                        .ThenBy(
+                            reference => reference.Culture,
+                            StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(
+                            reference => reference.PublicKeyToken,
+                            StringComparer.OrdinalIgnoreCase)
                         .Select(reference => new BrowserAssemblyReference(
                             reference.Name,
-                            reference.Version?.ToString() ?? "")),
+                            reference.Version,
+                            reference.Culture,
+                            reference.PublicKeyToken)),
                 ];
                 break;
             case AssemblyContextEntry<
@@ -440,12 +449,11 @@ public static partial class BrowserInspectionEngine
                 coordinate.Framework,
                 asset.AssemblyName,
                 [
-                    .. dependencies.Groups.Select(group =>
+                    .. dependencies.Groups.Select((group, index) =>
                         new BrowserPackageDependencyGroup(
+                            index,
                             group.TargetFramework,
-                            group.TargetFramework.Equals(
-                                dependencies.SelectedTargetFramework,
-                                StringComparison.OrdinalIgnoreCase),
+                            index == dependencies.SelectedGroupIndex,
                             [
                                 .. group.Dependencies.Select(dependency =>
                                     new BrowserPackageDependency(

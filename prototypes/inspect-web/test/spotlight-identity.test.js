@@ -535,8 +535,8 @@ test("dependency graph uses each cached package's product-selected group", () =>
   const data = {
     dependencyGroupError: "",
     dependencyGroups: [
-      { framework: "net8.0", isActive: false, dependencies: [] },
-      { framework: "net9.0", isActive: true, dependencies: [] }
+      { index: 0, framework: "any", isActive: false, dependencies: [] },
+      { index: 1, framework: "any", isActive: true, dependencies: [] }
     ]
   };
 
