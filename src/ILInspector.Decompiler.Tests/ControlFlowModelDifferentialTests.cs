@@ -22,14 +22,16 @@ public class ControlFlowModelDifferentialTests
     {
         public long Methods;
         public long Containers;
-        public long ExplicitEdges;
+        public long ResolvedExplicitEdges;
+        public long ExternalExplicitEdges;
         public long ImplicitFallthroughEdges;
         public long SwitchFallthroughEdges;
         public long SwitchSuccessorBlocks;
         public long TerminalLeaves;
         public long EndFinallyTerminators;
         public long EndFilterTerminators;
-        public long StructuredTransferBlocks;
+        public long DirectStructuredTransferBlocks;
+        public long NestedStructuredTransferBlocks;
         public long DifferenceCount;
         public readonly List<string> Differences = [];
     }
@@ -43,8 +45,9 @@ public class ControlFlowModelDifferentialTests
             $"Expected a large CoreLib corpus; inspected only {comparison.Methods} methods.");
         Assert.True(comparison.Containers > 10_000,
             $"Expected broad container coverage; inspected only {comparison.Containers} containers.");
-        Assert.True(comparison.ExplicitEdges > 10_000,
-            $"Expected broad explicit-edge coverage; compared only {comparison.ExplicitEdges} edges.");
+        Assert.True(comparison.ResolvedExplicitEdges > 10_000,
+            "Expected broad resolved explicit-edge coverage; compared only "
+                + $"{comparison.ResolvedExplicitEdges} edges.");
         Assert.True(comparison.ImplicitFallthroughEdges > 10_000,
             "Expected broad implicit-fallthrough coverage; compared only "
                 + $"{comparison.ImplicitFallthroughEdges} edges.");
@@ -57,20 +60,24 @@ public class ControlFlowModelDifferentialTests
             "The corpus did not exercise the terminal Leave divergence domain.");
         Assert.True(comparison.EndFinallyTerminators > 0,
             "The corpus did not exercise EndFinally terminators.");
-        Assert.True(comparison.StructuredTransferBlocks > 0,
-            "The corpus did not expose the structured-transfer boundary.");
+        Assert.True(comparison.DirectStructuredTransferBlocks > 0,
+            "The corpus did not expose direct structured-transfer terminators.");
+        Assert.True(comparison.NestedStructuredTransferBlocks > 0,
+            "The corpus did not expose conditional structured-transfer paths.");
         AssertNoDifferences(comparison);
 
         Console.WriteLine(
             $"FLOW-AGREEMENT methods={comparison.Methods} containers={comparison.Containers} "
-            + $"explicit-edges={comparison.ExplicitEdges} "
+            + $"resolved-explicit-edges={comparison.ResolvedExplicitEdges} "
+            + $"external-explicit-edges={comparison.ExternalExplicitEdges} "
             + $"implicit-fallthrough-edges={comparison.ImplicitFallthroughEdges} "
             + $"switch-fallthrough-edges={comparison.SwitchFallthroughEdges} "
             + $"switch-successor-blocks={comparison.SwitchSuccessorBlocks} "
             + $"terminal-leaves={comparison.TerminalLeaves} "
             + $"end-finally-terminators={comparison.EndFinallyTerminators} "
             + $"end-filter-terminators={comparison.EndFilterTerminators} "
-            + $"structured-transfer-blocks={comparison.StructuredTransferBlocks}");
+            + $"direct-structured-transfer-blocks={comparison.DirectStructuredTransferBlocks} "
+            + $"nested-structured-transfer-blocks={comparison.NestedStructuredTransferBlocks}");
     }
 
     [Fact]
@@ -89,6 +96,10 @@ public class ControlFlowModelDifferentialTests
         finalSwitch.Add(new SwitchBranch(new Constant(0, int32), [0x10]));
         CompareContainer([finalSwitch], "synthetic/final-switch", comparison);
 
+        var externalBranch = new Block(0x18);
+        externalBranch.Add(new Branch(0xDEAD));
+        CompareContainer([externalBranch], "synthetic/external-branch", comparison);
+
         var breakBlock = new Block(0x20);
         breakBlock.Add(new Break());
         var afterBreak = new Block(0x28);
@@ -101,20 +112,42 @@ public class ControlFlowModelDifferentialTests
         afterContinue.Add(new Return(null));
         CompareContainer([continueBlock, afterContinue], "synthetic/structured-continue", comparison);
 
+        var nonFinalBreak = new Block(0x40);
+        nonFinalBreak.Add(new Break());
+        nonFinalBreak.Add(new Return(null));
+        CompareContainer([nonFinalBreak], "synthetic/non-final-structured-break", comparison);
+
+        var conditionalBreakArm = new Block(0x48);
+        conditionalBreakArm.Add(new Break());
+        var conditionalBreak = new Block(0x50);
+        conditionalBreak.Add(new IfStatement(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            conditionalBreakArm,
+            elseArm: null));
+        var afterConditionalBreak = new Block(0x58);
+        afterConditionalBreak.Add(new Return(null));
+        Block[] conditionalBreakBlocks = [conditionalBreak, afterConditionalBreak];
+        CompareContainer(conditionalBreakBlocks, "synthetic/conditional-break", comparison);
+        AssertSwitchSuccessors(conditionalBreakBlocks, 0, [1]);
+
         var loopBody = new BlockContainer();
-        var ownedBreak = new Block(0x40);
+        var ownedBreak = new Block(0x60);
         ownedBreak.Add(new Break());
         loopBody.Add(ownedBreak);
-        var loopBlock = new Block(0x48);
+        var loopBlock = new Block(0x68);
         loopBlock.Add(new DoWhileLoop(
             loopBody,
             new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
-        var afterLoop = new Block(0x50);
+        var afterLoop = new Block(0x70);
         afterLoop.Add(new Return(null));
-        CompareContainer([loopBlock, afterLoop], "synthetic/owned-break", comparison);
+        Block[] loopBlocks = [loopBlock, afterLoop];
+        CompareContainer(loopBlocks, "synthetic/owned-break", comparison);
+        AssertSwitchSuccessors(loopBlocks, 0, [1]);
 
         Assert.Equal(1, comparison.EndFilterTerminators);
-        Assert.Equal(2, comparison.StructuredTransferBlocks);
+        Assert.Equal(1, comparison.ExternalExplicitEdges);
+        Assert.Equal(3, comparison.DirectStructuredTransferBlocks);
+        Assert.Equal(1, comparison.NestedStructuredTransferBlocks);
         AssertNoDifferences(comparison);
     }
 
@@ -166,7 +199,8 @@ public class ControlFlowModelDifferentialTests
             }
         }
 
-        comparison.ExplicitEdges += resolvedFactEdges.Count + externalFactEdges.Count;
+        comparison.ResolvedExplicitEdges += resolvedFactEdges.Count;
+        comparison.ExternalExplicitEdges += externalFactEdges.Count;
 
         foreach (var edge in resolvedFactEdges)
         {
@@ -203,16 +237,28 @@ public class ControlFlowModelDifferentialTests
             }
 
             bool hasStructuredTransfer = ContainsStructuredTransferLeavingBlock(blocks[from]);
-            if (hasStructuredTransfer)
+            bool hasDirectStructuredTransfer =
+                blocks[from].Children.Any(child => child is Break or Continue);
+            if (hasDirectStructuredTransfer)
             {
-                comparison.StructuredTransferBlocks++;
+                comparison.DirectStructuredTransferBlocks++;
                 if (switchModelsBlock)
                 {
                     AddDifference(comparison,
-                        $"{identity}: switch successor view accepts block {from}, whose structured "
-                            + "Break/Continue transfer leaves the block container");
+                        $"{identity}: switch successor view accepts a direct "
+                            + $"Break/Continue transfer in block {from}");
                 }
                 continue;
+            }
+            if (hasStructuredTransfer)
+            {
+                comparison.NestedStructuredTransferBlocks++;
+                if (!switchModelsBlock)
+                {
+                    AddDifference(comparison,
+                        $"{identity}: switch successor view declines block {from}, whose conditional "
+                            + "structured transfer retains an in-container fall-through");
+                }
             }
 
             foreach (int to in cfg[from].Successors.Distinct())
@@ -231,15 +277,18 @@ public class ControlFlowModelDifferentialTests
                             + "is absent from StructuringFlowFacts");
             }
 
-            bool expectsMethodExit = terminator is Return or Throw;
-            bool expectsRegionExit = terminator is Leave or EndFinally or EndFilter;
-            if (cfg[from].ExitsMethod != expectsMethodExit
-                || cfg[from].LeavesRegion != expectsRegionExit)
+            if (!hasStructuredTransfer)
             {
-                AddDifference(comparison,
-                    $"{identity}: Cfg.Build classification for block {from} "
-                        + $"exits={cfg[from].ExitsMethod}, leaves={cfg[from].LeavesRegion} "
-                        + $"disagrees with terminator {terminator?.GetType().Name ?? "<none>"}");
+                bool expectsMethodExit = terminator is Return or Throw;
+                bool expectsRegionExit = terminator is Leave or EndFinally or EndFilter;
+                if (cfg[from].ExitsMethod != expectsMethodExit
+                    || cfg[from].LeavesRegion != expectsRegionExit)
+                {
+                    AddDifference(comparison,
+                        $"{identity}: Cfg.Build classification for block {from} "
+                            + $"exits={cfg[from].ExitsMethod}, leaves={cfg[from].LeavesRegion} "
+                            + $"disagrees with terminator {terminator?.GetType().Name ?? "<none>"}");
+                }
             }
 
             if (from + 1 < blocks.Count)
@@ -357,6 +406,22 @@ public class ControlFlowModelDifferentialTests
                 "Structured transfers must be excluded before projecting fall-through."),
             _ => true,
         };
+
+    static void AssertSwitchSuccessors(
+        IReadOnlyList<Block> blocks,
+        int blockIndex,
+        IReadOnlyList<int> expected)
+    {
+        var offsetToIndex = blocks
+            .Select((block, index) => (block.StartOffset, index))
+            .ToDictionary(pair => pair.StartOffset, pair => pair.index);
+        Assert.True(SwitchRaisingPass.TrySuccessors(
+            blocks,
+            blockIndex,
+            offsetToIndex,
+            out var successors));
+        Assert.Equal(expected, successors);
+    }
 
     static void AssertNoDifferences(Comparison comparison)
         => Assert.True(comparison.DifferenceCount == 0,

@@ -1024,16 +1024,15 @@ public sealed class SwitchRaisingPass : IIrPass
 
     /// <summary>
     /// Successor block indices (including conditional/no-terminator fall-through),
-    /// or false for an unsupported section shape such as an escaping structured transfer.
+    /// or false for an unsupported section shape such as a direct structured transfer.
     /// </summary>
     internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
         succs = [];
         var block = blocks[idx];
-        if (ContainsStructuredTransferLeavingBlock(block))
-            return false;
         for (int i = 0; i < block.Children.Count - 1; i++)
-            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch
+                or Leave or EndFinally or EndFilter or Break or Continue)
                 return false;
 
         var last = block.Children.Count > 0 ? block.Children[^1] : null;
@@ -1053,42 +1052,13 @@ public sealed class SwitchRaisingPass : IIrPass
                 if (idx + 1 < blocks.Count)
                     succs.Add(idx + 1);
                 return true;
-            case SwitchBranch or Leave or EndFinally or EndFilter:
+            case SwitchBranch or Leave or EndFinally or EndFilter or Break or Continue:
                 return false;
             default:
                 if (idx + 1 < blocks.Count)
                     succs.Add(idx + 1);
                 return true;
         }
-    }
-
-    static bool ContainsStructuredTransferLeavingBlock(Block block)
-    {
-        foreach (var transfer in block.Descendants)
-        {
-            if (transfer is Break && !HasOwnerInsideBlock(transfer, block, breakCanTargetSwitch: true))
-                return true;
-            if (transfer is Continue && !HasOwnerInsideBlock(transfer, block, breakCanTargetSwitch: false))
-                return true;
-        }
-        return false;
-    }
-
-    static bool HasOwnerInsideBlock(IrNode transfer, Block block, bool breakCanTargetSwitch)
-    {
-        for (var ancestor = transfer.Parent; ancestor is not null; ancestor = ancestor.Parent)
-        {
-            if (ReferenceEquals(ancestor, block))
-                return false;
-            if (ancestor is Lambda or LocalFunctionStatement)
-                return true;
-            if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
-                || (breakCanTargetSwitch && ancestor is Switch))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     /// <summary>Grows the single-entry region rooted at <paramref name="head"/>: a block joins when all its predecessors are already inside. Exits are the targets that escape it.</summary>
