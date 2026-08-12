@@ -765,11 +765,15 @@ internal static class LibraryMetadataService
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
             if (selection is AssemblyBindingSelection.Unavailable)
             {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Unavailable;
                 logger.LogWarning(
                     "An assembly reference could not be resolved because a candidate was unavailable.");
             }
             else if (selection is AssemblyBindingSelection.Rejected)
             {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Rejected;
                 logger.LogWarning(
                     "An assembly reference could not be resolved because binding was rejected.");
             }

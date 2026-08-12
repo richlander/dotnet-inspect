@@ -53,7 +53,52 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void Select_CaseDistinctCandidatesAreMatchedBeforeDeduplication()
+    public void Select_UnreadableSiblingDoesNotFallThroughToTpa()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllText(
+                Path.Combine(root, "System.Runtime.dll"),
+                "not a managed assembly");
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            var selection = Assert.IsType<
+                AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(
+                                new AssemblyReferenceIdentity(
+                                    "System.Runtime",
+                                    Version: null,
+                                    Culture: null,
+                                    PublicKeyToken: null)),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                selection.Failure.Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate()
     {
         string root = Directory.CreateTempSubdirectory(
             "dotnet-inspect-assembly-deps-").FullName;
@@ -77,11 +122,10 @@ public class AssemblyDependencyResolverTests
                 return;
             }
 
-            byte[] rejectedKey = [1, 2, 3];
             byte[] selectedKey = [4, 5, 6];
-            File.WriteAllBytes(
+            File.WriteAllText(
                 candidates[0],
-                BuildAssembly("Dep", rejectedKey));
+                "not a managed assembly");
             File.WriteAllBytes(
                 candidates[1],
                 BuildAssembly("Dep", selectedKey));

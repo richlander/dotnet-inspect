@@ -228,7 +228,8 @@ public sealed class MetadataSource : IDisposable
 
         public SiblingAssemblyReferenceResolver(string path)
         {
-            _directory = System.IO.Path.GetDirectoryName(path);
+            _directory = System.IO.Path.GetDirectoryName(
+                System.IO.Path.GetFullPath(path));
             _candidates = new(
                 EnumerateCandidates,
                 LazyThreadSafetyMode.ExecutionAndPublication);

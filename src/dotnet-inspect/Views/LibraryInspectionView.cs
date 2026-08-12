@@ -979,9 +979,7 @@ public class LibraryInspectionView
         while (index < nodes.Count && nodes[index].Depth == currentDepth)
         {
             var node = nodes[index];
-            var label = !string.IsNullOrEmpty(node.Company)
-                ? $"{node.Name} {node.Version} [{node.Company}]"
-                : $"{node.Name} {node.Version}";
+            var label = ReferenceTreeText(node);
             label = LibraryViewText.Contain(label);
             index++;
 
@@ -993,6 +991,16 @@ public class LibraryInspectionView
 
             target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
+    }
+
+    internal static string ReferenceTreeText(AssemblyReferenceNode node)
+    {
+        string label = !string.IsNullOrEmpty(node.Company)
+                ? $"{node.Name} {node.Version} [{node.Company}]"
+                : $"{node.Name} {node.Version}";
+        return node.ResolutionFailure is { } failure
+            ? $"{label} ({failure.ToString().ToLowerInvariant()})"
+            : label;
     }
 }
 

@@ -6,6 +6,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -358,6 +359,15 @@ public class AssemblyReferenceTreeResolutionTests
 
             Assert.Null(platform.Path);
             Assert.Null(platform.ResolvedFrom);
+            Assert.Equal(
+                AssemblyReferenceResolutionFailure.Unavailable,
+                platform.ResolutionFailure);
+            Assert.Contains(
+                "(unavailable)",
+                Assert.Single(
+                    LibraryInspectionView.BuildNestedReferenceTree([platform]))
+                    .Text,
+                StringComparison.Ordinal);
         }
         finally
         {

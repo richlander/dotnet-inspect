@@ -77,6 +77,18 @@ public sealed class AssemblyDependencyResolver :
     IAssemblyReferenceResolver,
     IAssemblyBindingPolicy
 {
+    enum CandidateTier
+    {
+        Sibling,
+        Package,
+        TrustedPlatform,
+        SharedFramework,
+        DepsJson,
+        ProjectAssets,
+        Corpus,
+        InstalledPlatform,
+    }
+
     readonly AssemblyDependencyResolutionOptions _options;
     readonly ConcurrentDictionary<
         string,
@@ -232,6 +244,7 @@ public sealed class AssemblyDependencyResolver :
         var candidates =
             _allCandidates ??= CollectDependencies(deduplicate: false);
         bool candidateUnavailable = false;
+        CandidateTier? activeTier = null;
 
         foreach (var dependency in candidates)
         {
@@ -241,6 +254,17 @@ public sealed class AssemblyDependencyResolver :
             if (scope == AssemblyResolutionScope.Platform
                 && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
                 continue;
+
+            CandidateTier tier = TierFor(dependency.Provenance);
+            if (activeTier is { } previousTier
+                && tier != previousTier
+                && candidateUnavailable)
+            {
+                return new AssemblyResolutionAttempt(
+                    Assembly: null,
+                    CandidateUnavailable: true);
+            }
+            activeTier = tier;
 
             bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
                 && _options.AllowPlatformAssemblyVersionRollForward;
@@ -263,6 +287,13 @@ public sealed class AssemblyDependencyResolver :
             return new AssemblyResolutionAttempt(
                 selected,
                 CandidateUnavailable: false);
+        }
+
+        if (candidateUnavailable)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                CandidateUnavailable: true);
         }
 
         // The target may reference an older platform contract than the running
@@ -303,6 +334,32 @@ public sealed class AssemblyDependencyResolver :
             Assembly: null,
             candidateUnavailable);
     }
+
+    static CandidateTier TierFor(
+        AssemblyDependencyProvenance provenance) =>
+        provenance switch
+        {
+            AssemblyDependencyProvenance.SiblingAssembly =>
+                CandidateTier.Sibling,
+            AssemblyDependencyProvenance.PackageDependency =>
+                CandidateTier.Package,
+            AssemblyDependencyProvenance.TrustedPlatformAssembly =>
+                CandidateTier.TrustedPlatform,
+            AssemblyDependencyProvenance.SharedFramework =>
+                CandidateTier.SharedFramework,
+            AssemblyDependencyProvenance.DepsJsonAsset =>
+                CandidateTier.DepsJson,
+            AssemblyDependencyProvenance.ProjectAsset =>
+                CandidateTier.ProjectAssets,
+            AssemblyDependencyProvenance.CorpusAssembly =>
+                CandidateTier.Corpus,
+            AssemblyDependencyProvenance.InstalledPlatformAssembly =>
+                CandidateTier.InstalledPlatform,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(provenance),
+                provenance,
+                "Unknown assembly dependency provenance."),
+        };
 
     AssemblyBindingSelection SelectCore(
         AssemblyBindingRequest request)

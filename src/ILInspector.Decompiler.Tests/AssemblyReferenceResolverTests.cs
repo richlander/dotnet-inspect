@@ -8,6 +8,39 @@ namespace ILInspector.Decompiler.Tests;
 public class AssemblyReferenceResolverTests
 {
     [Fact]
+    public void SiblingResolver_BareOwnerPathUsesCurrentDirectory()
+    {
+        string source = typeof(AssemblyReferenceResolverTests).Assembly.Location;
+        string candidate = Path.Combine(
+            Environment.CurrentDirectory,
+            Path.GetFileName(source));
+        bool copied = !Path.GetFullPath(source).Equals(
+            Path.GetFullPath(candidate),
+            StringComparison.Ordinal);
+        try
+        {
+            if (copied)
+                File.Copy(source, candidate);
+
+            AssemblyReferenceIdentity identity = ReadIdentity(source);
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver("Owner.dll");
+
+            ResolvedAssemblyReference? result = resolver.Resolve(
+                identity,
+                AssemblyResolutionScope.Any);
+
+            Assert.NotNull(result);
+            Assert.Equal(Path.GetFullPath(candidate), result.Path);
+        }
+        finally
+        {
+            if (copied)
+                File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public void SiblingResolver_ReusesSelectedDescriptorWithoutReopeningPath()
     {
         string directory = Path.Combine(
