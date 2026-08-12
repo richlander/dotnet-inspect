@@ -1023,7 +1023,7 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     /// <summary>Successor block indices (including the conditional / no-terminator fall-through), or false for an unsupported section shape.</summary>
-    static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
+    internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
         succs = [];
         var block = blocks[idx];

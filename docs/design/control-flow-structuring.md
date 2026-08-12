@@ -367,6 +367,24 @@ copy of a predicate builds the shared layer. A new pass may carry a local helper
 only when the proof is genuinely pass-local; otherwise reviewers should ask for a
 substrate atom or a control-flow helper first.
 
+`ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOverCoreLib` gates the
+overlap between those models. It runs the real pipeline to the pre-switch
+boundary, compares `StructuringFlowFacts` explicit transfers with `Cfg.Build`,
+and compares switch raising's private successor view with `Cfg.Build` wherever
+switch raising accepts the block. The gate separately requires terminal and
+nested `Leave` coverage, pinning the intentional distinction: `Cfg.Build` marks
+a terminal `Leave` as a region exit with no successor, while structuring retains
+its target and clone owner.
+
+On the .NET 11 Preview 7 CoreLib, the gate covers 42,640 methods, 45,505
+containers, 48,559 explicit edges, 122,981 switch-modeled blocks, 113 terminal
+`Leave`s, and 106 nested `Leave`s with zero differences. That evidence makes
+`Cfg.Build` the owner of structural edge semantics. Switch raising's view has a
+narrower acceptance domain, not different edges, so it should consume
+`Cfg.Build` in a behavior-preserving follow-up. `StructuringFlowFacts` remains a
+separate region-aware projection because its label and clone-ownership facts are
+not executable edges.
+
 ### Review triggers and canaries
 
 Run a **Stepper Semantic Auditor** pass when a change:
