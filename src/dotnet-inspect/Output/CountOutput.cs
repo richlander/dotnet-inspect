@@ -121,6 +121,28 @@ public static class CountOutput
         string? outputPath = null)
         => WriteCountResult(Render(projection, orderedSections, format, noHeader), outputPath);
 
+    internal static bool TryWriteProjected<T>(
+        T value,
+        MarkoutSerializerContext context,
+        string section,
+        string[]? columns,
+        string[]? fields,
+        RowWindow? rows,
+        string? outputPath = null)
+        where T : class
+    {
+        var schema = context.GetSchemaInfo<T>()!.ToDocumentSchema();
+        if (!ProjectionDiagnostics.ValidateProjection(schema, section, fields, columns))
+            return false;
+
+        var writerOptions = OutputFormatter.CreateProjectedWriterOptions(columns, fields);
+        writerOptions.IncludeSections = [section];
+        writerOptions.RowWindow = RowWindow.ToMarkout(rows);
+        var projection = CountProjectionFormatter.Capture(value, context, writerOptions);
+        Write(projection, orderedSections: null, OutputFormat.Markdown, outputPath: outputPath);
+        return true;
+    }
+
     internal static string RenderSectionCounts(
         IReadOnlyDictionary<string, int> counts,
         IReadOnlyList<string> orderedSections,

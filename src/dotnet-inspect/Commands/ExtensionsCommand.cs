@@ -56,7 +56,8 @@ public class ExtensionsCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                WriteCount(results);
+                if (!WriteCount(targetType, results, options))
+                    return 1;
             }
             else if (options.JsonOutput)
             {
@@ -370,9 +371,22 @@ public class ExtensionsCommand
             ExtensionsCompactJsonContext.Default.ListExtensionMethodJsonResult, compact);
     }
 
-    private static void WriteCount(List<ExtensionMethodResult> results)
+    private static bool WriteCount(
+        string targetType,
+        List<ExtensionMethodResult> results,
+        ExtensionsOptions options)
     {
-        CountOutput.WriteCount(results.Count);
+        var view = ExtensionsOutputFormatter.BuildView(
+            targetType,
+            results,
+            options.Verbosity);
+        return CountOutput.TryWriteProjected(
+            view,
+            SearchViewContext.Default,
+            "Extensions",
+            options.Columns,
+            options.Fields,
+            options.Rows);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)

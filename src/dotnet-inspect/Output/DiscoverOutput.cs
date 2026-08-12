@@ -37,7 +37,12 @@ public static class DiscoverOutput
             var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
             if (projectedRows == null)
                 return 1;
-            return LensProjection.TryProject(projection, "-D/--discover", projectedRows.Count, out var projectionExitCode)
+            return LensProjection.TryProject(
+                    projection,
+                    "-D/--discover",
+                    projectedRows.Count,
+                    out var projectionExitCode,
+                    ["Name", "Kind"])
                 ? projectionExitCode
                 : 0;
         }
@@ -121,7 +126,12 @@ public static class DiscoverOutput
                 // zero. Returning here without projecting would drop the request.
                 if (LensProjection.IsRequested(projection))
                 {
-                    return LensProjection.TryProject(projection, "-D/--discover", 0, out var emptyProjectionExitCode)
+                    return LensProjection.TryProject(
+                            projection,
+                            "-D/--discover",
+                            0,
+                            out var emptyProjectionExitCode,
+                            ["Name", "Kind"])
                         ? emptyProjectionExitCode
                         : 0;
                 }

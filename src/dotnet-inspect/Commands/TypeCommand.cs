@@ -252,14 +252,14 @@ public static class TypeCommand
                     }
 
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
-                    bool tabularProjection = hasProjection
-                        && !effectiveOptions.JsonOutput
-                        && !effectiveOptions.Count
+                    bool validatesProjection = hasProjection
+                        && (!effectiveOptions.JsonOutput || effectiveOptions.Count)
                         && effectiveOptions is not TypeOptions { ShapeOutput: true };
+                    bool tabularProjection = validatesProjection && !effectiveOptions.Count;
 
                     // Pre-render: validate --columns/--fields names against the section schema
                     // (catches typos) when a specific section is selected, mirroring the package path.
-                    if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
+                    if (validatesProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
                         var projSchema = ApiCommand.GetTypeDocumentSchema(effectiveOptions);
                         if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))

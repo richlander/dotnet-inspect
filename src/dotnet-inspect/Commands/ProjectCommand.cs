@@ -344,18 +344,20 @@ public class ProjectCommand
         if (options.Print || options.Bare)
             return PrintSkillDocument(rows, options);
 
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
         if (options.Count)
-            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+        {
+            CountOutput.WriteCount(visibleRows.Count, options.OutputPath);
+            return 0;
+        }
 
-        var output = options.Count
-            ? rows.Count.ToString(CultureInfo.InvariantCulture) + '\n'
-            : options.JsonOutput
-                ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectSkillRowArray)
-                : options.Jsonl
-                    ? RenderSkillJsonl(rows)
-                    : options.Tabular
-                        ? RenderSkillTable(rows, options)
-                        : RenderSkillMarkdown(rows);
+        var output = options.JsonOutput
+            ? JsonSerializer.Serialize(visibleRows.ToArray(), ProjectCommandJsonContext.Default.ProjectSkillRowArray)
+            : options.Jsonl
+                ? RenderSkillJsonl(visibleRows)
+                : options.Tabular
+                    ? RenderSkillTable(visibleRows, options)
+                    : RenderSkillMarkdown(visibleRows);
 
         WriteOutput(output, options.OutputPath);
         return 0;

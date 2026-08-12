@@ -271,7 +271,12 @@ public class PackageCommand
                         // Materialized once: counting a lazy sequence and then re-enumerating it
                         // for the render is how a count starts to disagree with its payload.
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
-                        if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
+                        if (LensProjection.TryProject(
+                                options,
+                                "--versions",
+                                rangeRows.Count,
+                                out var rangeListingExit,
+                                ["Version", "Listing"]))
                             return rangeListingExit;
                         OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
                         return 0;
@@ -287,7 +292,12 @@ public class PackageCommand
                         .Take(options.Limit ?? int.MaxValue)
                         .Select(address => address.Version.ToNormalizedString())
                         .ToList();
-                    if (LensProjection.TryProject(options, "--versions", rangeVersions.Count, out var rangeProjectionExit))
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            rangeVersions.Count,
+                            out var rangeProjectionExit,
+                            ["Version"]))
                         return rangeProjectionExit;
                     OutputFormatter.WriteStringList(rangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
                     return 0;
@@ -328,7 +338,12 @@ public class PackageCommand
                             options.SourceOptions,
                             normalizedName)) != null)
                 {
-                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            1,
+                            out var cachedPinnedExit,
+                            ["Version", "Listing"]))
                         return cachedPinnedExit;
                     WriteSingleVersion(versionQueryPinned, options);
                     return 0;
@@ -353,7 +368,12 @@ public class PackageCommand
                 {
                     // Either spelling renders a single version row, so the projection answers 1
                     // and returns before the render path chooses between them.
-                    if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            1,
+                            out var knownPinnedExit,
+                            ["Version", "Listing"]))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
@@ -399,7 +419,12 @@ public class PackageCommand
                 }
 
                 // A single resolved version is a one-row payload, so --count reports 1.
-                if (LensProjection.TryProject(options, "--latest-version", 1, out var latestProjectionExit))
+                if (LensProjection.TryProject(
+                        options,
+                        "--latest-version",
+                        1,
+                        out var latestProjectionExit,
+                        ["Version", "Listing"]))
                     return latestProjectionExit;
                 if (options.IncludeUnlisted)
                 {
@@ -439,7 +464,8 @@ public class PackageCommand
                         options,
                         "--versions",
                         singleVersions.Count,
-                        out var cachedLatestExit))
+                        out var cachedLatestExit,
+                        ["Version"]))
                 {
                     return cachedLatestExit;
                 }
@@ -467,7 +493,12 @@ public class PackageCommand
                     return 1;
                 }
 
-                if (LensProjection.TryProject(options, "--versions-with-feed", versionFeeds.Count, out var feedExit))
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions-with-feed",
+                        versionFeeds.Count,
+                        out var feedExit,
+                        ["Version", "Feed", "Listing"]))
                     return feedExit;
                 OutputFormatter.WriteVersionFeedTable(versionFeeds, options, Console.Out);
                 return 0;
@@ -486,7 +517,12 @@ public class PackageCommand
                     return 1;
                 }
 
-                if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        listings.Count,
+                        out var listingExit,
+                        ["Version", "Listing"]))
                     return listingExit;
                 OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
@@ -501,7 +537,12 @@ public class PackageCommand
                 return 1;
             }
 
-            if (LensProjection.TryProject(options, "--versions", versions.Count, out var versionsProjectionExit))
+            if (LensProjection.TryProject(
+                    options,
+                    "--versions",
+                    versions.Count,
+                    out var versionsProjectionExit,
+                    ["Version"]))
                 return versionsProjectionExit;
 
             OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
@@ -699,6 +740,15 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (wantsSignals)
+            {
+                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+                    extractPath, packageName, version, client, logger,
+                    acquirePdb: true, options.SourceOptions);
+                await AuditSignalBuilder.PopulatePackageAuditAsync(
+                    result, client, logger, options.SourceOptions);
+            }
+
             // Effective discovery renders the discovered rows below and answers the projection
             // against them. Counting here would count the package document instead, which is a
             // different payload than the one -D displays.
@@ -735,17 +785,6 @@ public class PackageCommand
                         options),
                     result);
             }
-
-            if (wantsSignals)
-            {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger,
-                    acquirePdb: true, options.SourceOptions);
-            }
-
-            if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, client, logger, options.SourceOptions);
 
             // Output results
             if (effectiveDiscovery)
@@ -2803,9 +2842,22 @@ public class PackageCommand
         var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
+        if (libraryOptions.Discover == null && libraryOptions.SelectDefault)
+        {
+            libraryOptions = libraryOptions with { SelectDefault = false };
+            if (libraryOptions.Select is null && libraryOptions.Verbosity == Verbosity.Minimal)
+            {
+                libraryOptions = libraryOptions with
+                {
+                    Verbosity = Verbosity.Normal,
+                    FixedOverview = true
+                };
+            }
+        }
+
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
+            selectDefault: libraryOptions.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
@@ -3614,6 +3666,15 @@ public class PackageCommand
                     continue;
                 }
 
+                if (MetadataSectionNames.IsMetadataSection(section))
+                {
+                    projection.Merge(MetadataLensRenderer.CaptureCounts(
+                        inspection,
+                        [section],
+                        options.Rows));
+                    continue;
+                }
+
                 projection.Merge(CountProjectionFormatter.Capture(
                     new LibraryInspectionView(inspection),
                     InspectionContext.Default,
@@ -3646,14 +3707,27 @@ public class PackageCommand
 
     private static string RenderLibrarySection(LibraryInspection inspection, string section, LibraryOptions options)
     {
-        var view = new LibraryInspectionView(inspection);
-        var output = new StringWriter { NewLine = "\n" };
-        MarkoutSerializer.Serialize(
-            view,
-            output,
-            InspectionContext.Default,
-            CreateAllLibrariesWriterOptions(section, options));
-        var markdown = output.ToString().Trim();
+        string markdown;
+        if (MetadataSectionNames.IsMetadataSection(section))
+        {
+            markdown = MetadataLensRenderer.RenderMarkdown(
+                    inspection,
+                    [section],
+                    options.Fields ?? options.Columns) ?? "";
+            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows).Trim();
+        }
+        else
+        {
+            var view = new LibraryInspectionView(inspection);
+            var output = new StringWriter { NewLine = "\n" };
+            MarkoutSerializer.Serialize(
+                view,
+                output,
+                InspectionContext.Default,
+                CreateAllLibrariesWriterOptions(section, options));
+            markdown = output.ToString().Trim();
+        }
+
         if (markdown.Length == 0)
             return "";
 
@@ -3845,7 +3919,12 @@ public class PackageCommand
     {
         var tfms = TfmSelector.GetPackageTfms(extractPath);
 
-        if (LensProjection.TryProject(options, "--tfms", tfms.Count, out var projectionExit))
+        if (LensProjection.TryProject(
+                options,
+                "--tfms",
+                tfms.Count,
+                out var projectionExit,
+                ["TFM"]))
             return projectionExit;
 
         OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);

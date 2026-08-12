@@ -1,8 +1,11 @@
 using System.Collections.Immutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
@@ -12,6 +15,53 @@ namespace DotnetInspector.Tests;
 
 public sealed class TimelineCommandTests
 {
+    [Fact]
+    public async Task Count_AppliesRowsAndValidatesProjectedColumns()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null),
+                new("Sample@1.0.2", "1.0.2", "Present", 1, null)
+            ]
+        };
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Evaluations"
+        };
+
+        var count = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    Count = true,
+                    Columns = ["Version"],
+                    Rows = RowWindow.Head(1)
+                },
+                sections)));
+        var invalid = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    Count = true,
+                    Columns = ["NoSuchColumn"]
+                },
+                sections)));
+
+        Assert.Equal(0, count.ExitCode);
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Empty(count.Error);
+
+        Assert.Equal(1, invalid.ExitCode);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("NoSuchColumn", invalid.Error);
+    }
+
     [Fact]
     public void ZeroEvaluationVector_RemainsUnevaluatedAndRecommendsProbe()
     {

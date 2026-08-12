@@ -63,8 +63,7 @@ public static class TimelineCommand
                     selectedSections,
                     options.MemberName,
                     options.IncludeAll);
-                Write(view, options, selectedSections);
-                return 0;
+                return Write(view, options, selectedSections);
             }
             finally
             {
@@ -1176,18 +1175,35 @@ public static class TimelineCommand
         return sections;
     }
 
-    static void Write(
+    internal static int Write(
         TimelineDocumentView view,
         TimelineOptions options,
         HashSet<string> selectedSections)
     {
         if (options.Count)
         {
-            int count = selectedSections.Contains(EvaluationsSection)
-                ? view.Evaluations?.Count ?? 0
-                : view.Transitions?.Count ?? 0;
-            CountOutput.WriteCount(count);
-            return;
+            if (selectedSections.Contains(EvaluationsSection))
+            {
+                return CountOutput.TryWriteProjected(
+                    new TimelineEvaluationsView { Rows = view.Evaluations },
+                    TimelineViewContext.Default,
+                    EvaluationsSection,
+                    options.Columns,
+                    options.Fields,
+                    options.Rows)
+                    ? 0
+                    : 1;
+            }
+
+            return CountOutput.TryWriteProjected(
+                new TimelineTransitionsView { Rows = view.Transitions },
+                TimelineViewContext.Default,
+                TransitionsSection,
+                options.Columns,
+                options.Fields,
+                options.Rows)
+                    ? 0
+                    : 1;
         }
 
         if (options.JsonOutput)
@@ -1195,7 +1211,7 @@ public static class TimelineCommand
             Console.WriteLine(JsonSerializer.Serialize(
                 view,
                 TimelineJsonContext.Default.TimelineDocumentView));
-            return;
+            return 0;
         }
 
         if (options.IsTabular)
@@ -1238,12 +1254,13 @@ public static class TimelineCommand
                             writerOptions),
                     options.Rows);
             }
-            return;
+            return 0;
         }
 
         var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
         TimelineViewContext.Default.Serialize(view, writer);
         Console.WriteLine(writer.ToString().TrimEnd());
+        return 0;
     }
 
     internal sealed record TimelineEvaluation(

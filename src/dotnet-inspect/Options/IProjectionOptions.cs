@@ -1,3 +1,5 @@
+using DotnetInspector.Output;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -41,4 +43,13 @@ public interface IProjectionOptions
     /// Null for commands with no such option.
     /// </summary>
     string? OutputPath => null;
+
+    /// <summary>The requested data-row window, or null when all rows are selected.</summary>
+    RowWindow? Rows => null;
+
+    /// <summary>The requested field projection, or null when fields are not projected.</summary>
+    string[]? Fields => null;
+
+    /// <summary>The requested column projection, or null when columns are not projected.</summary>
+    string[]? Columns => null;
 }

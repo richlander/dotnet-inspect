@@ -1,4 +1,5 @@
 using DotnetInspector.Options;
+using Markout;
 
 namespace DotnetInspector.Output;
 
@@ -55,7 +56,8 @@ public static class LensProjection
         IProjectionOptions? options,
         string lens,
         int rowCount,
-        out int exitCode)
+        out int exitCode,
+        IReadOnlyCollection<string>? columns = null)
     {
         exitCode = 0;
         if (!IsRequested(options))
@@ -63,7 +65,14 @@ public static class LensProjection
 
         if (options!.Count)
         {
-            CountOutput.WriteCount(rowCount, options.OutputPath);
+            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 })
+                && !ValidateColumns(options, lens, columns))
+            {
+                exitCode = 1;
+                return true;
+            }
+
+            CountOutput.WriteCount(WindowedCount(rowCount, options.Rows), options.OutputPath);
             return true;
         }
 
@@ -77,5 +86,35 @@ public static class LensProjection
             "than a section. Use --count to count that payload.");
         exitCode = 1;
         return true;
+    }
+
+    private static bool ValidateColumns(
+        IProjectionOptions options,
+        string lens,
+        IReadOnlyCollection<string>? columns)
+    {
+        if (columns is not { Count: > 0 })
+        {
+            CommandError.Write(
+                $"--fields/--columns are not available with {lens}, which does not expose a tabular column projection.");
+            return false;
+        }
+
+        const string LensSection = "Payload";
+        var schema = new DocumentSchema().Add(LensSection, "column", [.. columns]);
+        return ProjectionDiagnostics.ValidateProjection(
+            schema,
+            LensSection,
+            options.Fields,
+            options.Columns);
+    }
+
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return count;
+
+        var (start, end) = window.Resolve(count);
+        return end - start;
     }
 }
