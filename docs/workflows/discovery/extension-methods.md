@@ -11,10 +11,12 @@ areas: [extensions, discovery, reachable]
 
 ## Preconditions
 
-Isolated session. This workflow uses only platform libraries by default (no cache priming needed).
+Use an isolated session. The default search includes a curated package set, so
+the first command primes that package metadata cache and requires network.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=extension-methods
+dotnet-inspect extensions HttpClient -v:q > /dev/null
 ```
 
 ## 1. Find extensions for a type
@@ -33,7 +35,7 @@ dotnet-inspect extensions HttpClient -v:q
 
 ```expect
 # Extension Methods for HttpClient
-HttpClient | 6
+| HttpClient |
 ```
 
 ```expect-not
@@ -49,7 +51,7 @@ dotnet-inspect extensions HttpClient -n 10
 ```expect
 # Extension Methods for HttpClient
 ## Extensions
-| Name | Kind | Class | Library | Source | Type | Via |
+| Name | Overloads | Kind | Class | Library | Source |
 HttpClientJsonExtensions
 ```
 
@@ -73,7 +75,7 @@ dotnet-inspect extensions HttpClient --reachable -v:q
 
 ```expect
 # Extension Methods for HttpClient
-HttpClient | 6
+| HttpClient |
 System.IO.Stream
 System.Net.Http.HttpContent
 ```
@@ -86,7 +88,7 @@ dotnet-inspect extensions HttpClient --reachable -n 20
 
 ```expect
 ## Extensions
-| Name | Kind | Class | Library | Source | Type | Via |
+| Name | Overloads | Kind | Class | Library | Source | Type | Via |
 ```
 
 ```query
@@ -103,7 +105,7 @@ dotnet-inspect extensions HttpClient --platform -v:q
 
 ```expect
 # Extension Methods for HttpClient
-HttpClient | 6
+| HttpClient |
 ```
 
 ## 4. Type with many extensions
@@ -139,7 +141,7 @@ dotnet-inspect extensions IServiceCollection -n 10
 ```expect
 # Extension Methods for IServiceCollection
 ## Extensions
-| Name | Kind | Class | Library | Source | Type | Via |
+| Name | Overloads | Kind | Class | Library | Source |
 ```
 
 ## 5. Type with no extensions
@@ -147,11 +149,11 @@ dotnet-inspect extensions IServiceCollection -n 10
 > Goal: Graceful output when no extension methods are found for a type in the given scope.
 
 ```bash
-dotnet-inspect extensions String --extensions -v:q
+dotnet-inspect extensions Version --platform -v:q
 ```
 
 ```expect
-# Extension Methods for String
+# Extension Methods for Version
 No extension methods found.
 ```
 
@@ -165,7 +167,7 @@ dotnet-inspect extensions IServiceCollection --platform -v:q
 
 ```expect
 # Extension Methods for IServiceCollection
-## Summary  
+## Summary
 | Type | Extensions | Via |
 ```
 
