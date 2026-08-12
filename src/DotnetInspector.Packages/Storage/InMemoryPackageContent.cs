@@ -70,7 +70,7 @@ public sealed class InMemoryPackageContent : IPackageContent
         if (entry.Length > maximumBytes)
         {
             throw new InvalidDataException(
-                $"Package entry '{entry.FullName}' exceeds the {maximumBytes}-byte limit.");
+                $"Package entry exceeds the {maximumBytes}-byte limit.");
         }
 
         // Copy into memory so the returned stream outlives the archive.
@@ -88,7 +88,7 @@ public sealed class InMemoryPackageContent : IPackageContent
             {
                 buffer.Dispose();
                 throw new InvalidDataException(
-                    $"Package entry '{entry.FullName}' exceeds the {maximumBytes}-byte limit.");
+                    $"Package entry exceeds the {maximumBytes}-byte limit.");
             }
             buffer.Write(chunk, 0, read);
         }

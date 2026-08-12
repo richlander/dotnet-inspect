@@ -641,11 +641,11 @@ public static partial class BrowserInspectionEngine
                 if (!inspection.HasMetadata)
                 {
                     throw new InvalidDataException(
-                        $"Selected package assembly '{asset.Path}' has no managed metadata.");
+                        $"A selected compile asset in package '{packageId}' has no managed metadata.");
                 }
 
                 ApiSurface publicSurface = inspection.ApiSurface();
-                ThrowIfSurfaceIncomplete(publicSurface, asset.Path);
+                ThrowIfSurfaceIncomplete(publicSurface, packageId);
                 var publicTypes = publicSurface.Types
                     .Select(type => ToBrowserType(type, asset.AssemblyName))
                     .ToArray();
@@ -660,7 +660,7 @@ public static partial class BrowserInspectionEngine
                     .Select(type => type.Id)
                     .ToHashSet(StringComparer.Ordinal);
                 ApiSurface completeSurface = inspection.ApiSurface(includeAll: true);
-                ThrowIfSurfaceIncomplete(completeSurface, asset.Path);
+                ThrowIfSurfaceIncomplete(completeSurface, packageId);
                 var nonPublicTypes = completeSurface.Types
                     .Select(type => ToBrowserType(type, asset.AssemblyName))
                     .Where(type => !publicTypeIds.Contains(type.Id))
@@ -4242,25 +4242,23 @@ public static partial class BrowserInspectionEngine
             : $"{type.Namespace}.{name}";
     }
 
-    static void ThrowIfSurfaceIncomplete(ApiSurface surface, string assetPath)
+    static void ThrowIfSurfaceIncomplete(ApiSurface surface, string packageId)
     {
         if (surface.InspectionFailures.FirstOrDefault() is { } failure)
         {
             throw new InvalidDataException(
-                $"Metadata inspection failed for '{assetPath}' at "
-                + $"0x{failure.SubjectToken:X8}: {failure.Detail}");
+                $"Metadata inspection failed for package '{packageId}' at token "
+                + $"0x{failure.SubjectToken:X8} during {failure.Operation} ({failure.Kind}).");
         }
 
         var degraded = surface.Types
-            .SelectMany(type => type.Members.Select(member => (type, member)))
-            .FirstOrDefault(candidate =>
-                candidate.member.SignatureDecodeStatus
-                    == SignatureDecodeStatus.Degraded);
-        if (degraded.member is not null)
+            .SelectMany(type => type.Members)
+            .FirstOrDefault(member =>
+                member.SignatureDecodeStatus == SignatureDecodeStatus.Degraded);
+        if (degraded is not null)
         {
             throw new InvalidDataException(
-                $"Signature decoding degraded for '{assetPath}' member "
-                + $"'{degraded.type.FullName}.{degraded.member.Name}'.");
+                $"Signature decoding degraded for package '{packageId}' at a member boundary.");
         }
     }
 

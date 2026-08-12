@@ -69,7 +69,7 @@ public sealed class FileSystemPackageContent : IPackageContent
         if (new FileInfo(path).Length > maximumBytes)
         {
             throw new InvalidDataException(
-                $"Package entry '{relativePath}' exceeds the {maximumBytes}-byte limit.");
+                $"Package entry exceeds the {maximumBytes}-byte limit.");
         }
 
         stream = File.OpenRead(path);

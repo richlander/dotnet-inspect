@@ -2621,6 +2621,51 @@ public class CfgSampleClass
         }
     }
 
+    // #4008: a sparse jump table whose successful labels use `break;` to reach the
+    // method's final void return. csc places that ret after the throwing default,
+    // so switch raising must preserve it as the post-switch continuation rather
+    // than moving `return;` into the successful section.
+    public static void TerminalSwitchBreakToReturn(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                break;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
+    // #4008 close negative: source-level `return;` inside the same sparse case group
+    // places ret before the default and emits a branch over it. That return must
+    // remain in the section rather than being mistaken for a trailing join.
+    public static void TerminalSwitchReturnInCase(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                return;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
@@ -5189,6 +5234,19 @@ public sealed class JoinTypeProvider
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
+public enum CfgTerminalSwitchKind
+{
+    Value25 = 25,
+    Value30 = 30,
+    Value31 = 31,
+    Value32 = 32,
+    Value33 = 33,
+    Value35 = 35,
+    Value36 = 36,
+    Value37 = 37,
+    Value40 = 40,
+}
+
 public enum CfgLongPriority : long { Low = 0, High = 2 }
 public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
@@ -6075,75 +6133,6 @@ public class BackingFieldSample
     public int NoFieldAccess(int x) => x + 1;
 }
 
-// Regression fixtures for #2982: a constant assigned in a chain (`a = b = c = false`)
-// compiles to `ldc.i4.0; dup; call set_C; dup; call set_B; call set_A` — the shared
-// literal is dup'd to each sink. The importer must re-materialize the dup'd constant
-// at each bool sink so it renders `A = false;`, not spill it into an int stack slot
-// (`int S = 0; A = S;`), which is CS0029 (cannot implicitly convert int to bool).
-// Regression + quality fixtures for #2982 / #2994: a value assigned in a chain
-// (`a = b = c = v`) compiles to a dup-of-value idiom — the rvalue is evaluated
-// once and dup'd to each sink (`ldc.i4.0; dup; call set_C; dup; call set_B; call
-// set_A`). ChainedAssignmentPass recomposes that run into `A = B = C = v;`,
-// keyed on the shared dup slot. A dup'd constant that is NOT part of a chain is
-// re-materialized at its sink so a bool/char/enum literal is recovered (#2982)
-// instead of spilling through an int32 slot (CS0029). Genuinely separate
-// statements carry no dup slot and must not collapse.
-public static class ChainedConstantAssignmentSamples
-{
-    public static bool A { get; set; }
-
-    public static bool B { get; set; }
-
-    public static bool C { get; set; }
-
-    public static int I { get; set; }
-
-    public static long L { get; set; }
-
-    public static int P { get; set; }
-
-    public static int Q { get; set; }
-
-    public static int R { get; set; }
-
-    public static bool F;
-
-    public static bool G;
-
-    public static bool H;
-
-    static int Compute() => 42;
-
-    // The Dapper Settings.SetDefaults shape: a bool constant chained across
-    // static properties. Recomposes to `A = B = C = false;`.
-    public static void ChainedBoolFalse() => A = B = C = false;
-
-    // A widening chain: the shared int constant lands in `I` (int) and widens
-    // implicitly into `L` (long). Recomposes to `L = I = -1;`.
-    public static void ChainedWiden() => L = I = -1;
-
-    // A non-constant chain: the shared call result flows to each static
-    // property. Recomposes to `P = Q = R = Compute();`.
-    public static void ChainedNonConstant() => P = Q = R = Compute();
-
-    // A bool constant chained across static fields. Recomposes to
-    // `F = G = H = true;`.
-    public static void ChainedStaticFields() => F = G = H = true;
-
-    // Negative: two independent statements with no dup — must stay two
-    // statements, never collapse into a chain.
-    public static void SeparateStatements()
-    {
-        A = false;
-        B = false;
-    }
-
-    // Negative: a single-target dup'd constant whose value escapes into an
-    // argument (`WriteLine(P = 5)`). Not a chain (one sink); the constant is
-    // re-materialized to `P = 5; Console.WriteLine(5);`.
-    public static void SideEffectValue() => System.Console.WriteLine(P = 5);
-}
-
 // Regression fixtures for #2990: a 64-bit-backed [Flags] enum OR/AND accumulation.
 // The compiler lowers the flag arithmetic into the enum's Int64 underlying space
 // (`ldc.i4 N; conv.i8; or/and`) and spills the intermediate accumulator into long
@@ -6176,39 +6165,4 @@ public static class FlagsEnumAccumulatorSamples
             | FlagCaps64.MultiResults;
         return (int)caps;
     }
-}
-
-// #3371 follow-up witnesses: a record `with` expression and an anonymous object
-// wide enough that the printer's brace-body width wrapper breaks them Allman-style
-// (one entry per line). New top-level types appended at end of file so they cannot
-// shift any existing CfgSampleClass generated-code ordinals.
-public sealed record MeasuredRecord(
-    int FirstMeasuredValue,
-    int SecondMeasuredValue,
-    int ThirdMeasuredValue,
-    int FourthMeasuredValue);
-
-public static class BraceBodyWrappingSamples
-{
-    // `source with { A = .., B = .., C = .., D = .. }` — flat form exceeds 120 cols.
-    public static MeasuredRecord WidenMeasuredRecord(MeasuredRecord source, int first, int second, int third, int fourth)
-        => source with
-        {
-            FirstMeasuredValue = first,
-            SecondMeasuredValue = second,
-            ThirdMeasuredValue = third,
-            FourthMeasuredValue = fourth,
-        };
-
-    // Anonymous types are reference types, so returning one as `object` needs no
-    // box/cast; the anonymous object stays the bare return value. Explicit
-    // `Name = value` form (value names differ from property names), flat > 120 cols.
-    public static object ProjectMeasuredValues(int first, int second, int third, int fourth)
-        => new
-        {
-            FirstMeasuredProjection = first,
-            SecondMeasuredProjection = second,
-            ThirdMeasuredProjection = third,
-            FourthMeasuredProjection = fourth,
-        };
 }

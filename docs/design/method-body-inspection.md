@@ -217,6 +217,55 @@ acquisition. `LibraryBodyAnalysisPlan` owns producer dependencies and scope;
 the acquisition returns cohesive method, safety, allocation, optimization, and
 resource-lifecycle results. Topic-specific Analysis services consume those
 results rather than adding more unrelated algorithms to the facade.
+For each decoded method, `MethodBodyAnalysisContext` packages the method
+identity, exception regions, the shared Layer-0 `MethodInstructions`, and
+Analysis-owned loop regions and decoded local types, together with the neutral
+navigation over them (instruction-at-offset, next-non-`nop` index, loop-region
+membership) that every topic producer shares. Local signatures are
+decoded once during acquisition rather than independently by safety evidence
+and occurrence scans. Raw IL, generic decoding scope, metadata readers, and
+reader-bound method bodies remain outside the context so a topic producer
+cannot create a second decode or metadata traversal path.
+Allocation path contexts, confidence, and post-dominance remain private
+Layer-1 interpretations rather than becoming neutral context.
+`BodySignalAnalysis` owns array, throw, exception-region, allocating-box, and
+throw-path object signals; it receives the metadata-dependent box judgment
+through a narrow callback. `MethodBodyFlowProbe` owns the bounded throw-path
+probes reused by body-signal and allocation analysis.
+`MethodSafetyAnalysis` owns unsafe API/signature/local classification, body
+opcode and call evidence, and the pointer-stack interpretation that emits
+unsafety occurrences. The assembly reader retains calli-signature resolution
+and passes only the display detail into the producer.
+`MethodAllocationAnalysis` owns the allocation topic for one decoded body:
+allocation occurrence discovery, allocation-shape classification, escape
+classification, and the private path-context, path-confidence, and
+post-dominance indexes behind its multiplicity reading. It consumes the shared
+context and never decodes IL, builds blocks, recomputes loop regions, or decodes
+a local signature again. Metadata judgments (type/member token resolution,
+delegate-constructor, value-type-box, non-heap-construction, in-assembly
+element, field-owner) and the raw-IL reaching-definitions analysis arrive
+through the narrow `IMethodAllocationResolver` contract implemented by the
+assembly reader, so no metadata reader, `PEReader`, generic scope, IL buffer, or
+reader-bound body reaches allocation analysis. One scan produces a
+`MethodAllocationResult` carrying both the discovered occurrences and the
+escape-refined occurrences: the published allocation facts take the latter,
+and optimization-opportunity collection reuses the former plus the query methods
+(`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`)
+rather than scanning or interpreting again. Call-site acquisition uses the same
+`MultiplicityAt` reading for direct-call multiplicity.
+The assembly reader retains, on the allocation path, exactly: PE/body
+acquisition, the intentionally throwing `InstructionDecoder.Decode` +
+`BlockGraph.Build` decode, loop-region computation for the context, method
+identity and generic-scope creation, metadata ownership and token resolution,
+per-method orchestration and recoverable-failure diagnostics, call-site
+acquisition, optimization-recommendation production, resource/leak analysis, and
+result aggregation.
+Call-site acquisition and multiplicity remain separate; that scan delegates
+safety projection rather than owning the unsafe-type policy.
+`MethodInstructionFacts` owns the metadata-free local/argument-slot, operand,
+and single-branch-target grammar shared by safety and allocation interpretation,
+and `CompilerGeneratedNames` owns the unspeakable-name grammar shared by
+allocation escape classification and optimization-opportunity classification.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 

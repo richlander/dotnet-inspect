@@ -36,8 +36,10 @@ public readonly record struct AnnotatedSourceSpan(int Start, int Length);
 /// <remarks>
 /// <para>
 /// A node is text structure, not an observation: it says "these characters are a
-/// <c>NewObject</c>", and it exists whether or not any fact was ever found about
-/// it. That independence is the point of the separate list — the same shape
+/// <c>ObjectCreationExpression</c>", and it exists whether or not any fact was
+/// ever found about it. <see cref="Kind"/> uses the stable rendered-syntax vocabulary exposed by
+/// <see cref="AnnotatedSourceNodeKinds"/>, not decompiler implementation type
+/// names. That independence is the point of the separate list — the same shape
 /// carries C# syntax and IL instructions today, and is the slot future producers
 /// fill with original source syntax, comments, XML documentation, and SourceLink
 /// or lexer-derived spans, none of which are facts.
@@ -65,11 +67,11 @@ public sealed record AnnotatedSourceNode
     /// may: <c>Kind == "Instruction"</c> holds exactly when the node is
     /// <see cref="SourceLineKind.Il"/> text with a non-null <see cref="IlOffset"/>.
     /// </summary>
-    public const string InstructionKind = "Instruction";
+    public const string InstructionKind = AnnotatedSourceNodeKinds.Instruction;
 
     /// <summary>Creates one node of text structure.</summary>
     /// <param name="Id">This node's identity within its document: contiguous from <c>0</c> in list order.</param>
-    /// <param name="Kind">The structure kind these characters are, e.g. <c>NewObject</c> for C# or <see cref="InstructionKind"/> for IL.</param>
+    /// <param name="Kind">The structure kind these characters are, e.g. <c>ObjectCreationExpression</c> for C# or <see cref="InstructionKind"/> for IL. Consumers should tolerate kinds added by newer producers.</param>
     /// <param name="Medium">The language these characters belong to.</param>
     /// <param name="Spans">The node's exact characters: one or more absolute spans, in increasing order, separated, and never overlapping. More than one means the node is discontinuous in the rendered text.</param>
     /// <param name="IlOffset">The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <paramref name="Kind"/> is <see cref="InstructionKind"/>.</param>
@@ -123,7 +125,7 @@ public sealed record AnnotatedSourceNode
     /// <summary>This node's identity within its document: contiguous from <c>0</c> in list order.</summary>
     public int Id { get; }
 
-    /// <summary>The structure kind these characters are, e.g. <c>NewObject</c> for C# or <see cref="InstructionKind"/> for IL.</summary>
+    /// <summary>The stable rendered-syntax kind these characters are, e.g. <c>ObjectCreationExpression</c> for C# or <see cref="InstructionKind"/> for IL.</summary>
     public string Kind { get; }
 
     /// <summary>The language these characters belong to.</summary>

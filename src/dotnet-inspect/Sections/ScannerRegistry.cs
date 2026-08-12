@@ -27,6 +27,7 @@ internal sealed class QueryCostDeclarationException(string message)
 public sealed class ScannerContext : IDisposable
 {
     public required string AssemblyPath { get; init; }
+    public ResolvedAssemblyReference? AssemblyReference { get; init; }
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
     public PdbContext? MetadataContext { get; init; }
@@ -250,7 +251,8 @@ public sealed class ScannerContext : IDisposable
             _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
                 AssemblyPath,
                 GetMetadataContext(),
-                BodyAnalysisFeatures);
+                BodyAnalysisFeatures,
+                assembly: AssemblyReference);
         }
         catch (Exception ex)
         {

@@ -318,7 +318,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -481,7 +481,9 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerIntegrationOpportunities, detailedScanners);
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            detailedQueries);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, detailedScanners);
@@ -990,6 +992,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_ExplicitLocalDiagnosticsReadCachedPdbWithoutDownloading()
+    {
+        foreach (string section in new[]
+        {
+            SectionNames.SourceLinkDiagnostics,
+            SectionNames.NonNormalizedPaths,
+        })
+        {
+            var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+            var plan = LibrarySourcePlans.For(Verbosity.Quiet, include);
+
+            Assert.False(plan.AllowPdbDownload);
+            Assert.False(plan.CollectSourceFiles);
+            Assert.True(plan.ReadCachedPdb);
+        }
+    }
+
+    [Fact]
     public void LibrarySourcePlan_PreservesAuthorizationForEverySelection()
     {
         string[] sourceSections =
@@ -1036,7 +1056,8 @@ public class SectionPipelineTests
         {
             Assert.True(sectionNames.Add(section.Name));
             Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
-            Assert.True(section.DownloadPdb);
+            Assert.True(section.DownloadPdb || section.ReadCachedPdb);
+            Assert.False(section.CollectSourceFiles && !section.DownloadPdb);
         }
     }
 
@@ -1251,6 +1272,8 @@ public class SectionPipelineTests
         {
             ("library", LibrarySections.CreatePipeline().AllSectionNames,
                 LibrarySections.CreatePipeline().GetCategoryMap()),
+            ("package", PackageSectionDescriptors.CreatePipeline().AllSectionNames,
+                PackageSectionDescriptors.CreatePipeline().GetCategoryMap()),
             ("api-type", ApiTypeSectionDescriptors.CreatePipeline().AllSectionNames,
                 ApiTypeSectionDescriptors.CreatePipeline().GetCategoryMap()),
             ("api-member", ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames,
@@ -1282,6 +1305,7 @@ public class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols
             ],
@@ -1568,6 +1592,7 @@ public class SectionPipelineTests
                 StringComparer.Ordinal));
         Assert.Equal(
             [
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
                 AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
@@ -1959,7 +1984,8 @@ public class SectionPipelineTests
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
                 PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath });
+                new InspectionOptions { Count = true, OutputPath = outputPath },
+                PackageSectionDescriptors.CreatePipeline());
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
@@ -3365,19 +3391,21 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void IntegrationSections_BindToTheAssemblyContextQueryByIdentity()
+    public void IntegrationSections_BindToGroupQueriesByIdentity()
     {
         LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
         SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
         Assert.Contains(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.GroupQueryRegistry.RegisteredQueries);
+        Assert.Contains(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            catalog.GroupQueryRegistry.RegisteredQueries);
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.QueryRegistry.RegisteredQueries);
 
-        foreach (string section in LibraryIntegrationCatalog.CategorySections
-                     .Append(IntegrationSectionNames.Opportunities))
+        foreach (string section in LibraryIntegrationCatalog.CategorySections)
         {
             var include = new HashSet<string>(
                 StringComparer.OrdinalIgnoreCase)
@@ -3398,8 +3426,21 @@ public class SectionPipelineTests
             IntegrationSectionNames.Opportunities,
         };
         Assert.Contains(
-            LibrarySections.ScannerIntegrationOpportunities,
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationsQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
+        Assert.Empty(
             pipeline.GetRequiredScanners(Verbosity.Minimal, opportunities));
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            catalog.GroupQueryRegistry.RequirementsOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            catalog.GroupQueryRegistry.CostOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
     }
 
     [Fact]
@@ -3429,7 +3470,9 @@ public class SectionPipelineTests
             LibrarySections.ScannerClassifiedMethods,
             LibrarySections.ScannerResources,
             LibrarySections.ScannerTypeForwarders,
-            LibrarySections.ScannerIntegrationOpportunities,
+            // workspace-backed library inspection must not reopen its package path
+            LibrarySections.ScannerUnionTypes,
+            LibrarySections.ScannerSwitches,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
         ];
@@ -3720,9 +3763,6 @@ public class SectionPipelineTests
         // single scanner fault escapes RunScanners into InspectAsync's broad catch and the whole
         // command degrades to one generic "Could not read library".
         //
-        // ScanIntegrationOpportunities' session overload did NOT catch, so the shared-session
-        // change silently dropped that mapping for it. This gate is why that was found.
-        //
         // A disposed session is the fault injector: AssemblyImage.EnsureAlive throws
         // ObjectDisposedException on every facet, so it faults each scanner at the point where it
         // touches metadata, deterministically and on every platform.
@@ -3732,12 +3772,8 @@ public class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        // Each scanner runs against its OWN model and is asserted on the exact field it alone must
-        // populate. Found by review: a single shared model let a typed failure written by an
-        // earlier scanner satisfy an assertion nominally about a later one -- deleting
-        // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
-        // green, because ScanIntegrations had already set the same two fields and the mapping uses
-        // ??=.
+        // Each scanner runs against its OWN model and is asserted on the exact
+        // field it alone must populate.
         var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
             ("ClassifiedMethods",
@@ -3754,18 +3790,6 @@ public class SectionPipelineTests
                 m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
                 m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
                     m.TypeForwarderInspection!.Value)),
-
-            ("IntegrationOpportunities",
-                m => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, m, logger),
-                m =>
-                {
-                    // Nothing else ran against this model, so these can only come from the
-                    // opportunity scanner's own catch.
-                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
-                        m.OpenTelemetryInspection!.Value);
-                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
-                        m.EcosystemIntegrationInspection!.Value);
-                }),
 
             ("AuditSignals",
                 m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
@@ -4043,15 +4067,17 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
-    /// so the three action-based scanners are covered, not just the four that return a value.
+    /// Every remaining scanner that must stay coherent with the command-owned
+    /// image. Both retarget gates drive this whole set so action-based and
+    /// value-returning scanners are covered.
     /// </summary>
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
         LibrarySections.ScannerResources,
         LibrarySections.ScannerTypeForwarders,
-        LibrarySections.ScannerIntegrationOpportunities,
+        LibrarySections.ScannerUnionTypes,
+        LibrarySections.ScannerSwitches,
         LibrarySections.ScannerAuditSignals,
     ];
 
@@ -4060,6 +4086,8 @@ public class SectionPipelineTests
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
         $"resources={PayloadCount(model.ResourceInspection)}",
         $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        $"unions={PayloadCount(model.UnionTypeInspection)}",
+        $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
 
     /// <summary>
@@ -4072,8 +4100,7 @@ public class SectionPipelineTests
         "|",
         $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]",
         $"otel={PayloadCount(model.OpenTelemetryInspection)}",
-        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}",
-        $"opportunities=[{string.Join(",", model.IntegrationOpportunities?.Select(o => $"{o.Integration}:{o.Api}") ?? [])}]");
+        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}");
 
     private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
         => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;
@@ -4421,6 +4448,133 @@ public class SectionPipelineTests
     }
 
     // ===== Package pipeline tests =====
+
+    [Fact]
+    public void PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categorized = pipeline.GetCategoryMap()
+            .SelectMany(pair => pair.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var uncategorized = pipeline.SelectableSectionNames
+            .Where(name => !categorized.Contains(name))
+            .ToArray();
+
+        Assert.True(
+            uncategorized.Length == 0,
+            $"Package section(s) have no authored category: {string.Join(", ", uncategorized)}");
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseScopeIsDerivedFromPackageAndFilesCategories()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.Equal(
+            [SectionCategoryNames.Files, SectionCategoryNames.Package],
+            pipeline.GetBaseCategoryDoors().OrderBy(name => name, StringComparer.Ordinal));
+
+        var expected = categories[SectionCategoryNames.Package]
+            .Concat(categories[SectionCategoryNames.Files])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            expected.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.BaseSectionNames.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void PackagePipeline_CategoryCompositionMatchesPackageEvidenceDomains()
+    {
+        var categories = PackageSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                PackageSections.PackageInfo,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies,
+                PackageSections.Files
+            ],
+            categories[SectionCategoryNames.Package]);
+        Assert.Equal(
+            [PackageSections.Dependencies, PackageSections.RuntimeDependencies],
+            categories[SectionCategoryNames.Dependencies]);
+        Assert.Equal(
+            [
+                PackageSections.Signals,
+                PackageSections.Signature,
+                PackageSections.Vulnerabilities,
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkMissingFiles,
+                PackageSections.SourceLinkIntegrity
+            ],
+            categories[SectionCategoryNames.Audit]);
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseCategoriesPreserveAutomaticCandidateSets()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(
+            [PackageSections.Summary],
+            pipeline.GetCandidateSections(Verbosity.Quiet));
+        Assert.Equal(
+            [PackageSections.PackageInfo],
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.Equal(
+            new[]
+            {
+                PackageSections.Summary,
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.TargetFrameworks,
+                PackageSections.FilesNuspec,
+                PackageSections.FilesSkills,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Normal)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            new[]
+            {
+                PackageSections.Summary,
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.FilesNuspec,
+                PackageSections.FilesSkills,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Detailed)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.FilesNuspec,
+                PackageSections.Signature,
+                PackageSections.Manifest
+            ],
+            pipeline.BareSelectSectionNames);
+    }
 
     [Fact]
     public void PackagePipeline_HasExpectedSectionCount()
@@ -5286,6 +5440,14 @@ public class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_FixedOverview_IsExactlySignature()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal([SectionNames.Signature], pipeline.FixedOverviewSectionNames);
     }
 
     [Fact]

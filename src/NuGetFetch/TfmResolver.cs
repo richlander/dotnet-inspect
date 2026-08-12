@@ -291,17 +291,65 @@ public static class TfmResolver
 
         for (int i = 0; i < parts.Length - 1; i++)
         {
-            if (IsTfmLike(parts[i]) &&
-                i > 0 &&
-                (parts[i - 1].Equals("lib", StringComparison.OrdinalIgnoreCase) ||
-                 parts[i - 1].Equals("tools", StringComparison.OrdinalIgnoreCase) ||
-                 parts[i - 1].Equals("ref", StringComparison.OrdinalIgnoreCase)))
+            if (IsTfmLike(parts[i])
+                && i > 0
+                && (parts[i - 1].Equals(
+                        "lib",
+                        StringComparison.OrdinalIgnoreCase)
+                    || parts[i - 1].Equals(
+                        "tools",
+                        StringComparison.OrdinalIgnoreCase)
+                    || parts[i - 1].Equals(
+                        "ref",
+                        StringComparison.OrdinalIgnoreCase)))
             {
                 return parts[i];
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Extracts the framework asset folder from a relative package path like
+    /// "lib/uap10.0/Assembly.dll", including frameworks this resolver cannot
+    /// select as .NET TFMs.
+    /// </summary>
+    public static string? ExtractFrameworkFolderFromPath(
+        string relativePath)
+    {
+        string[] parts = relativePath.Split('/', '\\');
+
+        for (int i = 1; i < parts.Length - 1; i++)
+        {
+            if (parts[i].Length > 0
+                && (parts[i - 1].Equals(
+                        "lib",
+                        StringComparison.OrdinalIgnoreCase)
+                    || parts[i - 1].Equals(
+                        "tools",
+                        StringComparison.OrdinalIgnoreCase)
+                    || parts[i - 1].Equals(
+                        "ref",
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return parts[i];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts the normalized containing directory from a relative package
+    /// asset path.
+    /// </summary>
+    public static string? ExtractAssetDirectoryFromPath(
+        string relativePath)
+    {
+        string normalized = relativePath.Replace('\\', '/');
+        int separator = normalized.LastIndexOf('/');
+        return separator > 0 ? normalized[..separator] : null;
     }
 
     /// <summary>

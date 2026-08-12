@@ -52,14 +52,19 @@ Whether the library has the reproducible build flag set in its PE header.
 
 ### SourceLink
 
-Whether SourceLink metadata is available, enabling navigation to exact source code.
+Whether SourceLink metadata is present and whether its document map is usable.
 
 | Value | Meaning |
 | ----- | ------- |
-| ✓ | SourceLink available - can navigate to source |
-| ✗ (Windows PDB) | PDB found but in Windows format (not readable) |
-| ✗ (no symbols) | No PDB found on symbol servers |
-| ✗ | SourceLink not available for other reasons |
+| `Present` | The PDB carries a usable SourceLink map |
+| `Present (partially usable)` | At least one mapping is usable and at least one was rejected |
+| `Present (unusable)` | The map could not be parsed or contains no usable mappings |
+| `Not found` | A checked PDB carries no SourceLink map |
+| `Not checked` | No readable PDB was checked |
+
+Select `SourceLink: Diagnostics` for parse errors and rejected mapping keys.
+Select `Non-normalized Paths` for SourceLink document keys that do not use the
+deterministic `/_/` prefix.
 
 **Why it matters:** SourceLink connects compiled code to its exact source revision.
 
