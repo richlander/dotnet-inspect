@@ -609,7 +609,7 @@ internal static class SourceEnricher
         EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
     }
 
-    private static void MergePartialTypeDocumentation(
+    internal static void MergePartialTypeDocumentation(
         ApiType apiType,
         List<(string Content, string Url, string FilePath)> sourceContents,
         DocCommentParser parser,
@@ -620,7 +620,7 @@ internal static class SourceEnricher
         DocComment? mergedTypeDoc = null;
         List<SampleReference> allSamples = [];
 
-        foreach (var (content, url, filePath) in sourceContents)
+        foreach (var (content, url, _) in sourceContents)
         {
             var typeDoc = parser.ExtractTypeDocComment(content, apiType.Name);
             if (typeDoc != null)
@@ -634,7 +634,7 @@ internal static class SourceEnricher
                         Parameters = typeDoc.Parameters,
                         Returns = typeDoc.Returns
                     };
-                    logger.Log($"Found type docs in {Path.GetFileName(filePath)}");
+                    logger.Log("Found type documentation.");
                 }
                 else
                 {
@@ -649,7 +649,7 @@ internal static class SourceEnricher
                             mergedTypeDoc.Parameters.TryAdd(key, value);
                         }
                     }
-                    logger.Log($"Merged additional type docs from {Path.GetFileName(filePath)}");
+                    logger.Log("Merged additional type documentation.");
                 }
 
                 if (typeDoc.Samples != null)

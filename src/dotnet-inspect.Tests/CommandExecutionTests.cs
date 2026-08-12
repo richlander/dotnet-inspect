@@ -6923,15 +6923,34 @@ public partial class CommandExecutionTests
             GitHubBrowseUrl: null);
         var apiType = new ApiType { Name = "Source" };
 
-        var (_, error) = await ConsoleCapture.RunAsync(
-            () => SourceEnricher.ApplySourceInfoAsync(
+        var (_, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            await SourceEnricher.ApplySourceInfoAsync(
                 apiType,
                 sourceInfo,
                 new ApiOptions { ShowDocs = true },
-                new VerboseLogger(enabled: true)));
+                new VerboseLogger(enabled: true));
+            SourceEnricher.MergePartialTypeDocumentation(
+                apiType,
+                [
+                    (
+                        "/// <summary>Primary.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Primary.cs",
+                        $"/hostile/{Secret}/Primary.cs"),
+                    (
+                        "/// <summary>Additional.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Additional.cs",
+                        $"/hostile/{Secret}/Additional.cs"),
+                ],
+                new CSharpText.DocCommentParser(),
+                new ApiOptions(),
+                new VerboseLogger(enabled: true));
+        });
 
         Assert.Contains("Source (SourceLink) resolved at line 42.", error);
         Assert.Contains("Fetching SourceLink source.", error);
+        Assert.Contains("Found type documentation.", error);
+        Assert.Contains("Merged additional type documentation.", error);
         Assert.DoesNotContain(Secret, error, StringComparison.Ordinal);
         Assert.DoesNotContain("source.example", error, StringComparison.Ordinal);
         Assert.DoesNotContain("/hostile/", error, StringComparison.Ordinal);
