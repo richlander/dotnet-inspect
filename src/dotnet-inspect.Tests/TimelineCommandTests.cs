@@ -146,9 +146,7 @@ public sealed class TimelineCommandTests
     public void UnsafetyTimeline_UsesMemberScopedAnalysisCensus()
     {
         var vector = Vector("1.0.0", "1.0.1");
-        var subject = new FindingSubject(
-            "analysis.member:Sample.Widget:Run",
-            "Sample.Widget.Run");
+        var subject = AnalysisSubject();
         var occurrence = new UnsafetyOccurrence(
             MethodIdentity(),
             4,
@@ -179,6 +177,82 @@ public sealed class TimelineCommandTests
         Assert.Equal("Added", added.Transition);
         Assert.Equal("analysis.unsafety", added.Finding);
         Assert.Contains("StackAlloc byte*", added.Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AllocationTimeline_FormatsAnalysisTarget()
+    {
+        var vector = Vector("1.0.0", "1.0.1");
+        var subject = AnalysisSubject();
+        var occurrence = new AllocationOccurrence(
+            MethodIdentity(),
+            ILOffset: 4,
+            OperandToken: 0x0A000001,
+            AllocationKind.Object,
+            TypeRef.CoreLib("System", "Object"),
+            Detail: null,
+            CountsAsHeapAllocation: true,
+            AllocationFrequency.Always,
+            InLoop: false,
+            AllocationEscape.Unknown,
+            AllocationFactSource.Newobj);
+
+        var view = TimelineCommand.BuildAllocationView(
+            vector,
+            "Sample.Widget",
+            "Run",
+            [
+                new TimelineCommand.TimelineFindingEvaluation<AllocationOccurrence>(
+                    vector.Addresses[0],
+                    new FindingInspection<AllocationOccurrence>.Complete([])),
+                new TimelineCommand.TimelineFindingEvaluation<AllocationOccurrence>(
+                    vector.Addresses[1],
+                    new FindingInspection<AllocationOccurrence>.Complete(
+                        AnalysisFindings.InspectAllocations([occurrence], subject))),
+            ],
+            Sections());
+
+        Assert.Equal(
+            "Sample.Widget.Run :: Newobj/Object object",
+            Assert.Single(view.Transitions!).Target);
+    }
+
+    [Fact]
+    public void CallSiteTimeline_FormatsAnalysisTarget()
+    {
+        var vector = Vector("1.0.0", "1.0.1");
+        var subject = AnalysisSubject();
+        var call = new DirectCall(
+            MethodIdentity(),
+            new MemberRef(
+                TypeRef.CoreLib("System", "Math"),
+                "Abs",
+                [TypeRef.CoreLib("System", "Int32")],
+                TypeRef.CoreLib("System", "Int32"),
+                MemberKind.Method),
+            ILOffset: 4,
+            OperandToken: 0x0A000001,
+            CalleeDefinitionToken: 0x0A000001,
+            CallKind.Call);
+
+        var view = TimelineCommand.BuildCallSiteView(
+            vector,
+            "Sample.Widget",
+            "Run",
+            [
+                new TimelineCommand.TimelineFindingEvaluation<DirectCall>(
+                    vector.Addresses[0],
+                    new FindingInspection<DirectCall>.Complete([])),
+                new TimelineCommand.TimelineFindingEvaluation<DirectCall>(
+                    vector.Addresses[1],
+                    new FindingInspection<DirectCall>.Complete(
+                        AnalysisFindings.InspectCallSites([call], subject))),
+            ],
+            Sections());
+
+        Assert.Equal(
+            "Sample.Widget.Run :: System.Math.Abs(int)",
+            Assert.Single(view.Transitions!).Target);
     }
 
     [Fact]
@@ -494,6 +568,11 @@ public sealed class TimelineCommandTests
             TypeRef.CoreLib("System", "Void"),
             0x06000001,
             IsStatic: true);
+
+    static FindingSubject AnalysisSubject()
+        => new(
+            "analysis.member:Sample.Widget:Run",
+            "Sample.Widget.Run");
 
     public static unsafe int ReadPointer(int* value)
         => *value;

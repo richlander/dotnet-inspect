@@ -41,7 +41,8 @@ internal static class LibraryMetadataService
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
-        bool integrationEvidenceUnavailable = false,
+        AssemblyIntegrationOpportunitiesEntry?
+            integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
@@ -51,26 +52,11 @@ internal static class LibraryMetadataService
         {
             // Expand declared scanner prerequisites before narrowing body-analysis features, so a
             // prerequisite that needs the body index is not missed by the narrowing.
-            HashSet<string>? effectiveScanners = scanners;
-            if (integrationEvidenceUnavailable
-                && scanners?.Contains(
-                    LibrarySections.ScannerIntegrationOpportunities)
-                    == true)
-            {
-                effectiveScanners =
-                    new HashSet<string>(scanners, scanners.Comparer);
-                effectiveScanners.Remove(
-                    LibrarySections.ScannerIntegrationOpportunities);
-                logger.Log(
-                    "Skipping integration opportunities because grouped "
-                    + $"Integrations evidence is unavailable for '{path}'.");
-            }
-
             var requiredScanners =
                 scannerRegistry is not null
-                    && effectiveScanners is not null
-                    ? scannerRegistry.ExpandRequired(effectiveScanners)
-                    : effectiveScanners;
+                    && scanners is not null
+                    ? scannerRegistry.ExpandRequired(scanners)
+                    : scanners;
             if (requiredScanners is not null)
                 trace?.RecordClosure(requiredScanners);
             var requiredQueries = queryRegistry is not null && queries is not null
@@ -225,14 +211,20 @@ internal static class LibraryMetadataService
                     logger,
                     integrationsEntry);
             }
+            if (integrationOpportunitiesEntry is not null)
+            {
+                ApplyAssemblyIntegrationOpportunitiesEntry(
+                    path,
+                    inspection,
+                    logger,
+                    integrationOpportunitiesEntry);
+            }
 
             // PE debug directory fields
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
             inspection.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
             inspection.PdbPath = pdbContext.CodeViewPdbPath;
-            inspection.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
-            inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
-            inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
+            ApplySourceLinkAudit(service, inspection);
 
             // Run legacy scanners and typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
@@ -566,7 +558,28 @@ internal static class LibraryMetadataService
             }
         }
 
+        ApplySourceLinkAudit(service, inspection);
         inspection.Builder = InferBuilder(inspection);
+    }
+
+    private static void ApplySourceLinkAudit(
+        SourceLinkService service,
+        LibraryInspection inspection)
+    {
+        SourceLinkDebugAudit audit =
+            SourceLinkInspector.InspectDebugInformation(service);
+        inspection.HasSourceLink = audit.SourceLinkMap.IsPresent;
+        inspection.SourceLinkJson = service.SourceLinkJson;
+        inspection.SourceLinkMap = audit.SourceLinkMap.IsPresent
+            ? audit.SourceLinkMap
+            : null;
+        inspection.HasNormalizedPaths = audit.HasNormalizedPaths;
+        inspection.NonNormalizedPaths = audit.NonNormalizedPaths is null
+            ? null
+            : [.. audit.NonNormalizedPaths];
+        inspection.IsDeterministic =
+            service.Context.HasReproducibleFlag
+            && audit.HasNormalizedPaths != false;
     }
 
     /// <summary>
@@ -1548,46 +1561,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ScanIntegrationOpportunities(string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            ScanIntegrationOpportunities(session, path, inspection, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
-            MarkIntegrationFailuresIfMissing(path, inspection, ex);
-        }
-    }
-
-    internal static void ScanIntegrationOpportunities(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        if (inspection.EcosystemIntegrationInspection.Failure() is not null
-            || inspection.OpenTelemetryInspection.Failure() is not null)
-        {
-            inspection.IntegrationOpportunities = null;
-            return;
-        }
-
-        try
-        {
-            var existing = new HashSet<string>(
-                LibraryIntegrationCatalog.All
-                    .Where(descriptor => descriptor.GetSignals(inspection).Count > 0)
-                    .Select(descriptor => descriptor.Name),
-                StringComparer.Ordinal);
-            var gaps = session.IntegrationOpportunities(existing);
-            inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
-            MarkIntegrationFailuresIfMissing(path, inspection, ex);
-        }
-    }
-
     /// <summary>
     /// Scans an assembly for manifest resources.
     /// </summary>
@@ -2109,6 +2082,42 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown assembly integrations entry '{entry.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyAssemblyIntegrationOpportunitiesEntry(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        AssemblyIntegrationOpportunitiesEntry entry)
+    {
+        inspection.AssemblyIntegrationOpportunitiesEntry = entry;
+        switch (entry)
+        {
+            case AssemblyIntegrationOpportunitiesEntry.Available available:
+                inspection.IntegrationOpportunities =
+                    available.Opportunities.IsDefaultOrEmpty
+                        ? null
+                        : [.. available.Opportunities];
+                break;
+
+            case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
+                logger.LogWarning(
+                    $"Error acquiring integration opportunity metadata for {path}: "
+                    + $"{rejected.Failure.Kind}: {rejected.Failure.Detail}");
+                inspection.IntegrationOpportunities = null;
+                break;
+
+            case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                logger.LogWarning(
+                    $"Error reading integration opportunity metadata of {path}: "
+                    + failed.Error.Message);
+                inspection.IntegrationOpportunities = null;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown assembly integration opportunities entry '{entry.GetType().Name}'.");
         }
     }
 
