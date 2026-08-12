@@ -140,7 +140,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -154,6 +154,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -284,6 +285,9 @@ to entry points and outbound calls in one view), and project per-node cost with
 `--rows` selects the same ordered relationships in every rendering. Markdown
 defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
 standalone diagram, or `--markdown --mermaid` for an embedded diagram.
+When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
+`Call Graph` traverses both callers and callees across that scope; `Callers`
+retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -393,14 +397,16 @@ counting newlines rather than stored. `text` is well-formed UTF-16 — an unpair
 surrogate is rejected, never repaired, because JSON would replace it with U+FFFD
 and shift every later span; malformed IL operand and fact text arrives already
 contained as a visible `\uXXXX` spelling. `nodes` name text structure (C# syntax
-kinds, plus one `Instruction` node per rendered IL line carrying its `il_offset`),
+kinds from a stable rendered-syntax catalog, plus one `Instruction` node per
+rendered IL line carrying its `il_offset`),
 `regions` name construct parts, `facts` are the semantic observations stated once
 each, and `targets` is the only join between them — fact to node, then node spans
 to text. A node carries several spans when interleaved IL splits its construct,
 and the C# line breaks it printed stay inside those spans, so concatenating them
 reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
 carry an `il_offset`, and a fact with no target is explicitly unanchored rather
-than missing.
+than missing. Producers never expose decompiler CLR type names as kinds;
+consumers tolerate unfamiliar kinds so the catalog can grow additively.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -530,6 +536,10 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 
 For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, `member Type -m Name` uses `Methods` overload rows, and a selected `member Type.Member:N` renders `Signature`. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
 
+Package uses `@Package` and `@Files` for its ordinary evidence, with focused
+`@Dependencies`, `@Audit`, and `@SourceLink` doors. Library similarly uses
+`@Library` and `@Surface` as its ordinary evidence scope.
+
 ## Common examples
 
 ```bash
@@ -540,6 +550,9 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S @Package
+dotnet-inspect package System.Text.Json -S @Dependencies
+dotnet-inspect package System.Text.Json -S @Audit
 dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json --versions
@@ -562,6 +575,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S C
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
+dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll -S "Call Graph" --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --tree
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --markdown --mermaid

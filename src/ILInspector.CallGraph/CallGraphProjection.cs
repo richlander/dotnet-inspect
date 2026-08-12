@@ -84,6 +84,19 @@ public readonly record struct CallGraphEdge(int From, int To, string? LoopLabel)
 /// </param>
 public readonly record struct CallGraphRow(int Number, CallGraphEdge Edge);
 
+/// <summary>The outcome of locating one physical focus call in a projection.</summary>
+public enum CallGraphRowMatch
+{
+    /// <summary>The call maps to exactly one projected logical edge.</summary>
+    Found,
+
+    /// <summary>The bounded projection contains no edge for the call.</summary>
+    NotProjected,
+
+    /// <summary>More than one projected edge claims the call.</summary>
+    Ambiguous,
+}
+
 /// <summary>
 /// A format-neutral projection of the typed call-graph facts that
 /// <c>ILInspector.Analysis</c> produces (<see cref="CallTreeNode"/> caller and callee roots
@@ -112,12 +125,20 @@ public readonly record struct CallGraphRow(int Number, CallGraphEdge Edge);
 /// appear in first-seen order.
 /// </para>
 /// </summary>
-public sealed class CallGraphProjection
+public sealed partial class CallGraphProjection
 {
-    private CallGraphProjection(ImmutableArray<CallGraphNode> nodes, ImmutableArray<CallGraphEdge> edges)
+    private CallGraphProjection(
+        ImmutableArray<CallGraphNode> nodes,
+        ImmutableArray<CallGraphEdge> edges,
+        bool hasUnexploredTraversalBoundary,
+        bool hasAnalysisFailureBoundary)
     {
         Nodes = nodes;
         Edges = edges;
+        HasUnexploredTraversalBoundary =
+            hasUnexploredTraversalBoundary;
+        HasAnalysisFailureBoundary =
+            hasAnalysisFailureBoundary;
 
         var rows = ImmutableArray.CreateBuilder<CallGraphRow>(edges.Length);
         for (var i = 0; i < edges.Length; i++)
@@ -140,8 +161,78 @@ public sealed class CallGraphProjection
     /// <summary>The number of edge rows in this projection.</summary>
     public int RowCount => Rows.Length;
 
+    /// <summary>
+    /// Whether the outbound traversal stopped at an unresolved external,
+    /// depth, or node boundary.
+    /// </summary>
+    public bool HasUnexploredTraversalBoundary { get; }
+
+    /// <summary>
+    /// Whether the outbound traversal contains a recoverable body-analysis failure.
+    /// Positive graph evidence remains valid, but absence is not exhaustive.
+    /// </summary>
+    public bool HasAnalysisFailureBoundary { get; }
+
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];
+
+    /// <summary>
+    /// Resolves one physical call site in the selected member to its stable
+    /// logical edge row. Exact catalog storage evidence wins; a unique typed
+    /// structural match handles assembly-local projections.
+    /// </summary>
+    public CallGraphRowMatch FindFocusCalleeRow(
+        DirectCall call,
+        out CallGraphRow row)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+
+        CallGraphRow[] exact =
+        [
+            .. Rows.Where(candidate =>
+                candidate.Edge.From == Focus.Id
+                && Nodes[candidate.Edge.To].GraphEvidence.Any(evidence =>
+                    evidence.Storage.Kind
+                        == GraphNodeStorageKind.CallSite
+                    && evidence.Storage.ModuleVersionId
+                        == call.Caller.ModuleVersionId
+                    && evidence.Storage.MethodToken
+                        == call.Caller.MetadataToken
+                    && evidence.Storage.ILOffset == call.ILOffset
+                    && evidence.Storage.OperandToken
+                        == call.OperandToken)),
+        ];
+        if (exact.Length == 1)
+        {
+            row = exact[0];
+            return CallGraphRowMatch.Found;
+        }
+        if (exact.Length > 1)
+        {
+            row = default;
+            return CallGraphRowMatch.Ambiguous;
+        }
+
+        GraphNodeIdentity callee =
+            GraphNodeIdentity.FromMember(call.Callee);
+        CallGraphRow[] structural =
+        [
+            .. Rows.Where(candidate =>
+                candidate.Edge.From == Focus.Id
+                && GraphNodeIdentity.FromMember(
+                    Nodes[candidate.Edge.To].Member) == callee),
+        ];
+        if (structural.Length == 1)
+        {
+            row = structural[0];
+            return CallGraphRowMatch.Found;
+        }
+
+        row = default;
+        return structural.Length > 1
+            ? CallGraphRowMatch.Ambiguous
+            : CallGraphRowMatch.NotProjected;
+    }
 
     /// <summary>
     /// Projects the combined caller/target/callee view. Both roots are the selected
@@ -197,7 +288,19 @@ public sealed class CallGraphProjection
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
             builder.WalkCallees(calleeRoot, focusId);
-        return builder.Build();
+        // A reverse tree is closed only over its indexed caller scope: a Leaf
+        // means "no callers here", not "no callers anywhere". Only the body-owned
+        // outbound traversal can prove that no focus cycle exists.
+        bool hasUnexploredTraversalBoundary =
+            !IsTraversalComplete(
+                calleeRoot,
+                useGraphEvidence)
+            || HasUnresolvedDispatch(calleeRoot);
+        bool hasAnalysisFailureBoundary =
+            HasAnalysisFailure(calleeRoot);
+        return builder.Build(
+            hasUnexploredTraversalBoundary,
+            hasAnalysisFailureBoundary);
     }
 
     /// <summary>Projects the inbound (caller) half only, centered on the selected overload.</summary>
@@ -287,7 +390,9 @@ public sealed class CallGraphProjection
             }
         }
 
-        public CallGraphProjection Build()
+        public CallGraphProjection Build(
+            bool hasUnexploredTraversalBoundary,
+            bool hasAnalysisFailureBoundary)
         {
             var nodes = ImmutableArray.CreateBuilder<CallGraphNode>(_nodes.Count);
             foreach (var node in _nodes)
@@ -301,7 +406,11 @@ public sealed class CallGraphProjection
                         node.Perf,
                         [.. node.GraphEvidence]));
             }
-            return new CallGraphProjection(nodes.MoveToImmutable(), [.. _edges]);
+            return new CallGraphProjection(
+                nodes.MoveToImmutable(),
+                [.. _edges],
+                hasUnexploredTraversalBoundary,
+                hasAnalysisFailureBoundary);
         }
 
         private int GetOrAdd(
@@ -390,6 +499,36 @@ public sealed class CallGraphProjection
         return true;
     }
 
+    static bool IsTraversalComplete(
+        CallTreeNode? root,
+        bool useGraphEvidence)
+    {
+        if (root is null)
+            return false;
+
+        var completeByIdentity =
+            new Dictionary<GraphNodeIdentity, bool>();
+        Add(root);
+        return completeByIdentity.Values.All(
+            static complete => complete);
+
+        void Add(CallTreeNode node)
+        {
+            GraphNodeIdentity identity =
+                Identity(node, useGraphEvidence);
+            bool complete = node.Status
+                is CallTreeStatus.Expanded
+                or CallTreeStatus.Leaf;
+            completeByIdentity.TryGetValue(
+                identity,
+                out bool alreadyComplete);
+            completeByIdentity[identity] =
+                alreadyComplete || complete;
+            foreach (CallTreeNode child in node.Children)
+                Add(child);
+        }
+    }
+
     /// <summary>Compact, host-neutral member spelling offered as a default node label.</summary>
     internal static string Label(MemberRef member)
     {
@@ -406,9 +545,24 @@ public sealed class CallGraphProjection
     private static CallGraphNodeKind KindFor(CallTreeStatus status) => status switch
     {
         CallTreeStatus.External => CallGraphNodeKind.External,
-        CallTreeStatus.DepthLimited or CallTreeStatus.Truncated => CallGraphNodeKind.Truncated,
+        CallTreeStatus.DepthLimited
+            or CallTreeStatus.Truncated
+            or CallTreeStatus.Bodiless
+            or CallTreeStatus.AnalysisIncomplete
+                => CallGraphNodeKind.Truncated,
         _ => CallGraphNodeKind.Normal,
     };
+
+    private static bool HasAnalysisFailure(CallTreeNode? node)
+        => node is not null
+            && (node.Status == CallTreeStatus.AnalysisIncomplete
+                || node.Diagnostic is not null
+                || node.Children.Any(HasAnalysisFailure));
+
+    private static bool HasUnresolvedDispatch(CallTreeNode? node)
+        => node is not null
+            && (node.HasUnresolvedDispatch
+                || node.Children.Any(HasUnresolvedDispatch));
 
     // The loop flag lives on the deeper (child) node and describes the parent↔child
     // call edge: for a callee tree the parent calls the child in a loop; for a caller

@@ -566,6 +566,7 @@ public class PackageCommand
             resolution = outcome.Result!;
 
             extractPath = resolution.ExtractPath;
+            packageName = resolution.PackageName ?? packageName;
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
@@ -643,10 +644,10 @@ public class PackageCommand
                 : null;
 
             var result = await PackageInspector.InspectAsync(
-                extractPath, packageName, version, target.IsLocalFile,
+                resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
-                nuspec, client, logger, options.ForceLatest, options.Verbosity,
-                resolution.NupkgPath,
+                nuspec, client, logger,
+                options.ForceLatest, options.Verbosity,
                 fetchMetadata: wantsSignals,
                 sourceOptions: options.SourceOptions);
 
@@ -687,6 +688,12 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (wantsSignals && options.Count && !effectiveDiscovery)
+            {
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
+
             // Effective discovery renders the discovered rows below and answers the projection
             // against them. Counting here would count the package document instead, which is a
             // different payload than the one -D displays.
@@ -726,14 +733,9 @@ public class PackageCommand
 
             if (wantsSignals)
             {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger,
-                    acquirePdb: true, options.SourceOptions);
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
             }
-
-            if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, client, logger, options.SourceOptions);
 
             // Output results
             if (effectiveDiscovery)
@@ -941,12 +943,11 @@ public class PackageCommand
                 queryRegistry);
             if (result == null)
                 return 1;
-            FilterResultForOutput(result, options);
             results.Add(result);
         }
 
         if (options.Count)
-            return WriteMultiPackageCount(results, rowSection, options);
+            return WriteMultiPackageCount(results, rowSection, options, pipeline);
 
         if (options.JsonOutput)
         {
@@ -974,11 +975,21 @@ public class PackageCommand
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
         string? rowSection,
-        InspectionOptions options)
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        CountOutput.WriteCount(
-            CountMultiPackageRows(results, rowSection, options),
-            options.OutputPath);
+        if (rowSection == null
+            && options.IncludeSections is { Count: 1 } selectedSections
+            && selectedSections.Contains(PackageSections.Signals))
+        {
+            OutputFormatter.WritePackageResultsCount(results, options, pipeline);
+        }
+        else
+        {
+            CountOutput.WriteCount(
+                CountMultiPackageRows(results, rowSection, options),
+                options.OutputPath);
+        }
         return PackageIntegrityExitCode([.. results]);
     }
 
@@ -1539,7 +1550,10 @@ public class PackageCommand
 
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
-            var packageId = nuspec?.PackageName ?? target.PackageName;
+            var packageId =
+                nuspec?.PackageName
+                ?? resolution.PackageName
+                ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
             var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
             return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options);
@@ -1593,6 +1607,8 @@ public class PackageCommand
             resolution = outcome.Result!;
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
+            string resolvedPackageName =
+                resolution.PackageName ?? target.PackageName;
 
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
@@ -1606,8 +1622,8 @@ public class PackageCommand
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
             var result = await PackageInspector.InspectAsync(
-                extractPath,
-                target.PackageName,
+                resolution,
+                resolvedPackageName,
                 version,
                 target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
@@ -1616,7 +1632,6 @@ public class PackageCommand
                 logger,
                 options.ForceLatest,
                 options.Verbosity,
-                resolution.NupkgPath,
                 fetchMetadata: wantsSignals,
                 sourceOptions: options.SourceOptions);
 
@@ -1639,7 +1654,7 @@ public class PackageCommand
                 await PopulatePackageSourceLinkAsync(
                     result,
                     extractPath,
-                    target.PackageName,
+                    resolvedPackageName,
                     version,
                     options,
                     context,
@@ -1648,10 +1663,12 @@ public class PackageCommand
                     sourceQueries);
             }
 
+            FilterResultForOutput(result, options);
+
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, target.PackageName, version, context.HttpClient, logger,
+                    extractPath, resolvedPackageName, version, context.HttpClient, logger,
                     acquirePdb: true, options.SourceOptions);
                 await AuditSignalBuilder.PopulatePackageAuditAsync(
                     result, context.HttpClient, logger, options.SourceOptions);
@@ -1673,6 +1690,22 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task PopulatePackageSignalsAsync(
+        InspectionResult result,
+        string extractPath,
+        string? packageName,
+        string? version,
+        HttpClient client,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
+    {
+        result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+            extractPath, packageName, version, client, logger,
+            acquirePdb: true, sourceOptions);
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, client, logger, sourceOptions);
     }
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)

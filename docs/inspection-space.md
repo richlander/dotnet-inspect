@@ -15,13 +15,14 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
-custom-attribute, SourceLink, API-comparison, implementation-relationship, and
-type/member search inspection are the first typed-query canaries: commands and
-section catalogs plan typed demand while queries remain independent of
-acquisition and output. The `diff` Changes section consumes one API-comparison
-result over host-resolved surfaces, retaining Metadata-owned Finding
-correspondence and compatibility classification without coupling the query to
-endpoint acquisition or output. The library CLI and package
+custom-attribute, manifest-resource, SourceLink, and API-comparison inspection
+plus implementation-relationship and type/member search inspection are the
+first typed-query canaries: commands and section catalogs plan typed demand
+while queries remain independent of acquisition and output. The `diff` Changes
+section consumes one API-comparison result over host-resolved surfaces,
+retaining Metadata-owned Finding correspondence and compatibility
+classification without coupling the query to endpoint acquisition or output.
+The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group per binding universe
 scans selected participants sequentially, preserves per-assembly identity,
@@ -557,12 +558,13 @@ The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
 tracing are useful foundations. `DotnetInspector.Queries` and its optional
 Research-backed companion now own typed metadata, direct-reference,
-extension-method, custom-attribute, SourceLink, API-comparison, and Analysis
-body-signal comparison plans. The Analysis query consumes old/new
-`LibraryBodyIndex` collections and returns `ResearchComparison`; the diff CLI
-still owns lazy path-to-index acquisition as a transitional adapter. String
-keys, mutable CLI models, path-shaped residual inputs, and command-owned
-acquisition remain migration boundaries rather than workspace contracts.
+extension-method, custom-attribute, manifest-resource, SourceLink,
+API-comparison, and Analysis body-signal comparison plans. The Analysis query
+consumes old/new `LibraryBodyIndex` collections and returns
+`ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
+a transitional adapter. String keys, mutable CLI models, path-shaped residual
+inputs, and command-owned acquisition remain migration boundaries rather than
+workspace contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic
 prerequisite order. It passes each query's maximum transitive cost into the host

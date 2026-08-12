@@ -28,12 +28,16 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 ```
 
 ```bash
-dotnet-inspect Microsoft.Extensions.AI -v:q
+dotnet-inspect Microsoft.Extensions.AI@9.9.1 -v:q
+```
+
+```bash
+dotnet-inspect Markout@0.33.0 -v:q
 ```
 
 ## 1. View package metadata
 
-> Goal: See package summary with author, license, and publish date.
+> Goal: See package summary with author, license, and build date.
 
 ### 1a. Quiet summary
 
@@ -42,7 +46,7 @@ What version of System.CommandLine do I have?
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine -v:q
+dotnet-inspect package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
@@ -53,16 +57,16 @@ Source: NuGet
 ### 1b. Detailed metadata
 
 ```bash
-dotnet-inspect package System.CommandLine -v:d -n 20
+dotnet-inspect package System.CommandLine@2.0.3 -S "Package Info"
 ```
 
 ```expect
 # System.CommandLine
 ## Package Info
-| Property | Value |
+| Field | Value |
 Version
 TFM
-Published
+Built
 Source
 ```
 
@@ -81,20 +85,20 @@ What does Microsoft.Extensions.AI depend on?
 ```
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI --dependencies
+dotnet-inspect package Microsoft.Extensions.AI@9.9.1 --dependencies
 ```
 
 ```expect
-├─ Microsoft.Extensions.AI.Abstractions
-├─ Microsoft.Extensions.Caching.Abstractions
-├─ Microsoft.Extensions.DependencyInjection.Abstractions
-├─ Microsoft.Extensions.Logging.Abstractions
+Microsoft.Extensions.AI.Abstractions
+Microsoft.Extensions.Caching.Abstractions
+Microsoft.Extensions.DependencyInjection.Abstractions
+Microsoft.Extensions.Logging.Abstractions
 ```
 
 ### 2b. Package with no dependencies
 
 ```bash
-dotnet-inspect package System.CommandLine --dependencies
+dotnet-inspect package System.CommandLine@2.0.3 --dependencies
 ```
 
 ```expect
@@ -109,25 +113,25 @@ No additional dependencies
 ### 3a. Full layout
 
 ```bash
-dotnet-inspect package System.CommandLine --layout -n 15
+dotnet-inspect package System.CommandLine@2.0.3 --layout -n 65
 ```
 
 ```expect
-├─ Icon.png
-├─ README.md
-└─ lib
+Icon.png
+README.md
+lib
 ```
 
 ### 3b. Lib-only layout
 
 ```bash
-dotnet-inspect package System.CommandLine --layout --lib -n 10
+dotnet-inspect package System.CommandLine@2.0.3 --layout --lib -n 25
 ```
 
 ```expect
-└─ lib
-   ├─ net8.0
-   │  ├─ System.CommandLine.dll
+lib
+net8.0
+System.CommandLine.dll
 ```
 
 ## 4. List package files
@@ -137,7 +141,7 @@ dotnet-inspect package System.CommandLine --layout --lib -n 10
 ### 4a. All files
 
 ```bash
-dotnet-inspect package System.CommandLine --files -n 10
+dotnet-inspect package System.CommandLine@2.0.3 --path -n 10
 ```
 
 ```expect
@@ -148,7 +152,7 @@ lib/net8.0/System.CommandLine.dll
 ### 4b. Lib files only
 
 ```bash
-dotnet-inspect package System.CommandLine --files --lib
+dotnet-inspect package System.CommandLine@2.0.3 --path 'lib/**'
 ```
 
 ```expect
@@ -159,7 +163,7 @@ lib/netstandard2.0/System.CommandLine.dll
 ### 4c. Files for a specific TFM
 
 ```bash
-dotnet-inspect package System.CommandLine --files --tfm net8.0
+dotnet-inspect package System.CommandLine@2.0.3 --path 'lib/net8.0/**'
 ```
 
 ```expect
@@ -176,7 +180,7 @@ What frameworks does System.CommandLine target?
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine --tfms
+dotnet-inspect package System.CommandLine@2.0.3 --tfms
 ```
 
 ```expect
@@ -192,8 +196,10 @@ wc -l | tr -d ' '
 
 > Goal: Read the best README document from inside the nupkg.
 
+### 6a. Print the README
+
 ```bash
-dotnet-inspect package System.CommandLine -S "Package README file" --print
+dotnet-inspect package System.CommandLine@2.0.3 -S "Package README file" --print
 ```
 
 ```expect
@@ -204,7 +210,7 @@ Use `--path` to resolve package-relative file locations, then add `--content`
 to print selected file bodies. Markdown content can be scoped to the YAML header
 or body:
 
-```bash
+```text
 dotnet-inspect package Markout -S "Package README file"
 dotnet-inspect package Markout -S "Package Info" --fields Version --value
 dotnet-inspect package Markout -S "Package README file" --print
@@ -220,6 +226,16 @@ dotnet-inspect package Markout Polly --path @agents --path @readme --match first
 `project` grounding and API commands with `--project` both use an existing
 `project.assets.json` as the restored-assets context. Passing a project file or
 directory only locates that file; dotnet-inspect does not restore or build.
+
+### 6b. Resolve package skill paths
+
+```bash
+dotnet-inspect package Markout@0.33.0 -S "Package skill files" --paths
+```
+
+```expect
+skills/markout/SKILL.md
+```
 
 ## 7. Search NuGet for packages
 

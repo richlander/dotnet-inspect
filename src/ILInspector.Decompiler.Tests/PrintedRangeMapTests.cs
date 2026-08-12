@@ -129,8 +129,9 @@ public class PrintedRangeMapTests
     [InlineData(nameof(AllocSampleClass.SumEnumerable))]
     public void TryGetLine_AgreesWithCountingNewlinesIndependently(string methodName)
     {
-        // The line is now a projection of the range rather than separately
-        // recorded, so it has to reproduce what the old scan computed.
+        // Ordinary nodes project their line from the range. Statements whose
+        // syntax excludes generated setup retain an explicit earlier anchor;
+        // those exceptional forms have dedicated tests.
         var (output, ranges) = Print(methodName);
 
         foreach (var range in ranges)

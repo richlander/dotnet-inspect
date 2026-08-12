@@ -145,16 +145,27 @@ public static class OutputFormatter
     /// writer never sees: the <c>@Metadata</c> lens (#3619) and the package all-libraries
     /// aggregates (#3624).
     /// </remarks>
-    public static void WriteWindowedMarkdown(TextWriter output, RowWindow? rows,
-        Func<MarkoutWriterOptions, string> serialize) =>
-        output.WriteLine(serialize(CreateWindowedOptions(rows)).TrimEnd());
+    public static void WriteWindowedMarkdown(
+        TextWriter output,
+        RowWindow? rows,
+        Func<MarkoutWriterOptions, string> serialize,
+        string[]? columns = null,
+        string[]? fields = null) =>
+        output.WriteLine(serialize(CreateWindowedOptions(rows, columns, fields)).TrimEnd());
 
     /// <summary>
-    /// Creates writer options carrying only a <c>--rows</c> window, for callers that serialize
-    /// directly rather than through <see cref="WriteWindowedMarkdown"/>.
+    /// Creates writer options carrying a <c>--rows</c> window and optional projection, for callers
+    /// that serialize directly rather than through <see cref="WriteWindowedMarkdown"/>.
     /// </summary>
-    public static MarkoutWriterOptions CreateWindowedOptions(RowWindow? rows) =>
-        new() { RowWindow = RowWindow.ToMarkout(rows) };
+    public static MarkoutWriterOptions CreateWindowedOptions(
+        RowWindow? rows,
+        string[]? columns = null,
+        string[]? fields = null) =>
+        new()
+        {
+            RowWindow = RowWindow.ToMarkout(rows),
+            Projection = BuildProjection(columns, fields)
+        };
 
     /// <summary>
     /// Writes <paramref name="payload"/> followed by a single LF, for payloads whose interior is
@@ -306,6 +317,18 @@ public static class OutputFormatter
             return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
 
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
+    }
+
+    public static void WritePackageResultsCount(
+        IReadOnlyList<InspectionResult> results,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        var renderOptions = options with { Count = false, JsonOutput = false };
+        CountOutput.WriteCount(
+            results.Sum(result => CountOutput.CountMarkdownTableRows(
+                FormatResult(result, renderOptions, pipeline))),
+            options.OutputPath);
     }
 
     /// <summary>

@@ -235,6 +235,20 @@ public sealed class CatalogCallGraphScope : IDisposable
     }
 
     /// <summary>
+    /// Detaches one tree from this scope's catalog generation while preserving
+    /// physical evidence and safe logical joins.
+    /// </summary>
+    /// <remarks>
+    /// <c>CatalogCallGraphScopeTests</c> gates version-skew separation,
+    /// repeated external joins, and independent-acquisition identity.
+    /// </remarks>
+    public CallTreeNode Detach(CallTreeNode root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        return Graph.Detach(root);
+    }
+
+    /// <summary>
     /// Releases physical graph storage and its frozen generation. Catalog
     /// acquisition caches remain available for a later rebuild.
     /// </summary>
@@ -500,6 +514,17 @@ public sealed class CatalogCallGraphScope : IDisposable
             foreach (CatalogCallGraphParticipant participant
                 in participants)
             {
+                HashSet<int> bodyTokens =
+                [
+                    .. participant.Index.Methods.Select(
+                        method => method.MetadataToken),
+                ];
+                Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+                    participant.Index.Diagnostics
+                        .GroupBy(diagnostic => diagnostic.MethodToken)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group.First());
                 foreach (MethodIdentity method
                     in participant.Index.DeclaredMethods)
                 {
@@ -521,7 +546,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                         method,
                         member,
                         storage,
-                        plan);
+                        plan,
+                        bodyTokens.Contains(method.MetadataToken),
+                        diagnosticsByToken.GetValueOrDefault(
+                            method.MetadataToken));
                     definitions.Add(pending);
                     definitionLocations.Add(
                         (participant.Index, method.MetadataToken),
@@ -577,7 +605,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                         definition.Member,
                         Evidence(
                             definition.Storage,
-                            definition.Plan.Projection!));
+                            definition.Plan.Projection!),
+                        definition.HasBody,
+                        definition.Diagnostic);
                     storedDefinitions.Add(stored);
                     storedDefinitionByPending.Add(definition, stored);
                 }
@@ -804,7 +834,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 GraphNodeEvidence evidence,
                 CallKind? kind,
                 int depth,
-                bool inLoop)
+                bool inLoop,
+                bool hasVirtualDispatchOccurrence)
             {
                 GraphNodeIdentity identity = evidence.Identity;
                 StoredDefinition? definition = DefinitionFor(identity);
@@ -821,13 +852,20 @@ public sealed class CatalogCallGraphScope : IDisposable
                 string? source = external ? assembly : null;
                 string? loopHint = inLoop ? "loop" : null;
                 int fanin = _incoming.GetValueOrDefault(identity);
+                bool hasUnresolvedDispatch =
+                    hasVirtualDispatchOccurrence
+                    && definition?.Method.IsVirtualDispatchOpen == true;
 
                 if (!_forward.TryGetValue(identity, out var rawEdges))
                 {
                     CallTreeStatus leafStatus = depth > 0
                         && definition is null
                             ? CallTreeStatus.External
-                            : CallTreeStatus.Leaf;
+                            : definition?.Diagnostic is not null
+                                ? CallTreeStatus.AnalysisIncomplete
+                                : definition is { HasBody: false }
+                                    ? CallTreeStatus.Bodiless
+                                    : CallTreeStatus.Leaf;
                     return Node(
                         member,
                         kind,
@@ -842,16 +880,11 @@ public sealed class CatalogCallGraphScope : IDisposable
                             null,
                             signals,
                             source),
-                        evidence);
+                        evidence,
+                        definition?.Diagnostic,
+                        hasUnresolvedDispatch);
                 }
 
-                ImmutableArray<StoredEdge> edges = rawEdges
-                    .GroupBy(edge => edge.Callee.Evidence.Identity)
-                    .Select(group =>
-                        group.FirstOrDefault(
-                            edge => edge.Call.InLoop,
-                            group.First()))
-                    .ToImmutableArray();
                 int fanout = rawEdges.Length;
                 if (depth >= maxDepth)
                 {
@@ -869,7 +902,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                             null,
                             signals,
                             source),
-                        evidence);
+                        evidence,
+                        definition?.Diagnostic,
+                        hasUnresolvedDispatch);
                 }
                 if (!expanded.Add(identity))
                 {
@@ -887,13 +922,28 @@ public sealed class CatalogCallGraphScope : IDisposable
                             null,
                             signals,
                             source),
-                        evidence);
+                        evidence,
+                        definition?.Diagnostic,
+                        hasUnresolvedDispatch);
                 }
 
+                var edges = rawEdges
+                    .GroupBy(edge => edge.Callee.Evidence.Identity)
+                    .Select(group =>
+                        (
+                            Edge: group.FirstOrDefault(
+                                edge => edge.Call.InLoop,
+                                group.First()),
+                            HasVirtualDispatch:
+                                group.Any(edge =>
+                                    edge.Call.Kind
+                                        is CallKind.CallVirtual
+                                            or CallKind.LoadVirtualFunction)))
+                    .ToImmutableArray();
                 var children =
                     ImmutableArray.CreateBuilder<CallTreeNode>();
                 bool truncated = false;
-                foreach (StoredEdge edge in edges)
+                foreach (var edgeGroup in edges)
                 {
                     if (created >= budget)
                     {
@@ -901,20 +951,24 @@ public sealed class CatalogCallGraphScope : IDisposable
                         break;
                     }
                     created++;
+                    StoredEdge edge = edgeGroup.Edge;
                     children.Add(
                         Build(
                             edge.Callee.Call.Callee,
                             edge.Callee.Evidence,
                             edge.Call.Kind,
                             depth + 1,
-                            edge.Call.InLoop));
+                            edge.Call.InLoop,
+                            edgeGroup.HasVirtualDispatch));
                 }
 
                 CallTreeStatus status = truncated
                     ? CallTreeStatus.Truncated
-                    : children.Count == 0
-                        ? CallTreeStatus.Leaf
-                        : CallTreeStatus.Expanded;
+                    : definition?.Diagnostic is not null
+                        ? CallTreeStatus.AnalysisIncomplete
+                        : children.Count == 0
+                            ? CallTreeStatus.Leaf
+                            : CallTreeStatus.Expanded;
                 int treeDepth = children.Count == 0
                     ? 1
                     : 1 + children.Max(
@@ -933,7 +987,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                         null,
                         signals,
                         source),
-                    evidence);
+                    evidence,
+                    definition?.Diagnostic,
+                    hasUnresolvedDispatch);
             }
 
             return Build(
@@ -941,7 +997,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 Evidence,
                 kind: null,
                 depth: 0,
-                inLoop: false);
+                inLoop: false,
+                hasVirtualDispatchOccurrence: false);
         }
 
         public void Dispose() => _context.Dispose();
@@ -989,6 +1046,90 @@ public sealed class CatalogCallGraphScope : IDisposable
                 ? definitions[0]
                 : null;
 
+        internal CallTreeNode Detach(CallTreeNode root)
+        {
+            var detached = new Dictionary<
+                GraphNodeIdentity,
+                GraphNodeIdentity>();
+
+            GraphNodeIdentity DetachIdentity(
+                GraphNodeEvidence evidence,
+                bool isRoot)
+            {
+                if (detached.TryGetValue(
+                        evidence.Identity,
+                        out GraphNodeIdentity? existing))
+                {
+                    return existing;
+                }
+
+                GraphNodeIdentity identity;
+                if (isRoot
+                    && evidence.Storage.Kind
+                        == GraphNodeStorageKind.Definition)
+                {
+                    identity = GraphNodeIdentity.FromArtifactMember(
+                        evidence.Storage);
+                }
+                else if (_definitionsByIdentity.TryGetValue(
+                        evidence.Identity,
+                        out ImmutableArray<StoredDefinition> definitions)
+                    && definitions.Length == 1
+                    && (evidence.Storage.Kind
+                            == GraphNodeStorageKind.Definition
+                        || evidence.Kind
+                            == GraphCorrespondenceKind.Exact))
+                {
+                    identity = GraphNodeIdentity.FromArtifactMember(
+                        definitions[0].Evidence.Storage);
+                }
+                else if (evidence.Kind
+                    == GraphCorrespondenceKind.Incomplete)
+                {
+                    identity = GraphNodeIdentity.FromStorage(
+                        evidence.Storage);
+                }
+                else
+                {
+                    identity =
+                        GraphNodeIdentity.CreateDetachedCatalog();
+                }
+
+                detached.Add(evidence.Identity, identity);
+                return identity;
+            }
+
+            GraphNodeEvidence? DetachEvidence(
+                GraphNodeEvidence? evidence,
+                bool isRoot)
+            {
+                if (evidence is null)
+                    return null;
+
+                return new GraphNodeEvidence(
+                    evidence.Storage,
+                    DetachIdentity(evidence, isRoot),
+                    correspondence: null);
+            }
+
+            CallTreeNode DetachNode(
+                CallTreeNode node,
+                bool isRoot = false) =>
+                node with
+                {
+                    GraphEvidence = DetachEvidence(
+                        node.GraphEvidence,
+                        isRoot),
+                    Children =
+                    [
+                        .. node.Children.Select(
+                            child => DetachNode(child)),
+                    ],
+                };
+
+            return DetachNode(root, isRoot: true);
+        }
+
         static GraphNodeEvidence Evidence(
             GraphNodeStorageKey storage,
             CatalogMemberJoinProjection projection) =>
@@ -1022,10 +1163,15 @@ public sealed class CatalogCallGraphScope : IDisposable
             CallTreeStatus status,
             ImmutableArray<CallTreeNode> children,
             CallTreePerf perf,
-            GraphNodeEvidence evidence) =>
+            GraphNodeEvidence evidence,
+            AnalysisDiagnostic? diagnostic = null,
+            bool hasUnresolvedDispatch = false) =>
             new(member, kind, status, children, perf)
             {
                 GraphEvidence = evidence,
+                Diagnostic = diagnostic,
+                HasUnresolvedDispatch =
+                    hasUnresolvedDispatch,
             };
 
         static IOrderedEnumerable<StoredEdge> OrderForwardEdges(
@@ -1075,7 +1221,9 @@ public sealed class CatalogCallGraphScope : IDisposable
             MethodIdentity Method,
             MemberRef Member,
             GraphNodeStorageKey Storage,
-            PlanEntry Plan);
+            PlanEntry Plan,
+            bool HasBody,
+            AnalysisDiagnostic? Diagnostic);
 
         sealed record PendingCallSite(
             CatalogCallGraphParticipant Participant,
@@ -1089,12 +1237,16 @@ public sealed class CatalogCallGraphScope : IDisposable
                 CatalogCallGraphParticipant participant,
                 MethodIdentity method,
                 MemberRef member,
-                GraphNodeEvidence evidence)
+                GraphNodeEvidence evidence,
+                bool hasBody,
+                AnalysisDiagnostic? diagnostic)
             {
                 Participant = participant;
                 Method = method;
                 Member = member;
                 Evidence = evidence;
+                HasBody = hasBody;
+                Diagnostic = diagnostic;
                 Signals = participant.Index.GetMethodSignals()
                     .GetValueOrDefault(
                         method.MetadataToken,
@@ -1105,6 +1257,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal MethodIdentity Method { get; }
             internal MemberRef Member { get; }
             internal GraphNodeEvidence Evidence { get; }
+            internal bool HasBody { get; }
+            internal AnalysisDiagnostic? Diagnostic { get; }
             internal MethodSignals Signals { get; }
         }
 
