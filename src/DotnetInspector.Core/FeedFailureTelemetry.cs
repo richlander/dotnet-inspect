@@ -99,6 +99,19 @@ public static class FeedFailureTelemetry
             NetworkTelemetry.CurrentTrafficKind));
     }
 
+    /// <summary>
+    /// Records a failed request using the effective URI resolved by <see cref="HttpClient"/>.
+    /// </summary>
+    /// <param name="url">The effective request URI that failed.</param>
+    /// <param name="status">The status returned, or null when no response arrived.</param>
+    public static void Record(Uri url, HttpStatusCode? status)
+    {
+        CurrentValue.Value?.Add(new FeedFailure(
+            NetworkRequestObservation.RedactSensitiveUrl(url),
+            status,
+            NetworkTelemetry.CurrentTrafficKind));
+    }
+
     private sealed class CollectorScope(FeedFailureCollector? previous) : IDisposable
     {
         public void Dispose() => CurrentValue.Value = previous;
