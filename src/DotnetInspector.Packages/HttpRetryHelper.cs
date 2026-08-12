@@ -94,7 +94,9 @@ public static class HttpRetryHelper
     /// Core retry loop that handles transient failures with exponential backoff.
     /// </summary>
     private static async Task<HttpRetryResult> ExecuteWithRetryAsync(
-        Func<CancellationToken, Task<HttpResponseMessage>> requestFactory,
+        HttpClient client,
+        Func<HttpRequestMessage> requestFactory,
+        HttpCompletionOption completionOption,
         string url,
         string methodName,
         int retryCount,
@@ -106,19 +108,56 @@ public static class HttpRetryHelper
 
         while (true)
         {
+            Uri? effectiveRequestUri = null;
+            string? redactedUrl = null;
+            string RedactedUrl() =>
+                redactedUrl ??= (effectiveRequestUri is { } effectiveUri
+                    ? NetworkRequestObservation.RedactSensitiveUrl(effectiveUri)
+                    : NetworkRequestObservation.RedactSensitiveUrlText(url)).ToString();
+            void RecordFailure(HttpStatusCode? status)
+            {
+                if (effectiveRequestUri is { } effectiveUri)
+                    FeedFailureTelemetry.Record(effectiveUri, status);
+                else
+                    FeedFailureTelemetry.Record(url, status);
+            }
+            void CaptureEffectiveRequestUri(Uri? uri)
+            {
+                if (uri is not null)
+                {
+                    effectiveRequestUri = uri;
+                    redactedUrl = null;
+                }
+            }
+
             using (NetworkTelemetry.Scope(trafficKind))
             {
+                HttpRequestMessage? request = null;
                 try
                 {
-                    var response = await requestFactory(cancellationToken).ConfigureAwait(false);
+                    request = requestFactory();
+                    CaptureEffectiveRequestUri(
+                        ResolveInitialRequestUri(client, request.RequestUri));
+                    Task<HttpResponseMessage> sendTask =
+                        completionOption == HttpCompletionOption.ResponseContentRead
+                            ? client.SendAsync(request, cancellationToken)
+                            : client.SendAsync(request, completionOption, cancellationToken);
+                    var response = await sendTask.ConfigureAwait(false);
+                    CaptureEffectiveRequestUri(response.RequestMessage?.RequestUri ?? request.RequestUri);
 
                     if (response.IsSuccessStatusCode)
                     {
+                        if (!ReferenceEquals(response.RequestMessage, request))
+                            request.Dispose();
+                        request = null;
                         return new HttpRetryResult(response, response.StatusCode);
                     }
 
                     var statusCode = response.StatusCode;
+                    HttpRequestMessage? responseRequest = response.RequestMessage;
                     response.Dispose();
+                    if (!ReferenceEquals(responseRequest, request))
+                        responseRequest?.Dispose();
 
                     // Not found is not retryable, and is the one status that genuinely means the
                     // package is absent rather than the source being unreadable, so it is not
@@ -131,12 +170,12 @@ public static class HttpRetryHelper
                     // Check if retryable
                     if (!IsRetryableStatus(statusCode))
                     {
-                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
-                        FeedFailureTelemetry.Record(url, statusCode);
+                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {RedactedUrl()}");
+                        RecordFailure(statusCode);
                         return new HttpRetryResult(null, statusCode);
                     }
 
-                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {url}");
+                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {RedactedUrl()}");
                 }
                 catch (HttpRequestException ex)
                 {
@@ -144,20 +183,23 @@ public static class HttpRetryHelper
 
                     if (!isRetryable)
                     {
-                        log?.Invoke($"HTTP {methodName} error (not retryable): {ex.Message}");
-                        FeedFailureTelemetry.Record(url, null);
+                        string errorKind = socketError != SocketError.Success
+                            ? socketError.ToString()
+                            : ex.HttpRequestError.ToString();
+                        log?.Invoke($"HTTP {methodName} error {errorKind} (not retryable): {RedactedUrl()}");
+                        RecordFailure(null);
                         return new HttpRetryResult(null, null);
                     }
 
-                    log?.Invoke($"Socket error {socketError} (retryable): {url}");
+                    log?.Invoke($"Socket error {socketError} (retryable): {RedactedUrl()}");
                 }
-                catch (NotSupportedException ex)
+                catch (NotSupportedException)
                 {
                     // Thrown by HttpRequestMessage when the URL scheme is unsupported
                     // (e.g. file:// or a raw local folder path). Treat as non-retryable
                     // so a local folder NuGet source listed in NuGet.Config can't crash
                     // remote queries. Issue #310.
-                    log?.Invoke($"HTTP {methodName} unsupported URL (not retryable): {ex.Message}");
+                    log?.Invoke($"HTTP {methodName} unsupported URL (not retryable)");
                     return new HttpRetryResult(null, null);
                 }
                 catch (DotnetInspector.Core.OfflineException)
@@ -172,14 +214,18 @@ public static class HttpRetryHelper
                 catch (TaskCanceledException)
                 {
                     // Timeout - treat as retryable
-                    log?.Invoke($"{methodName} request timeout (retryable): {url}");
+                    log?.Invoke($"{methodName} request timeout (retryable): {RedactedUrl()}");
+                }
+                finally
+                {
+                    request?.Dispose();
                 }
 
                 // Check retry limit while the attempt's traffic currency is still active.
                 if (attempts++ >= retryCount)
                 {
-                    log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
-                    FeedFailureTelemetry.Record(url, null);
+                    log?.Invoke($"Max retries ({retryCount}) exceeded: {RedactedUrl()}");
+                    RecordFailure(null);
                     return new HttpRetryResult(null, null);
                 }
             }
@@ -189,6 +235,16 @@ public static class HttpRetryHelper
             log?.Invoke($"Retry #{attempts} after {delay.TotalMilliseconds:F0}ms");
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static Uri? ResolveInitialRequestUri(HttpClient client, Uri? requestUri)
+    {
+        if (requestUri is null || requestUri.IsAbsoluteUri || client.BaseAddress is null)
+            return requestUri;
+
+        return Uri.TryCreate(client.BaseAddress, requestUri, out Uri? resolved)
+            ? resolved
+            : requestUri;
     }
 
     /// <summary>
@@ -228,19 +284,18 @@ public static class HttpRetryHelper
         RangeHeaderValue? range = null)
     {
         return ExecuteWithRetryAsync(
-            ct =>
+            client,
+            () =>
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
                 request.Headers.Range = range;
-                return range is null
-                    ? client.SendAsync(request, ct)
-                    : client.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        ct);
+                return request;
             },
+            range is null
+                ? HttpCompletionOption.ResponseContentRead
+                : HttpCompletionOption.ResponseHeadersRead,
             url,
             "GET",
             retryCount,
@@ -325,13 +380,15 @@ public static class HttpRetryHelper
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
         var result = await ExecuteWithRetryAsync(
-            ct =>
+            client,
+            () =>
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
-                return client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                return request;
             },
+            HttpCompletionOption.ResponseHeadersRead,
             url,
             "GET",
             retryCount,
@@ -386,11 +443,9 @@ public static class HttpRetryHelper
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
         return ExecuteWithRetryAsync(
-            async ct =>
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Head, url);
-                return await client.SendAsync(request, ct).ConfigureAwait(false);
-            },
+            client,
+            () => new HttpRequestMessage(HttpMethod.Head, url),
+            HttpCompletionOption.ResponseContentRead,
             url,
             "HEAD",
             retryCount,
