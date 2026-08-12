@@ -2210,6 +2210,100 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(0, GroupCount(workspace));
     }
 
+    /// <summary>
+    /// The workspace contract end to end: a feed publishing only previews is
+    /// resolvable by the CLI, whose shared version policy falls back to them,
+    /// and is not resolvable by a context that did not ask for prereleases.
+    /// </summary>
+    [Fact]
+    public async Task FloatingMember_WithOnlyPrereleases_CreatesNoGroup()
+    {
+        byte[] nupkg = TargetPackage();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new ListingHandler(nupkg, listedVersion: "9.0.0-preview.2"));
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(PackageId),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task FloatingMember_WithOnlyPrereleases_LoadsWhenIncluded()
+    {
+        byte[] nupkg = TargetPackage();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new ListingHandler(nupkg, listedVersion: "9.0.0-preview.2"));
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(PackageId),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore()) with
+                {
+                    IncludePrerelease = true,
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "9.0.0-preview.2",
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized).Version);
+    }
+
+    /// <summary>
+    /// An exact pin names whatever version it names: the stable-only rule
+    /// governs floating discovery, not pinning.
+    /// </summary>
+    [Fact]
+    public async Task ExactPrereleasePin_LoadsWithoutTheFlag()
+    {
+        IPackageStore store = await CachedStoreAsync(
+            "9.0.0-preview.2",
+            TargetPackage());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember("9.0.0-preview.2")],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "9.0.0-preview.2",
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized).Version);
+    }
+
     [Fact]
     public void RealizedCoordinate_IsCanonicalAndStructurallyEquatable()
     {

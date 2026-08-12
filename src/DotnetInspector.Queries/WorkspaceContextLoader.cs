@@ -894,6 +894,10 @@ public static class WorkspaceContextLoader
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
+                // A workspace member that did not ask for prereleases will not
+                // bind one, so a feed publishing no stable release has no
+                // answer for it. The CLI keeps the shared fallback.
+                requireStableFloating: true,
                 cancellationToken).ConfigureAwait(false);
         switch (resolution)
         {
@@ -985,6 +989,7 @@ public static class WorkspaceContextLoader
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
+                requireStableFloating: true,
                 cancellationToken).ConfigureAwait(false);
         switch (resolution)
         {

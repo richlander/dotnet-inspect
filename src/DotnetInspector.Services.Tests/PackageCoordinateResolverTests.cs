@@ -1,4 +1,5 @@
 using System.Net;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -640,10 +641,136 @@ public sealed class PackageCoordinateResolverTests
     }
 
     /// <summary>
-    /// With prereleases disabled the answer is the newest stable version or
-    /// nothing. Falling back to "the newest anything" turned "no stable release
-    /// exists" into a silent prerelease selection, which is the one outcome the
-    /// flag exists to prevent.
+    /// The legacy CLI contract, preserved: a package published only as previews
+    /// is still the package the user named, so the shared version policy falls
+    /// back to the newest prerelease when a feed carries no stable release.
+    /// This is the <c>Aspire.OpenAI</c> shape — a real flat-container index
+    /// whose every version is a preview — and tightening the shared helper made
+    /// <c>dotnet inspect package Aspire.OpenAI</c> fail from a cold cache.
+    /// </summary>
+    [Fact]
+    public async Task LegacyResolution_WithOnlyPrereleases_FallsBackToTheNewestPrerelease()
+    {
+        using var client = new HttpClient(
+            new ListedVersionsHandler("9.0.0-preview.1", "9.0.0-preview.2"));
+
+        PackageVersionResolution? resolution =
+            await DotnetInspector.Packages.PackageExtractor.ResolveLatestVersionAsync(
+                client,
+                ListedVersionsHandler.PackageId,
+                [NuGetOrg],
+                log: null,
+                skipCache: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("9.0.0-preview.2", resolution?.Version);
+    }
+
+    [Fact]
+    public async Task LegacyResolution_WithAStableRelease_PrefersIt()
+    {
+        using var client = new HttpClient(
+            new ListedVersionsHandler("1.0.0", "2.0.0-beta"));
+
+        PackageVersionResolution? resolution =
+            await DotnetInspector.Packages.PackageExtractor.ResolveLatestVersionAsync(
+                client,
+                ListedVersionsHandler.PackageId,
+                [NuGetOrg],
+                log: null,
+                skipCache: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("1.0.0", resolution?.Version);
+    }
+
+    /// <summary>
+    /// The CLI's own floating resolution reaches this resolver, so the
+    /// workspace's stricter rule must be opt-in rather than the default. This
+    /// is the shape that failed Windows CI twice from a cold cache: a
+    /// preview-only feed resolving to nothing for
+    /// <c>dotnet inspect package Aspire.OpenAI</c>.
+    /// </summary>
+    [Fact]
+    public async Task LegacyResolverEntry_WithOnlyPrereleases_StillResolves()
+    {
+        using var client = new HttpClient(
+            new ListedVersionsHandler("9.0.0-preview.1", "9.0.0-preview.2"));
+
+        var resolved = Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(ListedVersionsHandler.PackageId),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal("9.0.0-preview.2", resolved.Coordinate.Version);
+        Assert.Equal(NuGetOrg, Assert.Single(resolved.Coordinate.Sources));
+    }
+
+    /// <summary>
+    /// The workspace contract is stricter than the CLI's, and it is enforced on
+    /// the answer rather than on the discovery path — so a cache entry a legacy
+    /// caller wrote after taking that fallback cannot carry a prerelease into a
+    /// context that did not ask for one.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_WithAPrewarmedLegacyCache_IsStillUnavailable()
+    {
+        string cachePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-version-cache-{Guid.NewGuid():N}");
+        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        using var client = new HttpClient(
+            new ListedVersionsHandler("9.0.0-preview.1", "9.0.0-preview.2"));
+        using var offline = new HttpClient(new FailingHandler());
+
+        try
+        {
+            // Warm the shared version cache exactly as the CLI would: the
+            // legacy resolution falls back, and writes that answer under the
+            // stable key.
+            Assert.Equal(
+                "9.0.0-preview.2",
+                (await DotnetInspector.Packages.PackageExtractor.ResolveLatestVersionAsync(
+                    client,
+                    ListedVersionsHandler.PackageId,
+                    [NuGetOrg],
+                    log: null,
+                    skipCache: false,
+                    cancellationToken: TestContext.Current.CancellationToken))?.Version);
+
+            PackageCoordinateResolution resolution =
+                await PackageCoordinateResolver.ResolveAsync(
+                    // A client that refuses every request: the only answer
+                    // available now is the warmed cache entry, so reaching an
+                    // Unavailable proves the workspace rule filtered a cached
+                    // legacy fallback rather than re-querying the feed.
+                    offline,
+                    new PackageCoordinate(ListedVersionsHandler.PackageId),
+                    [NuGetOrg],
+                    useVersionCache: true,
+                    requireStableFloating: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            var unavailable =
+                Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+            Assert.Contains("stable", unavailable.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(cachePath))
+                Directory.Delete(cachePath, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// With prereleases disabled the workspace answer is the newest stable
+    /// version or nothing. Falling back to "the newest anything" would turn "no
+    /// stable release exists" into a silent prerelease selection, which is the
+    /// one outcome the flag exists to prevent.
     /// </summary>
     [Fact]
     public async Task FloatingCoordinate_WithOnlyPrereleases_IsUnavailable()
@@ -656,6 +783,7 @@ public sealed class PackageCoordinateResolverTests
                 client,
                 new PackageCoordinate(ListedVersionsHandler.PackageId),
                 [NuGetOrg],
+                requireStableFloating: true,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
@@ -674,6 +802,7 @@ public sealed class PackageCoordinateResolverTests
                 new PackageCoordinate(ListedVersionsHandler.PackageId),
                 [NuGetOrg],
                 includePrerelease: true,
+                requireStableFloating: true,
                 cancellationToken:
                     TestContext.Current.CancellationToken));
 
@@ -696,6 +825,7 @@ public sealed class PackageCoordinateResolverTests
                 new PackageCoordinate(ListedVersionsHandler.PackageId),
                 [NuGetOrg],
                 includePrerelease: includePrerelease,
+                requireStableFloating: true,
                 cancellationToken:
                     TestContext.Current.CancellationToken));
 

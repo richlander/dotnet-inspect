@@ -106,11 +106,29 @@ public static class PackageCoordinateResolver
     /// is opt-in so Browser/Wasm callers have no implicit filesystem dependency.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A floating coordinate goes through the product's shared listing-aware
     /// version policy rather than a second implementation of it, so an unlisted
     /// head is excluded here exactly as it is for the CLI. With
     /// <paramref name="useVersionCache"/> off, that path neither reads nor
     /// writes the on-disk candidate cache.
+    /// </para>
+    /// <para>
+    /// <paramref name="requireStableFloating"/> is the workspace's stricter
+    /// contract, and it is opt-in for a reason. The shared policy prefers a
+    /// stable release and falls back to a prerelease when a feed publishes
+    /// nothing else; that is right for a CLI which must still inspect a
+    /// preview-only package — <c>Aspire.OpenAI</c> publishes no stable version
+    /// at all — and wrong for a workspace member whose context stated which
+    /// versions it will bind. Enforcing it unconditionally here would silently
+    /// re-impose it on the CLI, which reaches this same overload.
+    /// </para>
+    /// <para>
+    /// The rule is applied to the resolved answer rather than to the discovery
+    /// path, so a caller that opts in cannot be routed around it — not by a
+    /// network listing, and not by a version-cache entry a legacy caller wrote
+    /// after taking that fallback.
+    /// </para>
     /// </remarks>
     public static async Task<PackageCoordinateResolution> ResolveAsync(
         HttpClient client,
@@ -119,6 +137,7 @@ public static class PackageCoordinateResolver
         Action<string>? log = null,
         bool includePrerelease = false,
         bool useVersionCache = false,
+        bool requireStableFloating = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(client);
@@ -169,11 +188,29 @@ public static class PackageCoordinateResolver
                 $"No acceptable version of package '{coordinate.PackageId}' is available.");
         }
 
+        NuGetVersion selected = NuGetVersion.Parse(resolution.Version);
+
+        // The shared version policy prefers a stable release and falls back to
+        // a prerelease when a feed publishes nothing else, which is what the
+        // CLI has always done and must keep doing. A workspace member is a
+        // different contract: a context that did not ask for prereleases is
+        // stating which versions it will bind, so a caller that opts in has
+        // that fallback answer refused rather than realized.
+        //
+        // The check is on the answer, not on the discovery path, so it holds
+        // for a network listing and for a cached one alike — including a cache
+        // entry a legacy caller wrote after taking that fallback.
+        if (requireStableFloating && !includePrerelease && selected.IsPrerelease)
+        {
+            return new PackageCoordinateResolution.Unavailable(
+                $"No stable listed version of package '{coordinate.PackageId}' is available; "
+                + "only prerelease versions were found.");
+        }
+
         return new PackageCoordinateResolution.Resolved(
             new ResolvedPackageCoordinate(
                 coordinate.PackageId.ToLowerInvariant(),
-                CanonicalVersion(
-                    NuGetVersion.Parse(resolution.Version)),
+                CanonicalVersion(selected),
                 coordinate.Framework,
                 coordinate.RuntimeIdentifier,
                 resolution.ReportingSources,
@@ -220,6 +257,9 @@ public static class PackageCoordinateResolver
             log,
             includePrerelease,
             useVersionCache,
+            // The desktop source policy is the CLI's entry point, so it keeps
+            // the shared stable-preferred/prerelease-fallback semantics.
+            requireStableFloating: false,
             cancellationToken).ConfigureAwait(false);
     }
 

@@ -1691,23 +1691,24 @@ public static class PackageExtractor
     }
 
     /// <summary>
-    /// Selects the newest version from a set of version strings. When
-    /// <paramref name="includePrerelease"/> is false, prefers the newest stable version and only
-    /// falls back to a prerelease when no stable version exists. Malformed
-    /// entries are ignored and the selected value is returned in canonical
-    /// normalized form.
-    /// </summary>
-    /// <summary>
     /// Picks the newest acceptable version, or null when none is acceptable.
     /// </summary>
     /// <remarks>
-    /// With prereleases disabled the answer is the newest stable version or
-    /// nothing. It is deliberately not "the newest stable, else the newest
-    /// anything": a caller that did not ask for a prerelease is telling the
-    /// resolver which versions it is willing to bind, and a feed carrying only
-    /// <c>1.0.0-beta</c> has no answer for it. Falling back turned "no stable
-    /// release exists" into a silent prerelease selection, which is the one
-    /// outcome the flag exists to prevent.
+    /// <para>
+    /// With prereleases enabled the answer is the newest version of any kind.
+    /// With them disabled it is the newest stable version, falling back to the
+    /// newest prerelease when the feed carries no stable release at all.
+    /// </para>
+    /// <para>
+    /// That fallback is deliberate and long-standing CLI behavior: a package
+    /// published only as previews — <c>Aspire.OpenAI</c> is the standing
+    /// example — is still the package the user named, and refusing to resolve
+    /// it would turn <c>dotnet inspect package Aspire.OpenAI</c> into an error
+    /// for every preview-only library. The stricter "stable or nothing" rule is
+    /// a workspace acquisition policy, not a property of this shared helper;
+    /// <see cref="PackageCoordinateResolver"/> owns it and applies it to its own
+    /// answers, so tightening it here would change every legacy caller instead.
+    /// </para>
     /// </remarks>
     private static string? PickLatest(IEnumerable<string?> versions, bool includePrerelease)
     {
@@ -1729,7 +1730,7 @@ public static class PackageExtractor
         }
         return (includePrerelease
             ? latestAny
-            : latestStable)?.ToNormalizedString();
+            : latestStable ?? latestAny)?.ToNormalizedString();
     }
 
     private static string? NormalizeCandidateVersion(string? candidate)
