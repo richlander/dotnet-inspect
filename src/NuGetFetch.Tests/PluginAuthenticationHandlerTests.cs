@@ -163,6 +163,33 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task RedirectedChallengeReusesTheCachedEffectiveCredential()
+    {
+        var source = new OneShotCredentialSource();
+        var transport = new RedirectedChallengeTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage first = await client.GetAsync(
+            "http://origin.example/index.json",
+            TestContext.Current.CancellationToken);
+        using HttpResponseMessage second = await client.GetAsync(
+            "http://origin.example/index.json",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(
+            [
+                ("http://origin.example/index.json", (string?)null),
+                ("https://challenger.example/private/index.json", Basic("user", "token").Parameter),
+                ("http://origin.example/index.json", (string?)null),
+                ("https://challenger.example/private/index.json", Basic("user", "token").Parameter),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
     public async Task PortAndSchemeArePartOfSourceIdentity()
     {
         var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
@@ -484,6 +511,27 @@ public sealed class PluginAuthenticationHandlerTests
         }
     }
 
+    private sealed class OneShotCredentialSource : ICredentialSource
+    {
+        private int _calls;
+
+        public bool HasCredentialSources => true;
+
+        public int Calls => _calls;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            int call = Interlocked.Increment(ref _calls);
+            return Task.FromResult<PackageSourceCredential?>(
+                call == 1
+                    ? new PackageSourceCredential("user", "token")
+                    : null);
+        }
+    }
+
     /// <summary>A transport whose reply is a pure function of the request's Authorization header.</summary>
     private sealed class ScriptedTransport(Func<HttpRequestHeaders, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -514,7 +562,10 @@ public sealed class PluginAuthenticationHandlerTests
         {
             Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
 
-            if (Requests.Count == 1)
+            if (string.Equals(
+                    request.RequestUri.Host,
+                    "origin.example",
+                    StringComparison.Ordinal))
             {
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
                 {
@@ -524,7 +575,10 @@ public sealed class PluginAuthenticationHandlerTests
                 });
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(
+                request.Headers.Authorization is null
+                    ? HttpStatusCode.Unauthorized
+                    : HttpStatusCode.OK)
             {
                 RequestMessage = request,
             });

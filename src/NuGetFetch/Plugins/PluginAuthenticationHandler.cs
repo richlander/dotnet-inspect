@@ -88,7 +88,7 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
 
         HttpRequestMessage requestTemplate = request;
         bool disposeRequestTemplate = false;
-        var acquiredScopes = new HashSet<string>(StringComparer.Ordinal);
+        var attemptedCredentialScopes = new HashSet<string>(StringComparer.Ordinal);
         int attempts = 0;
 
         try
@@ -114,6 +114,7 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                     if (credential is not null && attempt.Headers.Authorization is null)
                     {
                         attempt.Headers.Authorization = CreateBasicHeader(credential);
+                        attemptedCredentialScopes.Add(credentialScopeKey);
                     }
 
                     response = await base.SendAsync(attempt, cancellationToken).ConfigureAwait(false);
@@ -139,12 +140,13 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                     CredentialScopeState challengedScope = _credentialScopes.GetOrAdd(
                         challengedScopeKey,
                         static _ => new CredentialScopeState());
-                    long challengedVersion = string.Equals(
+                    (PackageSourceCredential? challengedCredential, long challengedVersion) =
+                        string.Equals(
                         credentialScopeKey,
                         challengedScopeKey,
                         StringComparison.Ordinal)
-                        ? version
-                        : challengedScope.Read().Version;
+                            ? (credential, version)
+                            : challengedScope.Read();
 
                     HttpRequestMessage nextTemplate = CloneRequest(challengedRequest);
                     nextTemplate.Headers.Authorization = null;
@@ -153,11 +155,18 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                     requestTemplate = nextTemplate;
                     disposeRequestTemplate = true;
 
+                    bool challengedCredentialWasTried =
+                        attemptedCredentialScopes.Contains(challengedScopeKey);
+                    if (challengedCredential is not null && !challengedCredentialWasTried)
+                    {
+                        continue;
+                    }
+
                     PackageSourceCredential? acquired = await AcquireAsync(
                         challengedScope,
                         challengedUri,
                         challengedVersion,
-                        isRetry: !acquiredScopes.Add(challengedScopeKey),
+                        isRetry: challengedCredentialWasTried,
                         cancellationToken).ConfigureAwait(false);
 
                     if (acquired is null)
