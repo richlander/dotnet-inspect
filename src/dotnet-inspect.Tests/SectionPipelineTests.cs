@@ -2035,7 +2035,7 @@ public class SectionPipelineTests
                         SignatureResult = signature,
                     },
                 ],
-                PackageSections.Signature,
+                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2073,7 +2073,7 @@ public class SectionPipelineTests
                     new InspectionResult { PackageName = "First" },
                     new InspectionResult { PackageName = "Second" },
                 ],
-                PackageSections.PackageInfo,
+                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 

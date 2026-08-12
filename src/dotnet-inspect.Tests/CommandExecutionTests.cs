@@ -17741,6 +17741,90 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewRejectsUnknownFields()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Projection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Projection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--fields",
+                "Bogus");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "No fields matched projection: Bogus",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_MultiSectionFileCountsHonorEmptyRows()
+    {
+        var (withReadme, withReadmeDir) =
+            CreateLocalReadmePackage(
+                "Test.CountMap.Readme",
+                "README.md",
+                "readme");
+        var (withoutReadme, withoutReadmeDir) =
+            CreateLocalPackageWithoutReadme(
+                "Test.CountMap.NoReadme");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file,Signature",
+                "--count");
+            var skipEmpty = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file,Signature",
+                "--count",
+                "--skip-empty");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, skipEmpty.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(skipEmpty.Error);
+            Assert.Contains(
+                "| Package README file | 2 |",
+                count.Output);
+            Assert.Contains(
+                "| Package README file | 1 |",
+                skipEmpty.Output);
+        }
+        finally
+        {
+            Directory.Delete(withReadmeDir, recursive: true);
+            Directory.Delete(withoutReadmeDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_FilesJsonlWindowsCombinedRows()
     {
         var (firstPackage, firstDir) =
@@ -17803,6 +17887,8 @@ public partial class CommandExecutionTests
                 "Package Info",
                 "--fields",
                 "Ver*",
+                "--columns",
+                "Package",
                 "--tsv",
                 "--count");
             var rendered = await RunAppAsync(

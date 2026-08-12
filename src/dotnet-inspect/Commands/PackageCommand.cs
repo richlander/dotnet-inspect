@@ -181,7 +181,10 @@ public class PackageCommand
                     options = options with { Verbosity = requiredVerbosity };
             }
 
-            if (!ValidatePackageProjection(options, packageArgs.Length))
+            if (!ValidatePackageProjection(
+                    options,
+                    packageArgs.Length,
+                    pipeline))
                 return 1;
         }
 
@@ -1091,7 +1094,8 @@ public class PackageCommand
 
     private static bool ValidatePackageProjection(
         InspectionOptions options,
-        int packageCount)
+        int packageCount,
+        SectionPipeline<InspectionResult> pipeline)
     {
         if (options.Fields is not { Length: > 0 }
             && options.Columns is not { Length: > 0 })
@@ -1137,6 +1141,15 @@ public class PackageCommand
             }
 
             return valid;
+        }
+
+        if (options.FixedOverview && options.Count)
+        {
+            return ProjectionDiagnostics.ValidateProjection(
+                PackageDiscoverySchema(),
+                pipeline.BareSelectSectionNames,
+                options.Fields,
+                options.Columns);
         }
 
         if (options.IncludeSections is not { Count: > 0 })
@@ -2366,21 +2379,21 @@ public class PackageCommand
             return;
         }
 
-        bool hasFieldProjection = options.Fields is { Length: > 0 };
         bool countPackageInfoRows =
-            !hasFieldProjection
-            && (string.Equals(
+            string.Equals(
                     selectedSection,
                     PackageSections.PackageInfo,
                     StringComparison.OrdinalIgnoreCase)
                 || (selectedSection == null
                     && options.IncludeSections is not { Count: > 0 }
-                    && !options.FixedOverview));
+                    && !options.FixedOverview);
         if (countPackageInfoRows)
         {
+            HashSet<string>? selectedFields =
+                ResolvePackageInfoFields(options.Fields);
             int count = results.Sum(
                 result =>
-                    new InspectionResultView(result).Metadata.Count);
+                    SelectPackageInfoFields(result, selectedFields).Count());
             CountOutput.WriteCount(
                 ApplyRowWindow(count, options.Rows),
                 options.OutputPath);
@@ -2417,6 +2430,20 @@ public class PackageCommand
                     counts[section] =
                         counts.GetValueOrDefault(section) + count;
                 }
+            }
+
+            foreach (string section in orderedSections)
+            {
+                if (!IsPackageFileSection(section))
+                    continue;
+
+                counts[section] = results.Sum(
+                    result =>
+                        options.SkipEmpty
+                            ? GetPackageFileRows(result, section).Count
+                            : Math.Max(
+                                1,
+                                GetPackageFileRows(result, section).Count));
             }
 
             if (options.Rows != null)
@@ -2691,10 +2718,7 @@ public class PackageCommand
         HashSet<string>? selectedFields =
             ResolvePackageInfoFields(options.Fields);
         var rows = results
-            .SelectMany(result => new InspectionResultView(result).Metadata
-                .Where(
-                    field => selectedFields == null
-                        || selectedFields.Contains(field.Key))
+            .SelectMany(result => SelectPackageInfoFields(result, selectedFields)
                 .Select(field => new[]
                 {
                     result.PackageName,
@@ -2722,6 +2746,13 @@ public class PackageCommand
             },
             options.Rows);
     }
+
+    private static IEnumerable<MarkoutField> SelectPackageInfoFields(
+        InspectionResult result,
+        HashSet<string>? selectedFields)
+        => new InspectionResultView(result).Metadata.Where(
+            field => selectedFields == null
+                || selectedFields.Contains(field.Key));
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
     {
