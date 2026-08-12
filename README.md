@@ -503,7 +503,7 @@ renders its coverage as a caveat.
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`--rows 2..10` names them), `--count` to reduce a selected section/vector to a single row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one selected-section document (`--row N|first|last` chooses a displayed row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended), `--count` to reduce a selected section/vector to a row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
 Call Graph edge rows use the machine field names `from`, `from_group`,
 `to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
@@ -536,7 +536,17 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, `member Type -m Name` uses `Methods` overload rows, and a selected `member Type.Member:N` renders `Signature`. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+`package X -D` reports effective package sections and fields. `library X -D`
+is a cheap target-aware catalog; add `--effective` for full probes. On either
+command, `-D --schema` reports the complete static graph without inspecting the
+target. Bare `-S` returns high-value, fixed-length, network-free base sections.
+A single `type Type` uses `Type Info`, a type listing uses `API Info`, broad
+`member Type` summaries use `Method Groups`, `member Type -m Name` uses
+`Methods` overload rows, and a selected `member Type.Member:N` uses `Signature`.
+Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
+Package and library expose authored categories rather than a computed `@All`;
+workflow categories such as `@Source` and `@Audit` expand to focused section
+groups.
 
 Package uses `@Package` and `@Files` for its ordinary evidence, with focused
 `@Dependencies`, `@Audit`, and `@SourceLink` doors. Library similarly uses
