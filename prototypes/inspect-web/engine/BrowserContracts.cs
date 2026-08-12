@@ -202,6 +202,34 @@ public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string 
 public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kind);
 
 /// <summary>
+/// Declared package dependency groups and one selected assembly's direct references. Dependency
+/// parsing and exact-framework selection belong to <c>PackageDependencyGroupsQuery</c>; direct
+/// references belong to <c>AssemblyContextReferencesQuery</c>.
+/// </summary>
+public sealed record BrowserPackageDependencies(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    string Assembly,
+    BrowserPackageDependencyGroup[] DependencyGroups,
+    BrowserAssemblyReference[] AssemblyReferences,
+    string? DependencyGroupError,
+    string? AssemblyReferenceError);
+
+public sealed record BrowserPackageDependencyGroup(
+    string Framework,
+    bool IsActive,
+    BrowserPackageDependency[] Dependencies);
+
+public sealed record BrowserPackageDependency(
+    string Id,
+    string VersionRange);
+
+public sealed record BrowserAssemblyReference(
+    string Name,
+    string Version);
+
+/// <summary>
 /// The annotated-source envelope: the product's portable <c>AnnotatedSourceDocument</c> serialized
 /// by its owning <c>AnnotatedSourceDocumentJsonContext</c>, plus the provenance of the artifact it
 /// was raised from. The document travels as a <see cref="JsonElement"/> so the wire shape stays
@@ -349,6 +377,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
+[JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]

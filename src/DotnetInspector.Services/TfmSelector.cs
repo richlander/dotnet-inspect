@@ -38,7 +38,7 @@ public static class TfmSelector
 
     public static int GetTfmPriority(string? tfm)
     {
-        return TfmResolver.GetTfmPriority(NormalizeTfmForPriority(tfm));
+        return TfmResolver.GetTfmPriority(NormalizeTfm(tfm));
     }
 
     public static string? SelectHighestTfm(IEnumerable<string> tfms)
@@ -46,7 +46,11 @@ public static class TfmSelector
         return OrderByTfmPriorityDescending(tfms, tfm => tfm).FirstOrDefault();
     }
 
-    private static string NormalizeTfmForPriority(string? tfm)
+    /// <summary>
+    /// Normalizes short and NuGet long-form framework monikers to the product's package-layout
+    /// spelling.
+    /// </summary>
+    public static string NormalizeTfm(string? tfm)
     {
         if (string.IsNullOrWhiteSpace(tfm))
             return "";

@@ -59,6 +59,28 @@ public static class NuspecParser
         }
     }
 
+    /// <summary>
+    /// Parses package metadata from a bounded stream with DTD processing prohibited and an
+    /// explicit decoded-character budget.
+    /// </summary>
+    public static NuspecData Parse(
+        Stream nuspecStream,
+        long maxCharactersInDocument)
+    {
+        ArgumentNullException.ThrowIfNull(nuspecStream);
+        try
+        {
+            return ParseDocument(
+                HardenedXml.LoadXDocument(
+                    nuspecStream,
+                    maxCharactersInDocument));
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw NuspecParseException.From(ex);
+        }
+    }
+
     private static NuspecData ParseDocument(XDocument doc)
     {
         var result = new NuspecData();

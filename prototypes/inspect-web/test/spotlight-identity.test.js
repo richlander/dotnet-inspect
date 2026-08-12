@@ -8,6 +8,7 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   graphTargetNavigationDisposition,
+  dependencyGroupSelectionMessage,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
@@ -505,6 +506,15 @@ test("member documentation state is scoped to the exact request", () => {
   assert.deepEqual(
     scopedRequestState("same", "same", true, ""),
     { loading: true, error: "" });
+});
+
+test("dependency selection exposes a missing exact framework", () => {
+  assert.equal(
+    dependencyGroupSelectionMessage({
+      dependencyGroupError: "No exact dependency group."
+    }),
+    "No exact dependency group.");
+  assert.equal(dependencyGroupSelectionMessage({}), "");
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {

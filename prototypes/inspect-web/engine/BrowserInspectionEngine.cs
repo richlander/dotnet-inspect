@@ -348,6 +348,117 @@ public static partial class BrowserInspectionEngine
     }
 
     /// <summary>
+    /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
+    /// Package parsing and exact-framework selection belong to
+    /// <see cref="PackageDependencyGroupsQuery"/>; the assembly-context query owns the metadata
+    /// session. This method only adapts their typed results for the browser.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId)
+    {
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+            packageId,
+            version,
+            targetFramework);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+
+        PackageDependencyGroupsResult dependencyResult =
+            await PackageDependencyGroupsQuery.ExecuteAsync(
+                coordinate.Package.Content,
+                coordinate.PackageId,
+                coordinate.Framework);
+        PackageDependencyGroups dependencies = dependencyResult switch
+        {
+            PackageDependencyGroupsResult.Available available => available.Value,
+            PackageDependencyGroupsResult.NoManifest =>
+                throw new InvalidDataException(
+                    "The package contains no root manifest."),
+            PackageDependencyGroupsResult.Failed failed =>
+                throw new InvalidOperationException(
+                    failed.Error.Message,
+                    failed.Error),
+            _ => throw new InvalidOperationException(
+                "Unknown package dependency-group query result."),
+        };
+
+        PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
+        BrowserWorkspaceParticipant participant =
+            scope.SurfaceParticipant(coordinate, asset);
+        AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> referenceResult =
+            scope.UseSurfaceParticipant(
+                participant,
+                AssemblyContextReferencesQuery.ExecuteParticipant);
+
+        BrowserAssemblyReference[] assemblyReferences = [];
+        string? assemblyReferenceError = null;
+        switch (referenceResult)
+        {
+            case AssemblyContextEntry<
+                ImmutableArray<AssemblyReferenceIdentity>>.Available available:
+                assemblyReferences =
+                [
+                    .. available.Value
+                        .OrderBy(
+                            reference => reference.Name,
+                            StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(
+                            reference => reference.Version,
+                            Comparer<Version?>.Default)
+                        .Select(reference => new BrowserAssemblyReference(
+                            reference.Name,
+                            reference.Version?.ToString() ?? "")),
+                ];
+                break;
+            case AssemblyContextEntry<
+                ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected:
+                assemblyReferenceError =
+                    $"{rejected.Failure.Kind} ({rejected.Failure.Detail})";
+                break;
+            case AssemblyContextEntry<
+                ImmutableArray<AssemblyReferenceIdentity>>.Failed failed:
+                assemblyReferenceError = failed.Error.Message;
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown assembly-context reference query result.");
+        }
+
+        string? dependencyGroupError =
+            dependencies.SelectionStatus
+                == PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework
+                    ? "The manifest declares no dependency group for the active target framework."
+                    : null;
+        return JsonSerializer.Serialize(
+            new BrowserPackageDependencies(
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                asset.AssemblyName,
+                [
+                    .. dependencies.Groups.Select(group =>
+                        new BrowserPackageDependencyGroup(
+                            group.TargetFramework,
+                            group.TargetFramework.Equals(
+                                dependencies.SelectedTargetFramework,
+                                StringComparison.OrdinalIgnoreCase),
+                            [
+                                .. group.Dependencies.Select(dependency =>
+                                    new BrowserPackageDependency(
+                                        dependency.Id,
+                                        dependency.VersionRange)),
+                            ])),
+                ],
+                assemblyReferences,
+                dependencyGroupError,
+                assemblyReferenceError),
+            BrowserJsonContext.Default.BrowserPackageDependencies);
+    }
+
+    /// <summary>
     /// Ecosystem integration evidence for one package/version/framework workspace, produced by
     /// <see cref="AssemblyContextIntegrationsQuery"/> over the workspace's own group. The query
     /// owns every session; this method groups its signals for display and composes no evidence.

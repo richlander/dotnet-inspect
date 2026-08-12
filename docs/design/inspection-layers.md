@@ -265,7 +265,8 @@ consumer's convenience.
 
 ## Current migration state
 
-Metadata-image, direct-reference, extension-method, custom-attribute,
+Metadata-image, direct-reference, assembly-context reference,
+package dependency-group, extension-method, custom-attribute,
 manifest-resource, type-forwarder, union-type, switch, SourceLink,
 API-comparison, Analysis body-signal comparison, Implementation comparison, and
 assembly-context Integrations inspection are the first vertical L1 canaries:
@@ -282,6 +283,12 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   without deriving a path from `AssemblyRef.Name`. That tree resolves
   enumerated siblings relative to each parent first, then installed platform
   assets; it does not import the inspecting process's dependency closure.
+- `AssemblyContextReferencesQuery` owns session access for every participant in
+  a binding-consistent group. `PackageDependencyGroupsQuery` reads one bounded
+  root manifest through `IPackageContent`, retains its groups as declared, and
+  reports exact-framework absence separately from an empty dependency set.
+  Browser-Wasm composes those two typed results without parsing XML or opening
+  an assembly session.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.

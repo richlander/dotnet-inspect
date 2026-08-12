@@ -3,6 +3,7 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   graphTargetNavigationDisposition,
+  dependencyGroupSelectionMessage,
   graphMemberSelection,
   lenses,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -1557,8 +1558,12 @@ function renderPackageDependencies() {
 
   const groups = data.dependencyGroups || [];
   const assemblyReferences = assemblyReferencesSectionHtml(data);
+  const dependencyGroupError = dependencyGroupSelectionMessage(data);
+  const dependencyGroupNotice = dependencyGroupError
+    ? `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>No exact dependency group</h2><p>${escapeHtml(dependencyGroupError)}</p></section>`
+    : "";
   if (!groups.length) {
-    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
+    return `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
   }
 
   const selectedTfm = resolveDependenciesFramework(groups);
@@ -1581,7 +1586,7 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
-  return `${selector}${graphSection}${depList}${assemblyReferences}`;
+  return `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`;
 }
 
 function assemblyReferencesSectionHtml(data) {

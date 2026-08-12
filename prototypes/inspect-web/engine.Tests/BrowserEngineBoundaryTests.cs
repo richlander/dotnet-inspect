@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Xml;
+using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
@@ -355,6 +356,62 @@ public sealed class BrowserEngineBoundaryTests
         string close = string.Concat(Enumerable.Repeat("</b>", depth));
         return $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
             + "</member></members></doc>";
+    }
+
+    [Fact]
+    public async Task PackageDependencies_UsesProductQueriesForManifestAndReferences()
+    {
+        const string packageId = "Browser.Dependency.Root";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework=".NETCoreApp,Version=v11.0">
+                     <dependency id="Browser.Dependency.Child" version="[2.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        string json = await BrowserInspectionEngine.QueryPackageDependencies(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            $"{packageId}.dll");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.Equal(packageId, root.GetProperty("package").GetString());
+        Assert.Equal("net11.0", root.GetProperty("activeFramework").GetString());
+        JsonElement group = Assert.Single(
+            root.GetProperty("dependencyGroups").EnumerateArray());
+        Assert.True(group.GetProperty("isActive").GetBoolean());
+        JsonElement dependency = Assert.Single(
+            group.GetProperty("dependencies").EnumerateArray());
+        Assert.Equal(
+            "Browser.Dependency.Child",
+            dependency.GetProperty("id").GetString());
+        Assert.NotEmpty(root.GetProperty("assemblyReferences").EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("dependencyGroupError").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("assemblyReferenceError").ValueKind);
     }
 
     [Fact]
@@ -723,6 +780,39 @@ public sealed class BrowserEngineBoundaryTests
             {
                 entry.Write(implementationAssembly);
             }
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] PackageWithManifest(
+        byte[] assembly,
+        string assemblyPath,
+        string manifest)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream entry = archive
+                .CreateEntry(assemblyPath, CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(assembly);
+            }
+
+            using Stream nuspec = archive
+                .CreateEntry(
+                    "Browser.Dependency.Root.nuspec",
+                    CompressionLevel.NoCompression)
+                .Open();
+            using var writer = new StreamWriter(
+                nuspec,
+                System.Text.Encoding.UTF8,
+                leaveOpen: true);
+            writer.Write(manifest);
         }
 
         return content.ToArray();

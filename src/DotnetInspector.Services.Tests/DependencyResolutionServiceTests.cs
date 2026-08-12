@@ -266,6 +266,22 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void FindBestMatchingTfmGroup_PrefersCompatibleFrameworkOverUniversal()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new() { TargetFramework = "netstandard2.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(
+            groups,
+            "net8.0");
+
+        Assert.Equal("netstandard2.0", result?.TargetFramework);
+    }
+
+    [Fact]
     public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
     {
         var result = DependencyResolutionService.SelectDependencyGroup(null, null);
@@ -358,6 +374,66 @@ public class DependencyResolutionServiceTests
         Assert.Null(result.Group);
         Assert.Equal("net6.0", result.TargetFramework);
         Assert.Equal(["net8.0", "net9.0"], result.AvailableTargetFrameworks);
+    }
+
+    [Theory]
+    [InlineData(".NETStandard2.0", "netstandard2.0")]
+    [InlineData(".NETFramework4.5", "net45")]
+    [InlineData(".NETCoreApp,Version=v8.0", "net8.0")]
+    public void SelectDependencyGroup_ExactMode_NormalizesNuGetLongForm(
+        string declared,
+        string requested)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = declared }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            requested,
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(declared, result.Group?.TargetFramework);
+        Assert.Equal(requested, result.TargetFramework);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("any")]
+    public void SelectDependencyGroup_ExactMode_UniversalGroupMatchesAnyTarget(
+        string declared)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = declared }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net9.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(declared, result.Group?.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_PrefersExactGroupOverUniversal()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new() { TargetFramework = ".NETStandard2.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "netstandard2.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(".NETStandard2.0", result.Group?.TargetFramework);
     }
 
     [Fact]

@@ -145,6 +145,10 @@ export function removeWorkspacePackage(packages, activePackage, packageKey) {
   return { packages: remaining, active, closed };
 }
 
+export function dependencyGroupSelectionMessage(data) {
+  return data?.dependencyGroupError || "";
+}
+
 export function spotlightCandidateKey(pkg, typeId) {
   return `${packageIdentityKey(pkg)}\u0000${typeId}`;
 }
