@@ -126,6 +126,10 @@ convention directory at all — it only puts `nuget-plugin-microsoft-artifacts-c
 on `PATH`. An implementation that scans `~/.nuget/plugins` alone finds nothing on such a machine
 while `dotnet restore` authenticates happily.
 
+Discovery itself is deferred until a feed first answers with an authentication challenge.
+Commands and public-feed requests therefore do not scan the convention directory or `PATH`.
+Once discovery runs, its result is kept for the process lifetime.
+
 Implementation: [`PluginDiscovery`](../../src/NuGetFetch/Plugins/PluginDiscovery.cs), mirroring
 `PluginDiscoverer.cs` and `PluginDiscoveryUtility.cs` in
 [NuGet.Client](https://github.com/NuGet/NuGet.Client/tree/dev/src/NuGet.Core/NuGet.Protocol/Plugins).
@@ -150,6 +154,11 @@ Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnecti
 Plugins are started lazily and kept for the process lifetime, because a launch costs a process
 start plus five round trips. A plugin that fails to start, or that does not claim the
 `Authentication` operation, is remembered as unusable rather than retried.
+
+A plugin process or pipe that dies during a request is likewise treated as no credential from
+that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
+state are contained at the request boundary so another provider can answer or the feed's 401 can
+surface normally. Caller cancellation is not a plugin fault and continues to propagate.
 
 ### Unattended by default
 

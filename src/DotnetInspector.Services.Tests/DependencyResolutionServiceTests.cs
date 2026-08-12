@@ -6,6 +6,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(CoreCacheCollection.Name)]
 public class DependencyResolutionServiceTests
 {
     [Theory]

@@ -11,10 +11,13 @@ internal static class FindingInspectionExtensions
         => inspection switch
         {
             null => [],
-            FindingInspection<T>.Complete complete => complete.Findings,
+            FindingInspection<T>.Complete
+                => ((FindingInspection<T>.Complete)inspection.Value!).Findings,
             FindingInspection<T>.Absent => [],
-            FindingInspection<T>.Failed failed => throw new InvalidOperationException(
-                $"Finding inspection failed for {failed.Error.Subject.Display}: {failed.Error.Reason}"),
+            FindingInspection<T>.Failed => throw new InvalidOperationException(
+                $"Finding inspection failed for " +
+                $"{((FindingInspection<T>.Failed)inspection.Value!).Error.Subject.Display}: " +
+                $"{((FindingInspection<T>.Failed)inspection.Value!).Error.Reason}"),
         };
 
     public static IEnumerable<T> Payloads<T>(
@@ -30,21 +33,21 @@ internal static class FindingInspectionExtensions
     public static int FindingCount<T>(
         this FindingInspection<T>? inspection)
         where T : notnull
-        => inspection is FindingInspection<T>.Complete complete
+        => inspection?.Value is FindingInspection<T>.Complete complete
             ? complete.Findings.Length
             : 0;
 
     public static IEnumerable<T> PayloadsForRendering<T>(
         this FindingInspection<T>? inspection)
         where T : notnull
-        => inspection is FindingInspection<T>.Complete complete
+        => inspection?.Value is FindingInspection<T>.Complete complete
             ? complete.Findings.Select(static finding => finding.Payload)
             : [];
 
     public static InspectionError? Failure<T>(
         this FindingInspection<T>? inspection)
         where T : notnull
-        => inspection is FindingInspection<T>.Failed failed ? failed.Error : null;
+        => inspection?.Value is FindingInspection<T>.Failed failed ? failed.Error : null;
 
     public static bool CanRenderWithPresence<T>(
         this FindingInspection<T>? inspection,

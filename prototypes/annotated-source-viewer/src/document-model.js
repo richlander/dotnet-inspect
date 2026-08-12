@@ -178,6 +178,14 @@ export function nodeIdsForFact(document, factId) {
     .map(target => target.node_id);
 }
 
+export function nodeKinds(document) {
+  return [...new Set(document.nodes.map(node => node.kind))].sort();
+}
+
+export function nodeIdsForKind(document, kind) {
+  return document.nodes.filter(node => node.kind === kind).map(node => node.id);
+}
+
 export function unanchoredFacts(document) {
   const targeted = new Set(document.targets.map(target => target.fact_id));
   return document.facts.filter(fact => !targeted.has(fact.id));
