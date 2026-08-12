@@ -73,10 +73,27 @@ Dictionary<string, string> skill = RunDetection(
     "pull_request",
     "skills/new-skill/SKILL.md",
     outputs);
-if (skill["code"] != "true" || skill["docs"] != "true")
+if (skill["code"] != "false"
+    || skill["docs"] != "true"
+    || skill["skills"] != "true")
 {
     throw new InvalidOperationException(
-        $"Skill canary did not select code and docs: {FormatValues(skill)}");
+        $"Skill canary did not select only docs and skills: {FormatValues(skill)}");
+}
+
+Dictionary<string, string> skillSupportDoc = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "skills/workflow-scenarios/validating-workflows.md",
+    outputs);
+if (skillSupportDoc["code"] != "false"
+    || skillSupportDoc["docs"] != "true"
+    || skillSupportDoc["skills"] != "false")
+{
+    throw new InvalidOperationException(
+        $"Skill support document canary selected the wrong lanes: " +
+        FormatValues(skillSupportDoc));
 }
 
 Dictionary<string, string> pushedSource = RunDetection(
