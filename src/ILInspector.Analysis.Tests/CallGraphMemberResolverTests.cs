@@ -127,6 +127,52 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void ResolveDefinitionIdentity_DistinguishesNestingFromLiteralPlus()
+    {
+        var nestedMember = Method("int");
+        nestedMember.MetadataToken = 0x06000001;
+        var literalMember = Method("string");
+        literalMember.MetadataToken = 0x06000002;
+        var nested = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Outer.Inner",
+            MetadataName = "Outer+Inner",
+            DefinitionName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Samples", ["Outer", "Inner"]))
+                .Name,
+            Members = [nestedMember],
+        };
+        var literal = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Outer+Inner",
+            MetadataName = "Outer+Inner",
+            DefinitionName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Samples", ["Outer+Inner"]))
+                .Name,
+            Members = [literalMember],
+        };
+        var surface = new ApiSurface { Types = [nested, literal] };
+
+        CallGraphMemberResolution? nestedResolution =
+            CallGraphMemberResolver.ResolveDefinitionIdentity(
+                surface,
+                "Samples.Outer+Inner",
+                nestedMember.Name,
+                CallGraphMemberResolver.CreateSelector(nested, nestedMember).Key);
+        CallGraphMemberResolution? literalResolution =
+            CallGraphMemberResolver.ResolveDefinitionIdentity(
+                surface,
+                @"Samples.Outer\+Inner",
+                literalMember.Name,
+                CallGraphMemberResolver.CreateSelector(literal, literalMember).Key);
+
+        Assert.Same(nestedMember, nestedResolution!.Member);
+        Assert.Same(literalMember, literalResolution!.Member);
+    }
+
+    [Fact]
     public void BodySelectors_PreserveExactAccessorIdentity()
     {
         var member = Indexer("string", 0x06000002);

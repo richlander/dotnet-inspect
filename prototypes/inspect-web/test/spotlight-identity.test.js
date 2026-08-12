@@ -22,7 +22,8 @@ import {
   shareStateLengthError,
   scopedRequestState,
   spotlightCandidateKey,
-  spotlightCandidateSignature
+  spotlightCandidateSignature,
+  workspaceCoordinatesMatch
 } from "../src/data.js";
 
 const packageAt = (version, framework, types = 1) => ({
@@ -105,6 +106,19 @@ test("history never applies a selection to another coordinate", () => {
     package: oldPackage.id,
     version: oldPackage.version
   }), false);
+});
+
+test("history restores the complete saved workspace coordinate set", () => {
+  const first = packageAt("1.0.0", "net8.0");
+  const second = packageAt("2.0.0", "net9.0");
+  const tabs = [
+    { id: first.id, version: first.version, framework: first.activeFramework },
+    { id: second.id, version: second.version, framework: second.activeFramework }
+  ];
+
+  assert.equal(workspaceCoordinatesMatch([first, second], tabs), true);
+  assert.equal(workspaceCoordinatesMatch([first], tabs), false);
+  assert.equal(workspaceCoordinatesMatch([second, first], tabs), false);
 });
 
 test("call graph navigation prefers exact metadata type identity", () => {
@@ -280,7 +294,19 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /deepLink: deep,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
   assert.match(
     appSource,
-    /state\.packages = \[\];\s+state\.package = null;\s+render\(\);/);
+    /clearWorkspacePackages\(\);\s+render\(\);/);
+  assert.match(
+    appSource,
+    /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+restoreWorkspaceFromLocation/);
+  assert.match(
+    appSource,
+    /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
+  assert.match(
+    appSource,
+    /\(candidate\.queryId \?\? candidate\.id\) === fullName/);
+  assert.match(
+    appSource,
+    /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.id/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

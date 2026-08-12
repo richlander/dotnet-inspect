@@ -265,7 +265,8 @@ public static partial class BrowserInspectionEngine
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId,
+        string typeIdentity,
+        string typeQueryId,
         string memberName,
         string memberSignature,
         string selectorKey,
@@ -282,7 +283,7 @@ public static partial class BrowserInspectionEngine
             version,
             targetFramework,
             assemblyName,
-            typeId,
+            typeIdentity,
             memberName,
             selectorKey,
             metadataToken);
@@ -294,12 +295,12 @@ public static partial class BrowserInspectionEngine
                     group,
                     member,
                     new AssemblyContextMemberProjectionRequest(
-                        typeId,
+                        typeQueryId,
                         memberName,
                         MethodToken: implementationToken,
                         SourceDocument: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
-            $"Annotated source for '{typeId}.{memberName}'");
+            $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
         {
@@ -512,7 +513,8 @@ public static partial class BrowserInspectionEngine
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId,
+        string typeIdentity,
+        string typeQueryId,
         string memberName,
         string memberSignature,
         string selectorKey,
@@ -520,6 +522,7 @@ public static partial class BrowserInspectionEngine
         string workspaceJson)
     {
         _ = memberSignature;
+        _ = typeQueryId;
         if (metadataToken == 0)
         {
             throw new InvalidOperationException(
@@ -552,7 +555,7 @@ public static partial class BrowserInspectionEngine
             scope,
             rootCoordinate,
             assemblyName,
-            typeId,
+            typeIdentity,
             memberName,
             selectorKey,
             metadataToken);
@@ -860,7 +863,7 @@ public static partial class BrowserInspectionEngine
                     ApiSurfaceScope.IncludeAll)),
             $"Implementation surface for '{typeId}'");
         Analysis.CallGraphMemberResolution resolution =
-            Analysis.CallGraphMemberResolver.Resolve(
+            Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity(
                 implementation.Surface,
                 typeId,
                 memberName,

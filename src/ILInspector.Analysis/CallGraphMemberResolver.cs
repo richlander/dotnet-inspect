@@ -14,6 +14,32 @@ namespace ILInspector.Analysis;
 public static class CallGraphMemberResolver
 {
     /// <summary>
+    /// Resolves an API member body from the escaped structured definition identity supplied by
+    /// <see cref="MetadataTypeDefinitionName.ToEscapedFullName"/>. Unlike display and metadata
+    /// spellings, this projection distinguishes nesting from literal delimiter characters.
+    /// </summary>
+    public static CallGraphMemberResolution? ResolveDefinitionIdentity(
+        ApiSurface surface,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int? metadataToken = null)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
+
+        ApiType[] matches = surface.Types
+            .Where(candidate =>
+                candidate.DefinitionName?.ToEscapedFullName()
+                    .Equals(typeIdentity, StringComparison.Ordinal) == true)
+            .Take(2)
+            .ToArray();
+        return matches.Length == 1
+            ? Resolve(matches[0], memberName, selectorKey, metadataToken)
+            : null;
+    }
+
+    /// <summary>
     /// Resolves an API member body from an exact type identity. The type may use either the
     /// projected full name or the metadata lookup name, including nested-type <c>+</c> segments.
     /// </summary>

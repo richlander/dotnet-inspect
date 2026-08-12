@@ -20,7 +20,8 @@ import {
   shareStateLengthError,
   scopedRequestState,
   spotlightCandidateKey,
-  spotlightCandidateSignature
+  spotlightCandidateSignature,
+  workspaceCoordinatesMatch
 } from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
@@ -699,18 +700,29 @@ function retainPackageModel(packageModel, replacedPackage = null) {
   if (activeWasReplaced)
     state.package = packageModel;
 
-  for (const evicted of retained.evicted) {
-    const dependencyKey = workspaceDependencyKey(evicted);
-    delete state.workspaceDependencies[dependencyKey];
-    delete state.workspaceDependencyErrors[dependencyKey];
-    state.workspaceDependencyLoads.delete(dependencyKey);
+  for (const evicted of retained.evicted)
+    releasePackageModelCaches(evicted);
+}
 
-    const id = evicted.id.toLowerCase();
-    if (!state.packages.some(item => item.id.toLowerCase() === id)) {
-      delete state.packageVersions[id];
-      delete state.packageVersionsLoading[id];
-    }
+function releasePackageModelCaches(packageModel) {
+  const dependencyKey = workspaceDependencyKey(packageModel);
+  delete state.workspaceDependencies[dependencyKey];
+  delete state.workspaceDependencyErrors[dependencyKey];
+  state.workspaceDependencyLoads.delete(dependencyKey);
+
+  const id = packageModel.id.toLowerCase();
+  if (!state.packages.some(item => item.id.toLowerCase() === id)) {
+    delete state.packageVersions[id];
+    delete state.packageVersionsLoading[id];
   }
+}
+
+function clearWorkspacePackages() {
+  const discarded = state.packages;
+  state.packages = [];
+  state.package = null;
+  for (const packageModel of discarded)
+    releasePackageModelCaches(packageModel);
 }
 
 function activatePackage(pkg, { resetAccessibility = false } = {}) {
@@ -5844,7 +5856,8 @@ async function loadSelectedMemberAnnotatedSource() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.metadataId ?? type.queryId ?? type.id,
+      type: type.queryId ?? type.id,
+      typeIdentity: type.id,
       member: overload.name,
       signature: overload.signature,
       selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
@@ -6037,7 +6050,8 @@ async function renderTypeGraph() {
       const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
       const fullName = fullNameOf.get(dataId || idMatch?.[1]);
       if (!fullName) return;
-      const target = state.package.types.find(candidate => candidate.id === fullName);
+      const target = state.package.types.find(candidate =>
+        (candidate.queryId ?? candidate.id) === fullName);
       if (target) {
         node.classList.add("nav-node");
         node.style.cursor = "pointer";
@@ -6378,6 +6392,7 @@ async function loadSelectedMemberCallGraph() {
     framework: state.package.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
+    typeIdentity: type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     signature: overload.signature,
     selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
@@ -7784,8 +7799,7 @@ async function restoreWorkspaceFromLocation(
   state.home = false;
   state.loading = true;
   state.error = "";
-  state.packages = [];
-  state.package = null;
+  clearWorkspacePackages();
   render();
   const target = {
     id: loc.package,
@@ -8107,6 +8121,25 @@ window.addEventListener("popstate", () => {
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
   }
+  const deep = {
+    type: loc.type,
+    member: loc.member,
+    overload: loc.overload,
+    section: loc.section
+  };
+  if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
+    restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+    return;
+  }
+  if (loc.tabs?.length) {
+    const target = state.packages.find(candidate =>
+      packageCoordinateMatchesLocation(candidate, loc));
+    if (!target) {
+      restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+      return;
+    }
+    activatePackage(target, { resetAccessibility: true });
+  }
   state.home = false;
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
@@ -8125,10 +8158,8 @@ window.addEventListener("popstate", () => {
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
-    const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
     restoreRuntimePackFromHistory(loc, deep, navigationSeq);
   } else {
-    const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
     loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
       deepLink: deep,
       navigationSeq,

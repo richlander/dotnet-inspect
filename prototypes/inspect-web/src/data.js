@@ -142,6 +142,17 @@ export function packageCoordinateMatchesLocation(pkg, location) {
     && String(pkg.activeFramework).toLowerCase() === String(location.framework).toLowerCase();
 }
 
+export function workspaceCoordinatesMatch(packages, tabs) {
+  if (!Array.isArray(packages) || !Array.isArray(tabs) || packages.length !== tabs.length)
+    return false;
+  return tabs.every((tab, index) =>
+    packageIdentityKey(packages[index]) === packageIdentityKey({
+      id: tab.id,
+      version: tab.version,
+      activeFramework: tab.framework
+    }));
+}
+
 export function callGraphTargetTypeId(target) {
   return target?.typeMetadataId || "";
 }
