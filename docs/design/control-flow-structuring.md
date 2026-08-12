@@ -923,7 +923,15 @@ Begin the non-terminator retained-label prototype when both of these hold:
 1. **The treadmill has visibly stalled against the structural core** — a normalizer
    PR in the diamond/guard family moves the real-world forward-merge residual by
    **< ~0.1 percentage point**. This is read off the PR slope (accumulated
-   experience), not a fresh sweep.
+   experience), not a fresh sweep. *Amended 2026-08-12 (ratified with this
+   revision):* the condition is equally met when **no qualifying diamond/guard
+   family normalizer PR has merged for three or more weeks** — an order of
+   magnitude beyond the family's historical cadence (seven merges in eight
+   days in June 2026; see the git log of the guard/diamond/merge passes) —
+   while the forward-merge shape remains a dominant residual. The original
+   wording could only read deltas from attempts, so a lane no one attempts
+   could never fire its own gate: an abandoned treadmill is a stalled
+   treadmill, and the gate must be able to say so.
 2. **Readability is confirmed on the shape step 4 actually owns** — a `--dump` of a
    single-merge diamond under a throwaway retained-label prototype reads as nested
    `if`/`else` + one labelled merge (the `InternalSetValue` shape), not the
@@ -939,25 +947,27 @@ stated decision, not an accident) and the lane is closed with that finding recor
 This keeps step 4 the last and riskiest step while ensuring its start cannot quietly
 become "never."
 
-### Outcome (2026-08-12): condition 2 met; condition 1 met by absence — the lane opens on merge
+### Outcome (2026-08-12): both conditions met under the amended trigger — the lane opens on merge
 
 The trigger has been evaluated; the full evidence is on
 [#1175](https://github.com/richlander/dotnet-inspect/issues/1175).
 
-- **Condition 1 (treadmill stalled): met by absence — an interpretation the
-  maintainer ratifies by merging this PR.** The strict reading requires a
-  qualifying diamond/guard normalizer PR whose measured real-world
-  forward-merge delta is `< ~0.1pp`; no such PR exists in the recent window
-  to measure — the merged normalizer-family work since mid-July is switch
-  family (#3986) and value-flow (#3949), neither in the diamond/guard family
-  — and no per-PR residual delta has been recorded. Supporting observations:
-  the last cheap terminator slice yielded **+3** methods (see the step-4
-  status above), and the canonical specimen has been consumed
-  (`InternalSetValue`/`CopyImpl` now structure on `main`). A zero-attempt
-  slope cannot exceed the threshold; under the strict per-PR-delta reading,
-  condition 1 instead resolves with the next qualifying PR's measured delta,
-  and condition 2's evidence stands independently either way. Judge
-  single-merge readability against the probe's exemplars
+- **Condition 1 (treadmill stalled): met under the amended trigger.** The
+  original per-PR-delta wording cannot be evaluated — no qualifying
+  diamond/guard-family normalizer PR exists in the window to measure (the
+  last family merge is #3003, 2026-07-22; the normalizer work since is
+  switch-family #3986 and value-flow #3949), so the trigger was amended above
+  to cover the no-attempt case, calibrated against the family's own
+  historical cadence. As of 2026-08-12 the no-attempt window stands at three
+  weeks versus June's seven-merges-in-eight-days, and the forward-merge shape
+  remains the dominant residual. Supporting observations: the last cheap
+  terminator slice yielded **+3** methods (see the step-4 status above), and
+  the canonical specimen has been consumed (`InternalSetValue`/`CopyImpl` now
+  structure on `main`). Merging this revision ratifies the amendment and the
+  outcome together; under the original wording alone, condition 1 would
+  instead resolve with the next qualifying PR's measured delta, and condition
+  2's evidence stands independently either way. Judge single-merge
+  readability against the probe's exemplars
   (`StateMachineBox<T>::RentFromCache`, `Number::DiyFp128RoundToUInt128`,
   `NumberFormatInfo::ValidateParseStyleFloatingPoint`), not the stale list.
 - **Condition 2 (readability): met** by a throwaway retained-label probe
