@@ -295,6 +295,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        bool includeOwnershipFlow = plan.Includes(
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -312,6 +314,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
         var exceptionPathCandidates =
             ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
+        var ownershipFlow =
+            ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var exceptionTypeNames = includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -353,7 +357,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 var w = workItems[i];
                 results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
                     includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, bodyScope, bodyTypeScope);
+                    includeLeakTriage, includeOwnershipFlow,
+                    bodyScope, bodyTypeScope);
             });
         }
         else
@@ -363,7 +368,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 var w = workItems[i];
                 results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
                     includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, bodyScope, bodyTypeScope);
+                    includeLeakTriage, includeOwnershipFlow,
+                    bodyScope, bodyTypeScope);
             }
         }
 
@@ -379,6 +385,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 leakCandidates.AddRange(leakTriage.Candidates);
                 exceptionPathCandidates.AddRange(
                     leakTriage.ExceptionPathCandidates);
+            }
+            if (r.OwnershipFlow is { } methodOwnership
+                && (!methodOwnership.Rents.IsEmpty
+                    || !methodOwnership.Parameters.IsEmpty
+                    || !methodOwnership.IsComplete))
+            {
+                ownershipFlow.Add(methodOwnership);
             }
             if (!r.HasCaller)
             {
@@ -453,6 +466,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 Opportunities: optimizationOpportunities.ToImmutable(),
                 SuppressedMethodTokens: suppressedOpportunityTokens,
                 ExceptionTypeNames: exceptionTypeNames),
+            OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
     }
@@ -484,6 +498,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         public bool HasSignals;
         public BodySignals Signals;
         public LeakTriageResult? LeakTriage;
+        public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
         public AnalysisDiagnostic? Diagnostic;
     }
 
@@ -495,7 +510,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
         MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
         bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
-        IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
+    bool includeOwnershipFlow,
+    IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
     {
         if (!includeMethodEvidence)
         {
@@ -621,6 +637,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             }
             ScanBody(context, allocationAnalysis, scope, calls, evidence,
                 includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
+            if (includeOwnershipFlow)
+            {
+                result.OwnershipFlow = ArrayPoolOwnershipFlow.Analyze(
+                    context,
+                    calls.ToImmutable());
+            }
         }
         catch (Exception ex) when (IsRecoverableMethodFailure(ex))
         {

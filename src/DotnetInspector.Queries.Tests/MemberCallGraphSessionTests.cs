@@ -183,6 +183,280 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
+    public void AnnotatedOwnershipProgressesWithoutReacquiringGraphWork()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RentAndReturnThroughHelper");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+            });
+        using var source = MetadataSource.Open(CallerPath);
+
+        MemberCallGraphView firstView = graph.Callees();
+        var first =
+            Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+                AnnotatedMemberDocumentQuery.Execute(
+                    new AnnotatedMemberDocumentInput(
+                        source,
+                        firstView)));
+        Assert.Empty(first.Document.CallGraph.Ownership.Findings);
+        Assert.True(
+            first.Document.CallGraph.Ownership.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.BodyUnavailable));
+        Assert.True(
+            first.Document.CallGraph.Ownership.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.TraversalBoundary));
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 0, 0),
+            graph.BuildCounts);
+
+        MemberCallGraphView fullView = graph.Callers();
+        var full =
+            Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+                AnnotatedMemberDocumentQuery.Execute(
+                    new AnnotatedMemberDocumentInput(
+                        source,
+                        fullView)));
+
+        Finding<ArrayPoolOwnershipPathWitness> finding =
+            Assert.Single(
+                full.Document.CallGraph.Ownership.Findings);
+        Assert.Equal(
+            Analysis.AnalysisFindings.ResourceLifecycleDescriptor,
+            finding.Descriptor);
+        Assert.Equal(
+            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+            finding.Payload.Outcome);
+        ArrayPoolOwnershipPathStep step =
+            Assert.Single(finding.Payload.Steps);
+        Assert.Equal(0, step.CalleeParameterIndex);
+        Assert.Contains(
+            full.Document.CallGraph.Projection.Rows,
+            row => row.Number == step.EdgeRow
+                && full.Document.CallGraph.Projection
+                    .Nodes[row.Edge.From].Member.Name
+                    == "RentAndReturnThroughHelper"
+                && full.Document.CallGraph.Projection
+                    .Nodes[row.Edge.To].Member.Name
+                    == "ReturnRentedArray");
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 1, 0),
+            graph.BuildCounts);
+        Assert.Equal(1, context.Sources[0].OpenCount);
+        Assert.Equal(0, context.Sources[1].OpenCount);
+    }
+
+    [Theory]
+    [InlineData(
+        "RentAndForwardToReturn",
+        Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+        2,
+        0)]
+    [InlineData(
+        "RentAndStoreThroughHelper",
+        Analysis.ArrayPoolOwnershipUseKind.Stored,
+        1,
+        0)]
+    [InlineData(
+        "RentAndReturnFromHelper",
+        Analysis.ArrayPoolOwnershipUseKind.ReturnedToCaller,
+        1,
+        0)]
+    [InlineData(
+        "RentAndReturnThroughInstance",
+        Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+        1,
+        1)]
+    [InlineData(
+        "RentAndReturnThroughConstructor",
+        Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+        1,
+        1)]
+    public void AnnotatedOwnershipComposesTypedTerminalPaths(
+        string methodName,
+        Analysis.ArrayPoolOwnershipUseKind outcome,
+        int edgeCount,
+        int firstCalleeParameterIndex)
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(CallerPath, "Entry", methodName);
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+            });
+        MemberCallGraphView view = graph.Callers();
+        using var source = MetadataSource.Open(CallerPath);
+
+        var complete =
+            Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+                AnnotatedMemberDocumentQuery.Execute(
+                    new AnnotatedMemberDocumentInput(source, view)));
+
+        Finding<ArrayPoolOwnershipPathWitness> finding =
+            Assert.Single(
+                complete.Document.CallGraph.Ownership.Findings);
+        Assert.Equal(outcome, finding.Payload.Outcome);
+        Assert.Equal(edgeCount, finding.Payload.Steps.Length);
+        Assert.Equal(
+            firstCalleeParameterIndex,
+            finding.Payload.Steps[0].CalleeParameterIndex);
+        Assert.Equal(
+            finding.Payload.Steps.Select(step => step.EdgeRow),
+            finding.Payload.EdgeRows);
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(0, 1, 0),
+            graph.BuildCounts);
+        Assert.Equal(1, context.Sources[0].OpenCount);
+    }
+
+    [Fact]
+    public void OwnershipWitnessBudgetPreservesPhysicalCallIdentity()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RentAndReturnAtTwoSites");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+            });
+        MemberCallGraphView view = graph.Callers();
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                view.CallerRoot,
+                view.CalleeRoot);
+
+        AnnotatedCallGraphOwnershipInspection all =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                projection);
+        Finding<ArrayPoolOwnershipPathWitness>[] findings =
+            [.. all.Findings];
+        Assert.Equal(2, findings.Length);
+        Assert.Equal(
+            findings[0].Payload.Steps[0].EdgeRow,
+            findings[1].Payload.Steps[0].EdgeRow);
+        Assert.NotEqual(
+            findings[0].Payload.Steps[0].ILOffset,
+            findings[1].Payload.Steps[0].ILOffset);
+        Assert.NotEqual(findings[0].Key, findings[1].Key);
+
+        AnnotatedCallGraphOwnershipInspection bounded =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                projection,
+                new ArrayPoolOwnershipSearchOptions
+                {
+                    MaxWitnesses = 1,
+                });
+        Assert.Single(bounded.Findings);
+        Assert.True(
+            bounded.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.WitnessBudget));
+    }
+
+    [Fact]
+    public void OwnershipPathBudgetLeavesForwardedPathIncomplete()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RentAndForwardToReturn");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+            });
+        MemberCallGraphView view = graph.Callers();
+
+        AnnotatedCallGraphOwnershipInspection result =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot),
+                new ArrayPoolOwnershipSearchOptions
+                {
+                    MaxPaths = 1,
+                });
+
+        Assert.Empty(result.Findings);
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.PathBudget));
+    }
+
+    [Fact]
+    public void OwnershipForwardedToABodilessCalleeIsIncomplete()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RentAndForwardExternally");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+            });
+        MemberCallGraphView view = graph.Callers();
+
+        AnnotatedCallGraphOwnershipInspection result =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot));
+
+        Assert.Empty(result.Findings);
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.BodyUnavailable));
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.TraversalBoundary));
+    }
+
+    [Fact]
     public void AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls()
     {
         using GraphContext context =

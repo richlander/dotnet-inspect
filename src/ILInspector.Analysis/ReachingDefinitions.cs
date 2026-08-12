@@ -188,6 +188,20 @@ public static class ReachingDefinitions
         ArgumentNullException.ThrowIfNull(body);
         return AnalyzeCore(body.GetILBytes() ?? [], argumentSlotCount, body.ExceptionRegions);
     }
+
+    internal static ReachingDefinitionsResult Analyze(
+        MethodInstructions body,
+        int argumentSlotCount)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        if (argumentSlotCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(argumentSlotCount));
+        return AnalyzeCore(
+            body.Instructions,
+            body.Blocks,
+            argumentSlotCount);
+    }
+
     static ReachingDefinitionsResult AnalyzeCore(byte[] il, int argumentSlotCount, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(il);
@@ -212,6 +226,14 @@ public static class ReachingDefinitions
             throw new BadImageFormatException(ex.Message, ex);
         }
 
+        return AnalyzeCore(instructions, blockGraph, argumentSlotCount);
+    }
+
+    static ReachingDefinitionsResult AnalyzeCore(
+        ImmutableArray<DecodedInstruction> instructions,
+        BlockGraph blockGraph,
+        int argumentSlotCount)
+    {
         var blocks = blockGraph.Blocks;
         var incompleteReason = blockGraph.IncompleteReason;
         var definitions = ImmutableArray.CreateBuilder<LocalDefinition>();

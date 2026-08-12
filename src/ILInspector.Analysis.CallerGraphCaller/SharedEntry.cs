@@ -1,3 +1,5 @@
+using System.Buffers;
+
 // Caller-graph cross-assembly fixture (#1579): a real caller. Shared.Entry.Run calls the
 // real Target.Api.Ping. Its caller signature is intentionally identical to the twin caller
 // assembly to exercise the caller-collapse case.
@@ -72,5 +74,165 @@ namespace Shared
                 __arglist(
                     new Target.VarargArg(),
                     new Target.VarargArg()));
+
+        public static int RentAndReturnThroughHelper()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                ReturnRentedArray(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndForwardToReturn()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                ForwardRentedArray(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndStoreThroughHelper()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                StoreRentedArray(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndReturnFromHelper()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                _ = ReturnRentedArrayToCaller(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndReturnAtTwoSites(bool first)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                if (first)
+                    ReturnRentedArray(buffer);
+                else
+                    ReturnRentedArray(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndTakeAddress()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                ReplaceRentedArray(ref buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndForwardExternally()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                GC.KeepAlive(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndReturnThroughInstance()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                new OwnershipSink().Return(7, buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static int RentAndReturnThroughConstructor()
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                _ = new OwnershipSink(7, buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        static void ForwardRentedArray(byte[] buffer) =>
+            ReturnRentedArray(buffer);
+
+        static void ReturnRentedArray(byte[] buffer) =>
+            ArrayPool<byte>.Shared.Return(buffer);
+
+        static byte[] ReturnRentedArrayToCaller(byte[] buffer) =>
+            buffer;
+
+        static void ReplaceRentedArray(ref byte[] buffer) =>
+            buffer = [];
+
+        static byte[]? s_rentedArray;
+        static int s_ownershipProbe;
+
+        static void StoreRentedArray(byte[] buffer) =>
+            s_rentedArray = buffer;
+
+        sealed class OwnershipSink
+        {
+            internal OwnershipSink()
+            {
+            }
+
+            internal OwnershipSink(int marker, byte[] buffer) =>
+                ArrayPool<byte>.Shared.Return(buffer);
+
+            internal void Return(int marker, byte[] buffer) =>
+                ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 }
