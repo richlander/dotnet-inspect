@@ -173,6 +173,10 @@ Each row contains these fields:
    build and then presented as an immutable measurement. Builds from source
    archives without Git remain supported, but their `unknown` provenance is not
    eligible for the tracked history.
+   `RepositoryBuildStateTarget_DistinguishesCleanDirtyAndClean` gates the
+   build-time discrimination, and
+   `GitRepository_RejectsBenchmarklessNonMainAndDuplicateMethodologyCommits`
+   gates the real Git refusal paths.
 2. Prepare or reuse the EVIL pool:
 
    ```bash

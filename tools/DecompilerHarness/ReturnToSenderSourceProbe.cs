@@ -66,15 +66,17 @@ static class ReturnToSenderInvalidClassifier
         if (result.Outcome != ReturnToSenderSourceOutcome.Invalid)
             return null;
 
-        return ClassifyKind(result.FaultIsolationKind?.ToString(), result.Detail);
+        return ClassifyKind(result.FaultIsolationKind, result.Detail);
     }
 
-    internal static ReturnToSenderInvalidKind ClassifyKind(string? faultIsolation, string? detail)
+    internal static ReturnToSenderInvalidKind ClassifyKind(
+        ReturnToSender.FaultIsolationKind? faultIsolation,
+        string? detail)
         => faultIsolation switch
         {
-            nameof(ReturnToSender.FaultIsolationKind.BodyDefect)
+            ReturnToSender.FaultIsolationKind.BodyDefect
                 => ReturnToSenderInvalidKind.ProductBodyDefect,
-            nameof(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect)
+            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect
                 => ReturnToSenderInvalidKind.HarnessShellReconstruction,
             _ when HasClosureStopDetail(detail)
                 => ReturnToSenderInvalidKind.HarnessShellReconstruction,

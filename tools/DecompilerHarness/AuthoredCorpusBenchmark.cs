@@ -635,7 +635,7 @@ static class AuthoredCorpusBenchmark
             writer.WriteLine($"[integrity-only] Quality was not judged: {invalid} invalid rows stand unreviewed. This exit code reports measurement integrity only.");
     }
 
-    enum TasteBucket
+    internal enum TasteBucket
     {
         Correct,
         Lowering,

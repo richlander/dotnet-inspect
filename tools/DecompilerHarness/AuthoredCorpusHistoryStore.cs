@@ -282,6 +282,9 @@ static partial class AuthoredCorpusHistoryStore
         {
             throw new InvalidDataException("Benchmark artifact does not carry complete run identity digests.");
         }
+        ParseRequiredEnum<AuthoredCorpusExitContract.QualityContract>(
+            report.QualityContract,
+            "qualityContract");
 
         RowCensus census = Census(report.Rows);
         VerifyProducerSummary(report, census);
@@ -371,53 +374,80 @@ static partial class AuthoredCorpusHistoryStore
                 throw new InvalidDataException("Benchmark artifact contains an incomplete per-row classification.");
             }
 
-            string expectedTaste = ExpectedTaste(row);
-            if (!string.Equals(row.TasteBucket, expectedTaste, StringComparison.Ordinal))
+            ReturnToSenderSourceOutcome outcome =
+                ParseRequiredEnum<ReturnToSenderSourceOutcome>(row.Outcome, "outcome");
+            AuthoredCorpusBenchmark.TasteBucket taste =
+                ParseRequiredEnum<AuthoredCorpusBenchmark.TasteBucket>(row.TasteBucket, "tasteBucket");
+            FidelityCheck.CompileBackStatus? compileBackStatus =
+                ParseOptionalEnum<FidelityCheck.CompileBackStatus>(
+                    row.CompileBackStatus,
+                    "compileBackStatus");
+            ReturnToSenderInvalidKind? invalidKind =
+                ParseOptionalEnum<ReturnToSenderInvalidKind>(row.InvalidKind, "invalidKind");
+            ReturnToSender.FaultIsolationKind? faultIsolation =
+                ParseOptionalEnum<ReturnToSender.FaultIsolationKind>(
+                    row.FaultIsolation,
+                    "faultIsolation");
+            ReturnToSender.FaultIsolationMethod? faultIsolationMethod =
+                ParseOptionalEnum<ReturnToSender.FaultIsolationMethod>(
+                    row.FaultIsolationMethod,
+                    "faultIsolationMethod");
+            ParseOptionalEnum<ReturnToSender.FaultIsolationKind>(
+                row.SupersededFaultIsolation,
+                "supersededFaultIsolation");
+            ParseOptionalEnum<ReturnToSender.FaultIsolationMethod>(
+                row.SupersededFaultIsolationMethod,
+                "supersededFaultIsolationMethod");
+
+            AuthoredCorpusBenchmark.TasteBucket expectedTaste =
+                ExpectedTaste(row, outcome, compileBackStatus);
+            if (taste != expectedTaste)
             {
                 throw new InvalidDataException(
                     $"Benchmark row tasteBucket '{row.TasteBucket}' does not match "
                     + $"outcome/reason/compile status ('{expectedTaste}').");
             }
 
-            string? expectedInvalidKind = row.Outcome == "Invalid"
-                ? ClassifyInvalidKind(row)
+            ReturnToSenderInvalidKind? expectedInvalidKind =
+                outcome == ReturnToSenderSourceOutcome.Invalid
+                ? ReturnToSenderInvalidClassifier.ClassifyKind(faultIsolation, row.Detail)
                 : null;
-            if (!string.Equals(row.InvalidKind, expectedInvalidKind, StringComparison.Ordinal))
+            if (invalidKind != expectedInvalidKind)
             {
                 throw new InvalidDataException(
                     $"Benchmark row invalidKind '{row.InvalidKind}' does not match "
                     + $"outcome/fault-isolation/detail facts ('{expectedInvalidKind}').");
             }
 
-            switch (row.TasteBucket)
+            switch (taste)
             {
-                case "Correct":
+                case AuthoredCorpusBenchmark.TasteBucket.Correct:
                     correct++;
                     break;
-                case "Lowering":
+                case AuthoredCorpusBenchmark.TasteBucket.Lowering:
                     lowering++;
                     break;
-                case "KnownTaste":
+                case AuthoredCorpusBenchmark.TasteBucket.KnownTaste:
                     knownTaste++;
                     break;
-                case "FrontierIlExact":
+                case AuthoredCorpusBenchmark.TasteBucket.FrontierIlExact:
                     frontierIlExact++;
                     break;
-                case "FrontierIlDiff":
+                case AuthoredCorpusBenchmark.TasteBucket.FrontierIlDiff:
                     frontierIlDiff++;
                     if (row.UsedCompileBackFloor)
                     {
                         frontierFloor++;
                     }
-                    else if (row.FaultIsolationMethod != "FidelityControl")
+                    else if (faultIsolationMethod != ReturnToSender.FaultIsolationMethod.FidelityControl)
                     {
                         frontierUnclassified++;
                     }
-                    else if (row.FaultIsolation == "BodyDefect")
+                    else if (faultIsolation == ReturnToSender.FaultIsolationKind.BodyDefect)
                     {
                         frontierProduct++;
                     }
-                    else if (row.FaultIsolation == "ShellOrClosureDefect")
+                    else if (faultIsolation == ReturnToSender.FaultIsolationKind.ShellOrClosureDefect)
                     {
                         frontierHarness++;
                     }
@@ -426,33 +456,30 @@ static partial class AuthoredCorpusHistoryStore
                         frontierUnclassified++;
                     }
                     break;
-                case "FrontierIlNoVerdict":
+                case AuthoredCorpusBenchmark.TasteBucket.FrontierIlNoVerdict:
                     frontierIlNoVerdict++;
                     break;
-                case "Invalid":
+                case AuthoredCorpusBenchmark.TasteBucket.Invalid:
                     invalid++;
                     switch (expectedInvalidKind)
                     {
-                        case "ProductBodyDefect": invalidProduct++; break;
-                        case "HarnessShellReconstruction": invalidHarness++; break;
-                        case "Unclassified": invalidUnclassified++; break;
+                        case ReturnToSenderInvalidKind.ProductBodyDefect: invalidProduct++; break;
+                        case ReturnToSenderInvalidKind.HarnessShellReconstruction: invalidHarness++; break;
+                        case ReturnToSenderInvalidKind.Unclassified: invalidUnclassified++; break;
                     }
                     break;
-                case "NotFull":
+                case AuthoredCorpusBenchmark.TasteBucket.NotFull:
                     notFull++;
                     break;
-                case "Drift":
+                case AuthoredCorpusBenchmark.TasteBucket.Drift:
                     drift++;
                     break;
-                case "Unsupported":
+                case AuthoredCorpusBenchmark.TasteBucket.Unsupported:
                     unsupported++;
                     break;
-                case "UnknownOutcome":
+                case AuthoredCorpusBenchmark.TasteBucket.UnknownOutcome:
                     unknownOutcome++;
                     break;
-                default:
-                    throw new InvalidDataException(
-                        $"Benchmark row carries unknown tasteBucket '{row.TasteBucket}'.");
             }
         }
 
@@ -477,32 +504,69 @@ static partial class AuthoredCorpusHistoryStore
             frontierUnclassified);
     }
 
-    static string ExpectedTaste(AuthoredCorpusBenchmark.RowReport row)
-        => row.Outcome switch
+    static AuthoredCorpusBenchmark.TasteBucket ExpectedTaste(
+        AuthoredCorpusBenchmark.RowReport row,
+        ReturnToSenderSourceOutcome outcome,
+        FidelityCheck.CompileBackStatus? compileBackStatus)
+        => outcome switch
         {
-            "ValidMatch" => "Correct",
-            "Invalid" => "Invalid",
-            "SourceUnavailable" => row.Reason.Contains("fidelity-unavailable", StringComparison.Ordinal)
+            ReturnToSenderSourceOutcome.ValidMatch => AuthoredCorpusBenchmark.TasteBucket.Correct,
+            ReturnToSenderSourceOutcome.Invalid => AuthoredCorpusBenchmark.TasteBucket.Invalid,
+            ReturnToSenderSourceOutcome.SourceUnavailable
+                => row.Reason.Contains("fidelity-unavailable", StringComparison.Ordinal)
                 || row.Reason.Equals("NotFull", StringComparison.Ordinal)
-                    ? "NotFull"
-                    : "Drift",
-            "UnsupportedTarget" => "Unsupported",
-            "ValidDifferent" when row.Reason.Contains("compiler_lowering", StringComparison.Ordinal)
-                => "Lowering",
-            "ValidDifferent" when row.Reason.Contains("known_taste", StringComparison.Ordinal)
+                    ? AuthoredCorpusBenchmark.TasteBucket.NotFull
+                    : AuthoredCorpusBenchmark.TasteBucket.Drift,
+            ReturnToSenderSourceOutcome.UnsupportedTarget
+                => AuthoredCorpusBenchmark.TasteBucket.Unsupported,
+            ReturnToSenderSourceOutcome.ValidDifferent
+                when row.Reason.Contains("compiler_lowering", StringComparison.Ordinal)
+                => AuthoredCorpusBenchmark.TasteBucket.Lowering,
+            ReturnToSenderSourceOutcome.ValidDifferent
+                when row.Reason.Contains("known_taste", StringComparison.Ordinal)
                 || row.Reason.Contains("known_compiler_option", StringComparison.Ordinal)
-                => "KnownTaste",
-            "ValidDifferent" => row.CompileBackStatus switch
+                => AuthoredCorpusBenchmark.TasteBucket.KnownTaste,
+            ReturnToSenderSourceOutcome.ValidDifferent => compileBackStatus switch
             {
-                "Exact" => "FrontierIlExact",
-                "OpcodeDiff" or "OperandDiff" => "FrontierIlDiff",
-                _ => "FrontierIlNoVerdict",
+                FidelityCheck.CompileBackStatus.Exact
+                    => AuthoredCorpusBenchmark.TasteBucket.FrontierIlExact,
+                FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff
+                    => AuthoredCorpusBenchmark.TasteBucket.FrontierIlDiff,
+                _ => AuthoredCorpusBenchmark.TasteBucket.FrontierIlNoVerdict,
             },
-            _ => "UnknownOutcome",
+            _ => AuthoredCorpusBenchmark.TasteBucket.UnknownOutcome,
         };
 
     internal static string ClassifyInvalidKind(AuthoredCorpusBenchmark.RowReport row)
-        => ReturnToSenderInvalidClassifier.ClassifyKind(row.FaultIsolation, row.Detail).ToString();
+        => ReturnToSenderInvalidClassifier.ClassifyKind(
+            ParseOptionalEnum<ReturnToSender.FaultIsolationKind>(
+                row.FaultIsolation,
+                "faultIsolation"),
+            row.Detail).ToString();
+
+    static TEnum ParseRequiredEnum<TEnum>(string? value, string field)
+        where TEnum : struct, Enum
+        => ParseOptionalEnum<TEnum>(value, field)
+            ?? throw new InvalidDataException(
+                $"Benchmark artifact has null enum-shaped field '{field}'.");
+
+    static TEnum? ParseOptionalEnum<TEnum>(string? value, string field)
+        where TEnum : struct, Enum
+    {
+        if (value is null)
+            return null;
+
+        if (!Enum.TryParse(value, ignoreCase: false, out TEnum parsed)
+            || !Enum.IsDefined(parsed)
+            || !string.Equals(value, parsed.ToString(), StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Benchmark artifact has unknown {field} value '{value}'.");
+        }
+
+        return parsed;
+    }
 
     static void VerifyProducerSummary(AuthoredCorpusBenchmark.Report report, RowCensus census)
     {

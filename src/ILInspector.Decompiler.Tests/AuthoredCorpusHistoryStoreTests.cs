@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Reflection;
+using System.Diagnostics;
+using System.Security;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -196,6 +198,103 @@ public class AuthoredCorpusHistoryStoreTests
 
     [Theory]
     [Trait("Area", "Corpus")]
+    [InlineData("outcome", "Bogus")]
+    [InlineData("outcome", "1")]
+    [InlineData("tasteBucket", "Bogus")]
+    [InlineData("compileBackStatus", "Bogus")]
+    [InlineData("compileBackStatus", "1")]
+    [InlineData("invalidKind", "Bogus")]
+    [InlineData("faultIsolation", "Bogus")]
+    [InlineData("faultIsolationMethod", "Bogus")]
+    [InlineData("supersededFaultIsolation", "Bogus")]
+    [InlineData("supersededFaultIsolationMethod", "Bogus")]
+    [InlineData("qualityContract", "Bogus")]
+    public void AppendProjection_RejectsUnknownEnumShapedFactsWithMatchingSummaries(
+        string field,
+        string value)
+    {
+        AuthoredCorpusBenchmark.Report report = Report();
+        var rows = report.Rows.ToArray();
+        report = field switch
+        {
+            "outcome" => report with
+            {
+                Correct = 0,
+                UnknownOutcome = 1,
+                Rows = Replace(rows, 0, rows[0] with
+                {
+                    Outcome = value,
+                    TasteBucket = "UnknownOutcome",
+                }),
+            },
+            "tasteBucket" => report with
+            {
+                Rows = Replace(rows, 0, rows[0] with { TasteBucket = value }),
+            },
+            "compileBackStatus" => report with
+            {
+                ValidBreakdown = report.ValidBreakdown with
+                {
+                    FrontierIlExact = 0,
+                    FrontierIlNoVerdict = 1,
+                },
+                Rows = Replace(rows, 1, rows[1] with
+                {
+                    TasteBucket = "FrontierIlNoVerdict",
+                    CompileBackStatus = value,
+                }),
+            },
+            "invalidKind" => report with
+            {
+                Rows = Replace(rows, 3, rows[3] with { InvalidKind = value }),
+            },
+            "faultIsolation" => report with
+            {
+                InvalidBreakdown = new AuthoredCorpusBenchmark.InvalidBreakdownReport(
+                    ProductBodyDefect: 0,
+                    HarnessShellReconstruction: 0,
+                    Unclassified: 1),
+                Rows = Replace(rows, 3, rows[3] with
+                {
+                    InvalidKind = "Unclassified",
+                    FaultIsolation = value,
+                }),
+            },
+            "faultIsolationMethod" => report with
+            {
+                ValidBreakdown = report.ValidBreakdown with
+                {
+                    FrontierIlDiffAttribution =
+                        report.ValidBreakdown.FrontierIlDiffAttribution with
+                        {
+                            ProductBodyDefect = 0,
+                            Unclassified = 1,
+                        },
+                },
+                Rows = Replace(rows, 2, rows[2] with { FaultIsolationMethod = value }),
+            },
+            "supersededFaultIsolation" => report with
+            {
+                Rows = Replace(rows, 0, rows[0] with { SupersededFaultIsolation = value }),
+            },
+            "supersededFaultIsolationMethod" => report with
+            {
+                Rows = Replace(rows, 0, rows[0] with
+                {
+                    SupersededFaultIsolationMethod = value,
+                }),
+            },
+            "qualityContract" => report with { QualityContract = value },
+            _ => throw new InvalidOperationException(),
+        };
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(() => AuthoredCorpusHistoryStore.Project(report));
+        Assert.Contains(field, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Area", "Corpus")]
     [InlineData("clean")]
     [InlineData("dirty")]
     [InlineData("unknown")]
@@ -221,6 +320,49 @@ public class AuthoredCorpusHistoryStoreTests
                     new AssemblyMetadataAttribute("RepositorySourceStateAtBuild", "clean"),
                     new AssemblyMetadataAttribute("RepositorySourceStateAtBuild", "dirty"),
                 ]));
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void RepositoryBuildStateTarget_DistinguishesCleanDirtyAndClean()
+    {
+        string directory = CreateTemporaryDirectory("repository-build-state");
+        try
+        {
+            string target = SecurityElement.Escape(Path.Combine(
+                AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+                "tools",
+                "DecompilerHarness",
+                "RepositoryBuildState.targets"))!;
+            File.WriteAllText(Path.Combine(directory, ".gitignore"), "bin/\nobj/\n");
+            File.WriteAllText(
+                Path.Combine(directory, "Program.cs"),
+                "System.Console.WriteLine(\"probe\");\n");
+            string project = Path.Combine(directory, "probe.csproj");
+            File.WriteAllText(project, $$"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net11.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{{target}}" />
+                </Project>
+                """);
+
+            RunCommand(directory, "git", "init", "--quiet");
+            CommitAll(directory, "initial");
+
+            AssertBuildState(directory, project, "clean");
+            string marker = Path.Combine(directory, "untracked.txt");
+            File.WriteAllText(marker, "dirty\n");
+            AssertBuildState(directory, project, "dirty");
+            File.Delete(marker);
+            AssertBuildState(directory, project, "clean");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -251,6 +393,65 @@ public class AuthoredCorpusHistoryStoreTests
             () => AuthoredCorpusHistoryStore.ParseAndVerify(
                 store,
                 new FakeRepository { BenchmarkExists = false }));
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void GitRepository_RejectsBenchmarklessNonMainAndDuplicateMethodologyCommits()
+    {
+        string directory = CreateTemporaryDirectory("history-git-repository");
+        try
+        {
+            RunCommand(directory, "git", "init", "--quiet");
+            File.WriteAllText(Path.Combine(directory, "README.md"), "root\n");
+            CommitAll(directory, "root");
+            string benchmarkless = RunCommand(directory, "git", "rev-parse", "HEAD").Trim();
+            RunCommand(
+                directory,
+                "git",
+                "update-ref",
+                "refs/remotes/origin/main",
+                benchmarkless);
+
+            string harnessDirectory = Path.Combine(directory, "tools", "DecompilerHarness");
+            Directory.CreateDirectory(harnessDirectory);
+            File.WriteAllText(
+                Path.Combine(harnessDirectory, "AuthoredCorpusBenchmark.cs"),
+                "internal static class AuthoredCorpusBenchmark { }\n");
+            File.WriteAllText(
+                Path.Combine(harnessDirectory, "AuthoredCorpusMethodology.cs"),
+                """
+                internal static class AuthoredCorpusMethodology
+                {
+                    internal const int Version = 3;
+                }
+                """);
+            CommitAll(directory, "benchmark");
+            string branchOnly = RunCommand(directory, "git", "rev-parse", "HEAD").Trim();
+
+            var repository = new AuthoredCorpusHistoryStore.GitRepository(directory);
+            Assert.Throws<InvalidDataException>(
+                () => repository.MethodologyAt(benchmarkless));
+            Assert.False(repository.IsOnMain(branchOnly));
+            Assert.Equal(3, repository.MethodologyAt(branchOnly));
+
+            File.WriteAllText(
+                Path.Combine(harnessDirectory, "SpanAttribution.cs"),
+                """
+                internal static class SpanAttribution
+                {
+                    internal const int MethodologyVersion = 2;
+                }
+                """);
+            CommitAll(directory, "duplicate methodology");
+            string duplicate = RunCommand(directory, "git", "rev-parse", "HEAD").Trim();
+
+            Assert.Throws<InvalidDataException>(() => repository.MethodologyAt(duplicate));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -345,6 +546,80 @@ public class AuthoredCorpusHistoryStoreTests
             Reason: "test",
             Detail: null,
             SourceFile: null);
+
+    static IReadOnlyList<AuthoredCorpusBenchmark.RowReport> Replace(
+        AuthoredCorpusBenchmark.RowReport[] rows,
+        int index,
+        AuthoredCorpusBenchmark.RowReport replacement)
+    {
+        rows[index] = replacement;
+        return rows;
+    }
+
+    static string CreateTemporaryDirectory(string purpose)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{purpose}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    static void CommitAll(string directory, string message)
+    {
+        RunCommand(directory, "git", "add", ".");
+        RunCommand(
+            directory,
+            "git",
+            "-c",
+            "user.name=dotnet-inspect-tests",
+            "-c",
+            "user.email=dotnet-inspect-tests@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            message);
+    }
+
+    static void AssertBuildState(string directory, string project, string expected)
+    {
+        RunCommand(directory, "dotnet", "build", project, "-c", "Release", "--nologo", "-v:q");
+        string generated = File.ReadAllText(Path.Combine(
+            directory,
+            "obj",
+            "Release",
+            "net11.0",
+            "RepositoryBuildState.g.cs"));
+
+        Assert.Contains($"\"{expected}\"", generated, StringComparison.Ordinal);
+    }
+
+    static string RunCommand(string directory, string command, params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo(command)
+        {
+            WorkingDirectory = directory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using Process process = Process.Start(startInfo)!;
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        Assert.True(
+            process.WaitForExit(milliseconds: 120_000),
+            $"{command} did not exit within two minutes.");
+        string standardOutput = output.GetAwaiter().GetResult();
+        string standardError = error.GetAwaiter().GetResult();
+        Assert.True(
+            process.ExitCode == 0,
+            $"{command} {string.Join(' ', arguments)} failed ({process.ExitCode}):"
+                + $"{Environment.NewLine}{standardOutput}{standardError}");
+        return standardOutput;
+    }
 
     static HistoryRun Grandfather()
         => new(
