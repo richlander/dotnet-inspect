@@ -29,6 +29,11 @@ public static class HttpRetryHelper
     public const int DefaultRetryCount = 3;
 
     /// <summary>
+    /// Largest advertised response body accepted by a downloading helper.
+    /// </summary>
+    private const long MaxDownloadSize = 500_000_000; // 500 MB
+
+    /// <summary>
     /// HTTP status codes that indicate a transient failure worth retrying.
     /// </summary>
     private static readonly HashSet<HttpStatusCode> RetryableStatusCodes = new()
@@ -353,8 +358,6 @@ public static class HttpRetryHelper
         if (response == null)
             return null;
 
-        const long MaxDownloadSize = 500_000_000; // 500 MB
-
         if (response.Content.Headers.ContentLength is > MaxDownloadSize)
             throw new InvalidOperationException(
                 $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
@@ -363,16 +366,17 @@ public static class HttpRetryHelper
     }
 
     /// <summary>
-    /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
-    /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
-    /// the payload is never fully buffered in memory — important for large packages. Returns true on
-    /// success, false if the request ultimately failed. Throws if the advertised size exceeds the cap.
+    /// Executes an HTTP GET with retry on the initial request and returns the
+    /// successful response with its body unread, so a caller can stream the
+    /// payload without buffering it. Uses
+    /// <see cref="HttpCompletionOption.ResponseHeadersRead"/>. The caller owns
+    /// the returned response and must dispose it. Returns null if the request
+    /// ultimately failed. Throws if the advertised size exceeds the cap.
     /// Note: a failure that occurs mid-body (after headers) is not retried.
     /// </summary>
-    public static async Task<bool> DownloadToFileWithRetryAsync(
+    public static async Task<HttpResponseMessage?> GetStreamedWithRetryAsync(
         HttpClient client,
         string url,
-        string destinationPath,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
@@ -396,14 +400,47 @@ public static class HttpRetryHelper
             cancellationToken,
             trafficKind).ConfigureAwait(false);
 
-        using var response = result.Response;
+        var response = result.Response;
         if (response == null)
-            return false;
+            return null;
 
-        const long MaxDownloadSize = 500_000_000; // 500 MB
         if (response.Content.Headers.ContentLength is > MaxDownloadSize)
+        {
+            response.Dispose();
             throw new InvalidOperationException(
                 $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
+    /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
+    /// the payload is never fully buffered in memory — important for large packages. Returns true on
+    /// success, false if the request ultimately failed. Throws if the advertised size exceeds the cap.
+    /// Note: a failure that occurs mid-body (after headers) is not retried.
+    /// </summary>
+    public static async Task<bool> DownloadToFileWithRetryAsync(
+        HttpClient client,
+        string url,
+        string destinationPath,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+    {
+        using var response = await GetStreamedWithRetryAsync(
+            client,
+            url,
+            retryCount,
+            log,
+            cancellationToken,
+            auth,
+            trafficKind).ConfigureAwait(false);
+        if (response == null)
+            return false;
 
         await using var fs = File.Create(destinationPath);
         await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);

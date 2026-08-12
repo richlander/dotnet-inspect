@@ -2,9 +2,10 @@ namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Host-neutral persistence for resolved NuGet package payloads. Separates the
-/// (already host-neutral) version resolution and HTTP transport in
-/// <see cref="PackageExtractor"/> from where a downloaded package is cached and
-/// how its contents are read back.
+/// host-neutral coordinate resolution and payload transport in
+/// <see cref="PackageCoordinateResolver"/> and
+/// <see cref="PackagePayloadAcquisition"/> from where a downloaded package is
+/// cached and how its contents are read back.
 /// </summary>
 /// <remarks>
 /// The filesystem implementation (<see cref="FileSystemPackageStore"/>) delegates

@@ -286,16 +286,16 @@ public static class PackageExtractor
                     CachedVersionResolutionTimeout);
             }
 
-            PackageVersionResolution? resolution;
+            PackageCoordinateResolution resolution;
             try
             {
-                resolution = await ResolveLatestVersionAsync(
+                resolution = await PackageCoordinateResolver.ResolveAsync(
                     client,
-                    packageName,
-                    sources,
+                    new PackageCoordinate(packageName),
+                    authorizedSources,
                     log,
-                    skipCache: forceLatest,
                     includePrerelease: includePrerelease,
+                    useVersionCache: !forceLatest,
                     cancellationToken: latestTimeout?.Token ?? default)
                     .ConfigureAwait(false);
             }
@@ -312,7 +312,8 @@ public static class PackageExtractor
                 latestTimeout?.Dispose();
             }
 
-            if (resolution is null)
+            if (resolution
+                is not PackageCoordinateResolution.Resolved resolved)
             {
                 if (HttpClientFactory.IsOffline)
                 {
@@ -334,8 +335,8 @@ public static class PackageExtractor
                         .ToString());
             }
 
-            version = resolution.Version;
-            authorizedSources = resolution.ReportingSources;
+            version = resolved.Coordinate.Version;
+            authorizedSources = resolved.Coordinate.Sources;
         }
 
         // Normalize to lowercase for NuGet API
@@ -640,7 +641,8 @@ public static class PackageExtractor
         NuGetSource source,
         string packageName,
         string version,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
     {
         // Check for well-known flat-container URL (nuget.org optimization)
         var flatContainerUrl = source.GetFlatContainerUrl();
@@ -650,7 +652,11 @@ public static class PackageExtractor
         }
 
         // Query V3 service index to discover PackageBaseAddress (flat-container) endpoint
-        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
+        var baseAddress = await GetPackageBaseAddressAsync(
+            client,
+            source,
+            log,
+            cancellationToken).ConfigureAwait(false);
         if (baseAddress != null)
         {
             // Ensure trailing slash

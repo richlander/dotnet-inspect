@@ -9,7 +9,10 @@ grammar for the contract that
 already fixes in prose; that document remains the owner of the bundle
 contract, lifetime rules, and authorization model.
 
-This is a design proposal. No product code implements it yet, and every
+This is a design proposal. Implementation has begun: the `package` and
+`embedded` member coordinates and one loader that realizes a selected context
+into exactly one `AssemblyContextGroup` now exist in product code, with the
+gates listed under [What exists today](#what-exists-today). Every other
 property asserted below is **unverified** until the gates named in
 [Status and gates](#status-and-gates) exist.
 
@@ -773,7 +776,8 @@ answer; each needs a decision before or during implementation.
 
 ## Status and gates
 
-Unverified, all of it. Implementation must add, at minimum:
+Unverified except where [What exists today](#what-exists-today) says otherwise.
+Implementation must add, at minimum:
 
 - a schema round-trip gate (serialize → deserialize → semantic equality) over
   every record kind, including rejection of duplicate and unknown properties
@@ -855,4 +859,33 @@ repository gate can reach — it is a claim about external tools, verified
 manually (bash and zsh by transcript; PowerShell and cmd analytically) and
 otherwise falling under this note's blanket unverified marking.
 
-Until those exist, nothing in this note is a behavior claim.
+### What exists today
+
+The coordinate-realization slice implements the `package` and `embedded` member
+coordinates (`DotnetInspector.Queries.WorkspaceMemberCoordinate`) and one
+loader (`WorkspaceContextLoader`) that realizes one already-selected context
+into exactly one `AssemblyContextGroup`, through the product's package
+resolution, acquisition, and asset-selection owners. It supplies:
+
+- the context-scoped half of the target-consistency gate —
+  `WorkspaceContextLoaderTests.ConflictingTargets_CreateNoGroup` and
+  `PackageMemberWithoutAFramework_ReportsAMissingTarget`, with
+  `PackageAssetSelectorTests` covering assets outside the effective target;
+- the package half of the exact-resolution gate —
+  `PackageCoordinateResolverTests.ExactCoordinate_PreservesUnlistedVersionWithoutDiscovery`
+  against its floating contrast
+  `FloatingCoordinate_SelectsLatestListedStableVersion`, plus the exact-pin
+  grammar cases; and
+- a one-context lowering gate —
+  `WorkspaceContextLoaderTests.PackageMember_RealizesEveryManagedAssemblyInOneGroup`
+  and `Group_BindsAnInContextReferenceToItsOwnDescriptor`, with the embedded
+  digest, declared-name, absence, and malformed-image cases proving a rejected
+  member creates no partial group.
+
+Nothing else on the list above exists yet. There is no record schema or
+serializer, no group catalog or grammar, no packet projection, no `platform`,
+`project`, `local`, or `directory` coordinate, and no preset binding, so every
+property that depends on those remains unverified.
+
+Until those gates exist, nothing in this note beyond the slice above is a
+behavior claim.

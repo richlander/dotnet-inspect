@@ -353,6 +353,35 @@ public static class TfmResolver
     }
 
     /// <summary>
+    /// True when a package asset folder name is a culture tag, the convention
+    /// that marks the containing directory as holding satellite resource
+    /// assemblies (<c>lib/net8.0/de/Foo.resources.dll</c>). It is a name test
+    /// only: it reads no filesystem and asserts nothing about the entries.
+    /// </summary>
+    public static bool IsCultureFolderName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        if (name.Equals("any", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string[] parts = name.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return false;
+
+        return IsLanguageSubtag(parts[0])
+            && parts.Skip(1).All(IsCultureSubtag);
+
+        static bool IsLanguageSubtag(string value) =>
+            value.Length is 2 or 3 && value.All(char.IsAsciiLetter);
+
+        static bool IsCultureSubtag(string value) =>
+            value.Length is >= 2 and <= 8
+            && value.All(static c => char.IsAsciiLetter(c) || char.IsAsciiDigit(c));
+    }
+
+    /// <summary>
     /// Checks if a string looks like a TFM (starts with "net" followed by a digit,
     /// or is a known TFM prefix like "netcoreapp" or "netstandard").
     /// </summary>
