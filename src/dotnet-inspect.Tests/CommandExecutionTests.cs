@@ -1374,7 +1374,7 @@ public partial class CommandExecutionTests
         // A tiny fixture assembly with no async candidates: the async kind must be absent, not an
         // empty section (il-offset gating parity).
         var (exit, output, error) = await RunAppAsync(
-            "library", FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            "library", FixtureCatalog.AnalysisLookalike.AssemblyPath(),
             "-S", "Performance: Async", "--tips", "q");
 
         Assert.Equal(1, exit);
