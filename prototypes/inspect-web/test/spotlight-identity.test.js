@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -30,6 +31,8 @@ const packageAt = (version, framework, types = 1) => ({
   activeFramework: framework,
   types: Array.from({ length: types }, (_, index) => ({ id: `Type${index}` }))
 });
+
+const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
 
 test("spotlight candidate identity includes version and framework", () => {
   const net8 = packageAt("1.0.0", "net8.0");
@@ -262,6 +265,19 @@ test("workspace package replacement reuses its slot at the package limit", () =>
   assert.equal(retained.packages.includes(active), false);
   assert.equal(retained.packages.includes(replacement), true);
   assert.deepEqual(retained.evicted, [active]);
+});
+
+test("workspace UI routes replacements and restore notices through bounded paths", () => {
+  assert.match(
+    appSource,
+    /switchPackageFramework\(button\.dataset\.frameworkChip\)/);
+  assert.match(appSource, /switchPackageFramework\(argument\)/);
+  assert.doesNotMatch(
+    appSource,
+    /loadPackage\(state\.package\.id, state\.package\.version, (?:button\.dataset\.frameworkChip|argument)\)/);
+  assert.match(
+    appSource,
+    /deepLink: deep,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

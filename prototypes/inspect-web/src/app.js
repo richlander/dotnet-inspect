@@ -3647,7 +3647,7 @@ function bindEvents() {
     render();
   }));
   document.querySelectorAll("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    loadPackage(state.package.id, state.package.version, button.dataset.frameworkChip);
+    switchPackageFramework(button.dataset.frameworkChip);
   }));
   document.querySelectorAll("[data-dep-framework]").forEach(button => button.addEventListener("click", () => {
     if (state.dependenciesFramework === button.dataset.depFramework) return;
@@ -5262,7 +5262,7 @@ function executeCommand() {
     const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
     if (match) state.lens = match[0];
   } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
-    loadPackage(state.package.id, state.package.version, argument);
+    switchPackageFramework(argument);
   } else if (verb === "package") {
     const [id, version = "latest"] = argument.split("@");
     if (id) loadPackage(id, version, "");
@@ -5443,6 +5443,13 @@ function friendlyLoadError(error, packageId, version) {
     title: "Inspection query failed",
     message: `Couldn’t load “${packageId}”: ${raw || "unknown error"}`
   };
+}
+
+function appendQueryNotice(message) {
+  if (!message) return;
+  state.queryNotice = state.queryNotice
+    ? `${state.queryNotice} ${message}`
+    : message;
 }
 
 async function copyText(value, confirmation) {
@@ -7458,10 +7465,12 @@ async function loadPackage(packageId, version, framework, options = {}) {
       state.requestedVersion = prevRequested.version;
       state.requestedFramework = prevRequested.framework;
       state.error = "";
-      state.queryNotice = friendly.message;
+      appendQueryNotice(friendly.message);
       render();
     } else {
-      state.error = friendly.message;
+      state.error = state.queryNotice
+        ? `${state.queryNotice} ${friendly.message}`
+        : friendly.message;
       state.errorTitle = friendly.title;
       state.errorDetail = String(error?.stack || error);
       render();
@@ -7807,6 +7816,7 @@ async function restoreWorkspaceFromLocation(
   // focus steal) and loadRuntimePack already never steals focus. The real target is focused
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
+  let loadedTargetModel = null;
   for (const tab of tabs) {
     let loaded;
     if (isRuntimePackId(tab.id)) {
@@ -7827,9 +7837,10 @@ async function restoreWorkspaceFromLocation(
       });
     }
     if (navigationSeq !== state.navigationSeq) return;
+    if (loaded && matchesTarget(tab)) loadedTargetModel = loaded;
   }
 
-  const targetModel = state.packages.find(matchesTarget);
+  const targetModel = loadedTargetModel ?? state.packages.find(matchesTarget);
   if (targetModel) {
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
@@ -7847,11 +7858,16 @@ async function restoreWorkspaceFromLocation(
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
     await loadPackage(target.id, target.version, target.framework, {
       deepLink: deep,
-      navigationSeq
+      navigationSeq,
+      queryNotice: state.queryNotice
     });
   } else {
     state.loading = false;
-    state.error = state.runtimePackError || "Couldn’t load the requested .NET Platform.";
+    const failure =
+      state.runtimePackError || "Couldn’t load the requested .NET Platform.";
+    state.error = state.queryNotice
+      ? `${state.queryNotice} ${failure}`
+      : failure;
     state.errorTitle = "Platform failed";
     render();
   }
@@ -8160,8 +8176,8 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
     }
     applyDeepLink(deep);
   } else {
-    state.queryNotice =
-      `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`;
+    appendQueryNotice(
+      `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`);
   }
   render();
   loadSelectionData();
