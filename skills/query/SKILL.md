@@ -75,14 +75,14 @@ effective discovery probes for data. Package and library differ:
 | Gesture | `package` | `library` |
 | ------- | --------- | --------- |
 | `-D` with target | Effective base catalog + category doors. | Cheap target-aware base catalog + category doors. |
-| `-D --effective` | Already default; option not exposed. | Full effective base catalog. |
 | `-D @Category` | Effective members. | Structural members. |
 | `-D @Category --effective` | Not needed. | Effective members. |
 | `-D Section` | Effective fields. | Structural fields; add `--effective` for effective fields. |
 | `-D --schema` | Complete static graph; target optional. | Complete static graph without inspection. |
 
 Without a package target, `package -D` is structural. On library, plain `-D`
-stays cheap; bare `--effective` remains scoped to base evidence.
+stays cheap; `-D --effective` runs full probes and remains scoped to base
+evidence unless a category is named.
 
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |
