@@ -4137,12 +4137,12 @@ public class SectionPipelineTests
     public void BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed()
     {
         // A borrow that outlives its lender must fail with an exception a caller can map, not by
-        // reading unmapped memory. The dangerous shape is a MethodBodySource obtained WHILE the
-        // lender was alive: it captures the reader and its liveness check, so it survives the
-        // borrow's own disposal flag being false and reads through a released handle. That is an
-        // AccessViolationException, which is uncatchable and kills the process -- so if the
-        // liveness check on AssemblyImage stops consulting the lender, this test does not merely
-        // fail, it takes the test host down. Either way it stops the build.
+        // reading unmapped memory. The dangerous shapes are a MethodBodySource and declaration
+        // index obtained WHILE the lender was alive: each captures the reader, so it survives the
+        // borrow's own disposal flag being false and can read through a released handle. That is
+        // an AccessViolationException, which is uncatchable and kills the process -- so if a
+        // warmed reader-backed path stops consulting the lender, this test does not merely fail,
+        // it takes the test host down. Either way it stops the build.
         //
         // Found by review: an earlier version of this gate touched MethodBodies only AFTER
         // disposal, so the cold property threw from the disposed PEReader and the missing lender
@@ -4160,14 +4160,24 @@ public class SectionPipelineTests
 
             var borrowed = AssemblyInspectionSession.Borrow(lender);
 
-            // Warm the body source while the lender is still alive.
+            // Warm both reader-backed paths while the lender is still alive.
             var bodies = borrowed.MethodBodies;
             Assert.NotEmpty(bodies.EnumerateMethods());
+            MetadataTypeDefinitionName declarationName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "DotnetInspector.Tests",
+                        ["SectionPipelineTests"]))
+                    .Name;
+            Assert.IsType<TypeDeclarationResult.Defined>(
+                borrowed.ProbeDeclaration(declarationName));
 
             service.Dispose();
 
             Assert.Throws<ObjectDisposedException>(() => bodies.EnumerateMethods());
             Assert.Throws<ObjectDisposedException>(() => borrowed.MethodBodies);
+            Assert.Throws<ObjectDisposedException>(
+                () => borrowed.ProbeDeclaration(declarationName));
 
             // Borrowing from an already-disposed lender is refused rather than deferred.
             Assert.Throws<ObjectDisposedException>(() => AssemblyInspectionSession.Borrow(lender));

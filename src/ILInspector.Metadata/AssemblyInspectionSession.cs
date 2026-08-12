@@ -294,8 +294,11 @@ public sealed class AssemblyInspectionSession : IDisposable
     }
 
     internal TypeDeclarationResult ProbeDeclaration(
-        MetadataTypeDefinitionName name) =>
-        _declarationIndex.Value.Probe(name);
+        MetadataTypeDefinitionName name)
+    {
+        _image.EnsureAlive();
+        return _declarationIndex.Value.Probe(name);
+    }
 
     public void Dispose() => _image.Dispose();
 }
