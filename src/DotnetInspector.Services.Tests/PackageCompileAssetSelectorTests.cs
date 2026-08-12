@@ -134,6 +134,26 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void Selection_CompatibleFallbackReturnsActualFramework()
+    {
+        IPackageContent content = InMemory(
+            "lib/net6.0/Example.dll",
+            "lib/net8.0/Example.dll",
+            "lib/net481/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net9.0",
+                allowCompatibleFallback: true);
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.All(selection.Assets, asset => Assert.Equal("net8.0", asset.TargetFramework));
+    }
+
+    [Fact]
     public void Selection_IgnoresNonCompileAndTraversalShapedEntries()
     {
         IPackageContent content = InMemory(

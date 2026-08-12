@@ -282,6 +282,19 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void FindBestMatchingTfmGroup_DoesNotCrossFrameworkFamilies()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net481" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net8.0");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
     {
         var result = DependencyResolutionService.SelectDependencyGroup(null, null);

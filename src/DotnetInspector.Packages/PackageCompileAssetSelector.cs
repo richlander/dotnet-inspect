@@ -63,7 +63,8 @@ public static class PackageCompileAssetSelector
     public static PackageCompileAssetSelection Select(
         IPackageContent content,
         string packageId,
-        string? targetFramework = null)
+        string? targetFramework = null,
+        bool allowCompatibleFallback = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -106,6 +107,15 @@ public static class PackageCompileAssetSelector
                 framework => framework.Equals(
                     targetFramework,
                     StringComparison.OrdinalIgnoreCase));
+        if (selectedFramework is null && allowCompatibleFallback)
+        {
+            int targetPriority = TfmResolver.GetTfmPriority(
+                targetFramework!.ToLowerInvariant());
+            selectedFramework = frameworks.FirstOrDefault(framework =>
+                TfmResolver.IsTfmCompatible(framework, targetFramework)
+                && TfmResolver.GetTfmPriority(framework.ToLowerInvariant())
+                    <= targetPriority);
+        }
         if (selectedFramework is null)
         {
             return new PackageCompileAssetSelection(

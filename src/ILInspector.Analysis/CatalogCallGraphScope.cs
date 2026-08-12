@@ -384,6 +384,23 @@ public sealed class CatalogCallGraphScope : IDisposable
                         .ThenBy(
                             definition => definition.Method.MetadataToken)
                         .ToImmutableArray());
+            foreach (GraphNodeEvidence evidence in definitions
+                .Select(definition => definition.Evidence)
+                .Concat(callSites.Select(callSite => callSite.Evidence)))
+            {
+                if (_definitionsByIdentity.TryGetValue(
+                        evidence.Identity,
+                        out ImmutableArray<StoredDefinition> matchingDefinitions))
+                {
+                    evidence.SetDefinitionSources(
+                    [
+                        .. matchingDefinitions
+                            .Select(definition =>
+                                definition.Participant.Assembly.Provenance)
+                            .Distinct(),
+                    ]);
+                }
+            }
             _forward = edges
                 .GroupBy(edge => edge.Caller.Evidence.Identity)
                 .ToDictionary(

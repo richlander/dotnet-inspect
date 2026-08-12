@@ -70,7 +70,8 @@ public static class DependencyResolutionService
         return TfmSelector.OrderByTfmPriorityDescending(
                 groups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
                                   g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                                  TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
+                                  (TfmResolver.IsTfmCompatible(g.TargetFramework, targetTfm) &&
+                                   TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority)),
                 g => g.TargetFramework)
             .FirstOrDefault();
     }

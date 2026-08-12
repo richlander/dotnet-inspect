@@ -168,6 +168,22 @@ public sealed class PackageStoreTests : IDisposable
     }
 
     [Fact]
+    public void InMemoryPackageContent_TryOpenEntry_EnforcesExpandedByteLimit()
+    {
+        byte[] payload = new byte[1024 * 1024];
+        var content = new InMemoryPackageContent(
+            SnupkgPdbReaderTests.MakeSnupkg(("payload.bin", payload)),
+            fromCache: false,
+            producerKey: TestSourceKey);
+
+        Assert.Throws<InvalidDataException>(() =>
+            content.TryOpenEntry("payload.bin", payload.Length - 1, out _));
+        Assert.True(content.TryOpenEntry("payload.bin", payload.Length, out var stream));
+        using (stream)
+            Assert.Equal(payload.Length, stream.Length);
+    }
+
+    [Fact]
     public async Task FileSystemPackageContent_TryOpenEntry_TraversalPath_Throws()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -181,6 +197,33 @@ public sealed class PackageStoreTests : IDisposable
             content.TryOpenEntry("../escape.dll", out _));
         Assert.Throws<ArgumentException>(() =>
             content.TryOpenEntry("C:/escape.dll", out _));
+    }
+
+    [Fact]
+    public async Task FileSystemPackageContent_TryOpenEntry_EnforcesByteLimit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new FileSystemPackageStore();
+
+        IPackageContent content;
+        using (var stream = new MemoryStream(MakeNupkg("example.package")))
+            content = await store.CommitAsync(
+                "example.package",
+                "1.0.0",
+                TestSourceKey,
+                stream,
+                ct);
+
+        Assert.Throws<InvalidDataException>(() =>
+            content.TryOpenEntry(
+                "lib/net8.0/example.package.dll",
+                DllBytes.Length - 1,
+                out _));
+        Assert.True(content.TryOpenEntry(
+            "lib/net8.0/example.package.dll",
+            DllBytes.Length,
+            out var assembly));
+        assembly.Dispose();
     }
 
     private static byte[] MakeNupkg(string assemblyName)

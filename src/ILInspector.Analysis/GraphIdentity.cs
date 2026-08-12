@@ -174,6 +174,19 @@ public sealed class GraphNodeEvidence
     public GraphNodeStorageKey Storage { get; }
     public GraphNodeIdentity Identity { get; }
     public CatalogMemberJoinProjection? Correspondence { get; }
+    public ImmutableArray<AssemblyResolutionProvenance> DefinitionSources
+    {
+        get;
+        private set;
+    } = [];
+
+    internal void SetDefinitionSources(
+        ImmutableArray<AssemblyResolutionProvenance> sources)
+    {
+        if (!DefinitionSources.IsEmpty)
+            throw new InvalidOperationException("Definition sources are already assigned.");
+        DefinitionSources = sources;
+    }
 
     public GraphCorrespondenceKind Kind => Correspondence switch
     {

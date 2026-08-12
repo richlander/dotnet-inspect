@@ -14,6 +14,8 @@ function loadStoredTaste() {
 const PLATFORM_RECENT_MAX = 8;
 const RECENT_PACKAGES_MAX = 12;
 const MAX_WORKSPACE_PACKAGES = 12;
+const MAX_SHARE_STATE_CHARACTERS = 65536;
+const MAX_SHARE_TUPLES = MAX_WORKSPACE_PACKAGES * 4;
 
 // Recently-opened NuGet packages, most-recent first, persisted across sessions so the
 // Home listing survives a refresh (the in-memory workspace does not). Written only from
@@ -357,7 +359,9 @@ function tabsFromTuples(list) {
   const identityIndexes = new Map();
   const sourceIndexes = [];
   let truncated = false;
-  const tuples = Array.isArray(list) ? list : [];
+  const allTuples = Array.isArray(list) ? list : [];
+  const tuples = allTuples.slice(0, MAX_SHARE_TUPLES);
+  if (allTuples.length > MAX_SHARE_TUPLES) truncated = true;
   for (let sourceIndex = 0; sourceIndex < tuples.length; sourceIndex++) {
     const tuple = tuples[sourceIndex];
     if (!Array.isArray(tuple)) continue;
@@ -389,6 +393,7 @@ function tabsFromTuples(list) {
 
 function decodeShareState(value) {
   if (!value) return null;
+  if (value.length > MAX_SHARE_STATE_CHARACTERS) return null;
   try {
     const raw = JSON.parse(base64UrlDecode(value));
     // Legacy form: a bare tuple array of tabs, carrying no view or selection.
@@ -707,7 +712,17 @@ function retainPackageModel(packageModel) {
       !packageIdentityEquals(item, state.package)
       && !packageIdentityEquals(item, packageModel));
     if (eviction < 0) break;
-    state.packages.splice(eviction, 1);
+    const [evicted] = state.packages.splice(eviction, 1);
+    const dependencyKey = workspaceDependencyKey(evicted);
+    delete state.workspaceDependencies[dependencyKey];
+    delete state.workspaceDependencyErrors[dependencyKey];
+    state.workspaceDependencyLoads.delete(dependencyKey);
+
+    const id = evicted.id.toLowerCase();
+    if (!state.packages.some(item => item.id.toLowerCase() === id)) {
+      delete state.packageVersions[id];
+      delete state.packageVersionsLoading[id];
+    }
   }
 }
 
@@ -1606,7 +1621,8 @@ async function loadPackageDependencies() {
       assemblyId: packageRequest.assemblyId
     });
     if (state.packageDependenciesKey === signature) state.packageDependencies = result;
-    if (result?.dependencyGroups) {
+    if (result?.dependencyGroups
+      && state.packages.some(item => packageIdentityEquals(item, packageRequest))) {
       state.workspaceDependencies[workspaceKey] = result.dependencyGroups;
       delete state.workspaceDependencyErrors[workspaceKey];
     }
@@ -1663,11 +1679,15 @@ async function ensureWorkspaceDependencies() {
         framework: item.activeFramework,
         assemblyId: item.assemblyId
       });
-      state.workspaceDependencies[key] = result?.dependencyGroups || [];
-      delete state.workspaceDependencyErrors[key];
+      if (state.packages.some(candidate => packageIdentityEquals(candidate, item))) {
+        state.workspaceDependencies[key] = result?.dependencyGroups || [];
+        delete state.workspaceDependencyErrors[key];
+      }
     } catch (error) {
-      state.workspaceDependencies[key] = [];
-      state.workspaceDependencyErrors[key] = String(error?.message || error);
+      if (state.packages.some(candidate => packageIdentityEquals(candidate, item))) {
+        state.workspaceDependencies[key] = [];
+        state.workspaceDependencyErrors[key] = String(error?.message || error);
+      }
     } finally {
       state.workspaceDependencyLoads.delete(key);
     }
@@ -1996,7 +2016,7 @@ function renderPackagePerformance() {
     const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
     const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
     return `
-      <button class="perf-row" data-perf-token="${member.metadataToken}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+      <button class="perf-row" data-perf-token="${member.metadataToken}" data-perf-selector="${escapeHtml(member.selectorKey)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
         <span class="perf-count">${member.opportunityCount}</span>
         <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
         <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
@@ -2873,14 +2893,15 @@ function ensureExplorerResizeListener() {
 
 // is joined against the same public API surface the nav pane renders, so the member,
 // its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token, assembly, typeId) {
-  const numeric = Number(token);
+function drillToPerfMember(selectorKey, assembly, typeId) {
   const targetType = state.package.types.find(type =>
     type.id === typeId
     && type.assembly === assembly
-    && (type.api || []).some(member => member.metadataToken === numeric));
+    && (type.api || []).some(member =>
+      (member.bodySelectors || []).some(selector => selector.selectorKey === selectorKey)));
   if (!targetType) return;
-  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
+  const member = targetType.api.find(candidate =>
+    (candidate.bodySelectors || []).some(selector => selector.selectorKey === selectorKey));
   if (!member) return;
 
   state.atPackageRoot = false;
@@ -3621,7 +3642,7 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
     drillToPerfMember(
-      button.dataset.perfToken,
+      button.dataset.perfSelector,
       button.dataset.perfAssembly,
       button.dataset.perfType);
   }));
@@ -4691,13 +4712,15 @@ async function ensurePackageVersions(pkg) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
     const versions = inspectSortPackageVersions(payload.versions || []);
-    state.packageVersions[idLower] = versions;
-    updateVersionSelect(idLower);
+    if (state.packages.some(item => item.id.toLowerCase() === idLower)) {
+      state.packageVersions[idLower] = versions;
+      updateVersionSelect(idLower);
+    }
   } catch {
     // Leave the selector on the single current-version option; a transient index failure
     // must not break the workbench.
   } finally {
-    state.packageVersionsLoading[idLower] = false;
+    delete state.packageVersionsLoading[idLower];
   }
 }
 
@@ -6134,7 +6157,11 @@ async function openDependencyPackage(packageId, versionRange) {
     switchToPackageForDependencies(existing);
     return;
   }
-  const model = await loadPackage(packageId, version, framework);
+  const model = await loadPackage(
+    packageId,
+    version,
+    framework,
+    { allowCompatibleFramework: true });
   if (!model) return;
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
@@ -6557,9 +6584,17 @@ function graphTargetForSvgNode(graph, node) {
 }
 
 function resolveLoadedGraphTarget(target) {
+  if (target.provenanceAmbiguous || !target.package) return null;
   const packages = [state.package, ...state.packages.filter(item => item !== state.package)];
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
+    if (!target.version
+      || !target.framework
+      || pkg.id.toLowerCase() !== target.package.toLowerCase()
+      || pkg.version.toLowerCase() !== target.version.toLowerCase()
+      || pkg.activeFramework.toLowerCase() !== target.framework.toLowerCase()) {
+      continue;
+    }
     const type = pkg.types?.find(item =>
       libraryKey(item).toLowerCase() === target.assembly.toLowerCase()
       && (item.metadataId ?? item.queryId ?? item.id) === target.typeFullName);
@@ -7210,7 +7245,11 @@ async function loadPackage(packageId, version, framework, options = {}) {
   }
 
   try {
-    const result = await inspectPackage(packageId, version, framework);
+    const result = await inspectPackage(
+      packageId,
+      version,
+      framework,
+      options.allowCompatibleFramework === true);
     if (navigationSeq != null && navigationSeq !== state.navigationSeq) return null;
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({
@@ -7905,7 +7944,9 @@ window.addEventListener("popstate", () => {
     && (isRuntimePackId(loc.package)
       ? isRuntimePackId(state.package.id)
       : (loc.package.toLowerCase() === state.package.id.toLowerCase()
-        && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase())));
+        && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase())
+        && (!loc.framework
+          || loc.framework.toLowerCase() === state.package.activeFramework.toLowerCase())));
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
       // Back/forward within the platform: re-scope to the target library (or the

@@ -147,7 +147,11 @@ public sealed record BrowserCallGraphTarget(
     int GenericArity,
     int? MetadataToken,
     string SelectorKey,
-    string Kind);
+    string Kind,
+    string? Package,
+    string? Version,
+    string? Framework,
+    bool ProvenanceAmbiguous);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -369,6 +373,7 @@ public sealed record BrowserPerfMember(
     string MemberName,
     string MemberSignature,
     int MetadataToken,
+    string SelectorKey,
     int OpportunityCount,
     int InLoopCount,
     string[] Shapes,
@@ -548,7 +553,11 @@ public static partial class BrowserInspectionEngine
         byte[] Image);
 
     [JSExport]
-    public static async Task<string> QueryPackage(string packageId, string version, string targetFramework)
+    public static async Task<string> QueryPackage(
+        string packageId,
+        string version,
+        string targetFramework,
+        bool allowCompatibleFramework)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
@@ -561,7 +570,11 @@ public static partial class BrowserInspectionEngine
             DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
             "nuget.org");
         PackageCompileAssetSelection selection =
-            PackageCompileAssetSelector.Select(content, packageId, targetFramework);
+            PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework,
+                allowCompatibleFramework);
         if (selection.Status == PackageCompileAssetSelectionStatus.NoCompileAssets)
             throw new InvalidOperationException("The package has no compile-time assemblies.");
         if (selection.Status
@@ -578,10 +591,19 @@ public static partial class BrowserInspectionEngine
 
         var assemblies = new List<BrowserAssemblySurface>();
         var types = new List<BrowserTypeSurface>();
+        if (selection.Assets.Count > MaxExtractedAssemblyCount)
+        {
+            throw new InvalidDataException(
+                $"Selected package assemblies exceed the {MaxExtractedAssemblyCount}-entry limit.");
+        }
+        long expandedAssemblyBytes = 0;
 
         foreach (PackageCompileAsset asset in selection.Assets)
         {
-            if (!content.TryOpenEntry(asset.Path, out Stream? entryStream))
+            if (!content.TryOpenEntry(
+                    asset.Path,
+                    MaxAssemblyBytes,
+                    out Stream? entryStream))
             {
                 throw new InvalidOperationException(
                     $"Selected package asset '{asset.Id}' is no longer available.");
@@ -593,6 +615,13 @@ public static partial class BrowserInspectionEngine
                     entryStream,
                     MaxAssemblyBytes,
                     $"Assembly '{asset.Path}'");
+                expandedAssemblyBytes += image.LongLength;
+                if (expandedAssemblyBytes > MaxExtractedAssemblyBytes)
+                {
+                    throw new InvalidDataException(
+                        $"Selected package assemblies exceed the "
+                        + $"{MaxExtractedAssemblyBytes}-byte expanded limit.");
+                }
 
                 var reference = ResolvedAssemblyReference.Create(
                     new AssemblyReferenceIdentity(
@@ -610,9 +639,14 @@ public static partial class BrowserInspectionEngine
 
                 using var inspection = AssemblyInspectionSession.Open(reference);
                 if (!inspection.HasMetadata)
-                    continue;
+                {
+                    throw new InvalidDataException(
+                        $"Selected package assembly '{asset.Path}' has no managed metadata.");
+                }
 
-                var publicTypes = inspection.ApiSurface().Types
+                ApiSurface publicSurface = inspection.ApiSurface();
+                ThrowIfSurfaceIncomplete(publicSurface, asset.Path);
+                var publicTypes = publicSurface.Types
                     .Select(type => ToBrowserType(type, asset.AssemblyName))
                     .ToArray();
 
@@ -625,7 +659,9 @@ public static partial class BrowserInspectionEngine
                 var publicTypeIds = publicTypes
                     .Select(type => type.Id)
                     .ToHashSet(StringComparer.Ordinal);
-                var nonPublicTypes = inspection.ApiSurface(includeAll: true).Types
+                ApiSurface completeSurface = inspection.ApiSurface(includeAll: true);
+                ThrowIfSurfaceIncomplete(completeSurface, asset.Path);
+                var nonPublicTypes = completeSurface.Types
                     .Select(type => ToBrowserType(type, asset.AssemblyName))
                     .Where(type => !publicTypeIds.Contains(type.Id))
                     .ToArray();
@@ -1435,7 +1471,10 @@ public static partial class BrowserInspectionEngine
             }
             else
             {
-                if (!content.TryOpenEntry(selectedAssembly.Path, out Stream? assemblyStream))
+                if (!content.TryOpenEntry(
+                        selectedAssembly.Path,
+                        MaxAssemblyBytes,
+                        out Stream? assemblyStream))
                 {
                     assemblyReferenceError =
                         $"Selected package asset '{selectedAssembly.Id}' is no longer available.";
@@ -1916,7 +1955,9 @@ public static partial class BrowserInspectionEngine
         ref int totalOpportunities,
         ref int nonPublicOpportunities)
     {
-        var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
+        var tokenMap = new Dictionary<
+            int,
+            (string TypeId, string Name, string Signature, string SelectorKey)>();
         using (var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(assemblyName, null, null, null),
             assemblyPath,
@@ -1927,8 +1968,15 @@ public static partial class BrowserInspectionEngine
             {
                 foreach (var member in type.Members)
                 {
-                    if (member.MetadataToken is int memberToken)
-                        tokenMap[memberToken] = (type.FullName, member.Name, member.Signature ?? "");
+                    foreach (var selector in
+                        Analysis.CallGraphMemberResolver.CreateBodySelectors(type, member))
+                    {
+                        tokenMap[selector.BodyToken] = (
+                            type.FullName,
+                            member.Name,
+                            member.Signature ?? "",
+                            selector.SelectorKey);
+                    }
                 }
             }
         }
@@ -1963,6 +2011,7 @@ public static partial class BrowserInspectionEngine
                 target.Name,
                 target.Signature,
                 group.Key,
+                target.SelectorKey,
                 count,
                 group.Count(opportunity => opportunity.InLoop),
                 shapes,
@@ -3136,6 +3185,18 @@ public static partial class BrowserInspectionEngine
             .FirstOrDefault(evidence =>
                 evidence.Storage.Kind == Analysis.GraphNodeStorageKind.Definition)
             ?.Storage.MethodToken;
+        var packageSources = node.GraphEvidence
+            .SelectMany(evidence => evidence.DefinitionSources)
+            .OfType<AssemblyResolutionProvenance.PackageAsset>()
+            .Select(source => (
+                source.PackageId,
+                source.PackageVersion,
+                source.Tfm))
+            .Distinct()
+            .ToArray();
+        var packageSource = packageSources.Length == 1
+            ? packageSources[0]
+            : default;
         return new(
             $"n{node.Id}",
             definition.Assembly,
@@ -3146,7 +3207,11 @@ public static partial class BrowserInspectionEngine
             node.Member.GenericArity,
             metadataToken,
             selector.Key,
-            node.Kind.ToString());
+            node.Kind.ToString(),
+            packageSources.Length == 1 ? packageSource.PackageId : null,
+            packageSources.Length == 1 ? packageSource.PackageVersion : null,
+            packageSources.Length == 1 ? packageSource.Tfm : null,
+            packageSources.Length > 1);
     }
 
     // The declaring type of a callee may be a constructed generic instance or an array/
@@ -3304,7 +3369,10 @@ public static partial class BrowserInspectionEngine
         long expandedBytes = 0;
         foreach (PackageCompileAsset asset in selection.Assets)
         {
-            if (!content.TryOpenEntry(asset.Path, out Stream? stream))
+            if (!content.TryOpenEntry(
+                    asset.Path,
+                    MaxAssemblyBytes,
+                    out Stream? stream))
             {
                 throw new InvalidOperationException(
                     $"Selected package asset '{asset.Id}' is no longer available.");
@@ -3373,7 +3441,10 @@ public static partial class BrowserInspectionEngine
                 : null;
         if (asset is null)
             return null;
-        if (!content.TryOpenEntry(asset.Path, out Stream? stream))
+        if (!content.TryOpenEntry(
+                asset.Path,
+                MaxAssemblyBytes,
+                out Stream? stream))
         {
             throw new InvalidOperationException(
                 $"Selected package asset '{asset.Id}' is no longer available.");
@@ -4171,11 +4242,33 @@ public static partial class BrowserInspectionEngine
             : $"{type.Namespace}.{name}";
     }
 
+    static void ThrowIfSurfaceIncomplete(ApiSurface surface, string assetPath)
+    {
+        if (surface.InspectionFailures.FirstOrDefault() is { } failure)
+        {
+            throw new InvalidDataException(
+                $"Metadata inspection failed for '{assetPath}' at "
+                + $"0x{failure.SubjectToken:X8}: {failure.Detail}");
+        }
+
+        var degraded = surface.Types
+            .SelectMany(type => type.Members.Select(member => (type, member)))
+            .FirstOrDefault(candidate =>
+                candidate.member.SignatureDecodeStatus
+                    == SignatureDecodeStatus.Degraded);
+        if (degraded.member is not null)
+        {
+            throw new InvalidDataException(
+                $"Signature decoding degraded for '{assetPath}' member "
+                + $"'{degraded.type.FullName}.{degraded.member.Name}'.");
+        }
+    }
+
     static ApiMember ResolveBrowserMember(
         ApiType type,
         string memberName,
         string stableSelector,
-        int? metadataToken)
+        int? _metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stableSelector);
         var matches = type.Members
@@ -4197,17 +4290,6 @@ public static partial class BrowserInspectionEngine
             throw new InvalidOperationException(
                 $"Structured selector '{stableSelector}' identifies '{match.Name}', not "
                 + $"'{memberName}'.");
-        }
-
-        if (metadataToken is { } token
-            && match.MetadataToken != token
-            && match.GetterToken != token
-            && match.SetterToken != token
-            && match.AdderToken != token
-            && match.RemoverToken != token)
-        {
-            throw new InvalidOperationException(
-                $"Metadata token 0x{token:X8} does not belong to '{stableSelector}'.");
         }
 
         return match;

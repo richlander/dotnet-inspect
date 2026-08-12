@@ -66,7 +66,10 @@ archive entries are capped before retention. Assembly materialization is
 limited to 128 entries and 128 MB expanded in aggregate; package manifests and
 documentation XML are limited to 16 MB before secure parsing. Shared
 workspaces and resident package surfaces are deduplicated by package, version,
-and framework and retain at most 12 package models.
+and framework and retain at most 12 package models. Shared-state input is
+bounded before decoding and before tuple normalization. Package API queries
+surface metadata inspection and signature-decoding failures instead of
+presenting a complete-looking partial surface.
 
 ## Run the .NET 11 browser-WASM prototype
 
@@ -119,6 +122,8 @@ references run through the shared typed query registry and expose failure
 rather than returning a successful empty list. The product-selected compile
 asset is shared by the package surface and Dependencies request; JavaScript
 does not independently rank frameworks or choose between `ref/` and `lib/`.
+Dependency navigation may request a product-selected compatible compile asset;
+the returned package identity always carries the framework actually selected.
 `LayeringTests.BrowserDependencies_UsesProductQueriesAndCompileAssetSelection`
 enforces that product-query and product-selection wiring. The initial API
 surface carries only metadata-owned XML documentation identities; selecting an

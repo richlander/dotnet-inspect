@@ -17,8 +17,20 @@ public class CatalogCallGraphScopeTests
             typeof(LibraryBodyIndex).Assembly.Location);
         LibraryBodyIndex tests = LibraryBodyIndex.Open(
             typeof(LibraryBodyIndexTests).Assembly.Location);
-        ResolvedAssemblyReference analysisAssembly = Descriptor(analysis);
-        ResolvedAssemblyReference testAssembly = Descriptor(tests);
+        ResolvedAssemblyReference analysisAssembly = Descriptor(
+            analysis,
+            AssemblyResolutionProvenance.Package(
+                "Analysis.Package",
+                "1.0.0",
+                "net10.0",
+                null));
+        ResolvedAssemblyReference testAssembly = Descriptor(
+            tests,
+            AssemblyResolutionProvenance.Package(
+                "Tests.Package",
+                "1.0.0",
+                "net10.0",
+                null));
         var inner = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(analysis.Path)
             {
@@ -65,6 +77,11 @@ public class CatalogCallGraphScopeTests
         Assert.Equal(storageEdges, scope.StorageEdgeCount);
         Assert.NotNull(callers.GraphEvidence?.Correspondence);
         Assert.NotNull(callees.GraphEvidence?.Correspondence);
+        var source = Assert.Single(callees.GraphEvidence!.DefinitionSources);
+        var package = Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(source);
+        Assert.Equal("Analysis.Package", package.PackageId);
+        Assert.Equal("1.0.0", package.PackageVersion);
+        Assert.Equal("net10.0", package.Tfm);
         Assert.Empty(scope.BindingIdentityConflicts);
     }
 
@@ -432,10 +449,17 @@ public class CatalogCallGraphScopeTests
     }
 
     static ResolvedAssemblyReference Descriptor(LibraryBodyIndex index) =>
-        ResolvedAssemblyReference.CreateFromPath(
-            index.Path,
+        Descriptor(
+            index,
             AssemblyResolutionProvenance.Local(
                 "catalog call-graph test"));
+
+    static ResolvedAssemblyReference Descriptor(
+        LibraryBodyIndex index,
+        AssemblyResolutionProvenance provenance) =>
+        ResolvedAssemblyReference.CreateFromPath(
+            index.Path,
+            provenance);
 
     sealed class CountingGroupPolicy(
         ImmutableArray<ResolvedAssemblyReference> roots,

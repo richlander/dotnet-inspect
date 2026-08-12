@@ -375,6 +375,30 @@ public sealed class LayeringTests
             engineSource,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MaxExtractedAssemblyCount",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ThrowIfSurfaceIncomplete(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not belong to '{stableSelector}'",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "target.SelectorKey",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "button.dataset.perfSelector",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MaxAssemblyBytes,\n                    out Stream?",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "AddToExtractionBudget(",
             engineSource,
             StringComparison.Ordinal);
@@ -384,6 +408,26 @@ public sealed class LayeringTests
             StringComparison.Ordinal);
         Assert.Contains(
             "retainPackageModel(packageModel)",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MAX_SHARE_STATE_CHARACTERS",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MAX_SHARE_TUPLES",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "delete state.workspaceDependencies[dependencyKey]",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "target.provenanceAmbiguous",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "pkg.activeFramework.toLowerCase() !== target.framework.toLowerCase()",
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(

@@ -74,9 +74,9 @@ export async function initializeEngine(onStatus = () => {}) {
   onStatus("Reading package assemblies…");
 }
 
-export async function inspectPackage(packageId, version, framework) {
+export async function inspectPackage(packageId, version, framework, allowCompatibleFramework = false) {
   if (!queryPackage) throw new Error("The browser inspection engine is not initialized.");
-  const json = await queryPackage(packageId, version, framework);
+  const json = await queryPackage(packageId, version, framework, allowCompatibleFramework);
   return JSON.parse(json);
 }
 

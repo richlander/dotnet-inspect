@@ -47,6 +47,15 @@ public interface IPackageContent
     bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream);
 
     /// <summary>
+    /// Opens an entry while enforcing a byte ceiling before returning any
+    /// materialized content.
+    /// </summary>
+    bool TryOpenEntry(
+        string relativePath,
+        long maximumBytes,
+        [NotNullWhen(true)] out Stream? stream);
+
+    /// <summary>
     /// Enumerates the <c>/</c>-separated, package-root relative paths of every
     /// entry in the package.
     /// </summary>

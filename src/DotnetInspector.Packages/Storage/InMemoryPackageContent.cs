@@ -43,8 +43,16 @@ public sealed class InMemoryPackageContent : IPackageContent
 
     /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
+        => TryOpenEntry(relativePath, long.MaxValue, out stream);
+
+    /// <inheritdoc />
+    public bool TryOpenEntry(
+        string relativePath,
+        long maximumBytes,
+        [NotNullWhen(true)] out Stream? stream)
     {
         ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
 
         using var archive = OpenArchive();
         // Zip entries are stored with '/' separators; match by full name.
@@ -59,11 +67,31 @@ public sealed class InMemoryPackageContent : IPackageContent
             stream = null;
             return false;
         }
+        if (entry.Length > maximumBytes)
+        {
+            throw new InvalidDataException(
+                $"Package entry '{entry.FullName}' exceeds the {maximumBytes}-byte limit.");
+        }
 
         // Copy into memory so the returned stream outlives the archive.
         using var entryStream = entry.Open();
         var buffer = new MemoryStream();
-        entryStream.CopyTo(buffer);
+        byte[] chunk = new byte[81920];
+        long total = 0;
+        while (true)
+        {
+            int read = entryStream.Read(chunk);
+            if (read == 0)
+                break;
+            total += read;
+            if (total > maximumBytes)
+            {
+                buffer.Dispose();
+                throw new InvalidDataException(
+                    $"Package entry '{entry.FullName}' exceeds the {maximumBytes}-byte limit.");
+            }
+            buffer.Write(chunk, 0, read);
+        }
         buffer.Position = 0;
         stream = buffer;
         return true;
