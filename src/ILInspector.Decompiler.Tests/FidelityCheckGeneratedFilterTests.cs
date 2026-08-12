@@ -292,11 +292,31 @@ public class FidelityCheckGeneratedFilterTests
                     method => method.Method == ".ctor"));
 
             Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("CS1729", result.Detail, StringComparison.Ordinal);
         }
         finally
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void Evaluate_InvalidProductConstructorBody_RemainsRecompileFailure()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "xunit.v3.runner.common.dll");
+
+        var result = Assert.Single(
+            FidelityCheck.Evaluate(
+                assemblyPath,
+                type => type == "Xunit.Runner.Common.DefaultRunnerReporterMessageHandler",
+                method => method.Method == ".ctor"));
+
+        Assert.True(result.UsedProductWholeMember);
+        Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+        Assert.Contains("CS1525", result.Detail, StringComparison.Ordinal);
     }
 
     [Fact]
