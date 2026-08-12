@@ -388,7 +388,8 @@ internal static class TypeParameterKindClassifier
                 {
                     RecordAuthenticationBudgetFailure(
                         handle,
-                        budget.Budget);
+                        budget.Budget,
+                        RequestPurpose.Constraint);
                 }
                 else
                 {
