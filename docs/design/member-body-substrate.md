@@ -545,6 +545,14 @@ own IL offset, operand token, fact, and source targets. The
 gates this shape with two call sites that collapse onto one edge and still
 target distinct C# and IL structure.
 
+Cycle Findings do not add another coordinate relation. A
+`CallGraphCycleWitness` is an ordered path of stable graph edge rows; a consumer
+can relate its focus-originating row to the existing physical occurrences and
+their `call.edge` fact ids. Placement still follows the sole relation above.
+`AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls` gates the
+shape with two recursive source facts, one shared logical edge row, and one
+cycle Finding.
+
 **A fact with no target is the explicit unanchored case.** It is not a missing
 row and not a third kind of placement: the observation is real, and nothing in
 the text was the right thing to point at. Dropping it would lose the
