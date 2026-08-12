@@ -41,13 +41,15 @@ internal static class TypeParameterKindClassifier
         readonly Dictionary<
             TypeReferenceHandle,
             TypeResolutionRequest?> _projectedRequests = [];
+        readonly List<TypeReferenceHandle> _projectedRequestOrder = [];
         readonly Dictionary<
             AssemblyReferenceHandle,
             AssemblyReferenceIdentity> _assemblyReferences = [];
         readonly AssemblyReferenceProjectionCache
             _assemblyReferenceProjection;
         readonly Dictionary<
-            (TypeReferenceHandle Handle, int? GenericArgumentCount),
+            (EntityHandle Handle, int? GenericArgumentCount,
+                bool RequiresClassAuthentication),
             ConstraintClass> _resolvedClasses = [];
         MetadataTypeNameFailure? _resolutionFailure;
         readonly List<TypeResolutionRequest> _requestOrder = [];
@@ -82,12 +84,18 @@ internal static class TypeParameterKindClassifier
             _resolutionFailure;
 
         internal RequestCheckpoint Checkpoint() =>
-            new(_requestOrder.Count, _requestBudgetFailure);
+            new(
+                _requestOrder.Count,
+                _projectedRequestOrder.Count,
+                _requestBudgetFailure);
 
         internal void Rollback(RequestCheckpoint checkpoint)
         {
             if (checkpoint.RequestCount < 0
-                || checkpoint.RequestCount > _requestOrder.Count)
+                || checkpoint.RequestCount > _requestOrder.Count
+                || checkpoint.ProjectedRequestCount < 0
+                || checkpoint.ProjectedRequestCount
+                    > _projectedRequestOrder.Count)
             {
                 throw new ArgumentOutOfRangeException(nameof(checkpoint));
             }
@@ -102,6 +110,17 @@ internal static class TypeParameterKindClassifier
             _requestOrder.RemoveRange(
                 checkpoint.RequestCount,
                 _requestOrder.Count - checkpoint.RequestCount);
+            for (int i = _projectedRequestOrder.Count - 1;
+                i >= checkpoint.ProjectedRequestCount;
+                i--)
+            {
+                _projectedRequests.Remove(_projectedRequestOrder[i]);
+            }
+
+            _projectedRequestOrder.RemoveRange(
+                checkpoint.ProjectedRequestCount,
+                _projectedRequestOrder.Count
+                    - checkpoint.ProjectedRequestCount);
             _requestBudgetFailure = checkpoint.BudgetFailure;
             _requestBudgetExhausted =
                 _requestBudgetFailure is not null
@@ -110,6 +129,7 @@ internal static class TypeParameterKindClassifier
 
         internal readonly record struct RequestCheckpoint(
             int RequestCount,
+            int ProjectedRequestCount,
             MetadataTypeNameFailure? BudgetFailure);
 
         internal void Bind(TypeResolutionContext context)
@@ -135,6 +155,7 @@ internal static class TypeParameterKindClassifier
 
                 request = CreateRequest(reader, source, handle);
                 _projectedRequests.Add(handle, request);
+                _projectedRequestOrder.Add(handle);
             }
 
             if (request is null)
@@ -142,6 +163,47 @@ internal static class TypeParameterKindClassifier
                 return ConstraintClass.Unreadable;
             }
 
+            return Classify(
+                handle,
+                request,
+                genericArgumentCount,
+                requiresClassAuthentication: false);
+        }
+
+        internal ConstraintClass Classify(
+            TypeDefinitionHandle handle,
+            DefinitionKindDependency dependency)
+        {
+            var request = TypeResolutionRequest.FromReference(
+                dependency.Reference,
+                AssemblyBindingOrigin.FromAssembly(source),
+                dependency.Scope,
+                dependency.Type);
+            return Classify(
+                handle,
+                request,
+                dependency.GenericArgumentCount,
+                requiresClassAuthentication: true);
+        }
+
+        internal MetadataTypeDefinitionKind ClassifyDefinitionKind(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            bool declaringAssemblyDefinesCoreLibraryRoot,
+            out DefinitionKindDependency? dependency) =>
+            MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                reader,
+                handle,
+                declaringAssemblyDefinesCoreLibraryRoot,
+                _assemblyReferenceProjection,
+                out dependency);
+
+        ConstraintClass Classify(
+            EntityHandle handle,
+            TypeResolutionRequest request,
+            int? genericArgumentCount,
+            bool requiresClassAuthentication)
+        {
             if (_context is null)
             {
                 if (_requests.Contains(request))
@@ -159,7 +221,10 @@ internal static class TypeParameterKindClassifier
                 return ConstraintClass.Unreadable;
             }
 
-            var cacheKey = (handle, genericArgumentCount);
+            var cacheKey = (
+                handle,
+                genericArgumentCount,
+                requiresClassAuthentication);
             if (_resolvedClasses.TryGetValue(
                     cacheKey,
                     out ConstraintClass cached))
@@ -212,29 +277,44 @@ internal static class TypeParameterKindClassifier
                 }
             }
 
+            bool arityMatches =
+                genericArgumentCount is not int expected
+                || definition.GenericParameterCount == expected;
+            bool isSpecialCoreClass =
+                IsClassThatProvesNothing(
+                    request.Type.ToMetadataFullName())
+                && definition
+                    .DeclaringAssemblyDefinesCoreLibraryRoot;
+            bool isCoreValueTypeRoot =
+                request.Type.ToMetadataFullName()
+                    is "System.ValueType" or "System.Enum"
+                && definition
+                    .DeclaringAssemblyDefinesCoreLibraryRoot;
             ConstraintClass result =
-                genericArgumentCount is int expected
-                    && definition.GenericParameterCount != expected
-                ? ConstraintClass.Unreadable
-                : definition.Kind switch
-            {
-                MetadataTypeDefinitionKind.Interface =>
-                    ConstraintClass.ProvesNothing,
-                MetadataTypeDefinitionKind.Class
-                    when IsClassThatProvesNothing(
-                        request.Type.ToMetadataFullName())
-                        && definition
-                            .DeclaringAssemblyDefinesCoreLibraryRoot =>
-                    ConstraintClass.ProvesNothing,
-                MetadataTypeDefinitionKind.Class =>
-                    ConstraintClass.ProvesReferenceType,
-                _ => ConstraintClass.Unreadable,
-            };
+                !arityMatches
+                    ? ConstraintClass.Unreadable
+                    : requiresClassAuthentication
+                        ? definition.Kind
+                                == MetadataTypeDefinitionKind.Class
+                            && !isCoreValueTypeRoot
+                                ? ConstraintClass.ProvesReferenceType
+                                : ConstraintClass.Unreadable
+                        : definition.Kind switch
+                        {
+                            MetadataTypeDefinitionKind.Interface =>
+                                ConstraintClass.ProvesNothing,
+                            MetadataTypeDefinitionKind.Class
+                                when isSpecialCoreClass =>
+                                ConstraintClass.ProvesNothing,
+                            MetadataTypeDefinitionKind.Class =>
+                                ConstraintClass.ProvesReferenceType,
+                            _ => ConstraintClass.Unreadable,
+                        };
             _resolvedClasses.Add(cacheKey, result);
             return result;
         }
 
-        void RecordRequestBudgetFailure(TypeReferenceHandle handle) =>
+        void RecordRequestBudgetFailure(EntityHandle handle) =>
             _requestBudgetFailure ??=
                 MetadataTypeNameFailure.ForMechanism(
                     MetadataTypeNameFailureMechanism.Metadata,
@@ -244,7 +324,7 @@ internal static class TypeParameterKindClassifier
                         + $"{_maxTypeResolutionRequests}.");
 
         void RecordAuthenticationBudgetFailure(
-            TypeReferenceHandle handle,
+            EntityHandle handle,
             int budget) =>
             _requestBudgetFailure ??=
                 MetadataTypeNameFailure.ForMechanism(
@@ -254,7 +334,7 @@ internal static class TypeParameterKindClassifier
                         + $"the configured budget of {budget}.");
 
         void RecordResolutionFailure(
-            TypeReferenceHandle handle,
+            EntityHandle handle,
             TypeResolutionFailure failure)
         {
             if (_resolutionFailure is not null
@@ -1004,7 +1084,10 @@ internal static class TypeParameterKindClassifier
                         out ConstraintClass definitionClass))
                 {
                     definitionClass =
-                        ClassifyDefinition(reader, definitionHandle);
+                        ClassifyDefinition(
+                            reader,
+                            definitionHandle,
+                            resolution);
                     definitionClasses.Add(
                         definitionHandle,
                         definitionClass);
@@ -1058,7 +1141,10 @@ internal static class TypeParameterKindClassifier
         }
     }
 
-    static ConstraintClass ClassifyDefinition(MetadataReader reader, TypeDefinitionHandle handle)
+    static ConstraintClass ClassifyDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        ResolutionPlan? resolution)
     {
         TypeDefinition definition;
         string fullName;
@@ -1072,13 +1158,28 @@ internal static class TypeParameterKindClassifier
             return ConstraintClass.Unreadable;
         }
 
+        bool declaresCoreLibraryRoot =
+            DeclaresCoreLibraryRoot(reader);
+        DefinitionKindDependency? dependency = null;
         MetadataTypeDefinitionKind kind =
-            MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
-                reader,
-                handle,
-                DeclaresCoreLibraryRoot(reader));
+            resolution is null
+                ? MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                    reader,
+                    handle,
+                    declaresCoreLibraryRoot)
+                : resolution.ClassifyDefinitionKind(
+                    reader,
+                    handle,
+                    declaresCoreLibraryRoot,
+                    out dependency);
         if (kind == MetadataTypeDefinitionKind.Interface)
             return ConstraintClass.ProvesNothing;
+        if (kind == MetadataTypeDefinitionKind.Unknown
+            && dependency is not null)
+        {
+            return resolution!.Classify(handle, dependency);
+        }
+
         if (kind != MetadataTypeDefinitionKind.Class)
             return ConstraintClass.Unreadable;
 
@@ -1086,7 +1187,8 @@ internal static class TypeParameterKindClassifier
         // than against a resolution scope: an ordinary assembly may declare a type
         // called `System.Enum`, and that type is a plain class, so a parameter
         // constrained to it IS known to be a reference type.
-        return IsClassThatProvesNothing(fullName) && DeclaresCoreLibraryRoot(reader)
+        return IsClassThatProvesNothing(fullName)
+            && declaresCoreLibraryRoot
             ? ConstraintClass.ProvesNothing
             : ConstraintClass.ProvesReferenceType;
     }

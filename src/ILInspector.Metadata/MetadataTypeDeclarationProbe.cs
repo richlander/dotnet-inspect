@@ -473,11 +473,14 @@ public static class MetadataTypeDeclarationProbe
             AssemblyReferenceProjectionCache referenceProjection,
             bool declaringAssemblyDefinesCoreLibraryRoot)
         {
+            DefinitionKindDependency? dependency;
             MetadataTypeDefinitionKind kind =
                 ClassifyDefinitionKind(
                     reader,
                     handle,
-                    declaringAssemblyDefinesCoreLibraryRoot);
+                    declaringAssemblyDefinesCoreLibraryRoot,
+                    referenceProjection,
+                    out dependency);
             bool hasValidGenericParameters =
                 TryGetGenericParameterCount(
                     reader,
@@ -494,10 +497,7 @@ public static class MetadataTypeDeclarationProbe
                 genericParameterCount,
                 hasValidGenericParameters
                     && kind == MetadataTypeDefinitionKind.Unknown
-                    ? ReadDefinitionKindDependency(
-                        reader,
-                        handle,
-                        referenceProjection)
+                    ? dependency
                     : null);
         }
     }
@@ -537,7 +537,34 @@ public static class MetadataTypeDeclarationProbe
         MetadataReader reader,
         TypeDefinitionHandle handle,
         bool declaringAssemblyDefinesCoreLibraryRoot)
+        => ClassifyDefinitionKindCore(
+            reader,
+            handle,
+            declaringAssemblyDefinesCoreLibraryRoot,
+            referenceProjection: null,
+            out _);
+
+    internal static MetadataTypeDefinitionKind ClassifyDefinitionKind(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        AssemblyReferenceProjectionCache referenceProjection,
+        out DefinitionKindDependency? dependency) =>
+        ClassifyDefinitionKindCore(
+            reader,
+            handle,
+            declaringAssemblyDefinesCoreLibraryRoot,
+            referenceProjection,
+            out dependency);
+
+    static MetadataTypeDefinitionKind ClassifyDefinitionKindCore(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        AssemblyReferenceProjectionCache? referenceProjection,
+        out DefinitionKindDependency? dependency)
     {
+        dependency = null;
         var visited = new HashSet<TypeDefinitionHandle>();
         TypeDefinitionHandle current = handle;
         bool requiresClass = false;
@@ -579,9 +606,39 @@ public static class MetadataTypeDeclarationProbe
                 if (definition.BaseType.Kind
                     == HandleKind.TypeSpecification)
                 {
-                    if (!TryReadTypeSpecificationClassBase(
+                    if (!TypeSpecificationRoot.TryRead(
                             reader,
                             (TypeSpecificationHandle)definition.BaseType,
+                            out TypeSpecificationRoot root)
+                        || root.Kind
+                            != TypeSpecificationRootKind.NamedType
+                        || root.RawTypeKind
+                            != (byte)SignatureTypeKind.Class)
+                    {
+                        return MetadataTypeDefinitionKind.Unknown;
+                    }
+
+                    if (root.Type.Kind
+                        == HandleKind.TypeReference)
+                    {
+                        if (referenceProjection is not null)
+                        {
+                            dependency =
+                                ReadDefinitionKindDependency(
+                                    reader,
+                                    (TypeReferenceHandle)root.Type,
+                                    root.GenericArgumentCount,
+                                    referenceProjection);
+                        }
+
+                        return MetadataTypeDefinitionKind.Unknown;
+                    }
+
+                    if (root.Type.Kind
+                            != HandleKind.TypeDefinition
+                        || !TryReadTypeSpecificationClassBase(
+                            reader,
+                            root,
                             declaringAssemblyDefinesCoreLibraryRoot,
                             out current))
                     {
@@ -650,23 +707,11 @@ public static class MetadataTypeDeclarationProbe
 
     static bool TryReadTypeSpecificationClassBase(
         MetadataReader reader,
-        TypeSpecificationHandle handle,
+        TypeSpecificationRoot root,
         bool declaringAssemblyDefinesCoreLibraryRoot,
         out TypeDefinitionHandle rootHandle)
     {
         rootHandle = default;
-        if (!TypeSpecificationRoot.TryRead(
-                reader,
-                handle,
-                out TypeSpecificationRoot root)
-            || root.Kind
-                != TypeSpecificationRootKind.NamedType
-            || root.RawTypeKind
-                != (byte)SignatureTypeKind.Class)
-        {
-            return false;
-        }
-
         if (root.Type.Kind != HandleKind.TypeDefinition)
             return false;
 
@@ -721,23 +766,15 @@ public static class MetadataTypeDeclarationProbe
 
     static DefinitionKindDependency? ReadDefinitionKindDependency(
         MetadataReader reader,
-        TypeDefinitionHandle handle,
+        TypeReferenceHandle handle,
+        int genericArgumentCount,
         AssemblyReferenceProjectionCache referenceProjection)
     {
         try
         {
-            TypeDefinition definition = reader.GetTypeDefinition(handle);
-            if (definition.BaseType.Kind != HandleKind.TypeSpecification
-                || !TypeSpecificationRoot.TryRead(
+            if (MetadataTypeDefinitionNameReader.Read(
                     reader,
-                    (TypeSpecificationHandle)definition.BaseType,
-                    out TypeSpecificationRoot root)
-                || root.Kind != TypeSpecificationRootKind.NamedType
-                || root.RawTypeKind != (byte)SignatureTypeKind.Class
-                || root.Type.Kind != HandleKind.TypeReference
-                || MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    (TypeReferenceHandle)root.Type)
+                    handle)
                     is not MetadataTypeDefinitionNameReadResult.Read named)
             {
                 return null;
@@ -749,7 +786,7 @@ public static class MetadataTypeDeclarationProbe
             if (!MetadataRelationshipTraversal
                     .TryWalkTypeReferenceResolutionScope(
                         reader,
-                        (TypeReferenceHandle)root.Type,
+                        handle,
                         rootToLeaf,
                         out _,
                         out EntityHandle terminal,
@@ -771,7 +808,7 @@ public static class MetadataTypeDeclarationProbe
                 reference,
                 scope,
                 named.Name,
-                root.GenericArgumentCount);
+                genericArgumentCount);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException

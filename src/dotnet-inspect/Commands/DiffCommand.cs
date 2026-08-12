@@ -1320,7 +1320,12 @@ public class DiffCommand
             });
         }
 
-        return DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion,
+        return DiffOutputFormatter.RenderFullMarkdown(
+            name,
+            typeDiffs,
+            diff.InspectionFailures,
+            fromVersion,
+            toVersion,
             OutputFormatter.CreateWindowedOptions(options.Rows));
     }
 

@@ -4,11 +4,112 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using ILInspector.Metadata.Tests.SpellabilityConsumer;
+using ILInspector.Metadata.Tests.SpellabilityReference;
 
 namespace ILInspector.Metadata.Tests;
 
 public class ConstraintResolutionHardeningTests
 {
+    [Fact]
+    public void CompilerProducedSameImageConstraintAuthenticatesExternalConstructedBase()
+    {
+        string consumerPath =
+            typeof(CompilerProducedConstraintHost<>)
+                .Assembly.Location;
+        string dependencyPath =
+            typeof(VisibleGeneric<>).Assembly.Location;
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                consumerPath,
+                AssemblyResolutionProvenance.Local("test"));
+        ResolvedAssemblyReference dependency =
+            ResolvedAssemblyReference.CreateFromPath(
+                dependencyPath,
+                AssemblyResolutionProvenance.Local("test"));
+        using var stream = File.OpenRead(consumerPath);
+        using var pe = new PEReader(stream);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        ApiType consumer = Assert.Single(
+            surface.Types,
+            static type =>
+                type.Name
+                == nameof(
+                    CompilerProducedConstraintHost<
+                        ConstructedVisibleString>)
+                    + "`1");
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(consumer.TypeParameters).TypeKind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameImageConstraintAuthenticatesExternalConstructedBase(
+        bool multiHop)
+    {
+        byte[] dependencyImage =
+            BuildGenericType("Dependency", "Base`1");
+        byte[] consumerImage =
+            BuildSameImageConstraintWithExternalConstructedBase(
+                multiHop);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        ApiType consumer = Assert.Single(
+            surface.Types,
+            static type => type.Name == "Consumer`1");
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(consumer.TypeParameters).TypeKind);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
+    public void SameImageConstraintRejectsExternalConstructedInterfaceBase()
+    {
+        byte[] dependencyImage =
+            BuildGenericInterface("Dependency", "Base`1");
+        byte[] consumerImage =
+            BuildSameImageConstraintWithExternalConstructedBase(
+                multiHop: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        ApiType consumer = Assert.Single(
+            surface.Types,
+            static type => type.Name == "Consumer`1");
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(consumer.TypeParameters).TypeKind);
+    }
+
     [Fact]
     public void SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack()
     {
@@ -860,6 +961,65 @@ public class ConstraintResolutionHardeningTests
         return Serialize(metadata);
     }
 
+    static byte[]
+        BuildSameImageConstraintWithExternalConstructedBase(
+            bool multiHop)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("SameImageExternalBase");
+        AssemblyReferenceHandle dependency =
+            AddReference(metadata, "Dependency");
+        TypeReferenceHandle externalBase =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+
+        TypeDefinitionHandle constraint;
+        if (multiHop)
+        {
+            TypeDefinitionHandle localBase =
+                AddType(
+                    metadata,
+                    "LocalBase`1",
+                    AddConstructedClass(
+                        metadata,
+                        externalBase));
+            AddGenericParameter(metadata, localBase);
+            constraint =
+                AddType(
+                    metadata,
+                    "Derived",
+                    AddConstructedClass(
+                        metadata,
+                        localBase));
+        }
+        else
+        {
+            constraint =
+                AddType(
+                    metadata,
+                    "Derived",
+                    AddConstructedClass(
+                        metadata,
+                        externalBase));
+        }
+
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildDeeplyNestedTypeSpecificationBase(int depth)
     {
         MetadataBuilder metadata =
@@ -1181,6 +1341,26 @@ public class ConstraintResolutionHardeningTests
         AddModule(metadata);
         TypeDefinitionHandle definition =
             AddType(metadata, typeName);
+        AddGenericParameter(metadata, definition);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericInterface(
+        string assemblyName,
+        string typeName)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AddModule(metadata);
+        TypeDefinitionHandle definition =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(typeName),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
         AddGenericParameter(metadata, definition);
         return Serialize(metadata);
     }

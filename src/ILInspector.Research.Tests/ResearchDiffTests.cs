@@ -575,6 +575,61 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromApiDiff_ScopesInspectionFailureToSubjectAssembly()
+    {
+        var firstAssembly =
+            new AssemblyReferenceIdentity(
+                "First",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+        var secondAssembly =
+            new AssemblyReferenceIdentity(
+                "Second",
+                new Version(2, 0, 0, 0),
+                null,
+                null);
+        var apiDiff = new ApiDiff
+        {
+            InspectionFailures =
+            [
+                Failure(firstAssembly),
+                Failure(secondAssembly),
+            ],
+        };
+
+        var diff = ResearchDiff.FromApiDiff(apiDiff);
+
+        Assert.Equal(2, diff.Changes.Length);
+        Assert.NotEqual(
+            diff.Changes[0].Subject.Id,
+            diff.Changes[1].Subject.Id);
+        Assert.Contains(
+            "First",
+            diff.Changes[0].Subject.Display,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Second",
+            diff.Changes[1].Subject.Display,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "First",
+            diff.Changes[0].Detail,
+            StringComparison.Ordinal);
+
+        static ApiDiffInspectionFailure Failure(
+            AssemblyReferenceIdentity assembly) =>
+            new(
+                "new",
+                "resolve generic parameter constraints",
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "Dependency resolution failed.",
+                assembly);
+    }
+
+    [Fact]
     public void FromCSharpBodyDiff_PreservesProducerFailureRow()
     {
         var csharp = CSharpBodyDiff.CompareAssemblies(

@@ -172,6 +172,57 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void RenderDiff_FailureOnlyComparisonIsNotClean()
+    {
+        var diff = new ApiDiff
+        {
+            InspectionFailures =
+            [
+                new ApiDiffInspectionFailure(
+                    "new",
+                    "resolve generic parameter constraints",
+                    0x02000002,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "MalformedMetadata",
+                    "Dependency resolution failed.",
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        new Version(1, 2, 3, 4),
+                        null,
+                        "0011223344556677")),
+            ],
+        };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions());
+
+        Assert.Contains(
+            "API comparison is incomplete",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Inspection Failures",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=1.2.3.4",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency resolution failed.",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No API changes detected.",
+            markdown,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildTableView_And_DetailedChanges_KeepCanonicalArityForMachineOutput()
     {
         var change = new ApiChange(

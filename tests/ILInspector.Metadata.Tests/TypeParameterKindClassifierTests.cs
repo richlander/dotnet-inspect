@@ -225,6 +225,56 @@ public class TypeParameterKindClassifierTests
     }
 
     [Fact]
+    public void ResolutionPlan_RollbackReleasesProvisionalProjections()
+    {
+        var references = new List<TypeReferenceHandle>();
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle assembly =
+                AddAssemblyReference(metadata, "Dependency");
+            for (int i = 0; i < 10; i++)
+            {
+                references.Add(
+                    metadata.AddTypeReference(
+                        assembly,
+                        metadata.GetOrAddString("N"),
+                        metadata.GetOrAddString($"Type{i}")));
+            }
+        });
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeParameterKindClassifierTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionPlan_RollbackReleasesProvisionalProjections)));
+        var plan =
+            new TypeParameterKindClassifier.ResolutionPlan(
+                image.Reader,
+                source,
+                maxTypeResolutionRequests: 1);
+
+        Assert.Equal(
+            TypeParameterKindClassifier.ConstraintClass.Unreadable,
+            plan.Classify(image.Reader, references[0]));
+        var checkpoint = plan.Checkpoint();
+
+        foreach (TypeReferenceHandle reference in references.Skip(1))
+        {
+            Assert.Equal(
+                TypeParameterKindClassifier.ConstraintClass.Unreadable,
+                plan.Classify(image.Reader, reference));
+            plan.Rollback(checkpoint);
+        }
+
+        Assert.Equal(1, plan.ProjectedReferenceCount);
+        Assert.Equal(
+            "N.Type0",
+            Assert.Single(plan.Requests).Type.ToMetadataFullName());
+        Assert.Null(plan.RequestBudgetFailure);
+    }
+
+    [Fact]
     public void ResolutionPlan_TracksOnlyConstructedConstraintRoot()
     {
         const int ArgumentCount = 32;

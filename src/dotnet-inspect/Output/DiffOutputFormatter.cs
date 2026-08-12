@@ -249,17 +249,54 @@ public static class DiffOutputFormatter
         return writer.ToString().TrimEnd();
     }
 
-    public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffFullView BuildFullView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        string fromVersion,
+        string toVersion) =>
+        BuildFullView(
+            name,
+            typeDiffs,
+            [],
+            fromVersion,
+            toVersion);
+
+    static DiffFullView BuildFullView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
+        string fromVersion,
+        string toVersion)
     {
         var view = new DiffFullView
         {
             Title = $"API Diff: {name}",
             Versions = $"**{fromVersion}** → **{toVersion}**",
+            InspectionFailures = inspectionFailures.Count == 0
+                ? null
+                :
+                [
+                    .. inspectionFailures.Select(
+                        static failure =>
+                            new DiffInspectionFailureRow(
+                                failure.Side,
+                                AssemblyIdentityDisplay(
+                                    failure.SubjectAssembly),
+                                failure.Operation,
+                                $"0x{failure.SubjectToken:X8}",
+                                failure.Mechanism.ToString(),
+                                failure.Kind,
+                                failure.Detail)),
+                ],
         };
 
         if (typeDiffs.Count == 0)
         {
-            view.Status = new Callout(CalloutSeverity.Note, "No API changes detected.");
+            view.Status = new Callout(
+                CalloutSeverity.Note,
+                inspectionFailures.Count == 0
+                    ? "No API changes detected."
+                    : "API comparison is incomplete because metadata inspection failed.");
             return view;
         }
 
@@ -276,6 +313,12 @@ public static class DiffOutputFormatter
         view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
         view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
         view.AdditiveChanges = BuildChangeRows(ChangeClassification.Additive, typeDiffs);
+        if (inspectionFailures.Count > 0)
+        {
+            view.Status = new Callout(
+                CalloutSeverity.Note,
+                "API comparison is incomplete because metadata inspection failed.");
+        }
 
         return view;
     }
@@ -287,6 +330,37 @@ public static class DiffOutputFormatter
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
+
+    public static string RenderFullMarkdown(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
+        string fromVersion,
+        string toVersion,
+        MarkoutWriterOptions? options = null)
+    {
+        var view = BuildFullView(
+            name,
+            typeDiffs,
+            inspectionFailures,
+            fromVersion,
+            toVersion);
+        var writer =
+            new MarkoutWriter(
+                new MarkdownFormatter(),
+                options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.ToString().TrimEnd();
+    }
+
+    static string AssemblyIdentityDisplay(
+        AssemblyReferenceIdentity? identity) =>
+        identity is null
+            ? ""
+            : $"{identity.Name}, Version={identity.Version}, "
+                + $"Culture={identity.Culture ?? "neutral"}, "
+                + "PublicKeyToken="
+                + $"{identity.PublicKeyToken ?? "null"}";
 
     /// <summary>
     /// Builds the Analysis Diff view with a caller-supplied summary line.

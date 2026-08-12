@@ -334,13 +334,27 @@ public static class ResearchDiff
         ApiDiffInspectionFailure failure)
     {
         string token = $"0x{failure.SubjectToken:X8}";
-        string detail = $"{failure.Operation}: "
+        string? assemblyKey =
+            failure.SubjectAssembly is null
+                ? null
+                : AssemblyIdentityKey(failure.SubjectAssembly);
+        string? assemblyDisplay =
+            failure.SubjectAssembly is null
+                ? null
+                : AssemblyIdentityDisplay(failure.SubjectAssembly);
+        string detail = (assemblyDisplay is null
+                ? $"{failure.Operation}: "
+                : $"{failure.Operation} in {assemblyDisplay}: ")
             + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
         return new ResearchChange(
             new ResearchSubjectKey(
                 ResearchSubjectKind.Type,
-                $"api:{failure.Side}:{token}",
-                $"{failure.Side} metadata {token}"),
+                assemblyKey is null
+                    ? $"api:{failure.Side}:{token}"
+                    : $"api:{failure.Side}:{assemblyKey}:{token}",
+                assemblyDisplay is null
+                    ? $"{failure.Side} metadata {token}"
+                    : $"{failure.Side} metadata {assemblyDisplay} {token}"),
             ResearchChangeMechanism.Api,
             Descriptor(
                 "api.identity-resolution-failure",
@@ -351,6 +365,23 @@ public static class ResearchDiff
             detail: detail,
             category: ResearchChangeCategory.Signature);
     }
+
+    static string AssemblyIdentityKey(
+        AssemblyReferenceIdentity identity) =>
+        string.Join(
+            "/",
+            Uri.EscapeDataString(identity.Name),
+            Uri.EscapeDataString(
+                identity.Version?.ToString() ?? ""),
+            Uri.EscapeDataString(identity.Culture ?? ""),
+            Uri.EscapeDataString(identity.PublicKeyToken ?? ""));
+
+    static string AssemblyIdentityDisplay(
+        AssemblyReferenceIdentity identity) =>
+        $"{identity.Name}, Version={identity.Version}, "
+            + $"Culture={identity.Culture ?? "neutral"}, "
+            + "PublicKeyToken="
+            + $"{identity.PublicKeyToken ?? "null"}";
 
     static void AddBodySignalDiff(
         ResultBuilder builder,

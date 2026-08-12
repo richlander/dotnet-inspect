@@ -148,6 +148,35 @@ public class DiffFullView
 
     [MarkoutSection(Name = "Additive Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
     public List<DiffChangeRow>? AdditiveChanges { get; set; }
+
+    [MarkoutSection(Name = "Inspection Failures")]
+    public List<DiffInspectionFailureRow>? InspectionFailures { get; set; }
+}
+
+[MarkoutSerializable]
+public record DiffInspectionFailureRow(
+    string Side,
+    string Assembly,
+    string Operation,
+    string Subject,
+    string Mechanism,
+    string Kind,
+    string Detail)
+{
+    public string Side { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Side);
+    public string Assembly { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Assembly);
+    public string Operation { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Operation);
+    public string Subject { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Subject);
+    public string Mechanism { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Mechanism);
+    public string Kind { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Kind);
+    public string Detail { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Detail);
 }
 
 [MarkoutSerializable(
@@ -234,6 +263,7 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]
+[MarkoutContext(typeof(DiffInspectionFailureRow))]
 [MarkoutContext(typeof(AnalysisDiffView))]
 [MarkoutContext(typeof(AnalysisDiffRow))]
 [MarkoutContext(typeof(ImplementationDiffView))]

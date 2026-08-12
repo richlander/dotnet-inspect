@@ -311,6 +311,14 @@ Constructed TypeRefs without a resolution context remain unclassified
 (`ConstructedCoreConstraintWithoutResolutionStaysUndetermined`).
 Authentication walks both external dependency graphs and same-image TypeSpec base chains
 with explicit bounded worklists rather than process recursion.
+When a same-image constraint TypeDef reaches an external constructed base through that
+bounded local chain, it carries the typed external dependency into the same frozen
+authentication context rather than treating the local definition as silently unknown.
+`CompilerProducedSameImageConstraintAuthenticatesExternalConstructedBase` gates the
+compiler-produced shape, and
+`SameImageConstraintAuthenticatesExternalConstructedBase` gates immediate and multi-hop
+synthetic shapes. An external interface cannot authenticate the enclosing TypeDef as a class;
+`SameImageConstraintRejectsExternalConstructedInterfaceBase` gates that close negative.
 `Extract_RejectsForgedClassMarkerForExternalValueTypeBase` gates the fail-closed path;
 `Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles;
 `DeepConstructedBaseAuthenticationUsesBoundedStack` and
@@ -337,8 +345,11 @@ reference: the reference must bind through policy, as gated by
 `MissingCoreBindingDoesNotProveConstraintKind`.
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
-(`TypeRequestBudget_RejectsExcessManifestRequests`). Discovery exhaustion is exposed through
-`ApiSurface.InspectionFailures` rather than silently returning a partial classification
+(`TypeRequestBudget_RejectsExcessManifestRequests`). Row rollback also releases provisional
+TypeRef projections while retaining projections accepted before the checkpoint, so rejected
+rows cannot accumulate request state outside that budget
+(`ResolutionPlan_RollbackReleasesProvisionalProjections`). Discovery exhaustion is exposed
+through `ApiSurface.InspectionFailures` rather than silently returning a partial classification
 (`DiscoveryBudgetExhaustionIsVisibleOnApiSurface`), authentication exhaustion is reported
 after the frozen context is applied
 (`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
@@ -360,7 +371,11 @@ API surface that copies a resolved forwarded type also carries that target surfa
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
 to the target image rather than appearing to address a row in the facade
-(`ApiServices_PreservesForwardedConstraintFailures`). Type listings, selected types, and
+(`ApiServices_PreservesForwardedConstraintFailures`). Research change identities retain that
+assembly scope even when side and token match
+(`FromApiDiff_ScopesInspectionFailureToSubjectAssembly`), and the normal diff view renders
+inspection failures, including a failure-only comparison, rather than claiming no API changes
+(`RenderDiff_FailureOnlyComparisonIsNotClean`). Type listings, selected types, and
 selected members present these failures consistently as nonfatal constraint-classification
 diagnostics rather than rejected metadata rows
 (`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). An extraction lease keeps retained
