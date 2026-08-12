@@ -1,8 +1,12 @@
 using DotnetInspector.Services;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -152,6 +156,88 @@ public class FidelityCheckGeneratedFilterTests
                 result => result.Type == "AutoPropertyPairFixture" && result.Method == ".ctor");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, ctor.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ConstructorWholeMemberFixture
+            {
+                private readonly int _value;
+
+                private ConstructorWholeMemberFixture(int value)
+                {
+                    _value = value;
+                }
+
+                public ConstructorWholeMemberFixture() : this(42)
+                {
+                }
+
+                public int Value => _value;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "ConstructorWholeMemberFixture");
+            var type = reader.GetTypeDefinition(typeHandle);
+            int constructorOverload = -1;
+            MethodDefinitionHandle target = default;
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != ".ctor")
+                    continue;
+                constructorOverload++;
+                if (method.GetParameters().Count(
+                        parameterHandle => reader.GetParameter(parameterHandle).SequenceNumber > 0) == 1)
+                {
+                    target = methodHandle;
+                    break;
+                }
+            }
+            Assert.False(target.IsNil);
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                target,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            Assert.Contains(
+                "private ConstructorWholeMemberFixture(int value)",
+                wholeMember.Value.Text,
+                StringComparison.Ordinal);
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                target,
+                targeted: true,
+                isPrimaryConstructor: true));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "ConstructorWholeMemberFixture",
+                    method => method.Method == ".ctor"
+                        && method.Overload == constructorOverload));
+
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {

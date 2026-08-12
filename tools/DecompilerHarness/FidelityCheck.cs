@@ -356,7 +356,8 @@ static class FidelityCheck
         CaptureMode Capture = CaptureMode.WholeModule,
         string? CaptureDetail = null,
         IlBodyDiffResult? FidelityDiff = null,
-        string? Annotated = null);
+        string? Annotated = null,
+        bool UsedProductWholeMember = false);
 
     internal static CompileBackStatus ClassifyStatus(
         bool isFull,
@@ -1250,7 +1251,12 @@ static class FidelityCheck
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             bool requiresAsync = function.RequiresAsyncBodyModifier
                 || function.IsRuntimeAsync == MetadataFactState.Yes;
-            var wholeMember = TryRenderTargetMember(pe, source, mh, targeted: methodFilter is not null);
+            var wholeMember = TryRenderTargetMember(
+                pe,
+                source,
+                mh,
+                targeted: methodFilter is not null,
+                isPrimaryConstructor: primaryConstructor is not null);
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -2240,7 +2246,8 @@ static class FidelityCheck
         new(fullType, e.Name, e.Overload, e.Signature,
             ClassifyStatus(e.IsFull, e.OrigOps.SequenceEqual(rOps), fidelityDiff),
             e.OrigText, string.Join(" ", rOps), fidelityDiff.Failure,
-            FidelityDiff: fidelityDiff);
+            FidelityDiff: fidelityDiff,
+            UsedProductWholeMember: e.Target.WholeMember is not null);
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)
     {
@@ -2753,7 +2760,7 @@ static class FidelityCheck
         bool RequiresAsync,
         PrimaryConstructorShape? PrimaryConstructor = null,
         IReadOnlySet<string>? RequiredNamespaces = null,
-        // pr5a (#2996): the product's whole-member render (signature + body) for a
+        // The product's whole-member render (signature + body) for a
         // migrated target, replacing the harness's self-spelled signature. Null
         // keeps the legacy EmitMethod path. WholeMemberNamespaces are the imports
         // the render shortened against, hoisted into the compile-back unit usings.
@@ -2803,7 +2810,7 @@ static class FidelityCheck
         if (isolatedTargetNamespaces is not null)
             foreach (var ns in isolatedTargetNamespaces)
                 usings.Add(ns);
-        // pr5a (#2996): a target rendered by the product (ProduceMember) shortens
+        // A target rendered by the product (ProduceMember) shortens
         // qualified type names against the decompiler's assumed imports; add the
         // namespaces it harvested so those short names bind in the compile-back unit.
         foreach (var t in targets.Values)
@@ -3732,22 +3739,27 @@ static class FidelityCheck
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
-    /// replacing the harness's self-spelled signature (#2996 pr5a). Returns null
-    /// (keeping the legacy <see cref="EmitMethod"/> path) for member kinds not yet
-    /// migrated — constructors interact with lifted field initializers, and
-    /// accessors are emitted as whole properties — or when production does not
-    /// complete. Broad evaluation renders the whole type once and memoizes the
-    /// batch; method-filtered evaluation uses the product's targeted member path
-    /// so unselected siblings are not rendered.
+    /// replacing the harness's self-spelled signature. Ordinary constructors are
+    /// safe to migrate because the scaffold already applies the decompiler's
+    /// separately captured lifted field initializers to the reconstructed fields.
+    /// A detected primary constructor remains type-header-owned and therefore
+    /// declines the member render. Accessors still decline because the product
+    /// renders their containing property. Broad evaluation renders the whole type
+    /// once and memoizes the batch; method-filtered evaluation uses the product's
+    /// targeted member path so unselected siblings are not rendered.
     /// </summary>
-    static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
-        PEReader pe, MetadataSource source, MethodDefinitionHandle mh, bool targeted)
+    internal static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
+        PEReader pe,
+        MetadataSource source,
+        MethodDefinitionHandle mh,
+        bool targeted,
+        bool isPrimaryConstructor)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
-        // Slice 1 migrates plain methods and operators only.
-        if (entry.Member.Kind is not ("method" or "operator"))
+        if (isPrimaryConstructor
+            || entry.Member.Kind is not ("method" or "operator" or "constructor"))
             return null;
 
         var result = targeted
