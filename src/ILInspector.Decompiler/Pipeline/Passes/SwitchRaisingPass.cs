@@ -1022,13 +1022,17 @@ public sealed class SwitchRaisingPass : IIrPass
         return true;
     }
 
-    /// <summary>Successor block indices (including the conditional / no-terminator fall-through), or false for an unsupported section shape.</summary>
-    static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
+    /// <summary>
+    /// Successor block indices (including conditional/no-terminator fall-through),
+    /// or false for an unsupported section shape such as a direct structured transfer.
+    /// </summary>
+    internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
         succs = [];
         var block = blocks[idx];
         for (int i = 0; i < block.Children.Count - 1; i++)
-            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch
+                or Leave or EndFinally or EndFilter or Break or Continue)
                 return false;
 
         var last = block.Children.Count > 0 ? block.Children[^1] : null;
@@ -1048,7 +1052,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 if (idx + 1 < blocks.Count)
                     succs.Add(idx + 1);
                 return true;
-            case SwitchBranch or Leave or EndFinally or EndFilter:
+            case SwitchBranch or Leave or EndFinally or EndFilter or Break or Continue:
                 return false;
             default:
                 if (idx + 1 < blocks.Count)
