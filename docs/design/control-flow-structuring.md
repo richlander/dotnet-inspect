@@ -371,19 +371,24 @@ substrate atom or a control-flow helper first.
 overlap between those models. It runs the real pipeline to the pre-switch
 boundary, compares `StructuringFlowFacts` explicit transfers with `Cfg.Build`,
 and compares switch raising's private successor view with `Cfg.Build` wherever
-switch raising accepts the block. The gate separately requires terminal and
-nested `Leave` coverage, pinning the intentional distinction: `Cfg.Build` marks
-a terminal `Leave` as a region exit with no successor, while structuring retains
-its target and clone owner.
+switch raising accepts the block. An independent terminator projection checks
+`Cfg.Build`'s implicit fall-through multiplicity and method/region-exit
+classification, including switch default edges and `EndFinally`/`EndFilter`.
+The gate separately requires terminal `Leave` coverage, pinning the intentional
+distinction: `Cfg.Build` marks a terminal `Leave` as a region exit with no
+successor, switch raising declines it, and structuring does not classify it as a
+jump predecessor. Nested `Leave` clone ownership has no executable-edge overlap;
+`StructuringFlowFactsTests` owns that separate contract.
 
 On the .NET 11 Preview 7 CoreLib, the gate covers 42,640 methods, 45,505
-containers, 48,559 explicit edges, 122,981 switch-modeled blocks, 113 terminal
-`Leave`s, and 106 nested `Leave`s with zero differences. That evidence makes
-`Cfg.Build` the owner of structural edge semantics. Switch raising's view has a
-narrower acceptance domain, not different edges, so it should consume
-`Cfg.Build` in a behavior-preserving follow-up. `StructuringFlowFacts` remains a
-separate region-aware projection because its label and clone-ownership facts are
-not executable edges.
+containers, 48,559 explicit edges, 53,379 implicit fall-through edges (including
+342 switch default edges), 122,981 switch-modeled blocks, 113 terminal
+`Leave`s, and 10 `EndFinally`/`EndFilter` terminators with zero differences.
+That evidence makes `Cfg.Build` the owner of structural edge semantics. Switch
+raising's view has a narrower acceptance domain, not different edges, so it
+should consume `Cfg.Build` in a behavior-preserving follow-up.
+`StructuringFlowFacts` remains a separate region-aware projection because its
+label and clone-ownership facts are not executable edges.
 
 ### Review triggers and canaries
 

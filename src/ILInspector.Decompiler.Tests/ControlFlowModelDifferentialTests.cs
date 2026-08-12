@@ -23,9 +23,11 @@ public class ControlFlowModelDifferentialTests
         public long Methods;
         public long Containers;
         public long ExplicitEdges;
+        public long ImplicitFallthroughEdges;
+        public long SwitchFallthroughEdges;
         public long SwitchSuccessorBlocks;
         public long TerminalLeaves;
-        public long NestedLeaves;
+        public long OtherEhTerminators;
         public long DifferenceCount;
         public readonly List<string> Differences = [];
     }
@@ -41,13 +43,18 @@ public class ControlFlowModelDifferentialTests
             $"Expected broad container coverage; inspected only {comparison.Containers} containers.");
         Assert.True(comparison.ExplicitEdges > 10_000,
             $"Expected broad explicit-edge coverage; compared only {comparison.ExplicitEdges} edges.");
+        Assert.True(comparison.ImplicitFallthroughEdges > 10_000,
+            "Expected broad implicit-fallthrough coverage; compared only "
+                + $"{comparison.ImplicitFallthroughEdges} edges.");
+        Assert.True(comparison.SwitchFallthroughEdges > 0,
+            "The corpus did not exercise switch fall-through edges.");
         Assert.True(comparison.SwitchSuccessorBlocks > 10_000,
             "The switch-region successor projection was not exercised broadly enough: "
                 + $"{comparison.SwitchSuccessorBlocks} blocks.");
         Assert.True(comparison.TerminalLeaves > 0,
             "The corpus did not exercise the terminal Leave divergence domain.");
-        Assert.True(comparison.NestedLeaves > 0,
-            "The corpus did not exercise nested Leave clone ownership.");
+        Assert.True(comparison.OtherEhTerminators > 0,
+            "The corpus did not exercise EndFinally/EndFilter terminators.");
         Assert.True(comparison.DifferenceCount == 0,
             $"{comparison.DifferenceCount} control-flow difference(s)"
                 + (comparison.Differences.Count < comparison.DifferenceCount
@@ -58,8 +65,11 @@ public class ControlFlowModelDifferentialTests
         Console.WriteLine(
             $"FLOW-AGREEMENT methods={comparison.Methods} containers={comparison.Containers} "
             + $"explicit-edges={comparison.ExplicitEdges} "
+            + $"implicit-fallthrough-edges={comparison.ImplicitFallthroughEdges} "
+            + $"switch-fallthrough-edges={comparison.SwitchFallthroughEdges} "
             + $"switch-successor-blocks={comparison.SwitchSuccessorBlocks} "
-            + $"terminal-leaves={comparison.TerminalLeaves} nested-leaves={comparison.NestedLeaves}");
+            + $"terminal-leaves={comparison.TerminalLeaves} "
+            + $"other-eh-terminators={comparison.OtherEhTerminators}");
     }
 
     static Comparison CompareCoreLib()
@@ -69,15 +79,19 @@ public class ControlFlowModelDifferentialTests
 
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
+            long methodOrdinal = comparison.Methods;
             comparison.Methods++;
             IrPasses.Run(function, PreSwitchPasses);
 
+            int containerOrdinal = 0;
             foreach (var container in function.Descendants.OfType<BlockContainer>())
             {
                 comparison.Containers++;
                 CompareContainer(
                     container.Blocks,
-                    $"{typeName}::{methodName}/IL_{container.Blocks.FirstOrDefault()?.StartOffset ?? 0:X4}",
+                    $"{typeName}::{methodName}[token=0x{function.MetadataToken:X8},"
+                        + $"method={methodOrdinal},container={containerOrdinal++}]"
+                        + $"/IL_{container.Blocks.FirstOrDefault()?.StartOffset ?? 0:X4}",
                     comparison);
             }
         }
@@ -125,6 +139,7 @@ public class ControlFlowModelDifferentialTests
 
         for (int from = 0; from < cfg.Count; from++)
         {
+            var terminator = blocks[from].Children.LastOrDefault();
             foreach (int to in cfg[from].Successors.Distinct())
             {
                 if (to != from + 1 && !resolvedFactEdges.Contains((from, to)))
@@ -139,6 +154,44 @@ public class ControlFlowModelDifferentialTests
                     AddDifference(comparison,
                         $"{identity}: Cfg.Build external edge {from}->IL_{targetOffset:X4} "
                             + "is absent from StructuringFlowFacts");
+            }
+
+            bool expectsMethodExit = terminator is Return or Throw;
+            bool expectsRegionExit = terminator is Leave or EndFinally or EndFilter;
+            if (cfg[from].ExitsMethod != expectsMethodExit
+                || cfg[from].LeavesRegion != expectsRegionExit)
+            {
+                AddDifference(comparison,
+                    $"{identity}: Cfg.Build classification for block {from} "
+                        + $"exits={cfg[from].ExitsMethod}, leaves={cfg[from].LeavesRegion} "
+                        + $"disagrees with terminator {terminator?.GetType().Name ?? "<none>"}");
+            }
+
+            if (from + 1 < blocks.Count)
+            {
+                int nextOffset = blocks[from + 1].StartOffset;
+                int explicitEdgesToNext =
+                    facts.JumpPredecessorIndices.TryGetValue(nextOffset, out var nextOwners)
+                        ? nextOwners.Count(owner => owner == from)
+                        : 0;
+                bool hasImplicitFallthrough = HasImplicitFallthrough(terminator);
+                int expectedEdgesToNext = explicitEdgesToNext + (hasImplicitFallthrough ? 1 : 0);
+                int actualEdgesToNext = cfg[from].Successors.Count(to => to == from + 1);
+
+                if (hasImplicitFallthrough)
+                {
+                    comparison.ImplicitFallthroughEdges++;
+                    if (terminator is SwitchBranch)
+                        comparison.SwitchFallthroughEdges++;
+                }
+
+                if (actualEdgesToNext != expectedEdgesToNext)
+                {
+                    AddDifference(comparison,
+                        $"{identity}: Cfg.Build has {actualEdgesToNext} edge(s) from block {from} "
+                            + $"to fall-through block {from + 1}; expected {explicitEdgesToNext} explicit "
+                            + $"and {(hasImplicitFallthrough ? 1 : 0)} implicit edge(s)");
+                }
             }
 
             bool switchModelsBlock = SwitchRaisingPass.TrySuccessors(
@@ -161,40 +214,44 @@ public class ControlFlowModelDifferentialTests
                 }
             }
 
-            if (blocks[from].Children.LastOrDefault() is Leave leave)
+            if (terminator is Leave leave)
             {
                 comparison.TerminalLeaves++;
                 if (!cfg[from].LeavesRegion
                     || cfg[from].Successors.Count > 0
                     || cfg[from].ExternalTargets.Count > 0
                     || switchModelsBlock
-                    || !facts.BranchTargets.Contains(leave.TargetOffset)
-                    || !facts.ClonePredecessorIndices.TryGetValue(leave.TargetOffset, out var owners)
-                    || !owners.Contains(from)
                     || (facts.JumpPredecessorIndices.TryGetValue(leave.TargetOffset, out var jumpOwners)
                         && jumpOwners.Contains(from)))
                 {
                     AddDifference(comparison,
                         $"{identity}: terminal Leave in block {from} does not preserve the declared "
-                            + "region-exit/clone-owner distinction");
+                            + "region-exit/non-jump distinction");
                 }
             }
-
-            foreach (var descendantLeave in blocks[from].Descendants.OfType<Leave>())
+            else if (terminator is EndFinally or EndFilter)
             {
-                if (!ReferenceEquals(descendantLeave.Parent, blocks[from]))
-                    comparison.NestedLeaves++;
-                if (!facts.BranchTargets.Contains(descendantLeave.TargetOffset)
-                    || !facts.ClonePredecessorIndices.TryGetValue(descendantLeave.TargetOffset, out var owners)
-                    || !owners.Contains(from))
+                comparison.OtherEhTerminators++;
+                if (!cfg[from].LeavesRegion
+                    || cfg[from].Successors.Count > 0
+                    || cfg[from].ExternalTargets.Count > 0
+                    || switchModelsBlock)
                 {
                     AddDifference(comparison,
-                        $"{identity}: descendant Leave IL_{descendantLeave.TargetOffset:X4} in block {from} "
-                            + "is absent from StructuringFlowFacts clone ownership");
+                        $"{identity}: {terminator.GetType().Name} in block {from} does not preserve "
+                            + "the declared region-exit distinction");
                 }
             }
         }
     }
+
+    static bool HasImplicitFallthrough(IrNode? terminator)
+        => terminator switch
+        {
+            ConditionalBranch or SwitchBranch => true,
+            Branch or Return or Throw or Leave or EndFinally or EndFilter => false,
+            _ => true,
+        };
 
     static void AddDifference(Comparison comparison, string difference)
     {
