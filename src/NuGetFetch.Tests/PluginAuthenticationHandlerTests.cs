@@ -190,6 +190,33 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task SameOriginRedirectReplaysACachedCredentialStrippedInTransit()
+    {
+        var source = new OneShotCredentialSource();
+        var transport = new SameOriginRedirectChallengeTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage warm = await client.GetAsync(
+            "https://feed.example/private",
+            TestContext.Current.CancellationToken);
+        using HttpResponseMessage redirected = await client.GetAsync(
+            "https://feed.example/start",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, warm.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, redirected.StatusCode);
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(
+            [
+                ("https://feed.example/private", (string?)null),
+                ("https://feed.example/private", Basic("user", "token").Parameter),
+                ("https://feed.example/start", Basic("user", "token").Parameter),
+                ("https://feed.example/private", Basic("user", "token").Parameter),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
     public async Task PortAndSchemeArePartOfSourceIdentity()
     {
         var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
@@ -572,6 +599,36 @@ public sealed class PluginAuthenticationHandlerTests
                     RequestMessage = new HttpRequestMessage(
                         request.Method,
                         "https://challenger.example/private/index.json"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(
+                request.Headers.Authorization is null
+                    ? HttpStatusCode.Unauthorized
+                    : HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class SameOriginRedirectChallengeTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
+
+            if (request.RequestUri.AbsolutePath == "/start")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = new HttpRequestMessage(
+                        request.Method,
+                        "https://feed.example/private"),
                 });
             }
 

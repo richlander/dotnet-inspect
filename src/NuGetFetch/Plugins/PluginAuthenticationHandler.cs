@@ -114,7 +114,6 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                     if (credential is not null && attempt.Headers.Authorization is null)
                     {
                         attempt.Headers.Authorization = CreateBasicHeader(credential);
-                        attemptedCredentialScopes.Add(credentialScopeKey);
                     }
 
                     response = await base.SendAsync(attempt, cancellationToken).ConfigureAwait(false);
@@ -140,6 +139,18 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                     CredentialScopeState challengedScope = _credentialScopes.GetOrAdd(
                         challengedScopeKey,
                         static _ => new CredentialScopeState());
+                    if (credential is not null
+                        && string.Equals(
+                            credentialScopeKey,
+                            challengedScopeKey,
+                            StringComparison.Ordinal)
+                        && MatchesCredential(
+                            challengedRequest.Headers.Authorization,
+                            credential))
+                    {
+                        attemptedCredentialScopes.Add(challengedScopeKey);
+                    }
+
                     (PackageSourceCredential? challengedCredential, long challengedVersion) =
                         string.Equals(
                         credentialScopeKey,
@@ -248,6 +259,21 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
         string encoded = Convert.ToBase64String(
             Encoding.UTF8.GetBytes($"{credential.Username}:{credential.Password}"));
         return new AuthenticationHeaderValue("Basic", encoded);
+    }
+
+    private static bool MatchesCredential(
+        AuthenticationHeaderValue? authorization,
+        PackageSourceCredential credential)
+    {
+        AuthenticationHeaderValue expected = CreateBasicHeader(credential);
+        return string.Equals(
+                authorization?.Scheme,
+                expected.Scheme,
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                authorization?.Parameter,
+                expected.Parameter,
+                StringComparison.Ordinal);
     }
 
     /// <summary>
