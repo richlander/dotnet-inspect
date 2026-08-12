@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using System.Diagnostics;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -37,6 +38,16 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusHarnessProcessTests
 {
+    [Fact]
+    public void HarnessBinary_CarriesKnownBuildSourceState()
+    {
+        Assembly assembly = Assembly.LoadFile(HarnessBinary());
+        string state = AuthoredCorpusHistoryStore.ReadSourceStateAtBuild(
+            assembly.GetCustomAttributes<AssemblyMetadataAttribute>());
+
+        Assert.Contains(state, new[] { "clean", "dirty" });
+    }
+
     /// <summary>
     /// Every mode that dispatches before a gate must refuse rather than run instead of
     /// it. One representative earlier mode per gate is enough here: which modes precede

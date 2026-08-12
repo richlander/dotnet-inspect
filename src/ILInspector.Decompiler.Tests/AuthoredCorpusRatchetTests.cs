@@ -1384,6 +1384,26 @@ public class AuthoredCorpusRatchetTests
         Assert.Null(AuthoredCorpusExitContract.PreemptedGateRefusal(order, Gates));
     }
 
+    [Fact]
+    public void DeepInspect_PreparesAndReadsTheEvilPoolOutsideTheCheckout()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(
+                FindRepositoryRoot(),
+                ".github",
+                "workflows",
+                "deep-inspect.yml"));
+
+        Assert.Contains(
+            "prepare-evil-corpus.sh \"$RUNNER_TEMP/evil-pool\"",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mapfile -t assemblies < \"$RUNNER_TEMP/evil-pool/assemblies.txt\"",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Drift measurement is sound only when nothing went uncounted.
     ///

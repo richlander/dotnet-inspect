@@ -239,6 +239,7 @@ static class AuthoredCorpusBenchmark
     internal sealed record Report(
         [property: System.Text.Json.Serialization.JsonRequired] string Date,
         [property: System.Text.Json.Serialization.JsonRequired] string Commit,
+        [property: System.Text.Json.Serialization.JsonRequired] string SourceStateAtBuild,
         [property: System.Text.Json.Serialization.JsonRequired] bool SourceRevisionMatchesHead,
         [property: System.Text.Json.Serialization.JsonRequired] bool SourceDirty,
         [property: System.Text.Json.Serialization.JsonRequired] int CorpusRows,
@@ -840,6 +841,7 @@ static class AuthoredCorpusBenchmark
         var payload = new Report(
             provenance.Date,
             provenance.Commit,
+            provenance.SourceStateAtBuild,
             provenance.SourceRevisionMatchesHead,
             provenance.SourceDirty,
             corpusRows,

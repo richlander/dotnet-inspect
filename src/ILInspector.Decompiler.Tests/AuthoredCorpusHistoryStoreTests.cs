@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Reflection;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -128,6 +129,8 @@ public class AuthoredCorpusHistoryStoreTests
     [Theory]
     [Trait("Area", "Corpus")]
     [InlineData("dirty")]
+    [InlineData("dirty-build")]
+    [InlineData("unknown-build")]
     [InlineData("incomplete")]
     [InlineData("partition")]
     [InlineData("methodology")]
@@ -137,6 +140,8 @@ public class AuthoredCorpusHistoryStoreTests
         report = tamper switch
         {
             "dirty" => report with { SourceDirty = true },
+            "dirty-build" => report with { SourceStateAtBuild = "dirty" },
+            "unknown-build" => report with { SourceStateAtBuild = "unknown" },
             "incomplete" => report with { UnmatchedRows = 1 },
             "partition" => report with
             {
@@ -147,6 +152,75 @@ public class AuthoredCorpusHistoryStoreTests
         };
 
         Assert.Throws<InvalidDataException>(() => AuthoredCorpusHistoryStore.Project(report));
+    }
+
+    [Theory]
+    [Trait("Area", "Corpus")]
+    [InlineData("BodyDefect", null, "ProductBodyDefect")]
+    [InlineData("ShellOrClosureDefect", null, "HarnessShellReconstruction")]
+    [InlineData(null, "closure-stalled: unresolved member", "HarnessShellReconstruction")]
+    [InlineData(null, "closure-root-budget: 64", "HarnessShellReconstruction")]
+    [InlineData(null, "compiler diagnostic", "Unclassified")]
+    public void InvalidKind_IsDerivedFromFaultIsolationAndDetail(
+        string? faultIsolation,
+        string? detail,
+        string expected)
+    {
+        AuthoredCorpusBenchmark.RowReport row = Row("Invalid") with
+        {
+            FaultIsolation = faultIsolation,
+            Detail = detail,
+        };
+
+        Assert.Equal(expected, AuthoredCorpusHistoryStore.ClassifyInvalidKind(row));
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void AppendProjection_RejectsForgedInvalidKindAndMatchingSummary()
+    {
+        AuthoredCorpusBenchmark.Report report = Report();
+        var rows = report.Rows.ToArray();
+        rows[3] = rows[3] with { InvalidKind = "HarnessShellReconstruction" };
+        report = report with
+        {
+            Rows = rows,
+            InvalidBreakdown = new AuthoredCorpusBenchmark.InvalidBreakdownReport(
+                ProductBodyDefect: 0,
+                HarnessShellReconstruction: 1,
+                Unclassified: 0),
+        };
+
+        Assert.Throws<InvalidDataException>(() => AuthoredCorpusHistoryStore.Project(report));
+    }
+
+    [Theory]
+    [Trait("Area", "Corpus")]
+    [InlineData("clean")]
+    [InlineData("dirty")]
+    [InlineData("unknown")]
+    public void BuildSourceState_RecognizesTheThreeProducerStates(string state)
+    {
+        var attributes = new[] { new AssemblyMetadataAttribute("RepositorySourceStateAtBuild", state) };
+
+        Assert.Equal(state, AuthoredCorpusHistoryStore.ReadSourceStateAtBuild(attributes));
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void BuildSourceState_RejectsMissingInvalidAndDuplicateMetadata()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => AuthoredCorpusHistoryStore.ReadSourceStateAtBuild([]));
+        Assert.Throws<InvalidOperationException>(
+            () => AuthoredCorpusHistoryStore.ReadSourceStateAtBuild(
+                [new AssemblyMetadataAttribute("RepositorySourceStateAtBuild", "invented")]));
+        Assert.Throws<InvalidOperationException>(
+            () => AuthoredCorpusHistoryStore.ReadSourceStateAtBuild(
+                [
+                    new AssemblyMetadataAttribute("RepositorySourceStateAtBuild", "clean"),
+                    new AssemblyMetadataAttribute("RepositorySourceStateAtBuild", "dirty"),
+                ]));
     }
 
     [Fact]
@@ -195,6 +269,7 @@ public class AuthoredCorpusHistoryStoreTests
         => new(
             Date: "2026-08-11",
             Commit,
+            SourceStateAtBuild: "clean",
             SourceRevisionMatchesHead: true,
             SourceDirty: false,
             CorpusRows: 4,
@@ -260,8 +335,10 @@ public class AuthoredCorpusHistoryStoreTests
                 _ => null,
             },
             InvalidKind: taste == "Invalid" ? "ProductBodyDefect" : null,
-            FaultIsolation: taste == "FrontierIlDiff" ? "BodyDefect" : null,
-            FaultIsolationMethod: taste == "FrontierIlDiff" ? "FidelityControl" : null,
+            FaultIsolation: taste is "FrontierIlDiff" or "Invalid" ? "BodyDefect" : null,
+            FaultIsolationMethod: taste is "FrontierIlDiff" or "Invalid"
+                ? "FidelityControl"
+                : null,
             UsedCompileBackFloor: false,
             SupersededFaultIsolation: null,
             SupersededFaultIsolationMethod: null,

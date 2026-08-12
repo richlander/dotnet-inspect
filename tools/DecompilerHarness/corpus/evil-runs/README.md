@@ -163,6 +163,16 @@ Each row contains these fields:
    A methodology-bump PR therefore leaves the newest stored methodology one
    version behind while it is under review. After the change lands, append its
    first row from the resulting `main` commit in a follow-up.
+
+   Build from a clean checkout and leave it clean through the run. The harness
+   embeds whether the repository was `clean`, `dirty`, or `unknown` when the
+   binary was compiled, and records the repository state again when the
+   benchmark executes. The append command accepts only a build-time `clean`
+   artifact with a clean execution-time checkout and a build revision matching
+   `HEAD`. This prevents a dirty binary from being cleaned or stashed after the
+   build and then presented as an immutable measurement. Builds from source
+   archives without Git remain supported, but their `unknown` provenance is not
+   eligible for the tracked history.
 2. Prepare or reuse the EVIL pool:
 
    ```bash
@@ -177,11 +187,11 @@ Each row contains these fields:
      --json $(cat /tmp/evil-pool/assemblies.txt) > /tmp/evil-run-YYYYMMDD-SHA.json
    ```
 
-   The run records the build's full commit, UTC run date, source-state checks,
-   `poolSha256`, and `corpusSha256` without being asked. The commit comes from
-   the built assembly rather than the command line, and the source-state fields
-   expose a stale build or dirty checkout instead of letting either masquerade
-   as an immutable run.
+   The run records the build's full commit, UTC run date, build-time source
+   state, execution-time source state, `poolSha256`, and `corpusSha256` without
+   being asked. The commit comes from the built assembly rather than the command
+   line, and the two source-state checks expose a stale or dirty build even if
+   the checkout is cleaned before execution.
 
    Exit code 1 is expected while `invalid`, `drift`, or `unsupported` is
    non-zero; the JSON is still authoritative. That contract is unchanged, and

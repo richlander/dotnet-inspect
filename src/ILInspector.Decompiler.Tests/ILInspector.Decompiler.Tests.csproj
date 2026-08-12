@@ -190,4 +190,7 @@
              Link="AuthoredCorpusRatchet.cs" />
   </ItemGroup>
 
+  <!-- The benchmark sources execute in this assembly during in-process tests. -->
+  <Import Project="..\..\tools\DecompilerHarness\RepositoryBuildState.targets" />
+
 </Project>

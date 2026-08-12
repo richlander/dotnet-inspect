@@ -16,6 +16,7 @@ static partial class AuthoredCorpusHistoryStore
     internal sealed record BenchmarkProvenance(
         string Date,
         string Commit,
+        string SourceStateAtBuild,
         bool SourceRevisionMatchesHead,
         bool SourceDirty);
 
@@ -140,7 +141,8 @@ static partial class AuthoredCorpusHistoryStore
 
     internal static BenchmarkProvenance CaptureBenchmarkProvenance()
     {
-        string informationalVersion = Assembly.GetExecutingAssembly()
+        Assembly assembly = Assembly.GetExecutingAssembly();
+        string informationalVersion = assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
             ?? throw new InvalidOperationException("The harness assembly has no informational version.");
@@ -156,12 +158,31 @@ static partial class AuthoredCorpusHistoryStore
         string head = repository.ResolveCommit("HEAD");
         bool sourceRevisionMatchesHead = string.Equals(commit, head, StringComparison.Ordinal);
         bool sourceDirty = RunGit(repository.Root, "status", "--porcelain", "--untracked-files=all").Length != 0;
+        string sourceStateAtBuild = ReadSourceStateAtBuild(
+            assembly.GetCustomAttributes<AssemblyMetadataAttribute>());
 
         return new BenchmarkProvenance(
             DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             commit,
+            sourceStateAtBuild,
             sourceRevisionMatchesHead,
             sourceDirty);
+    }
+
+    internal static string ReadSourceStateAtBuild(IEnumerable<AssemblyMetadataAttribute> attributes)
+    {
+        ArgumentNullException.ThrowIfNull(attributes);
+        string[] values = attributes
+            .Where(attribute => attribute.Key == "RepositorySourceStateAtBuild")
+            .Select(attribute => attribute.Value ?? "")
+            .ToArray();
+        if (values.Length != 1 || values[0] is not ("clean" or "dirty" or "unknown"))
+        {
+            throw new InvalidOperationException(
+                "The harness assembly does not carry one recognized repository source state.");
+        }
+
+        return values[0];
     }
 
     public static int Append(string artifactPath, string? historyPath)
@@ -226,6 +247,11 @@ static partial class AuthoredCorpusHistoryStore
         }
         if (!report.SourceRevisionMatchesHead)
             throw new InvalidDataException("Benchmark build revision did not match the checked-out HEAD.");
+        if (report.SourceStateAtBuild != "clean")
+        {
+            throw new InvalidDataException(
+                $"Benchmark source tree was '{report.SourceStateAtBuild}' when the harness was built.");
+        }
         if (report.SourceDirty)
             throw new InvalidDataException("Benchmark source tree was dirty when the artifact was produced.");
         if (string.IsNullOrEmpty(report.Commit) || !FullCommitPattern().IsMatch(report.Commit))
@@ -353,6 +379,16 @@ static partial class AuthoredCorpusHistoryStore
                     + $"outcome/reason/compile status ('{expectedTaste}').");
             }
 
+            string? expectedInvalidKind = row.Outcome == "Invalid"
+                ? ClassifyInvalidKind(row)
+                : null;
+            if (!string.Equals(row.InvalidKind, expectedInvalidKind, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Benchmark row invalidKind '{row.InvalidKind}' does not match "
+                    + $"outcome/fault-isolation/detail facts ('{expectedInvalidKind}').");
+            }
+
             switch (row.TasteBucket)
             {
                 case "Correct":
@@ -395,17 +431,11 @@ static partial class AuthoredCorpusHistoryStore
                     break;
                 case "Invalid":
                     invalid++;
-                    switch (row.InvalidKind)
+                    switch (expectedInvalidKind)
                     {
                         case "ProductBodyDefect": invalidProduct++; break;
                         case "HarnessShellReconstruction": invalidHarness++; break;
-                        case "Unclassified":
-                        case null:
-                            invalidUnclassified++;
-                            break;
-                        default:
-                            throw new InvalidDataException(
-                                $"Benchmark row carries unknown invalidKind '{row.InvalidKind}'.");
+                        case "Unclassified": invalidUnclassified++; break;
                     }
                     break;
                 case "NotFull":
@@ -470,6 +500,9 @@ static partial class AuthoredCorpusHistoryStore
             },
             _ => "UnknownOutcome",
         };
+
+    internal static string ClassifyInvalidKind(AuthoredCorpusBenchmark.RowReport row)
+        => ReturnToSenderInvalidClassifier.ClassifyKind(row.FaultIsolation, row.Detail).ToString();
 
     static void VerifyProducerSummary(AuthoredCorpusBenchmark.Report report, RowCensus census)
     {

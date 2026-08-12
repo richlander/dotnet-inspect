@@ -1,0 +1,29 @@
+<Project>
+
+  <Target Name="GenerateRepositoryBuildState" BeforeTargets="CoreCompile">
+    <Exec Command="git status --porcelain --untracked-files=all"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="Low"
+          StandardErrorImportance="Low"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="_RepositoryBuildStatusLines" />
+      <Output TaskParameter="ExitCode" PropertyName="_RepositoryBuildStatusExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <_RepositoryBuildState Condition="'$(_RepositoryBuildStatusExitCode)' != '0'">unknown</_RepositoryBuildState>
+      <_RepositoryBuildState Condition="'$(_RepositoryBuildStatusExitCode)' == '0' and '@(_RepositoryBuildStatusLines)' == ''">clean</_RepositoryBuildState>
+      <_RepositoryBuildState Condition="'$(_RepositoryBuildStatusExitCode)' == '0' and '@(_RepositoryBuildStatusLines)' != ''">dirty</_RepositoryBuildState>
+      <_RepositoryBuildStateFile>$(IntermediateOutputPath)RepositoryBuildState.g.cs</_RepositoryBuildStateFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_RepositoryBuildStateFile)"
+                      Lines="[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;RepositorySourceStateAtBuild&quot;, &quot;$(_RepositoryBuildState)&quot;)]"
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(_RepositoryBuildStateFile)" />
+      <FileWrites Include="$(_RepositoryBuildStateFile)" />
+    </ItemGroup>
+  </Target>
+
+</Project>
