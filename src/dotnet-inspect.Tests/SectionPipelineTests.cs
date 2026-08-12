@@ -1494,6 +1494,19 @@ public class SectionPipelineTests
         Assert.Equal([CustomAttributesQuery.Definition], queries);
     }
 
+    [Fact]
+    public void LibraryPipeline_TargetedResources_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Resources" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([ResourcesQuery.Definition], queries);
+    }
+
     // ===== Scanner registry tests =====
 
     [Fact]
@@ -1598,6 +1611,7 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
             ],
@@ -2053,7 +2067,11 @@ public class SectionPipelineTests
             [SectionNames.ExtensionMethods, SectionNames.LibraryInfo],
             boundSections);
         Assert.Equal(
-            [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition],
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+            ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
     }
 
@@ -2083,8 +2101,172 @@ public class SectionPipelineTests
             [SectionNames.CustomAttributes, SectionNames.LibraryInfo],
             boundSections);
         Assert.Equal(
-            [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition],
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+            ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryInfoAndResourcesSections_ShareTypedResourcesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                ResourcesQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.Resources,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.Resources],
+            boundSections);
+        Assert.Equal(
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+            ],
+            required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ResourcesQuery_ReturnsManifestResourcesFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(LibraryInspection).Assembly.Location);
+
+        var result = Assert.IsType<ResourcesResult.Available>(
+            ResourcesQuery.Execute(session));
+
+        Assert.Contains(
+            result.Resources,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        Assert.Equal(session.Resources(), result.Resources);
+    }
+
+    [Fact]
+    public void ResourcesQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var resources = Assert.IsType<ResourcesResult.Available>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.Contains(
+            resources.Resources,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void ResourcesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(AssemblyInspectionSession).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+        LibraryMetadataService.ApplyResourcesResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
+            model.ResourceInspection!.Value);
+        Assert.Null(model.Resources);
+        Assert.Equal("Resources", Assert.Single(model.InspectionFailures!).Section);
     }
 
     [Fact]
@@ -3468,7 +3650,6 @@ public class SectionPipelineTests
         [
             // was ScanInfoCounts's fan-out
             LibrarySections.ScannerClassifiedMethods,
-            LibrarySections.ScannerResources,
             LibrarySections.ScannerTypeForwarders,
             // workspace-backed library inspection must not reopen its package path
             LibrarySections.ScannerUnionTypes,
@@ -3492,33 +3673,9 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened()
-    {
-        // The shared session returns null rather than throwing so each scanner keeps its own
-        // open-failure mapping. Without this, SharedSessionScanners_AllObserveOneSession could be
-        // satisfied by a Session() that throws, and an unopenable assembly would surface as one
-        // generic failure instead of a typed failed inspection per scanner.
-        var registry = LibrarySections.CreateScannerRegistry();
-        var model = new LibraryInspection();
-        using var context = new ScannerContext
-        {
-            AssemblyPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
-            Model = model,
-            Logger = new Output.VerboseLogger(false),
-        };
-
-        registry.RunScanners([LibrarySections.ScannerResources], context);
-
-        Assert.Null(context.Session());
-        Assert.Equal(0, context.SharedScanCount);
-        Assert.NotNull(model.ResourceInspection);
-        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
-    }
-
-    [Fact]
     public void Trace_RecordsWhatRan_AndMarksBundlesAsDoingNoWorkOfTheirOwn()
     {
-        // InfoCounts is a bundle: it does no work itself and exists only to pull in three scanners.
+        // InfoCounts is a bundle: it does no work itself and exists only to pull in two scanners.
         // A trace that reported it as an ordinary scanner would attribute the bundle's dispatch
         // cost to a step that has none, and hide that the real work belongs to its prerequisites.
         var registry = LibrarySections.CreateScannerRegistry();
@@ -3644,6 +3801,7 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                ResourcesQuery.Definition,
             ],
             requested.OrderBy(query => query.Name, StringComparer.Ordinal));
 
@@ -3781,11 +3939,6 @@ public class SectionPipelineTests
                 m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
                     m.ClassifiedMethodInspection!.Value)),
 
-            ("Resources",
-                m => m.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger),
-                m => Xunit.Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
-                    m.ResourceInspection!.Value)),
-
             ("TypeForwarders",
                 m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
                 m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
@@ -3866,7 +4019,7 @@ public class SectionPipelineTests
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
             // The action-based scanners must distinguish the fixtures on their own. Found by
-            // review: asserting only the combined signature let the three value-returning census
+            // review: asserting only the combined signature let the two value-returning census
             // scanners carry the whole assertion, so a tamper confined to the void Scan overload
             // -- which is how Audit Signals, Integrations and Integration Opportunities run --
             // left this gate green while three scanners reopened the path.
@@ -4047,7 +4200,7 @@ public class SectionPipelineTests
     /// <summary>
     /// Runs the shared-session scanners over an untouched path and returns their signature, split
     /// so a caller can assert that the action-based scanners on their own distinguish the two
-    /// fixtures. Without that split, the three value-returning census scanners could carry the whole
+    /// fixtures. Without that split, the two value-returning census scanners could carry the whole
     /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
     /// </summary>
     private static (string Full, string Actions) CensusSignature(string assemblyPath)
@@ -4074,7 +4227,6 @@ public class SectionPipelineTests
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
-        LibrarySections.ScannerResources,
         LibrarySections.ScannerTypeForwarders,
         LibrarySections.ScannerUnionTypes,
         LibrarySections.ScannerSwitches,
@@ -4084,7 +4236,6 @@ public class SectionPipelineTests
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
-        $"resources={PayloadCount(model.ResourceInspection)}",
         $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
         $"unions={PayloadCount(model.UnionTypeInspection)}",
         $"switches={PayloadCount(model.SwitchInspection)}",
