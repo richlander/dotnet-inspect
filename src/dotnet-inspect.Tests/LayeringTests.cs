@@ -99,18 +99,31 @@ public sealed class LayeringTests
     public void BodyComparisonCommands_UseMethodBodyInspectionSession(
         string commandFile)
     {
-        string path = Path.Combine(
+        string projectDirectory = Path.Combine(
             CommandErrorOwnershipTests.RepositoryRoot(),
             "src",
-            "dotnet-inspect",
+            "dotnet-inspect");
+        string path = Path.Combine(
+            projectDirectory,
             "Commands",
             commandFile);
         string source = File.ReadAllText(path);
+        string projectSource = string.Join(
+            Environment.NewLine,
+            Directory.EnumerateFiles(
+                    projectDirectory,
+                    "*.cs",
+                    SearchOption.AllDirectories)
+                .Select(File.ReadAllText));
         string directIndexAccess =
             $@"\b(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*\.\s*"
             + $@"{nameof(LibraryBodyIndex.Open)}\w*\b";
         string obscuredIndexImport =
             $@"\b(?:global\s+)?using\s+"
+            + $@"(?:(?:\w+)\s*=\s*|static\s+)"
+            + $@"(?:global::)?(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*;";
+        string obscuredGlobalIndexImport =
+            $@"\bglobal\s+using\s+"
             + $@"(?:(?:\w+)\s*=\s*|static\s+)"
             + $@"(?:global::)?(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*;";
         string sessionOpen =
@@ -129,8 +142,13 @@ public sealed class LayeringTests
             obscuredIndexImport,
             $"global using static ILInspector.Analysis."
                 + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredGlobalIndexImport,
+            $"global using BodyIndex = ILInspector.Analysis."
+                + $"{nameof(LibraryBodyIndex)};");
         Assert.DoesNotMatch(directIndexAccess, source);
         Assert.DoesNotMatch(obscuredIndexImport, source);
+        Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
         Assert.Matches(sessionOpen, source);
     }
 }
