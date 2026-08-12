@@ -138,6 +138,7 @@ internal static class AuditSignalBuilder
     private readonly record struct DependencySignalSummary(
         int DirectDependencies,
         int CheckedDependencies,
+        int VulnerabilityCheckedDependencies,
         int VulnerableDependencies,
         int DeprecatedDependencies,
         DependencyAgeSummary? AgeSummary);
@@ -150,6 +151,7 @@ internal static class AuditSignalBuilder
     {
         List<int> ages = [];
         int checkedDependencies = 0;
+        int vulnerabilityCheckedDependencies = 0;
         int vulnerableDependencies = 0;
         int deprecatedDependencies = 0;
         foreach (var dep in directDependencies)
@@ -162,8 +164,12 @@ internal static class AuditSignalBuilder
                 httpClient, dep.Id, version, logger.Log, sourceOptions: sourceOptions).ConfigureAwait(false);
             checkedDependencies++;
 
-            if (metadata.Vulnerabilities is { Count: > 0 })
-                vulnerableDependencies++;
+            if (metadata.Vulnerabilities is { } vulnerabilities)
+            {
+                vulnerabilityCheckedDependencies++;
+                if (vulnerabilities.Count > 0)
+                    vulnerableDependencies++;
+            }
             if (metadata.Deprecation != null)
                 deprecatedDependencies++;
             if (metadata.Published is { Year: > 1901 } published)
@@ -184,6 +190,7 @@ internal static class AuditSignalBuilder
         return new DependencySignalSummary(
             directDependencies.Count,
             checkedDependencies,
+            vulnerabilityCheckedDependencies,
             vulnerableDependencies,
             deprecatedDependencies,
             ageSummary);
@@ -468,10 +475,20 @@ internal static class AuditSignalBuilder
                 : null;
 
         private static SignalValue? ResolveNuGetKnownVulnerabilities(in PackageSignalContext context) =>
-            new(FormatCount(context.Result.Vulnerabilities?.Count ?? 0), "NuGet advisory data");
+            context.Result.Vulnerabilities is { } vulnerabilities
+                ? new(FormatCount(vulnerabilities.Count), "NuGet advisory data")
+                : null;
 
         private static SignalValue? ResolveDependenciesWithVulnerabilities(in PackageSignalContext context) =>
-            new(context.DependencySignals.VulnerableDependencies.ToString(), FormatDependencyRegistryEvidence(context.DependencySignals));
+            context.DependencySignals.DirectDependencies == 0
+                ? new("0", "0 direct dependencies")
+                : context.DependencySignals.VulnerabilityCheckedDependencies > 0
+                    ? new(
+                        context.DependencySignals.VulnerableDependencies.ToString(),
+                        $"NuGet advisory data for "
+                        + $"{context.DependencySignals.VulnerabilityCheckedDependencies}/"
+                        + $"{context.DependencySignals.DirectDependencies} direct dependencies")
+                    : null;
 
         private static SignalValue? ResolveDependenciesDeprecatedDependencies(in PackageSignalContext context) =>
             new(context.DependencySignals.DeprecatedDependencies.ToString(), FormatDependencyRegistryEvidence(context.DependencySignals));

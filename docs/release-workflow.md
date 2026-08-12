@@ -114,7 +114,9 @@ The workflow then:
 1. Runs the full publish-time product, CLI, decompiler, Analysis, and IL
    round-trip checks against the resolved commit.
 2. Builds each Native AOT package on its supported host.
-3. Builds the pointer and managed fallback packages.
+3. Builds the TFM-agnostic pointer without inner RID packages, then builds the
+   managed fallback. Dedicated native jobs own RID-specific packages; the
+   pointer contains only their mapping under `tools/any/any`.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
 5. Publishes Native AOT packages, then the managed fallback, then the pointer.

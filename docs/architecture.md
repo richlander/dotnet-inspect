@@ -212,10 +212,17 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact
-ids, dependency names, and a `Produce(ResearchFactContext)` method. The registry
-orders producers by dependencies, invokes them for an imported method, and merges
-their annotations by IL offset and descriptor id. The default registry currently
-includes:
+ids, dependency names, declared `ResearchFactRequirements`, and a
+`Produce(ResearchFactContext)` method. Requirements name the Analysis feature
+set and whether it is body-local or assembly-wide; the registry unions them
+before acquisition. A body-local index can satisfy one member without decoding
+every body, while a compatible full index can satisfy a later narrower request.
+Assembly projections on `ResearchAssemblyContext` remain lazy. A producer that
+declares no Analysis requirement receives no assembly context.
+
+The registry orders producers by dependencies, invokes them for an imported
+method, and merges their annotations by IL offset and descriptor id. The default
+registry currently includes:
 
 | Producer | Source | Facts |
 | -------- | ------ | ----- |
@@ -225,6 +232,12 @@ includes:
 | `CallSiteSemanticsFactProducer` | Analysis call-site Findings joined with callee semantics | `semantics.callee`, `safety.callee` |
 | `MethodHeaderLeverageFactProducer` | Analysis method-signal and leverage aggregates | `cost.method` |
 | `DecompilerLifetimeFactProducer` | existing decompiler lifetime classifier | `lifetime.*` |
+
+`ResearchFactRegistry.CallRelationships` is a separate, focused profile. Its
+`DirectCallFactProducer` turns already-acquired physical `DirectCall` values
+into `call.edge` facts; it declares no Analysis requirement and fails if the
+caller omits the supplied evidence. This lets a graph-owning query annotate
+source without opening a second body index.
 
 The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
 Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or
@@ -671,7 +684,9 @@ Research overlay bridge, and the application layer:
   those shared results. Within acquisition, one
   `MethodBodyAnalysisContext` carries the method identity, exception regions,
   shared Layer-0 `MethodInstructions`, Analysis-owned loop regions, and
-  immutable decoded local types to topic producers. Raw IL, generic decoding
+  immutable decoded local types to topic producers, plus the neutral navigation
+  those producers share (instruction-at-offset, next-non-`nop` index, loop-region
+  membership). Raw IL, generic decoding
   scope, metadata readers, and reader-bound method bodies remain outside the
   context, preventing producers from creating a second decode or metadata
   traversal path. Allocation path contexts, confidence, and
@@ -680,9 +695,24 @@ Research overlay bridge, and the application layer:
   classification supplied through a narrow callback.
   `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
   occurrence interpretation; call-site acquisition remains separate and
-  delegates only its safety projection. `MethodInstructionFacts` owns the
-  metadata-free local/argument-slot grammar shared by safety and allocation
-  interpretation.
+  delegates only its safety projection.
+  `MethodAllocationAnalysis` owns allocation interpretation for one decoded
+  body: occurrence discovery, allocation-shape classification, escape
+  classification, and the private path-context/confidence/post-dominance indexes
+  that produce its multiplicity reading. It receives metadata and raw-IL
+  judgments through the narrow `IMethodAllocationResolver` contract the assembly
+  reader implements, and returns one `MethodAllocationResult` carrying the
+  discovered and escape-refined occurrences from a single scan. Call-site acquisition and
+  optimization-opportunity collection query that interpretation instead of
+  rebuilding it; the reader retains PE/body acquisition, the intentionally
+  throwing decode path, method identity and scope creation, metadata ownership
+  and token resolution, orchestration, call-site acquisition, optimization
+  recommendations, resource/leak analysis, and result aggregation.
+  `MethodInstructionFacts` owns the
+  metadata-free local/argument-slot, operand, and single-branch-target grammar
+  shared by safety and allocation
+  interpretation, and `CompilerGeneratedNames` owns the unspeakable-name grammar
+  shared by escape classification and optimization-opportunity classification.
   `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
   analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
   of every analysis algorithm. The app unions the features required by selected

@@ -11,9 +11,9 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-SourceLink, Integrations, implementation relationships, type/member search,
-extension reachability, API-comparison, and Analysis body-signal comparison
-inspection, plus Implementation comparison inspection. The `diff` Changes,
+manifest-resource, SourceLink, Integrations, implementation relationships,
+type/member search, extension reachability, API-comparison, Analysis body-signal
+comparison, and Implementation comparison inspection. The `diff` Changes,
 Analysis Diff, and Implementation Diff sections consume producer-owned
 comparison results over host-resolved surfaces, body indexes, and retained
 assembly content.
@@ -28,7 +28,7 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, extension-method, custom-attribute,
-  SourceLink, implementation-relationship, type/member search,
+  manifest-resource, SourceLink, implementation-relationship, type/member search,
   extension-reachability, API-comparison, and progressive call-graph queries.
   It has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
@@ -56,8 +56,8 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
-  resolves facts through targets to multi-span nodes, and keeps unanchored facts
-  visible without inventing coordinates.
+  resolves facts through targets to multi-span nodes, filters the stable node-kind
+  vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 
 ## Engineering guidance

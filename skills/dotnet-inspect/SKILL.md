@@ -6,8 +6,7 @@ description: Find evidence instead of guessing for .NET packages, platform libra
 
 # dotnet-inspect
 
-Use dotnet-inspect for evidence instead of guesses about .NET packages,
-platform libraries, assemblies, APIs, dependencies, or API version diffs.
+Use dotnet-inspect for evidence about .NET packages, platform libraries, assemblies, APIs, dependencies, or API version diffs.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -23,16 +22,17 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
+| Find rendered body syntax | `body-shape ObjectCreationExpression --library path/to.dll`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
-| Inspect packages | `package Foo -S Signals`; load `skill private-feeds` for authenticated/custom sources. |
+| Inspect packages | `package Foo`; use `@Package`, `@Dependencies`, `@Audit`, or `@Files` for an explicit lens. Load `skill private-feeds` for authenticated/custom sources. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
 
 ## Member lookup
 
-Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list
-overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
+Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads.
+Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
 defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ```bash

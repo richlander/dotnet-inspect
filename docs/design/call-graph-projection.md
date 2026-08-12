@@ -71,6 +71,18 @@ The projection owns everything a host must not re-invent in JavaScript:
   incomplete projections retain their unique storage identity and therefore
   cannot fabricate a join. Definitions and call sites remain separate physical
   occurrences even when correspondence collapses them onto one logical node.
+  A host that must release a catalog before projection detaches the tree through
+  `CatalogCallGraphScope.Detach`: exact occurrences with one definition retain a
+  stable assembly-identity/MVID/MethodDef identity; unresolved or indeterminate
+  joins receive a scope-local detached identity; and incomplete occurrences
+  retain their unique physical storage identity. Generation-scoped
+  correspondence is removed. Detached trees from separate scopes can therefore
+  join the same exact physical definition without collapsing different versions
+  or artifacts, while repeated unresolved occurrences remain joined within
+  their original scope. These boundaries are gated by
+  `DetachedVersionSkewedDefinitionsRemainDistinct`,
+  `DetachedRepeatedExternalOccurrencesStayJoined`, and
+  `DetachedArtifactIdentityIgnoresAcquisitionRegistration`.
   Generic recursion, constructed `MethodSpec` calls, varargs, modifiers,
   function pointers, instance/static shape, member kind, generic arity,
   parameters, and return types follow `CatalogMemberCorrespondencePlan`.
@@ -100,16 +112,71 @@ The projection owns everything a host must not re-invent in JavaScript:
   directed edge. `Rows` numbers those edges from one in deterministic edge order
   and retains those numbers when a host filters them. Counts and row windows
   therefore bind to the projection rather than to a rendered tree's node lines.
+  `FindFocusCalleeRow` maps a physical call occurrence from the selected member
+  to that stable logical edge row. Exact catalog call-site storage wins; the
+  assembly-local fallback uses the same typed structural identity as projection.
+  A missing and an ambiguous mapping are distinct outcomes.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
+  `FindFocusCycles` derives simple cycles that start and end at the selected
+  member from those existing rows; it never reopens an image or rebuilds a
+  traversal. Witnesses are ordered shortest first and then by stable edge-row
+  sequence. `MaxWitnesses` bounds retained results and `MaxPaths` bounds the
+  breadth-first search itself, so dense projections cannot turn witness
+  discovery into unbounded path enumeration. `FocusCyclesAreShortestThenStableEdgeRowOrder`,
+  `FocusCycleSearchReportsIndependentCostLimits`, and
+  `FocusCycleSearchDoesNotRepeatNodesWithinAWitness` gate those properties,
+  including the equal-length ordering tie-break.
 - **Boundary and external classification.** `External` callees carry
-  `CallGraphNodeKind.External`; `DepthLimited` / `Truncated` nodes carry
-  `Truncated`, meaning "more beyond here". An occurrence expanded elsewhere
-  outranks a boundary occurrence of the same member, so a shared node is never
-  misclassified as a dead end. How a host *shows* those kinds is the host's
-  choice — the CLI groups external nodes and suffixes their labels; the browser
-  styles them with a CSS class.
+  `CallGraphNodeKind.External`; `DepthLimited`, `Truncated`, `Bodiless`, and
+  `AnalysisIncomplete` nodes carry `Truncated`, meaning "more beyond here".
+  `Bodiless` means the resolved definition has no IL body and static operand
+  traversal cannot rule out runtime dispatch or an external implementation.
+  `AnalysisIncomplete` retains the method's typed `AnalysisDiagnostic`; partial
+  calls found before the recoverable failure remain positive evidence. If the
+  same node also exhausts the node budget, `Truncated` remains its status while
+  the diagnostic remains attached; budget handling and analysis-failure
+  disclosure therefore stay independent. An
+  occurrence expanded elsewhere outranks a boundary occurrence of the same
+  member, so a shared node is never misclassified as a dead end. How a host
+  *shows* those kinds is the host's choice — the CLI groups external nodes and
+  suffixes their labels; the browser styles them with a CSS class.
+- **Directional traversal completeness.**
+  `HasUnexploredTraversalBoundary` is separate from the merged display kind.
+  Only the outbound callee traversal can prove absence: its edges come from
+  each reached method's own body, while a caller-tree `Leaf` means only "no
+  callers in this indexed scope." Within the outbound direction, an expanded
+  occurrence satisfies boundary duplicates of the same typed graph identity.
+  `AlreadyShown` defers to that primary occurrence and cannot override a
+  `Truncated` primary. A bodiless definition and a recoverable body-analysis
+  failure are always outbound boundaries; the latter is also exposed
+  independently as `HasAnalysisFailureBoundary`. A `callvirt` or `ldvirtftn`
+  occurrence whose static operand is virtual, non-final, and declared on an
+  unsealed type is also an outbound boundary: runtime dispatch can select an
+  override that the static operand tree does not contain. This fact belongs to
+  the occurrence rather than the collapsed member identity, so a direct
+  occurrence of the same member cannot mask it. Assembly-local and catalog tree
+  lowering OR the fact across physical call sites before selecting one
+  representative edge for a collapsed callee, including when loop evidence
+  selects a direct-call representative. Repeated physical sites therefore
+  retain their true fan-out without consuming the bounded node budget more than
+  once. Nonvirtual methods and final overrides remain complete; ordinary
+  nonvirtual instance calls emitted as `callvirt` do not acquire a false
+  boundary.
+  `CycleCompletenessCollapsesBoundariesWithinOneDirection`,
+  `CallerLeafDoesNotHideAnOutboundTraversalBoundary`,
+  `AlreadyShownDoesNotHideATruncatedPrimaryOccurrence`,
+  `BodilessCalleeKeepsAnEmptyCycleCensusIncomplete`, and
+  `BodyAnalysisFailureRemainsAnExplicitTraversalBoundary`,
+  `UnresolvedVirtualDispatchKeepsAnEmptyCycleCensusIncomplete`, and
+  `CycleWitnessSurvivesUnresolvedVirtualDispatch` gate the projection
+  distinctions. `BuildCallTree_ClassifiesSameAssemblyBodilessCallee`,
+  `BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved`,
+  `CallTrees_PreserveDispatchAcrossCalleeCollapse`, and
+  `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gate the
+  Analysis-to-tree wiring for both assembly-local and catalog traversals,
+  including the diagnostic-plus-budget precedence.
 - **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
   outbound, `loop call` inbound), read from the child node's loop flag.
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source
@@ -189,15 +256,24 @@ acquisition is a capability of that session, not a separate call-graph kind.
 The layer names name the tier that was unlocked, not a direction: at `depth > 1`
 the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
-`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`, `Diagnostics`), so a
-host renders them directly or projects them with
+`MemberCallGraphView` (`Tier`, focus MVID/token, `CalleeRoot`, `CallerRoot`,
+`FocusCallSites`, `Diagnostics`). `FocusCallSites` retains every physical
+outbound operand occurrence from the same scoped or full index that produced
+the roots; it is not reconstructed from logical graph edges. A host renders the
+roots directly or projects them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 `Diagnostics` is a stable count summary of incomplete correspondence and exact
 bindings to a different identity of the primary assembly, distilled before any
 temporary catalog scope is released. A host can therefore disclose those
 boundaries without retaining generation-bound graph evidence or rebuilding the
-graph. The exact binding remains exact graph identity; the diagnostic does not
-join one assembly version to another.
+graph. The CLI's direction-specific scopes also detach their trees before
+release, preserving physical evidence and safe exact or scope-local identity
+while dropping generation-scoped correspondence. The exact binding remains
+exact graph identity; the diagnostic does not join one assembly version to
+another. If either direction is scoped, the CLI builds the other direction in
+a target-only catalog rather than mixing a detached tree with an evidence-free
+local tree; `CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped` gates
+that projection never falls back to structural identity and collapses versions.
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library
@@ -226,6 +302,54 @@ group-owned release, including disposal of the catalog scope.
 `CatalogCallGraphScopeTests` pins the single-generation,
 single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
+
+`DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
+non-rendering consumer of this progressive seam. It accepts an already-acquired
+view and an already-open `MetadataSource`, projects the graph once, and returns
+portable source plus an `AnnotatedCallGraphOverlay`. Each overlay occurrence
+names both its stable edge row and its `call.edge` fact id. Two calls at
+different IL offsets therefore remain two physical occurrences and two source
+facts even when they share one logical edge row. A node budget limits both the
+projection and the supplied relationship facts; omission under a
+`DepthLimited` or `Truncated` focus is not reported as a mapping failure.
+Caller-only views are rejected because they contain no outbound topology to
+which body-local call sites could map.
+
+The overlay also carries an `AnnotatedCallGraphCycleInspection`. Each observed
+focus cycle is a `Finding<CallGraphCycleWitness>` whose payload is the ordered
+stable edge-row path. Its `FindingKey` comes from the typed member-identity path,
+not those projection-local row numbers, so an unrelated earlier edge does not
+rename the observation; `CycleFindingIdentityDoesNotDependOnEdgeRowNumbers`
+gates that separation. Operation completeness remains separate from the durable
+Finding: `TraversalBoundary`, `AnalysisFailure`,
+`IncompleteCorrespondence`, `WitnessBudget`, and `PathBudget` are independent
+flags. A positive cycle therefore remains valid
+when unrelated work was bounded, while an empty bounded census means only "not
+observed in this tier and budget," never "not recursive." The projection retains
+directional traversal completeness separately from display node kinds, so a
+depth-limited occurrence does not make the census incomplete when that same
+logical node was expanded elsewhere in the same direction.
+`CycleFindingSurvivesUnrelatedGraphAndCorrespondenceLimits`,
+`CycleFindingSurvivesAnExplicitBodyAnalysisFailure`, and
+`AnnotatedMemberDocument_HonorsACalleeNodeBudget` gate the positive and empty
+bounded cases.
+
+The query declares no graph or Analysis acquisition.
+`AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test
+gates graph-session reuse by asserting unchanged session build/source-open
+counts and the two-occurrences/one-edge shape.
+`AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls` extends that
+gate to the cycle projection: two physical recursive calls retain two source
+occurrences, share one logical edge, produce one cycle Finding, and leave the
+session build/source-open counts unchanged.
+`AnnotatedMemberDocument_ReportsAMutualCycleAtTheCallerTier` proves the same
+composition over a compiler-produced two-method cycle without another target
+index or source open. `ExhaustedTraversalProducesACompleteEmptyCycleCensus`
+gates the only empty result that supports an absence claim.
+`Registry_UnionsProducerAnalysisRequirementsBeforeAcquisition` pins the
+call-only Research profile to `ResearchFactRequirements.None`, and
+`RequirementsNone_DoesNotResolveAnAssemblyContext` is the non-vacuity gate that
+proves such a profile bypasses Research's Analysis-context resolver.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
