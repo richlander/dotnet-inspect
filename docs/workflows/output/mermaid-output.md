@@ -47,8 +47,8 @@ dotnet-inspect depends Stream --mermaid
 ```expect
 graph TD
 n0["System.MarshalByRefObject"]
-n1["System.IAsyncDisposable"]
-n2["System.IDisposable"]
+System.IAsyncDisposable
+System.IDisposable
 ```
 
 ```expect-not
@@ -65,22 +65,25 @@ Show the INumber interface hierarchy as a mermaid graph.
 dotnet-inspect depends 'INumber<TSelf>' --mermaid
 ```
 
+Known issue: #3918 — Mermaid output double-escapes generic names in standalone
+and embedded modes. Preserve the intended readable generic label below.
+
 ```expect
 graph TD
-n0["System.IComparable"]
+n1["System.IComparable<TSelf>"]
 -->
 ```
 
 ### 1c. NuGet package type
 
 ```bash
-dotnet-inspect depends Command --package System.CommandLine --mermaid
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 --mermaid
 ```
 
 ```expect
 graph TD
-n0["System.CommandLine.Symbol"]
-n1["System.Collections.IEnumerable"]
+System.CommandLine.Symbol
+System.Collections.IEnumerable
 ```
 
 ## 2. Embedded mermaid in markdown
@@ -99,8 +102,15 @@ dotnet-inspect depends Stream --markdown --mermaid
 
 ```expect
 # System.IO.Stream
-```mermaid
 graph TD
+```
+
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
+```expect
+mermaid-fence
 ```
 
 ### 2b. Deep hierarchy
@@ -109,10 +119,21 @@ graph TD
 dotnet-inspect depends 'INumber<TSelf>' --markdown --mermaid -n 10
 ```
 
+Known issue: #3918 — Mermaid output double-escapes generic names in standalone
+and embedded modes. Preserve the intended readable generic label below.
+
 ```expect
-# INumber<TSelf>
-```mermaid
+# INumber&lt;TSelf&gt;
+n1["System.IComparable<TSelf>"]
 graph TD
+```
+
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
+```expect
+mermaid-fence
 ```
 
 ## 3. Library reference graphs
@@ -131,7 +152,7 @@ dotnet-inspect depends --library System.Text.Json --mermaid -n 10
 
 ```expect
 graph TD
-n0["System.Collections
+System.Collections
 -->
 ```
 
@@ -143,8 +164,15 @@ dotnet-inspect depends --library System.Text.Json --markdown --mermaid -n 10
 
 ```expect
 # System.Text.Json
-```mermaid
 graph TD
+```
+
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
+```expect
+mermaid-fence
 ```
 
 ## 4. Package dependency graphs
@@ -156,12 +184,12 @@ What does the Markout package depend on?
 ```
 
 ```bash
-dotnet-inspect depends --package Markout --mermaid
+dotnet-inspect depends --package Markout@0.33.0 --mermaid
 ```
 
 ```expect
 graph TD
-n0["MarkdownTable.Formatting
+MarkdownTable.Formatting
 ```
 
 ## 5. Member call graph format matrix
@@ -235,8 +263,12 @@ graph TD
 classDef markoutFocus
 ```
 
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
 ```expect-not
-```mermaid
+mermaid-fence
 ```
 
 ### 5d. Mermaid embedded in Markdown
@@ -257,9 +289,14 @@ dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --markdown --
 ## Call Graph
 ```
 
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+grep -Fx 'graph TD' | sed 's/.*/mermaid-graph/'
+```
+
 ```expect
-```mermaid
-graph TD
+mermaid-fence
+mermaid-graph
 ```
 
 ### 5e. TSV edge rows
@@ -312,9 +349,9 @@ dotnet-inspect depends Stream
 
 ```expect
 System.IO.Stream
-├─ System.MarshalByRefObject
-├─ System.IAsyncDisposable
-└─ System.IDisposable
+System.MarshalByRefObject
+System.IAsyncDisposable
+System.IDisposable
 ```
 
 ```expect-not

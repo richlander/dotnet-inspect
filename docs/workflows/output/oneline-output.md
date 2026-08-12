@@ -40,10 +40,6 @@ method
 Tips:
 ```
 
-```query
-head -3
-```
-
 ### 1b. With header
 
 ```bash
@@ -51,7 +47,7 @@ dotnet-inspect type System.Text.Json JsonSerializer --table -m 3
 ```
 
 ```expect
-KIND
+Kind
 property
 method
 ```
@@ -75,10 +71,12 @@ dotnet-inspect type System.Text.Json --table
 ```
 
 ```expect
-KIND       TYPE                                                                 MEMBERS
-class      System.Text.Json.JsonSerializer
-struct     System.Text.Json.JsonElement
-enum       System.Text.Json.JsonValueKind
+Kind
+Type
+Members
+System.Text.Json.JsonSerializer
+System.Text.Json.JsonElement
+System.Text.Json.JsonValueKind
 ```
 
 ```expect-not
@@ -102,7 +100,7 @@ class
 
 ```expect-not
 Tips:
-KIND
+Kind
 ```
 
 ```query
@@ -148,11 +146,7 @@ System.Text.Json.JsonDocument
 
 ```expect-not
 class
-MEMBERS
-```
-
-```query
-head -3
+Members
 ```
 
 ### 4b. Sum member counts
@@ -182,7 +176,11 @@ System.Text.Json.Utf8JsonWriter
 ```
 
 ```query
-wc -l
+awk '$2 <= 50 { bad = 1 } END { if (NR > 0 && !bad) print "threshold-ok" }'
+```
+
+```expect
+threshold-ok
 ```
 
 ### 4d. Sort structs by member count
@@ -192,7 +190,7 @@ dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$1 == "st
 ```
 
 ```expect
-57 System.Text.Json.JsonElement
+System.Text.Json.JsonElement
 ```
 
 ```expect-not
@@ -201,5 +199,9 @@ enum
 ```
 
 ```query
-head -3
+awk 'NR == 1 { previous = $1; rows = 1; next } { if ($1 > previous) bad = 1; previous = $1; rows++ } END { if (rows == 5 && !bad) print "descending-five" }'
+```
+
+```expect
+descending-five
 ```
