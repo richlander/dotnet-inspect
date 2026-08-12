@@ -771,6 +771,8 @@ function closePackageTab(packageKey) {
 function activatePackage(pkg, { resetAccessibility = false } = {}) {
   const changed = !packageIdentityEquals(state.package, pkg);
   state.package = pkg;
+  if (changed)
+    state.dependenciesGroupIndex = null;
   if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0))
     state.accessibilityFilter = defaultAccessibilityFilter(pkg);
   return changed;
@@ -6412,7 +6414,6 @@ function switchToPackageForDependencies(packageId) {
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
-  state.dependenciesGroupIndex = null;
   state.selectedTypeId = target.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -6438,7 +6439,6 @@ async function openDependencyPackage(packageId, versionRange) {
   if (!model) return;
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
-  state.dependenciesGroupIndex = null;
   render();
 }
 
@@ -7548,7 +7548,6 @@ async function loadPackage(packageId, version, framework, options = {}) {
     state.kindFilter = "";
     state.libraryScope = null;
     state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
-    state.dependenciesGroupIndex = null;
     const deep = options.deepLink;
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);

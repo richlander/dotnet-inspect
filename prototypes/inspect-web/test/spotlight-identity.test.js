@@ -518,6 +518,12 @@ test("dependency selection exposes a missing exact framework", () => {
   assert.equal(dependencyGroupSelectionMessage({}), "");
 });
 
+test("dependency group selection resets when package identity changes", () => {
+  assert.match(
+    appSource,
+    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+});
+
 test("missing exact dependency groups never create graph edges", () => {
   const data = {
     dependencyGroupError: "No exact dependency group.",
