@@ -9689,12 +9689,35 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Find_Members_Json_EmitsMemberFields()
     {
-        var (exit, output, _) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "find", ".Serialize", "--platform", "System.Text.Json", "--json");
 
         Assert.Equal(0, exit);
-        Assert.Contains("\"member\":\"Serialize\"", output);
-        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            row => row.GetProperty("member").GetString() == "Serialize"
+                && row.GetProperty("declaring_type").GetString()
+                    == "System.Text.Json.JsonSerializer");
+    }
+
+    [Fact]
+    public async Task Find_Jsonl_RemainsOneObjectPerLine()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--jsonl", "--rows", "3");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(3, lines.Length);
+        foreach (var line in lines)
+        {
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        }
     }
 
     [Fact]

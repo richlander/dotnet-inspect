@@ -599,7 +599,7 @@ public class FindCommandIntegrationTests
     // ── JSON output tests ────────────────────────────────────────────
 
     [Fact]
-    public async Task Find_JsonOutput_ProducesValidJsonl()
+    public async Task Find_JsonOutput_ProducesSingleArrayDocument()
     {
         var options = new FindOptions
         {
@@ -612,13 +612,38 @@ public class FindCommandIntegrationTests
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.True(lines.Length > 0);
-        foreach (var line in lines)
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(
+            System.Text.Json.JsonValueKind.Array,
+            document.RootElement.ValueKind);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                System.Text.Json.JsonValueKind.Object,
+                row.ValueKind));
+    }
+
+    [Fact]
+    public async Task Find_JsonOutput_WithNoMatches_ProducesEmptyArray()
+    {
+        var options = new FindOptions
         {
-            var doc = System.Text.Json.JsonDocument.Parse(line);
-            Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
-        }
+            Pattern = "ZzzNoSuchType",
+            PlatformAssemblies = ["System.Text.Json"],
+            JsonOutput = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(
+            System.Text.Json.JsonValueKind.Array,
+            document.RootElement.ValueKind);
+        Assert.Empty(document.RootElement.EnumerateArray());
     }
 
     // ── Error handling tests ─────────────────────────────────────────

@@ -20,31 +20,27 @@ public interface IResultWriter<T>
 }
 
 /// <summary>
-/// JSONL writer for find results. One compact JSON object per line (streaming-friendly).
+/// JSON document writer for find results.
 /// Uses source-generated JSON context for AOT compatibility.
 /// </summary>
 public class FindJsonWriter : IResultWriter<TypeFindResult>
 {
     public void Write(IReadOnlyList<TypeFindResult> results, WriterOptions options, TextWriter output)
-    {
-        foreach (var result in results)
-        {
-            output.WriteLine(JsonSerializer.Serialize(result, TypeFindResultJsonlContext.Default.TypeFindResult));
-        }
-    }
+        => output.WriteLine(
+            JsonSerializer.Serialize(
+                results.ToArray(),
+                TypeFindResultJsonContext.Default.TypeFindResultArray));
 }
 
 /// <summary>
-/// JSONL writer for member-search results. One compact JSON object per line (streaming-friendly).
+/// JSON document writer for member-search results.
 /// Uses source-generated JSON context for AOT compatibility.
 /// </summary>
 public class MemberFindJsonWriter : IResultWriter<MemberFindResult>
 {
     public void Write(IReadOnlyList<MemberFindResult> results, WriterOptions options, TextWriter output)
-    {
-        foreach (var result in results)
-        {
-            output.WriteLine(JsonSerializer.Serialize(result, MemberFindResultJsonlContext.Default.MemberFindResult));
-        }
-    }
+        => output.WriteLine(
+            JsonSerializer.Serialize(
+                results.ToArray(),
+                MemberFindResultJsonContext.Default.MemberFindResultArray));
 }

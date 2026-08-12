@@ -198,21 +198,21 @@ internal partial class DependsCompactJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(NuGetSearchResult))]
 internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 
-// TypeFindResult JSONL context (one compact object per line)
+// TypeFindResult JSON document context
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(TypeFindResult))]
-internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
+[JsonSerializable(typeof(TypeFindResult[]))]
+internal partial class TypeFindResultJsonContext : JsonSerializerContext { }
 
-// MemberFindResult JSONL context (one compact object per line)
+// MemberFindResult JSON document context
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(MemberFindResult))]
-internal partial class MemberFindResultJsonlContext : JsonSerializerContext { }
+[JsonSerializable(typeof(MemberFindResult[]))]
+internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {
