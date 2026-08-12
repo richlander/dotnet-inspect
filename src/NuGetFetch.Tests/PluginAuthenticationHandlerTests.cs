@@ -217,6 +217,29 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task SameOriginRedirectReplaysARefreshedCredentialStrippedInTransit()
+    {
+        var source = new RotatingCredentialSource();
+        var transport = new RefreshThenRedirectTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "https://feed.example/start",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, source.Calls);
+        Assert.Equal(
+            [
+                ("https://feed.example/start", (string?)null),
+                ("https://feed.example/start", Basic("user", "stale").Parameter),
+                ("https://feed.example/start", Basic("user", "fresh").Parameter),
+                ("https://feed.example/private", Basic("user", "fresh").Parameter),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
     public async Task PortAndSchemeArePartOfSourceIdentity()
     {
         var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
@@ -559,6 +582,30 @@ public sealed class PluginAuthenticationHandlerTests
         }
     }
 
+    private sealed class RotatingCredentialSource : ICredentialSource
+    {
+        private int _calls;
+
+        public bool HasCredentialSources => true;
+
+        public int Calls => _calls;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            int call = Interlocked.Increment(ref _calls);
+            return Task.FromResult<PackageSourceCredential?>(
+                call switch
+                {
+                    1 => new PackageSourceCredential("user", "stale"),
+                    2 => new PackageSourceCredential("user", "fresh"),
+                    _ => null,
+                });
+        }
+    }
+
     /// <summary>A transport whose reply is a pure function of the request's Authorization header.</summary>
     private sealed class ScriptedTransport(Func<HttpRequestHeaders, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -636,6 +683,44 @@ public sealed class PluginAuthenticationHandlerTests
                 request.Headers.Authorization is null
                     ? HttpStatusCode.Unauthorized
                     : HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class RefreshThenRedirectTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string? authorization = request.Headers.Authorization?.Parameter;
+            Requests.Add((request.RequestUri!.AbsoluteUri, authorization));
+
+            if (request.RequestUri.AbsolutePath == "/start"
+                && string.Equals(
+                    authorization,
+                    Basic("user", "fresh").Parameter,
+                    StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = new HttpRequestMessage(
+                        request.Method,
+                        "https://feed.example/private"),
+                });
+            }
+
+            bool succeeds = request.RequestUri.AbsolutePath == "/private"
+                && string.Equals(
+                    authorization,
+                    Basic("user", "fresh").Parameter,
+                    StringComparison.Ordinal);
+            return Task.FromResult(new HttpResponseMessage(
+                succeeds ? HttpStatusCode.OK : HttpStatusCode.Unauthorized)
             {
                 RequestMessage = request,
             });

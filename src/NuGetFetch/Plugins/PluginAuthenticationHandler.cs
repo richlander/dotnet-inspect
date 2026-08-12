@@ -88,7 +88,7 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
 
         HttpRequestMessage requestTemplate = request;
         bool disposeRequestTemplate = false;
-        var attemptedCredentialScopes = new HashSet<string>(StringComparer.Ordinal);
+        var attemptedCredentialVersions = new Dictionary<string, long>(StringComparer.Ordinal);
         int attempts = 0;
 
         try
@@ -148,7 +148,7 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                             challengedRequest.Headers.Authorization,
                             credential))
                     {
-                        attemptedCredentialScopes.Add(challengedScopeKey);
+                        attemptedCredentialVersions[challengedScopeKey] = version;
                     }
 
                     (PackageSourceCredential? challengedCredential, long challengedVersion) =
@@ -167,7 +167,10 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                     disposeRequestTemplate = true;
 
                     bool challengedCredentialWasTried =
-                        attemptedCredentialScopes.Contains(challengedScopeKey);
+                        attemptedCredentialVersions.TryGetValue(
+                            challengedScopeKey,
+                            out long attemptedVersion)
+                        && attemptedVersion == challengedVersion;
                     if (challengedCredential is not null && !challengedCredentialWasTried)
                     {
                         continue;
