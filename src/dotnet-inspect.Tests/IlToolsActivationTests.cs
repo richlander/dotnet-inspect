@@ -687,6 +687,25 @@ public class IlToolsActivationTests
     }
 
     [Fact]
+    public void ReleaseWorkflow_BuildsFixtureGraphBeforeCliTests()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
+        int build = workflow.IndexOf(
+            "- name: Build product, tests, and fixtures",
+            StringComparison.Ordinal);
+        int cliTests = workflow.IndexOf(
+            "- name: Run CLI tests (including slow integration)",
+            StringComparison.Ordinal);
+
+        Assert.True(build >= 0);
+        Assert.True(build < cliTests);
+        Assert.Contains(
+            "run: dotnet build dotnet-inspect.slnx -c Release",
+            workflow[build..cliTests]);
+    }
+
+    [Fact]
     public void ReleaseWorkflow_OracleTestLaneBlocksAllPackageJobs()
     {
         string workflow = File.ReadAllText(
