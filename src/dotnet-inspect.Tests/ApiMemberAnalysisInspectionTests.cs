@@ -208,6 +208,43 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Empty(scopes);
     }
 
+    [Fact]
+    public void CallGraph_UsesDependencyOnlyScopeForOutboundTraversal()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string unrelated =
+            FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
+        var inspection = Create(caller, [unrelated, target]);
+        int root = TokenOf(caller, "Entry", "RunAcrossBoundary");
+
+        IReadOnlyList<MethodBodyInspectionSession>? callerScopes =
+            inspection.CallerScopes(includeAllocations: true);
+        IReadOnlyList<MethodBodyInspectionSession>? calleeScopes =
+            inspection.CalleeScopes();
+        ILInspector.CallGraph.CallGraphProjection projection =
+            inspection.BuildCallGraph(root);
+
+        Assert.NotNull(callerScopes);
+        Assert.Empty(callerScopes);
+        Assert.NotNull(calleeScopes);
+        Assert.Equal(
+            ["ILInspector.Analysis.CallerGraphTarget"],
+            calleeScopes.Select(scope => scope.SourceName));
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Forward"
+                && node.Kind
+                    == ILInspector.CallGraph.CallGraphNodeKind.Normal);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Leaf"
+                && node.Kind
+                    == ILInspector.CallGraph.CallGraphNodeKind.Normal);
+    }
+
     // Round-5 review: a zero-byte or malformed *.dll beside real ones was classified as
     // undecidable, which selects the whole scope and disables the prefilter entirely — the 960 MB
     // behavior this change exists to remove, reintroduced by one junk file in a --bin directory.
