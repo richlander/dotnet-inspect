@@ -1294,14 +1294,14 @@ public class ApiOutputFormatterTests
     /// <summary>
     /// The gate for memoization. Following `where T : U` without reusing answers
     /// reclassifies the whole remaining chain from every parameter, which is quadratic:
-    /// a 4,000-parameter chain measured over twenty seconds before answers were cached.
-    /// The bound is loose enough that only the missing cache can trip it -- the cached
-    /// walk finishes in milliseconds.
+    /// a 4,000-parameter chain allocates quadratically before answers are cached. The
+    /// allocation bound remains deterministic under parallel test load.
     /// </summary>
     [Fact]
     public void ConstraintRestatement_ClassifiesALongConstraintChainWithoutRewalkingIt()
     {
         const int Length = 4000;
+        const long MaxAllocatedBytes = 16L * 1024 * 1024;
         string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
         string dllPath = EmitConstraintChainSample(
             static parameters =>
@@ -1313,9 +1313,9 @@ public class ApiOutputFormatterTests
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long before = GC.GetAllocatedBytesForCurrentThread();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
             var type = Assert.Single(surface.Types, candidate => candidate.Name == "ChainSample");
             var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
@@ -1324,9 +1324,7 @@ public class ApiOutputFormatterTests
                 member.SignatureModel.TypeParameters,
                 typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
 
-            Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Classifying a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+            Assert.InRange(allocated, 0, MaxAllocatedBytes);
         }
         finally
         {
@@ -1435,6 +1433,7 @@ public class ApiOutputFormatterTests
     public void ConstraintRestatement_ClassifiesALongChainWithoutRewalkingItInDeclarationQuery()
     {
         const int Length = 4000;
+        const long MaxAllocatedBytes = 16L * 1024 * 1024;
         string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
         string dllPath = EmitConstraintChainSample(
             static parameters =>
@@ -1452,18 +1451,16 @@ public class ApiOutputFormatterTests
                 .Select(reader.GetTypeDefinition)
                 .Single(candidate => reader.GetString(candidate.Name) == "ChainSample");
 
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long before = GC.GetAllocatedBytesForCurrentThread();
             var typeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDefinition);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
             Assert.Equal(Length, typeParameters.Count);
             Assert.All(
                 typeParameters,
                 typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
 
-            Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Reading a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+            Assert.InRange(allocated, 0, MaxAllocatedBytes);
         }
         finally
         {
@@ -1651,9 +1648,7 @@ public class ApiOutputFormatterTests
             using var pe = new PEReader(File.OpenRead(dllPath));
             long before =
                 GC.GetAllocatedBytesForCurrentThread();
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
             long allocated =
                 GC.GetAllocatedBytesForCurrentThread() - before;
 
@@ -1667,9 +1662,6 @@ public class ApiOutputFormatterTests
                     type.TypeParameters,
                     typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind)));
 
-            Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(30),
-                $"Classifying {Lists} cyclic lists of {Length} parameters took {stopwatch.Elapsed}.");
             Assert.InRange(
                 allocated,
                 0,

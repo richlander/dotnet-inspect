@@ -116,7 +116,8 @@ public class PartialSourceFileInfo
 public class ApiSurface
 {
     public const string ConstraintResolutionOperation =
-        "resolve generic parameter constraints";
+        ApiSurfaceInspectionFailure
+            .GenericParameterConstraintResolutionOperation;
     public const int MaxVisibleConstraintResolutionFailures = 64;
 
     readonly HashSet<ConstraintResolutionVisibleKey>
@@ -327,6 +328,10 @@ public sealed record ApiSurfaceInspectionFailure(
     string Kind,
     string Detail)
 {
+    public const string
+        GenericParameterConstraintResolutionOperation =
+            "resolve generic parameter constraints";
+
     [JsonIgnore]
     public string? SourceAssemblyPath { get; init; }
 }

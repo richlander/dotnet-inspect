@@ -88,6 +88,13 @@ internal static class TypeParameterKindClassifier
         internal IReadOnlyList<MetadataTypeNameFailure>
             ResolutionFailures => _resolutionFailures;
 
+        internal DefinitionKindDependency? ReadDefinitionKindDependency(
+            TypeDefinitionHandle handle) =>
+            MetadataTypeDeclarationProbe.ReadDefinitionKindDependency(
+                reader,
+                handle,
+                _assemblyReferenceProjection);
+
         internal RequestCheckpoint Checkpoint() =>
             new(
                 _requestOrder.Count,
@@ -245,6 +252,21 @@ internal static class TypeParameterKindClassifier
                 return ConstraintClass.Unreadable;
             }
 
+            if (resolved.Definition.KindResolutionFailure is { } kindFailure)
+            {
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        subject,
+                        budget.Budget);
+                }
+                else
+                {
+                    RecordResolutionFailure(subject, kindFailure);
+                }
+            }
+
             if (resolved.Definition.GenericParameterCount
                 != dependency.GenericArgumentCount)
             {
@@ -289,6 +311,21 @@ internal static class TypeParameterKindClassifier
             }
 
             ResolvedTypeDefinition definition = resolved.Definition;
+            if (definition.KindResolutionFailure is { } kindFailure)
+            {
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        handle,
+                        budget.Budget);
+                }
+                else
+                {
+                    RecordResolutionFailure(handle, kindFailure);
+                }
+            }
+
             if (genericArgumentCount is int expected
                 && definition.GenericParameterCount != expected)
             {
@@ -1259,9 +1296,8 @@ internal static class TypeParameterKindClassifier
                 DeclaresCoreLibraryRoot(reader));
         if (kind == MetadataTypeDefinitionKind.Unknown
             && resolution is not null
-            && MetadataTypeDeclarationProbe.ReadDefinitionKindDependency(
-                reader,
-                handle) is { } dependency)
+            && resolution.ReadDefinitionKindDependency(handle)
+                is { } dependency)
         {
             return resolution.Classify(dependency, subject);
         }

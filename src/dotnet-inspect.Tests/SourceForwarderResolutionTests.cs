@@ -294,6 +294,90 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public void ApiServices_PreservesForwardedConstraintFailures()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null),
+                    typeName: "Type`1"));
+            File.WriteAllBytes(
+                targetPath,
+                BuildConstrainedAssembly(
+                    "Target",
+                    "Dependency",
+                    "Type`1"));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+            ResolvedAssemblyReference target =
+                ResolvedAssemblyReference.CreateFromPath(
+                    targetPath,
+                    AssemblyResolutionProvenance.Local("test"));
+            byte[] dependencyImage =
+                BuildAssembly(
+                    "Dependency",
+                    definesType: true,
+                    typeName: "Constraint");
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.Create(
+                    ReadIdentity(dependencyImage),
+                    path: null,
+                    openRead: static () =>
+                        throw new IOException("test open failure"),
+                    AssemblyResolutionProvenance.Local("test"));
+            using var catalog = new TypeResolutionCatalog();
+            ResolutionAwareApiSurfaceOutcome outcome =
+                catalog.ExtractApiSurface(
+                    target,
+                    new MappingPolicy(dependency));
+            ApiSurface targetApi =
+                Assert.IsType<
+                    ResolutionAwareApiSurfaceOutcome.Read>(
+                        outcome)
+                    .Surface;
+            ApiSurfaceInspectionFailure targetFailure =
+                Assert.Single(targetApi.InspectionFailures);
+            targetApi.InspectionFailures.Add(targetFailure);
+            MetadataTypeDefinitionName forwardedType =
+                Assert.IsType<MetadataTypeDefinitionName>(
+                    Assert.Single(targetApi.Types)
+                        .DefinitionName);
+
+            int copied = ApiServices.MergeForwardedTypes(
+                api,
+                targetApi,
+                new HashSet<MetadataTypeDefinitionName>
+                {
+                    forwardedType,
+                },
+                target);
+
+            Assert.Equal(1, copied);
+            Assert.True(Assert.Single(api.Types).IsForwarded);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(
+                ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation,
+                failure.Operation);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_DoesNotOpenTraversalTarget()
     {
         string parent = CreateDirectory();
@@ -462,12 +546,12 @@ public class SourceForwarderResolutionTests
             methodList: MetadataTokens.MethodDefinitionHandle(1));
         TypeDefinitionHandle forwarded =
             metadata.AddTypeDefinition(
-            TypeAttributes.Public,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Type`1"),
-            baseType: default,
-            fieldList: MetadataTokens.FieldDefinitionHandle(1),
-            methodList: MetadataTokens.MethodDefinitionHandle(1));
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Type`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
         TypeDefinitionHandle unrelated =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
@@ -500,14 +584,97 @@ public class SourceForwarderResolutionTests
             TypeReferenceHandle missingBase)
         {
             GenericParameterHandle parameter =
-            metadata.AddGenericParameter(
-                type,
-                GenericParameterAttributes.None,
-                metadata.GetOrAddString(name),
-                index: 0);
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString(name),
+                    index: 0);
             metadata.AddGenericParameterConstraint(
                 parameter,
                 missingBase);
         }
+    }
+
+    static byte[] BuildConstrainedAssembly(
+        string assemblyName,
+        string dependencyName,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(dependencyName),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle definition =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(typeName),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                definition,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    sealed class MappingPolicy(
+        ResolvedAssemblyReference dependency)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } =
+            new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
+                && reference.Identity == dependency.Identity
+                ? AssemblyBindingSelection.Found(dependency)
+                : AssemblyBindingSelection.NotFound();
     }
 }
