@@ -24,7 +24,7 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.3 -v:q
+dotnet-inspect package System.CommandLine@2.0.3 -v:q
 ```
 
 ## 1. View type shape
@@ -38,17 +38,19 @@ What does the Command type look like? Show its shape.
 ```
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command --shape
+dotnet-inspect type --package System.CommandLine@2.0.3 Command \
+  --shape --markdown -v:q -n 30
 ```
 
 ```expect
-├─ Inherits
-│  └─ System.CommandLine.Symbol
-├─ Implements
-│  └─ System.Collections.IEnumerable
-├─ Constructors
-├─ Properties
-└─ Methods
+System.CommandLine.Command (System.CommandLine 2.0.3)
+Inherits
+System.CommandLine.Symbol
+Implements
+System.Collections.IEnumerable
+Constructors
+Properties
+Methods
 ```
 
 ```expect-not
@@ -58,27 +60,31 @@ Tips:
 ### 1b. Static class
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --shape -n 15
+dotnet-inspect type System.Text.Json JsonSerializer \
+  --shape --markdown -v:q -n 20
 ```
 
 ```expect
-├─ Inherits
-│  └─ System.Object
-├─ Properties
-└─ Methods
+System.Text.Json.JsonSerializer
+Inherits
+System.Object
+Properties
+Methods
 ```
 
 ### 1c. Struct
 
 ```bash
-dotnet-inspect type System.Text.Json JsonElement --shape -n 10
+dotnet-inspect type System.Text.Json JsonElement \
+  --shape --markdown -v:q -n 20
 ```
 
 ```expect
-├─ Inherits
-│  └─ System.ValueType
-├─ Properties
-└─ Methods
+System.Text.Json.JsonElement
+Inherits
+System.ValueType
+Properties
+Methods
 ```
 
 ## 2. View shape for types with many interfaces
@@ -90,19 +96,21 @@ What interfaces does WebApplication implement?
 ```
 
 ```bash
-dotnet-inspect type Microsoft.AspNetCore.Builder.WebApplication --shape -n 15
+dotnet-inspect type Microsoft.AspNetCore.Builder.WebApplication \
+  --shape --markdown -v:q -n 30
 ```
 
 ```expect
-├─ Inherits
-│  └─ System.Object
-├─ Implements
-│  ├─ Microsoft.Extensions.Hosting.IHost
-│  ├─ System.IDisposable
-│  ├─ Microsoft.AspNetCore.Builder.IApplicationBuilder
-│  ├─ Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
-│  └─ System.IAsyncDisposable
-├─ Properties
+Microsoft.AspNetCore.Builder.WebApplication
+Inherits
+System.Object
+Implements
+Microsoft.Extensions.Hosting.IHost
+System.IDisposable
+Microsoft.AspNetCore.Builder.IApplicationBuilder
+Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
+System.IAsyncDisposable
+Properties
 ```
 
 ## 3. Walk hierarchy upward with depends
@@ -120,10 +128,10 @@ dotnet-inspect depends Stream -v:q
 ```
 
 ```expect
-# Stream
-├─ System.MarshalByRefObject
-├─ System.IAsyncDisposable
-└─ System.IDisposable
+System.IO.Stream
+System.MarshalByRefObject
+System.IAsyncDisposable
+System.IDisposable
 ```
 
 ### 3b. Class with deep interface hierarchy
@@ -133,28 +141,28 @@ What is the full type hierarchy for WebApplication?
 ```
 
 ```bash
-dotnet-inspect depends WebApplication -v:q
+dotnet-inspect depends WebApplication -v:q -n 30
 ```
 
 ```expect
-# WebApplication
-├─ Microsoft.Extensions.Hosting.IHost
-│  └─ System.IDisposable
-├─ Microsoft.AspNetCore.Builder.IApplicationBuilder
-├─ Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
-└─ System.IAsyncDisposable
+Microsoft.AspNetCore.Builder.WebApplication
+Microsoft.Extensions.Hosting.IHost
+System.IDisposable
+Microsoft.AspNetCore.Builder.IApplicationBuilder
+Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
+System.IAsyncDisposable
 ```
 
 ### 3c. NuGet package type
 
 ```bash
-dotnet-inspect depends Command --package System.CommandLine -v:q
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
-# Command
-├─ System.CommandLine.Symbol
-└─ System.Collections.IEnumerable
+System.CommandLine.Command
+System.CommandLine.Symbol
+System.Collections.IEnumerable
 ```
 
 ### 3d. Generic numeric type (deep hierarchy)
@@ -164,29 +172,29 @@ What interfaces does Int128 implement?
 ```
 
 ```bash
-dotnet-inspect depends Int128 -n 15
+dotnet-inspect depends Int128 -n 40
 ```
 
 ```expect
-# Int128
-├─ System.Numerics.IBinaryInteger<System.Int128>
-│  ├─ System.Numerics.IBinaryNumber<TSelf>
-│  └─ System.Numerics.IShiftOperators<TSelf, int, TSelf>
-├─ System.Numerics.IMinMaxValue<System.Int128>
-└─ System.Numerics.ISignedNumber<System.Int128>
+System.Int128
+System.Numerics.IBinaryInteger<System.Int128>
+System.Numerics.IBinaryNumber<TSelf>
+System.Numerics.IShiftOperators<TSelf, int, TSelf>
+System.Numerics.IMinMaxValue<System.Int128>
+System.Numerics.ISignedNumber<System.Int128>
 ```
 
 ### 3e. Interface hierarchy
 
 ```bash
-dotnet-inspect depends IFloatingPointIeee754 -n 10
+dotnet-inspect depends IFloatingPointIeee754 -n 40
 ```
 
 ```expect
-# IFloatingPointIeee754
-├─ System.Numerics.IExponentialFunctions<TSelf>
-│  └─ System.Numerics.IFloatingPointConstants<TSelf>
-│     └─ System.Numerics.INumberBase<TSelf>
+System.Numerics.IFloatingPointIeee754<T>
+System.Numerics.IExponentialFunctions<TSelf>
+System.Numerics.IFloatingPointConstants<TSelf>
+System.Numerics.INumberBase<TSelf>
 ```
 
 ## 4. Find implementers of a base class
@@ -205,11 +213,8 @@ dotnet-inspect implements Stream -v:q
 
 ```expect
 # Types Implementing Stream
+## Implementers
 extends
-```
-
-```query
-grep -oE 'Matches: [0-9]+'
 ```
 
 ### 4b. Limited results
@@ -220,8 +225,16 @@ dotnet-inspect implements Stream -t 3 -v:q
 
 ```expect
 # Types Implementing Stream
-Matches: 3
+## Implementers
 extends
+```
+
+```query
+awk '/^\| `/ { count++ } END { if (count == 3) print "three-implementers" }'
+```
+
+```expect
+three-implementers
 ```
 
 ## 5. Find implementers of an interface
@@ -240,8 +253,8 @@ dotnet-inspect implements IHost -v:q
 
 ```expect
 # Types Implementing IHost
-Matches: 1
-Microsoft.AspNetCore.Builder.WebApplication | class | implements
+## Implementers
+`Microsoft.AspNetCore.Builder.WebApplication` | class | implements
 ```
 
 ### 5b. Interface with many implementers
@@ -252,8 +265,16 @@ dotnet-inspect implements IDisposable -v:q --platform -t 5
 
 ```expect
 # Types Implementing IDisposable
-Matches: 5
+## Implementers
 implements
+```
+
+```query
+awk '/^\| `/ { count++ } END { if (count == 5) print "five-implementers" }'
+```
+
+```expect
+five-implementers
 ```
 
 ## 6. Find implementers in a specific scope
@@ -268,9 +289,9 @@ dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
 
 ```expect
 # Types Implementing IJsonTypeInfoResolver
-Matches: 2
-System.Text.Json.Serialization.JsonSerializerContext | class | implements
-System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver | class | implements
+## Implementers
+`System.Text.Json.Serialization.JsonSerializerContext` | class | implements
+`System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver` | class | implements
 ```
 
 ## 7. Table output for scripting
@@ -284,11 +305,11 @@ dotnet-inspect implements Stream --table -t 3
 ```
 
 ```expect
-TYPE
-KIND
-RELATIONSHIP
-LIBRARY
-SOURCE
+Type
+Kind
+Relationship
+Library
+Source
 ```
 
 ### 7b. Without header for piping
@@ -303,8 +324,8 @@ extends
 ```
 
 ```expect-not
-TYPE
-KIND
+Type
+Kind
 ```
 
 ```query
@@ -322,24 +343,25 @@ What interfaces does Command implement, and what other types implement those int
 ```
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command --shape -n 8
+dotnet-inspect type --package System.CommandLine@2.0.3 Command \
+  --shape --markdown -v:q -n 15
 ```
 
 ```expect
-├─ Implements
-│  └─ System.Collections.IEnumerable
+Implements
+System.Collections.IEnumerable
 ```
 
 ### 8b. Walk hierarchy upward
 
 ```bash
-dotnet-inspect depends Command --package System.CommandLine -v:q
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
-# Command
-├─ System.CommandLine.Symbol
-└─ System.Collections.IEnumerable
+System.CommandLine.Command
+System.CommandLine.Symbol
+System.Collections.IEnumerable
 ```
 
 ### 8c. Find types implementing the same interface
@@ -350,6 +372,6 @@ dotnet-inspect implements IEnumerable -t 5 -v:q
 
 ```expect
 # Types Implementing IEnumerable
-Matches: 5
+## Implementers
 implements
 ```

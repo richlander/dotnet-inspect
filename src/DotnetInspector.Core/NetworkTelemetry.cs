@@ -264,10 +264,11 @@ public sealed record NetworkRequestObservation(
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return new InertString(TextPolicy.Field, RedactRelativeUrl(uri.ToString()));
+            return new InertString(TextPolicy.Field, RedactRawUrl(uri.ToString()));
 
         var builder = new UriBuilder(uri)
         {
+            Fragment = "",
             UserName = "",
             Password = ""
         };
@@ -275,26 +276,128 @@ public sealed record NetworkRequestObservation(
         builder.Query = RedactQuery(builder.Query);
         builder.Path = RedactPath(builder.Path);
 
-        // Redaction removes the secrets; this removes the ability to act on the terminal that
-        // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
-        // though this were already handled, but it passes Cf straight through — so a bidi
-        // override in a source URL survives into a failure message and reorders it.
-        return new InertString(TextPolicy.Field, builder.Uri.ToString());
+        string redacted;
+        try
+        {
+            redacted = builder.Uri.ToString();
+        }
+        catch (UriFormatException)
+        {
+            // HttpClient accepts some absolute URIs whose normalized host is empty. Preserve a
+            // safe display for those instead of letting diagnostics replace the request failure.
+            redacted = builder.ToString();
+        }
+
+        return new InertString(TextPolicy.Field, redacted);
     }
 
-    internal static InertString RedactSensitiveUrlText(string value)
+    /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
+    /// <remarks>
+    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>,
+    /// <c>HttpRetryHelperTests.FailureLoggingAndTelemetryRemoveFragmentsFromEffectiveUrls</c>,
+    /// and <c>FeedFailureTelemetryTests.ARelativeUriRemovesUserInfoAndRedactsCredentialsBeforeStorage</c>.
+    /// </remarks>
+    public static InertString RedactSensitiveUrl(Uri uri)
     {
-        if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? new InertString(TextPolicy.Field, value);
-
-        if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return new InertString(TextPolicy.Field, RedactRelativeUrl(relative.ToString()));
-
-        return new InertString(TextPolicy.Field, value);
+        ArgumentNullException.ThrowIfNull(uri);
+        return RedactUrl(uri) ?? throw new UnreachableException();
     }
+
+    /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
+    /// <remarks>
+    /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c> and
+    /// <c>FeedFailureTelemetryTests.ARawFailureFragmentIsRemovedBeforeStorage</c> and
+    /// <c>FeedFailureTelemetryTests.AnUnparseableRawUrlIsConservativelyRedactedBeforeStorage</c>.
+    /// </remarks>
+    public static InertString RedactSensitiveUrlText(string value)
+    {
+        value = RemoveFragment(value);
+
+        if (!Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out var uri))
+            return new InertString(TextPolicy.Field, RedactRawUrl(value));
+
+        if (uri.IsAbsoluteUri)
+            return RedactUrl(uri) ?? new InertString(TextPolicy.Field, value);
+
+        return new InertString(TextPolicy.Field, RedactRawUrl(uri.ToString()));
+    }
+
+    private static string RedactRawUrl(string value)
+    {
+        value = RemoveFragment(value);
+        int authorityStart = FindRawAuthorityStart(value);
+        if (authorityStart < 0)
+            return RedactRelativeUrl(value);
+
+        int authorityEnd = value.IndexOfAny(['/', '\\', '?', '#'], authorityStart);
+        if (authorityEnd < 0)
+            authorityEnd = value.Length;
+
+        int authorityLength = authorityEnd - authorityStart;
+        int userInfoEnd = authorityLength > 0
+            ? value.LastIndexOf('@', authorityEnd - 1, authorityLength)
+            : -1;
+        if (userInfoEnd >= authorityStart)
+        {
+            value = string.Concat(
+                value.AsSpan(0, authorityStart),
+                value.AsSpan(userInfoEnd + 1));
+        }
+
+        return RedactRelativeUrl(value);
+    }
+
+    private static int FindRawAuthorityStart(string value)
+    {
+        int start = 0;
+        while (start < value.Length && value[start] is ' ' or '\t' or '\r' or '\n')
+            start++;
+
+        if (start + 1 < value.Length
+            && IsPathSeparator(value[start])
+            && IsPathSeparator(value[start + 1]))
+        {
+            return start + 2;
+        }
+
+        int colon = value.IndexOf(':', start);
+        if (colon <= start || !IsScheme(value.AsSpan(start, colon - start)))
+            return -1;
+
+        int separatorStart = colon + 1;
+        return separatorStart + 1 < value.Length
+            && IsPathSeparator(value[separatorStart])
+            && IsPathSeparator(value[separatorStart + 1])
+                ? separatorStart + 2
+                : -1;
+    }
+
+    private static bool IsScheme(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty || !IsAsciiLetter(value[0]))
+            return false;
+
+        foreach (char character in value[1..])
+        {
+            if (!IsAsciiLetter(character)
+                && !char.IsAsciiDigit(character)
+                && character is not ('+' or '-' or '.'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsAsciiLetter(char value) =>
+        value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
+    private static bool IsPathSeparator(char value) => value is '/' or '\\';
 
     private static string RedactRelativeUrl(string url)
     {
+        url = RemoveFragment(url);
         var queryIndex = url.IndexOf('?', StringComparison.Ordinal);
         if (queryIndex < 0)
             return RedactPath(url);
@@ -302,6 +405,12 @@ public sealed record NetworkRequestObservation(
         var path = url[..queryIndex];
         var query = url[queryIndex..];
         return $"{RedactPath(path)}?{RedactQuery(query)}";
+    }
+
+    private static string RemoveFragment(string value)
+    {
+        int fragmentIndex = value.IndexOf('#', StringComparison.Ordinal);
+        return fragmentIndex < 0 ? value : value[..fragmentIndex];
     }
 
     // Some feeds carry the credential in the path rather than the query. MyGet publishes
@@ -314,17 +423,30 @@ public sealed record NetworkRequestObservation(
         if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
             return path;
 
-        var segments = path.Split('/');
-        for (var i = 1; i < segments.Length; i++)
+        var builder = new StringBuilder(path.Length);
+        int segmentStart = 0;
+        bool previousWasAuth = false;
+        bool changed = false;
+        for (int i = 0; i <= path.Length; i++)
         {
-            if (segments[i].Length > 0
-                && segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase))
-            {
-                segments[i] = "REDACTED";
-            }
+            if (i < path.Length && path[i] is not ('/' or '\\'))
+                continue;
+
+            ReadOnlySpan<char> segment = path.AsSpan(segmentStart, i - segmentStart);
+            bool redact = segment.Length > 0 && previousWasAuth;
+            if (redact)
+                builder.Append("REDACTED");
+            else
+                builder.Append(segment);
+            if (i < path.Length)
+                builder.Append(path[i]);
+
+            changed |= redact;
+            previousWasAuth = segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
+            segmentStart = i + 1;
         }
 
-        return string.Join('/', segments);
+        return changed ? builder.ToString() : path;
     }
 
     private static string RedactQuery(string query)
