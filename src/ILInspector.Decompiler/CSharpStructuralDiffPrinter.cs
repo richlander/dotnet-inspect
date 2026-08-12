@@ -42,7 +42,7 @@ public static class CSharpStructuralDiffPrinter
         [
             .. comparison.Rows.Select(row => new CSharpStructuralDiffDisplayRow(
                 FormatChange(row.Change),
-                FormatTransition(row.BeforeLabel, row.AfterLabel),
+                FormatTransition(Contain(row.BeforeLabel), Contain(row.AfterLabel)),
                 FormatTransition(row.BeforeRegion?.ToString(), row.AfterRegion?.ToString()),
                 FormatSpans(row.BeforeSpans),
                 FormatSpans(row.AfterSpans),
@@ -66,6 +66,7 @@ public static class CSharpStructuralDiffPrinter
             ? comparison.Before
             : comparison.After;
         var lines = SplitLines(document.Text);
+        EnsureDisplaySafe(lines, side);
         var annotationsByLine = new Dictionary<int, List<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)>>();
 
         foreach (var row in comparison.Rows)
@@ -76,7 +77,7 @@ public static class CSharpStructuralDiffPrinter
             if (label is null)
                 continue;
 
-            string annotationText = $"raise: {label}{RegionSuffix(region)}";
+            string annotationText = $"raise: {Contain(label)}{RegionSuffix(region)}";
             foreach (var span in spans)
             {
                 for (int lineIndex = 0; lineIndex < lines.Count; lineIndex++)
@@ -106,36 +107,17 @@ public static class CSharpStructuralDiffPrinter
             if (!annotationsByLine.TryGetValue(lineIndex, out var entries))
                 continue;
 
-            // A comment gutter cannot point into its own first three columns.
-            // Keep only the suffix that clears the gutter so no caret shifts
-            // right and claims characters beyond the selected span.
-            int minimumColumn = memberIndent.Length + 3;
-            for (int index = entries.Count - 1; index >= 0; index--)
-            {
-                var entry = entries[index];
-                if (entry.Extent.Column >= minimumColumn)
-                    continue;
-
-                int trim = minimumColumn - entry.Extent.Column;
-                if (trim >= entry.Extent.Length)
-                {
-                    entries.RemoveAt(index);
-                    continue;
-                }
-                entries[index] = (
-                    entry.Fact,
-                    new AnnotationAnchor.CaretExtent(
-                        minimumColumn,
-                        entry.Extent.Length - trim));
-            }
-            if (entries.Count == 0)
-                continue;
-
             entries.Sort(static (left, right) =>
             {
                 int result = left.Extent.Column.CompareTo(right.Extent.Column);
                 return result != 0 ? result : right.Extent.Length.CompareTo(left.Extent.Length);
             });
+            if (!CanRenderInCommentGutter(entries, memberIndent.Length))
+            {
+                output.AddRange(RenderExactFallback(entries));
+                continue;
+            }
+
             var facts = entries.Select(static entry => entry.Fact).ToArray();
             var extents = entries.ToDictionary(static entry => entry.Fact, static entry => entry.Extent);
             output.AddRange(AnnotationCaret.Render(line.Text, memberIndent, facts, extents: extents));
@@ -173,7 +155,7 @@ public static class CSharpStructuralDiffPrinter
             return "";
         string transition = $"{fidelity.Before} -> {fidelity.After}";
         return fidelity.Note is { Length: > 0 } note
-            ? $"{transition}; {note.ReplaceLineEndings(" ")}"
+            ? $"{transition}; {Contain(note)}"
             : transition;
     }
 
@@ -209,6 +191,64 @@ public static class CSharpStructuralDiffPrinter
         lines.Add(new SourceTextLine(start, text[start..]));
         return lines;
     }
+
+    static bool CanRenderInCommentGutter(
+        IReadOnlyList<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)> entries,
+        int commentColumn)
+    {
+        var extents = entries
+            .Select(static entry => entry.Extent)
+            .Distinct()
+            .ToArray();
+        if (extents.Length == 1)
+            return extents[0].Column >= commentColumn + 3;
+
+        for (int index = 0; index < extents.Length; index++)
+        {
+            int labelLength = (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture).Length + 1;
+            if (extents[index].Column - labelLength < commentColumn + 2)
+                return false;
+        }
+        return true;
+    }
+
+    static IReadOnlyList<string> RenderExactFallback(
+        IReadOnlyList<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)> entries)
+    {
+        var lines = new List<string>();
+        foreach (var group in entries.GroupBy(static entry => entry.Extent))
+        {
+            bool first = true;
+            foreach (var entry in group)
+            {
+                lines.Add(
+                    new string(' ', entry.Extent.Column)
+                    + (first ? new string('^', entry.Extent.Length) : new string(' ', entry.Extent.Length))
+                    + " "
+                    + AnnotationText.Format(entry.Fact));
+                first = false;
+            }
+        }
+        return lines;
+    }
+
+    static void EnsureDisplaySafe(
+        IReadOnlyList<SourceTextLine> lines,
+        CSharpStructuralSide side)
+    {
+        for (int index = 0; index < lines.Count; index++)
+        {
+            string line = lines[index].Text;
+            if (!string.Equals(line, Contain(line), StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"{side} document line {index + 1} contains terminal or invisible control text.");
+            }
+        }
+    }
+
+    static string? Contain(string? value)
+        => value is null ? null : CSharpText.CSharpIdentifier.ContainRenderedText(value);
 
     private readonly record struct SourceTextLine(int Start, string Text);
 

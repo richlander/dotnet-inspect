@@ -427,6 +427,11 @@ static class Program
         {
             return Fail(preempted);
         }
+        if (structuralReview is not null
+            && (args.Length != 2 || !string.Equals(args[0], "--structural-review", StringComparison.Ordinal)))
+        {
+            return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
+        }
 
         s_protectedGateRequested = dispatchOrder.Any(
             entry => entry.Selected && AuthoredCorpusExitContract.ProtectedGates.Contains(entry.Flag));

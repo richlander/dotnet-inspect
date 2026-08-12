@@ -73,6 +73,7 @@ public class AuthoredCorpusHarnessProcessTests
             Assert.Contains("## Before", run.Output, StringComparison.Ordinal);
             Assert.Contains("## After", run.Output, StringComparison.Ordinal);
             Assert.Contains("No structural changes.", run.Output, StringComparison.Ordinal);
+            Assert.Contains("Fidelity: ` OpcodeDiff -> Exact; terminal IL_0072: ret `", run.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("raise:", run.Output, StringComparison.Ordinal);
         }
         finally
@@ -142,8 +143,62 @@ public class AuthoredCorpusHarnessProcessTests
             "/does-not-exist/structural-review.json");
 
         Assert.Equal(1, run.ExitCode);
-        Assert.Contains("Could not render structural review", run.Output, StringComparison.Ordinal);
+        Assert.Contains("--structural-review is an exclusive mode", run.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("Fixture source inventory", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_ContainsStructuralTerminalControls()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"subject\": \"M\"",
+                "\"subject\": \"M\\u001B[31m\"",
+                StringComparison.Ordinal)
+            .Replace(
+                "\"kind\": \"BreakStatement\"",
+                "\"kind\": \"Break\\u001B[31m\"",
+                StringComparison.Ordinal)
+            .Replace(
+                "\"note\": \"terminal IL_0072: ret\"",
+                "\"note\": \"retained\\u001B[31m\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.DoesNotContain("\u001B", run.Output, StringComparison.Ordinal);
+            Assert.Contains("\\u001B", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsUnknownStructuralFidelityOutcome()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace("\"before\": \"OpcodeDiff\"", "\"before\": 999", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unknown IL body-diff outcome", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     /// <summary>

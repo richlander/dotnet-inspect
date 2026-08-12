@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
@@ -26,7 +25,8 @@ internal static class StructuralReview
             or ArgumentException
             or NotSupportedException)
         {
-            Console.Error.WriteLine($"Error: Could not render structural review '{path}': {ex.Message}");
+            Console.Error.WriteLine(CSharpText.CSharpIdentifier.ContainRenderedText(
+                $"Error: Could not render structural review '{path}': {ex.Message}"));
             return 1;
         }
     }
@@ -63,6 +63,12 @@ internal static class StructuralReview
         if (rows.IsEmpty)
         {
             output.WriteLine("No structural changes.");
+            if (comparison.Fidelity is { } fidelity)
+            {
+                output.WriteLine();
+                output.Write("Fidelity: ");
+                output.WriteLine(InlineCode(Fidelity(fidelity)));
+            }
             return output.ToString();
         }
 
@@ -96,17 +102,25 @@ internal static class StructuralReview
 
     static string InlineCode(string value)
     {
-        string contained = value.ReplaceLineEndings(" ");
+        string contained = CSharpText.CSharpIdentifier.ContainRenderedText(value);
         string fence = new('`', Math.Max(1, LongestRun(contained, '`') + 1));
         return $"{fence} {contained} {fence}";
     }
 
     static string TableCell(string value)
-        => WebUtility.HtmlEncode(value.ReplaceLineEndings(" "))
+        => WebUtility.HtmlEncode(value)
             .Replace("|", "&#124;", StringComparison.Ordinal)
             .Replace("!", "&#33;", StringComparison.Ordinal)
             .Replace("[", "&#91;", StringComparison.Ordinal)
             .Replace("]", "&#93;", StringComparison.Ordinal);
+
+    static string Fidelity(CSharpStructuralFidelityEvidence fidelity)
+    {
+        string transition = $"{fidelity.Before} -> {fidelity.After}";
+        return fidelity.Note is { Length: > 0 } note
+            ? $"{transition}; {note}"
+            : transition;
+    }
 
     static int LongestRun(string value, char character)
     {

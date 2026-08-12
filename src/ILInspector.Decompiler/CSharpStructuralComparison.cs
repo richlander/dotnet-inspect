@@ -133,6 +133,13 @@ public static partial class CSharpBodyDiff
         ArgumentNullException.ThrowIfNull(input.BeforeNodeIds);
         ArgumentNullException.ThrowIfNull(input.AfterNodeIds);
         ArgumentNullException.ThrowIfNull(input.Correspondences);
+        if (input.Fidelity is { } fidelity
+            && (!Enum.IsDefined(fidelity.Before) || !Enum.IsDefined(fidelity.After)))
+        {
+            throw new ArgumentException(
+                "Structural fidelity evidence contains an unknown IL body-diff outcome.",
+                nameof(input.Fidelity));
+        }
 
         ValidateCSharpDocument(input.Before, nameof(input.Before));
         ValidateCSharpDocument(input.After, nameof(input.After));

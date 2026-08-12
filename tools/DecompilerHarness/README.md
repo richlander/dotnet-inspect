@@ -45,8 +45,10 @@ then emits a compact rich-diff table from the same
 `AnnotatedSourceDocument` values, explicit selected node ids, and owner-issued
 one-to-one correspondence. Node ids remain local to the document that minted
 them; the comparison never matches by coordinates, selected text, or display
-labels. Optional `fidelity` retains an independently measured
-`OpcodeDiff -> Exact`-style transition and note.
+labels. Missing, duplicate, and unknown JSON properties are rejected. Optional
+`fidelity` retains an independently measured `OpcodeDiff -> Exact`-style
+transition and note. This is an exclusive mode; combine no other harness flag
+or assembly/package input with it.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- \

@@ -306,6 +306,68 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_EarlyColumnSpansUseExactGutterFreeCarets()
+    {
+        const string beforeText = "a(b);";
+        const string afterText = "a(c);";
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [
+                new AnnotatedSourceNode(0, "InvocationExpression", SourceLineKind.CSharp, [new(0, 4)]),
+                new AnnotatedSourceNode(1, "NameExpression", SourceLineKind.CSharp, [new(2, 1)]),
+            ],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(0, "InvocationExpression", SourceLineKind.CSharp, [new(0, 4)]),
+                new AnnotatedSourceNode(1, "NameExpression", SourceLineKind.CSharp, [new(2, 1)]),
+            ],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0, 1],
+            [0, 1],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1),
+            ]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+        Assert.Equal(beforeText, rendered[0]);
+        Assert.StartsWith("^^^^ raise: InvocationExpression", rendered[1], StringComparison.Ordinal);
+        Assert.StartsWith("  ^ raise: NameExpression", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("^^^^", new string([.. rendered[1].TakeWhile(character => character == '^')]));
+        Assert.Equal("^", new string([.. rendered[2].Skip(2).TakeWhile(character => character == '^')]));
+    }
+
+    [Fact]
+    public void CompareStructure_RejectsUnknownFidelityOutcome()
+    {
+        var before = Document("return;", "ReturnStatement", "return;");
+        var after = Document("break;", "BreakStatement", "break;");
+
+        Assert.Throws<ArgumentException>(() => CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)],
+            new CSharpStructuralFidelityEvidence(
+                (IlBodyDiffOutcome)999,
+                IlBodyDiffOutcome.Exact))));
+    }
+
+    [Fact]
     public void CompareStructure_RejectsDocumentLocalIdentityViolations()
     {
         var before = Document("return;", "ReturnStatement", "return;");

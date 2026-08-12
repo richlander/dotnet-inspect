@@ -56,7 +56,10 @@ overlays and compact rich-diff rows. It performs no correspondence. The
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
 consumes the same result for both presentations. This model exists only for
 node/span structure that the line-oriented `CSharpDiffRow` cannot represent; it
-does not introduce another generic diff-row hierarchy.
+does not introduce another generic diff-row hierarchy. Ordinary indented spans
+reuse the annotation comment gutter and its stacking rules. A span too close to
+the left edge for that gutter uses an exact gutter-free caret row instead; it is
+never shifted, widened, clipped, or silently dropped.
 
 ## Research comparison model
 
