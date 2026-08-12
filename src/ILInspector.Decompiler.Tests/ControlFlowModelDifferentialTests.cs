@@ -59,12 +59,7 @@ public class ControlFlowModelDifferentialTests
             "The corpus did not exercise EndFinally terminators.");
         Assert.True(comparison.StructuredTransferBlocks > 0,
             "The corpus did not expose the structured-transfer boundary.");
-        Assert.True(comparison.DifferenceCount == 0,
-            $"{comparison.DifferenceCount} control-flow difference(s)"
-                + (comparison.Differences.Count < comparison.DifferenceCount
-                    ? $" (showing first {comparison.Differences.Count})"
-                    : "")
-                + ":\n  " + string.Join("\n  ", comparison.Differences));
+        AssertNoDifferences(comparison);
 
         Console.WriteLine(
             $"FLOW-AGREEMENT methods={comparison.Methods} containers={comparison.Containers} "
@@ -120,7 +115,7 @@ public class ControlFlowModelDifferentialTests
 
         Assert.Equal(1, comparison.EndFilterTerminators);
         Assert.Equal(2, comparison.StructuredTransferBlocks);
-        Assert.Equal(0, comparison.DifferenceCount);
+        AssertNoDifferences(comparison);
     }
 
     static Comparison CompareCoreLib()
@@ -362,6 +357,14 @@ public class ControlFlowModelDifferentialTests
                 "Structured transfers must be excluded before projecting fall-through."),
             _ => true,
         };
+
+    static void AssertNoDifferences(Comparison comparison)
+        => Assert.True(comparison.DifferenceCount == 0,
+            $"{comparison.DifferenceCount} control-flow difference(s)"
+                + (comparison.Differences.Count < comparison.DifferenceCount
+                    ? $" (showing first {comparison.Differences.Count})"
+                    : "")
+                + ":\n  " + string.Join("\n  ", comparison.Differences));
 
     static void AddDifference(Comparison comparison, string difference)
     {
