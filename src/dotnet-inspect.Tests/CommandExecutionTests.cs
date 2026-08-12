@@ -17774,7 +17774,7 @@ public partial class CommandExecutionTests
                 "two");
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var count = await RunAppAsync(
                 "package",
                 firstPackage,
                 secondPackage,
@@ -17782,12 +17782,105 @@ public partial class CommandExecutionTests
                 "--count",
                 "--fields",
                 "Bogus");
+            var rows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--tsv",
+                "--fields",
+                "Bogus");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
+            Assert.Equal(1, count.Exit);
+            Assert.Equal(1, rows.Exit);
+            Assert.Empty(count.Output);
+            Assert.Empty(rows.Output);
             Assert.Contains(
                 "No fields matched projection: Bogus",
-                error);
+                count.Error);
+            Assert.Contains(
+                "No fields matched projection: Bogus",
+                rows.Error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_MixedCountMapUsesCombinedColumns()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.MixedProjection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.MixedProjection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var bothSections = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info,Package README file",
+                "--count",
+                "--columns",
+                "Package,Path");
+            var packageInfoOnly = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info,Package README file",
+                "--count",
+                "--columns",
+                "Field");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Package");
+
+            Assert.Equal(0, bothSections.Exit);
+            Assert.Equal(0, packageInfoOnly.Exit);
+            Assert.Equal(0, fixedOverview.Exit);
+            Assert.Empty(bothSections.Error);
+            Assert.Empty(packageInfoOnly.Error);
+            Assert.Empty(fixedOverview.Error);
+            string packageInfoRow = Assert.Single(
+                bothSections.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries),
+                row => row.StartsWith(
+                    "| Package Info |",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                "| Package README file | 2 |",
+                bothSections.Output);
+            Assert.Contains(packageInfoRow, packageInfoOnly.Output);
+            Assert.DoesNotContain(
+                "| Package Info | 0 |",
+                packageInfoOnly.Output);
+            Assert.Contains(
+                "| Package README file | 0 |",
+                packageInfoOnly.Output);
+            Assert.Contains(packageInfoRow, fixedOverview.Output);
+            Assert.Contains(
+                "| Package README file | 2 |",
+                fixedOverview.Output);
+            Assert.Contains(
+                "| Signature | 0 |",
+                fixedOverview.Output);
         }
         finally
         {

@@ -1081,6 +1081,14 @@ public class PackageCommand
         "Value",
     ];
 
+    private static readonly string[] MultiPackageFileColumnNames =
+    [
+        "Package",
+        "Version",
+        "Path",
+        "Size",
+    ];
+
     private static readonly string[] PackageSignalsColumnNames =
     [
         "Area",
@@ -1103,50 +1111,47 @@ public class PackageCommand
             return true;
         }
 
+        DocumentSchema schema = PackageDiscoverySchema();
+        if (packageCount > 1
+            && options.Count
+            && !HasPathFilter(options))
+        {
+            IReadOnlyCollection<string> countSections =
+                options.FixedOverview
+                    ? pipeline.BareSelectSectionNames
+                    : options.IncludeSections is { Count: > 0 } includeSections
+                        ? includeSections
+                        : [PackageSections.PackageInfo];
+            return ValidateMultiPackageCountProjection(
+                schema,
+                countSections,
+                options);
+        }
+
         bool multiPackageInfoShape =
             packageCount > 1
-            && (options.Count || options.Tabular)
-            && !options.FixedOverview
+            && options.Tabular
             && !HasPathFilter(options)
             && !SelectResolver.IsActiveAllSelector(
                 options.Select,
                 options.IncludeSections)
-            && (options.IncludeSections is not { Count: > 0 }
+            && (options.FixedOverview
+                || options.IncludeSections is not { Count: > 0 }
                 || (options.IncludeSections.Count == 1
                     && options.IncludeSections.Contains(
                         PackageSections.PackageInfo)));
         if (multiPackageInfoShape)
         {
-            bool valid = true;
-            if (options.Fields is { Length: > 0 })
-            {
-                valid &= ProjectionDiagnostics.ValidateProjection(
-                    PackageDiscoverySchema(),
-                    PackageSections.PackageInfo,
-                    options.Fields,
-                    columns: null);
-            }
-
-            if (options.Columns is { Length: > 0 })
-            {
-                var combinedSchema = new DocumentSchema().Add(
-                    PackageSections.PackageInfo,
-                    "column",
-                    MultiPackageInfoColumnNames);
-                valid &= ProjectionDiagnostics.ValidateProjection(
-                    combinedSchema,
-                    PackageSections.PackageInfo,
-                    fields: null,
-                    columns: options.Columns);
-            }
-
-            return valid;
+            return ValidateMultiPackageCountProjection(
+                schema,
+                [PackageSections.PackageInfo],
+                options);
         }
 
-        if (options.FixedOverview && options.Count)
+        if (options.FixedOverview)
         {
             return ProjectionDiagnostics.ValidateProjection(
-                PackageDiscoverySchema(),
+                schema,
                 pipeline.BareSelectSectionNames,
                 options.Fields,
                 options.Columns);
@@ -1156,10 +1161,109 @@ public class PackageCommand
             return true;
 
         return ProjectionDiagnostics.ValidateProjection(
-            PackageDiscoverySchema(),
+            schema,
             options.IncludeSections,
             options.Fields,
             options.Columns);
+    }
+
+    private static bool ValidateMultiPackageCountProjection(
+        DocumentSchema schema,
+        IReadOnlyCollection<string> sections,
+        InspectionOptions options)
+    {
+        bool valid = true;
+        if (options.Fields is { Length: > 0 })
+        {
+            valid &= ProjectionDiagnostics.ValidateProjection(
+                ProjectionSchemaForKind(schema, "field"),
+                sections,
+                options.Fields,
+                columns: null);
+        }
+
+        if (options.Columns is { Length: > 0 })
+        {
+            valid &= ProjectionDiagnostics.ValidateProjection(
+                MultiPackageCountColumnSchema(schema),
+                sections,
+                fields: null,
+                options.Columns);
+        }
+
+        return valid;
+    }
+
+    private static DocumentSchema ProjectionSchemaForKind(
+        DocumentSchema schema,
+        string itemKind)
+    {
+        var result = new DocumentSchema();
+        foreach (string name in schema.SectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (section is { Items.Length: > 0 }
+                && string.Equals(
+                    section.ItemKind,
+                    itemKind,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(
+                    name,
+                    section.ItemKind,
+                    section.Items.Select(item => item.Name).ToArray());
+            }
+            else
+            {
+                result.AddSection(name);
+            }
+        }
+
+        return result;
+    }
+
+    private static DocumentSchema MultiPackageCountColumnSchema(
+        DocumentSchema schema)
+    {
+        var result = new DocumentSchema();
+        foreach (string name in schema.SectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (string.Equals(
+                    name,
+                    PackageSections.PackageInfo,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(
+                    name,
+                    "column",
+                    MultiPackageInfoColumnNames);
+            }
+            else if (IsPackageFileSection(name))
+            {
+                result.Add(
+                    name,
+                    "column",
+                    MultiPackageFileColumnNames);
+            }
+            else if (section is { Items.Length: > 0 }
+                && string.Equals(
+                    section.ItemKind,
+                    "column",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(
+                    name,
+                    section.ItemKind,
+                    section.Items.Select(item => item.Name).ToArray());
+            }
+            else
+            {
+                result.AddSection(name);
+            }
+        }
+
+        return result;
     }
 
     private static HashSet<string>? ResolvePackageInfoFields(
@@ -2364,15 +2468,39 @@ public class PackageCommand
             selectedSection = includeSections.Single();
         }
 
+        DocumentSchema packageSchema = PackageDiscoverySchema();
+        DocumentSchema? countColumnSchema =
+            options.Columns is { Length: > 0 }
+                ? MultiPackageCountColumnSchema(packageSchema)
+                : null;
+        bool SelectedColumnsMatch(string section)
+            => countColumnSchema == null
+                || countColumnSchema
+                    .ValidateProjection(section, options.Columns!)
+                    .Resolved
+                    .Length > 0;
+        bool SelectedSinglePackageColumnsMatch(string section)
+            => options.Columns is not { Length: > 0 }
+                || (string.Equals(
+                        packageSchema.GetSection(section)?.ItemKind,
+                        "column",
+                        StringComparison.OrdinalIgnoreCase)
+                    && packageSchema
+                        .ValidateProjection(section, options.Columns)
+                        .Resolved
+                        .Length > 0);
+
         if (IsPackageFileSection(selectedSection))
         {
-            int count = results.Sum(
-                result =>
-                    options.SkipEmpty
-                        ? GetPackageFileRows(result, selectedSection!).Count
-                        : Math.Max(
-                            1,
-                            GetPackageFileRows(result, selectedSection!).Count));
+            int count = SelectedColumnsMatch(selectedSection!)
+                ? results.Sum(
+                    result =>
+                        options.SkipEmpty
+                            ? GetPackageFileRows(result, selectedSection!).Count
+                            : Math.Max(
+                                1,
+                                GetPackageFileRows(result, selectedSection!).Count))
+                : 0;
             CountOutput.WriteCount(
                 ApplyRowWindow(count, options.Rows),
                 options.OutputPath);
@@ -2391,9 +2519,11 @@ public class PackageCommand
         {
             HashSet<string>? selectedFields =
                 ResolvePackageInfoFields(options.Fields);
-            int count = results.Sum(
-                result =>
-                    SelectPackageInfoFields(result, selectedFields).Count());
+            int count = SelectedColumnsMatch(PackageSections.PackageInfo)
+                ? results.Sum(
+                    result =>
+                        SelectPackageInfoFields(result, selectedFields).Count())
+                : 0;
             CountOutput.WriteCount(
                 ApplyRowWindow(count, options.Rows),
                 options.OutputPath);
@@ -2403,6 +2533,7 @@ public class PackageCommand
         var renderOptions = options with
         {
             Count = false,
+            Columns = null,
             JsonOutput = false,
             OutputPath = null,
             Rows = null,
@@ -2434,16 +2565,42 @@ public class PackageCommand
 
             foreach (string section in orderedSections)
             {
-                if (!IsPackageFileSection(section))
-                    continue;
-
-                counts[section] = results.Sum(
-                    result =>
-                        options.SkipEmpty
-                            ? GetPackageFileRows(result, section).Count
-                            : Math.Max(
-                                1,
-                                GetPackageFileRows(result, section).Count));
+                if (string.Equals(
+                        section,
+                        PackageSections.PackageInfo,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    HashSet<string>? selectedFields =
+                        ResolvePackageInfoFields(options.Fields);
+                    counts[section] =
+                        SelectedColumnsMatch(section)
+                            ? results.Sum(
+                                result => SelectPackageInfoFields(
+                                    result,
+                                    selectedFields).Count())
+                            : 0;
+                }
+                else if (IsPackageFileSection(section))
+                {
+                    counts[section] =
+                        SelectedColumnsMatch(section)
+                            ? results.Sum(
+                                result =>
+                                    options.SkipEmpty
+                                        ? GetPackageFileRows(
+                                            result,
+                                            section).Count
+                                        : Math.Max(
+                                            1,
+                                            GetPackageFileRows(
+                                                result,
+                                                section).Count))
+                            : 0;
+                }
+                else if (!SelectedSinglePackageColumnsMatch(section))
+                {
+                    counts[section] = 0;
+                }
             }
 
             if (options.Rows != null)
