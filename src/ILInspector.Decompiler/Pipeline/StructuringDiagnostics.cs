@@ -30,4 +30,10 @@ public sealed class StructuringDiagnostics
 
     /// <summary>Record that a container structured cleanly.</summary>
     public void RecordStructured() => Structured++;
+
+    /// <summary>PROBE (#1175, throwaway): containers structured via the retained-merge relaxation.</summary>
+    public int ProbeRetainedMerges { get; private set; }
+
+    /// <summary>PROBE (#1175, throwaway): record a retained-merge structuring.</summary>
+    public void RecordProbeRetainedMerge() => ProbeRetainedMerges++;
 }

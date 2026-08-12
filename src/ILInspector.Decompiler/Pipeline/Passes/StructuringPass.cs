@@ -1,3 +1,5 @@
+using ILInspector.ControlFlow;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -195,6 +197,15 @@ public sealed class StructuringPass : IIrPass
         /// </summary>
         public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
+        /// <summary>
+        /// PROBE (#1175 condition-2 evidence, throwaway): the block index of the
+        /// container's single retained merge. When set, a branch to this block
+        /// from any recursion depth is legal and is kept as a printed
+        /// <c>goto</c> (conditional guards keep <c>if (c) goto M;</c>); the
+        /// merge block itself and everything after it stay flat with their
+        /// labels. Null on every normal (all-or-nothing) run.
+        /// </summary>
+        public int? RetainedMergeIndex { get; init; }
 
         /// <summary>
         /// First-wins recorder for the deepest direct stop reason, populated only
@@ -349,6 +360,8 @@ public sealed class StructuringPass : IIrPass
 
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null))
         {
+            if (TryStructureWithRetainedMerge(container, ctx, context))
+                return;
             context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
             return;
         }
@@ -363,6 +376,126 @@ public sealed class StructuringPass : IIrPass
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
+    }
+
+    /// <summary>
+    /// PROBE (#1175 condition-2 evidence, throwaway): when the whole container
+    /// fails all-or-nothing validation, try the one relaxed shape step 4 owns —
+    /// an acyclic forward-branch region <c>[0..M)</c> whose only past-region
+    /// branch target is a single common merge block M that post-dominates the
+    /// entry. The region is structured with branches to M retained as printed
+    /// gotos; blocks from M on stay flat with their labels. Anything not
+    /// exactly this shape (a second distinct merge, backward branches, EH
+    /// entanglement, switch dispatch) declines and the container stays flat.
+    /// </summary>
+    static bool TryStructureWithRetainedMerge(BlockContainer container, Ctx ctx, PassContext context)
+    {
+        var blocks = ctx.Blocks;
+        var offsetToIndex = ctx.FlowFacts.OffsetToIndex;
+
+        // Out of probe scope: EH-entangled containers, switch dispatch,
+        // mid-block control flow, and any backward or external branch.
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            foreach (var node in blocks[i].Descendants)
+            {
+                if (node is Leave or EndFinally or EndFilter or SwitchBranch)
+                    return false;
+            }
+            var children = blocks[i].Children;
+            for (int s = 0; s < children.Count; s++)
+            {
+                int target = children[s] switch
+                {
+                    Branch b => b.TargetOffset,
+                    ConditionalBranch c => c.TargetOffset,
+                    _ => -1,
+                };
+                if (target < 0)
+                    continue;
+                if (s != children.Count - 1)
+                    return false;
+                if (!offsetToIndex.TryGetValue(target, out int targetIndex) || targetIndex <= i)
+                    return false;
+            }
+        }
+
+        // Candidate merges: the post-dominators of the entry block, nearest
+        // first. The InternalSetValue shape's merge is the immediate
+        // post-dominator of the whole guarded body; walking the chain also
+        // covers a straight-line prologue before the first split.
+        var postDominators = PostDominators.Of(Cfg.Build(blocks));
+        for (int merge = postDominators.ImmediatePostDominator(0);
+            merge > 0 && merge < blocks.Count;
+            merge = postDominators.ImmediatePostDominator(merge))
+        {
+            if (TryStructureWithRetainedMergeAt(container, ctx, context, merge))
+                return true;
+        }
+        return false;
+    }
+
+    static bool TryStructureWithRetainedMergeAt(BlockContainer container, Ctx ctx, PassContext context, int mergeIndex)
+    {
+        var blocks = ctx.Blocks;
+        int mergeOffset = blocks[mergeIndex].StartOffset;
+        // The merge must be a genuine shared join (two or more explicit jumps),
+        // and every branch from inside [0..M) must stay inside or target M —
+        // one merge, no crossing.
+        if (!ctx.FlowFacts.BranchTargets.Contains(mergeOffset))
+            return false;
+        int jumpPredecessors = ctx.FlowFacts.ConditionalTargetCounts.GetValueOrDefault(mergeOffset)
+            + (ctx.FlowFacts.BranchPredecessorIndices.TryGetValue(mergeOffset, out var gotoPredecessors)
+                ? gotoPredecessors.Count
+                : 0);
+        if (jumpPredecessors < 2)
+            return false;
+        var offsetToIndex = ctx.FlowFacts.OffsetToIndex;
+        for (int i = 0; i < mergeIndex; i++)
+        {
+            foreach (var child in blocks[i].Children)
+            {
+                int target = child switch
+                {
+                    Branch b => b.TargetOffset,
+                    ConditionalBranch c => c.TargetOffset,
+                    _ => -1,
+                };
+                if (target >= 0 && offsetToIndex[target] > mergeIndex)
+                    return false;
+            }
+        }
+
+        var probeCtx = new Ctx
+        {
+            Blocks = ctx.Blocks,
+            FlowFacts = ctx.FlowFacts,
+            DroppableBlocks = ctx.DroppableBlocks,
+            CloneOwnerIndices = ctx.CloneOwnerIndices,
+            TerminatorSnapshots = ctx.TerminatorSnapshots,
+            FallenInto = ctx.FallenInto,
+            IsComparisonTree = ctx.IsComparisonTree,
+            ScatteredReturnDispatchTargets = ctx.ScatteredReturnDispatchTargets,
+            RegionExitLeaveTarget = ctx.RegionExitLeaveTarget,
+            RetainedMergeIndex = mergeIndex,
+            Recorder = null,
+        };
+        if (!Validate(probeCtx, 0, mergeIndex, joinIndex: mergeIndex, breakTarget: null, continueTarget: null))
+            return false;
+
+        context.StructuringDiagnostics?.RecordStructured();
+        context.StructuringDiagnostics?.RecordProbeRetainedMerge();
+        context.Stepper.StepOver(
+            $"structure container prefix [IL_{blocks[0].StartOffset:X4}..IL_{mergeOffset:X4}) with retained merge label IL_{mergeOffset:X4} (probe)",
+            container);
+
+        var structured = BuildRegion(probeCtx, 0, mergeIndex, joinIndex: mergeIndex, breakTarget: null, continueTarget: null);
+        var replacement = new BlockContainer();
+        replacement.Add(structured);
+        for (int i = mergeIndex; i < blocks.Count; i++)
+            replacement.Add(CloneBlock(blocks[i]));
+        container.ReplaceWith(replacement);
+        return true;
     }
 
     /// <summary>
@@ -500,6 +633,13 @@ public sealed class StructuringPass : IIrPass
                     // must be the region's last block.
                     if (branchTarget != joinIndex || i + 1 != stop)
                     {
+                        // PROBE: a goto to the container's single retained merge
+                        // is legal from any depth; it stays a printed goto.
+                        if (ctx.RetainedMergeIndex == branchTarget)
+                        {
+                            i++;
+                            break;
+                        }
                         ctx.Recorder?.Record("forward-branch-not-region-exit");
                         return false;
                     }
@@ -554,6 +694,13 @@ public sealed class StructuringPass : IIrPass
                         if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
                             return false;
                         i = stop;
+                        break;
+                    }
+                    // PROBE: a conditional to the container's single retained
+                    // merge from any depth stays `if (c) goto M;`.
+                    if (ctx.RetainedMergeIndex is { } probeMerge && target == probeMerge)
+                    {
+                        i++;
                         break;
                     }
                     if (target > stop)
@@ -1642,6 +1789,15 @@ public sealed class StructuringPass : IIrPass
                         i = loop.ContinueAt;
                         break;
                     }
+                    // PROBE (mirrors Validate): a goto to the retained merge
+                    // from anywhere but the region-exit position stays printed.
+                    if (ctx.RetainedMergeIndex == branchTarget
+                        && !(branchTarget == joinIndex && i + 1 == stop))
+                    {
+                        result.Add(last);
+                        i++;
+                        break;
+                    }
                     i = stop;  // the region-exit goto disappears into structure
                     break;
                 }
@@ -1688,6 +1844,17 @@ public sealed class StructuringPass : IIrPass
                         var exitArm = BuildRegion(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget);
                         result.Add(new IfStatement(Negate(condition), exitArm, null));
                         i = stop;
+                        break;
+                    }
+                    // PROBE (mirrors Validate): a conditional to the retained
+                    // merge stays `if (c) goto M;` — the goto arm keeps the
+                    // taken path, so the condition is not negated.
+                    if (ctx.RetainedMergeIndex is { } probeMerge && target == probeMerge)
+                    {
+                        var gotoArm = new Block(block.StartOffset);
+                        gotoArm.Add(new Branch(conditional.TargetOffset));
+                        result.Add(new IfStatement(condition, gotoArm, null));
+                        i++;
                         break;
                     }
                     if (target > stop

@@ -1236,6 +1236,8 @@ static class Program
                 }
 
                 structured += diagnostics.Structured;
+                if (diagnostics.ProbeRetainedMerges > 0)
+                    Console.Error.WriteLine($"PROBE retained-merge fired ({diagnostics.ProbeRetainedMerges}x): {typeName}::{methodName}");
                 if (diagnostics.Stops.Count > 0)
                     methodsWithStop++;
                 foreach (var reason in diagnostics.Stops)
