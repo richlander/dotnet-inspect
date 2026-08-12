@@ -69,10 +69,38 @@ public static class PackageSectionDescriptors
             .Add<Manifest>()
             .Add<RuntimeDependencies>()
             .Add<Files>()
+            // Package-native evidence is the command's primary base category. The unbounded
+            // whole-package listing belongs here rather than @Files: selecting @Package is an
+            // explicit request for the complete package lens, while keeping the listing out of
+            // @Files prevents its curated subsets from rendering the same paths twice.
+            .AddBaseCategory(
+                SectionCategoryNames.Package,
+                PackageSections.PackageInfo,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies,
+                PackageSections.Files)
             // The package file family. Plain "Package files" is the whole-package listing,
             // so it is deliberately not a member: including it would make
             // -S @Files render most rows twice.
-            .AddCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
+            .AddBaseCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
+            .AddCategory(
+                SectionCategoryNames.Dependencies,
+                PackageSections.Dependencies,
+                PackageSections.RuntimeDependencies)
+            .AddCategory(
+                SectionCategoryNames.Audit,
+                PackageSections.Signals,
+                PackageSections.Signature,
+                PackageSections.Vulnerabilities,
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkMissingFiles,
+                PackageSections.SourceLinkIntegrity)
             .AddCategory(
                 SectionCategoryNames.SourceLink,
                 PackageSections.SourceLinkFiles,
