@@ -405,7 +405,8 @@ public static class ApiFindingClassifier
                     failure.SubjectToken,
                     failure.Mechanism,
                     failure.Kind,
-                    failure.Detail)),
+                    failure.Detail,
+                    failure.SubjectAssembly)),
             .. newSurface.InspectionFailures.Select(failure =>
                 new ApiDiffInspectionFailure(
                     "new",
@@ -413,6 +414,7 @@ public static class ApiFindingClassifier
                     failure.SubjectToken,
                     failure.Mechanism,
                     failure.Kind,
-                    failure.Detail)),
+                    failure.Detail,
+                    failure.SubjectAssembly)),
         ];
 }

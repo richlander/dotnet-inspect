@@ -116,6 +116,67 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteModuleConstraintAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ModuleConstraintFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        ModuleReferenceHandle module =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("Other.netmodule"));
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                module,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle holder =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Holder`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                holder,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private static void WriteNetmodule(string path)
     {
         var metadata = new MetadataBuilder();
@@ -9612,6 +9673,62 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Contains("column 'Bogus' not found in section 'Properties'", error);
         Assert.Contains("No columns matched projection: Bogus", error);
+    }
+
+    [Fact]
+    public async Task ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constraint-diagnostic-{Guid.NewGuid():N}.dll");
+        WriteModuleConstraintAssembly(path);
+        try
+        {
+            var listing = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    new TypeOptions
+                    {
+                        AssemblyPath = path,
+                        Verbosity = Verbosity.Normal,
+                    }));
+            var selectedType = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    new TypeOptions
+                    {
+                        AssemblyPath = path,
+                        TypeName = "N.Holder<T>",
+                        Verbosity = Verbosity.Normal,
+                    }));
+            var selectedMember = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    new MemberOptions
+                    {
+                        AssemblyPath = path,
+                        TypeName = "N.Holder<T>",
+                        Verbosity = Verbosity.Normal,
+                    }));
+
+            Assert.Equal(0, listing.ExitCode);
+            Assert.Contains(
+                "Generic-constraint classification",
+                listing.Error);
+            Assert.DoesNotContain(
+                "rejected",
+                listing.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, selectedType.ExitCode);
+            Assert.Contains(
+                "Generic-constraint classification",
+                selectedType.Error);
+            Assert.Equal(0, selectedMember.ExitCode);
+            Assert.Contains(
+                "Generic-constraint classification",
+                selectedMember.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

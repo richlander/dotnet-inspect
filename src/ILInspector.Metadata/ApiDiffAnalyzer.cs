@@ -232,7 +232,8 @@ public sealed record ApiDiffInspectionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail);
+    string Detail,
+    AssemblyReferenceIdentity? SubjectAssembly = null);
 
 /// <summary>
 /// Compares two <see cref="ApiSurface"/> instances and produces a structured diff
@@ -325,7 +326,8 @@ public static class ApiDiffAnalyzer
                         failure.SubjectToken,
                         failure.Mechanism,
                         failure.Kind,
-                        failure.Detail)),
+                        failure.Detail,
+                        failure.SubjectAssembly)),
                 .. newSurface.InspectionFailures.Select(failure =>
                     new ApiDiffInspectionFailure(
                         "new",
@@ -333,7 +335,8 @@ public static class ApiDiffAnalyzer
                         failure.SubjectToken,
                         failure.Mechanism,
                         failure.Kind,
-                        failure.Detail)),
+                        failure.Detail,
+                        failure.SubjectAssembly)),
             ],
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,

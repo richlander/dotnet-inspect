@@ -798,9 +798,44 @@ public class ApiCommand
 
     // ===== Full API Surface Rendering =====
 
+    internal static bool HasRejectedMetadataRows(
+        ApiSurface api) =>
+        api.InspectionFailures.Any(
+            static failure =>
+                failure.Operation
+                    != ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation);
+
+    internal static void WriteConstraintResolutionDiagnostics(
+        ApiSurface api)
+    {
+        foreach (ApiSurfaceInspectionFailure failure
+            in api.InspectionFailures)
+        {
+            if (failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation)
+            {
+                continue;
+            }
+
+            string assembly =
+                failure.SubjectAssembly is null
+                    ? ""
+                    : $" in '{failure.SubjectAssembly.Name}'";
+            CommandError.WriteWarning(
+                "Generic-constraint classification was incomplete"
+                    + $"{assembly} at 0x{failure.SubjectToken:X8} "
+                    + $"({failure.Mechanism}/{failure.Kind}): "
+                    + failure.Detail);
+        }
+    }
+
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
+        int successExitCode =
+            HasRejectedMetadataRows(api) ? 1 : 0;
 
         // Fail closed: the type-listing surface has no dispatch for payload projections
         // (--print/--value/--urls/--paths); its sections are type-name tables that expose no
@@ -811,15 +846,31 @@ public class ApiCommand
         if (IsProjectionRequested(options))
             return RejectSurfacePayloadProjection(options);
 
-        if (api.InspectionFailures.Count > 0
-            && (options.Count
-                || options.Tabular
-                || options.Verbosity < Verbosity.Normal))
+        bool failureDetailsRendered =
+            !options.Count
+            && (options.JsonOutput
+                || (!options.Tabular
+                    && options.Verbosity >= Verbosity.Normal));
+        bool constraintDetailsRendered =
+            options.JsonOutput
+            && !options.Count;
+        if (!failureDetailsRendered)
         {
-            CommandError.WriteWarning(
-                $"API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
-                + "use normal verbosity or JSON for failure details.");
+            int rejectedRows =
+                api.InspectionFailures.Count(
+                    static failure =>
+                        failure.Operation
+                            != ApiSurfaceInspectionFailure
+                                .GenericParameterConstraintResolutionOperation);
+            if (rejectedRows > 0)
+            {
+                CommandError.WriteWarning(
+                    $"API inspection rejected {rejectedRows} metadata row(s); "
+                    + "use normal verbosity or JSON for failure details.");
+            }
         }
+        if (!constraintDetailsRendered)
+            WriteConstraintResolutionDiagnostics(api);
 
         if (options.JsonOutput && !options.Count)
         {
@@ -828,7 +879,7 @@ public class ApiCommand
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
-            return 0;
+            return successExitCode;
         }
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
@@ -860,7 +911,7 @@ public class ApiCommand
                 if (!TryReportEmptyProjection(factRows, options))
                     return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
-                return 0;
+                return successExitCode;
             }
 
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
@@ -901,7 +952,7 @@ public class ApiCommand
             }
         }
 
-        return 0;
+        return successExitCode;
     }
 
     /// <summary>

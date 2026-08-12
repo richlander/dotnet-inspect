@@ -358,7 +358,12 @@ withholds kind-incomplete resolutions from catalog promotion; this cache-hygiene
 not independently observable because candidate failures are memoized per registration. An
 API surface that copies a resolved forwarded type also carries that target surface's bounded,
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
-cause (`ApiServices_PreservesForwardedConstraintFailures`). An extraction lease keeps retained
+cause. The failure retains its owning assembly identity, so its metadata token remains scoped
+to the target image rather than appearing to address a row in the facade
+(`ApiServices_PreservesForwardedConstraintFailures`). Type listings, selected types, and
+selected members present these failures consistently as nonfatal constraint-classification
+diagnostics rather than rejected metadata rows
+(`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open

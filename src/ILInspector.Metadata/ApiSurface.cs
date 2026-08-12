@@ -185,7 +185,8 @@ public sealed record ApiSurfaceInspectionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail)
+    string Detail,
+    AssemblyReferenceIdentity? SubjectAssembly = null)
 {
     public const string
         GenericParameterConstraintResolutionOperation =

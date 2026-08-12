@@ -68,7 +68,8 @@ public static class ApiSurfaceExtractor
         {
             AddConstraintResolutionFailure(
                 surface,
-                constraintResolution);
+                constraintResolution,
+                source.Identity);
             return surface;
         }
 
@@ -79,13 +80,15 @@ public static class ApiSurfaceExtractor
         constraintResolution.Apply(context);
         AddConstraintResolutionFailure(
             surface,
-            constraintResolution);
+            constraintResolution,
+            source.Identity);
         return surface;
     }
 
     static void AddConstraintResolutionFailure(
         ApiSurface surface,
-        TypeParameterConstraintResolution constraintResolution)
+        TypeParameterConstraintResolution constraintResolution,
+        AssemblyReferenceIdentity subjectAssembly)
     {
         if (constraintResolution.Plan.RequestBudgetFailure
             is { } budgetFailure)
@@ -95,7 +98,8 @@ public static class ApiSurfaceExtractor
                 ApiSurfaceInspectionFailure
                     .GenericParameterConstraintResolutionOperation,
                 default,
-                budgetFailure);
+                budgetFailure,
+                subjectAssembly);
         }
 
         if (constraintResolution.Plan.ResolutionFailure
@@ -106,7 +110,8 @@ public static class ApiSurfaceExtractor
                 ApiSurfaceInspectionFailure
                     .GenericParameterConstraintResolutionOperation,
                 default,
-                resolutionFailure);
+                resolutionFailure,
+                subjectAssembly);
         }
     }
 
@@ -2316,13 +2321,15 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         string operation,
         EntityHandle subject,
-        MetadataTypeNameFailure failure)
+        MetadataTypeNameFailure failure,
+        AssemblyReferenceIdentity? subjectAssembly = null)
         => surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail));
+            failure.Detail,
+            subjectAssembly));
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
         => !typeDef.BaseType.IsNil
