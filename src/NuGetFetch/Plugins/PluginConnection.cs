@@ -233,7 +233,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
             return responsePayload?.Deserialize(responseType);
         }
-        catch (Exception ex) when (ex is TimeoutException or JsonException or IOException)
+        catch (Exception ex) when (IsRecoverableRequestFailure(ex))
         {
             _log?.Invoke($"Credential plugin request '{method}' failed: {ex.Message}");
             return null;
@@ -244,6 +244,17 @@ internal sealed class PluginConnection : IAsyncDisposable
             pending.Dispose();
         }
     }
+
+    internal static bool IsRecoverableRequestFailure(Exception exception) =>
+        exception switch
+        {
+            TimeoutException or JsonException or IOException => true,
+            // ObjectDisposedException is an InvalidOperationException, but keeping it explicit
+            // documents the closed-pipe race this boundary is intended to absorb.
+            ObjectDisposedException => true,
+            InvalidOperationException => true,
+            _ => false,
+        };
 
     private async Task WriteAsync<T>(Envelope<T> envelope, JsonTypeInfo<Envelope<T>> type, CancellationToken cancellationToken)
     {

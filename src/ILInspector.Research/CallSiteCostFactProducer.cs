@@ -15,6 +15,9 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
     public string Name => "call-site-cost";
     public IReadOnlyList<string> Produces { get; } = ["cost.callee"];
     public IReadOnlyList<string> DependsOn { get; } = [];
+    public ResearchFactRequirements Requirements { get; } =
+        ResearchFactRequirements.ForAssembly(
+            LibraryBodyAnalysisFeatures.Allocations);
 
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {

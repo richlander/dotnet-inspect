@@ -119,15 +119,14 @@ The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive
 metadata inventory.
 
-## Group-scoped query
+## Group-scoped queries
 
-`AssemblyContextIntegrationsQuery` is the first typed query that runs across an
-entire assembly context group. It scans each participant sequentially in group
-order and returns both ecosystem and OpenTelemetry evidence with the
-participant's opaque identity and resolution provenance. It does not deduplicate
-signals across assemblies: companion assemblies may expose different useful
-currency, and preserving the producing assembly lets later composition decide
-how to group or present it.
+`AssemblyContextIntegrationsQuery` scans an entire assembly context group. It
+visits each participant sequentially in group order and returns both ecosystem
+and OpenTelemetry evidence with the participant's opaque identity and
+resolution provenance. It does not deduplicate signals across assemblies:
+companion assemblies may expose different useful currency, and preserving the
+producing assembly lets later composition decide how to group or present it.
 
 Image acquisition rejection remains explicit beside available participant
 results, so a budget-limited group cannot look like a complete group with fewer
@@ -142,15 +141,38 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-The library CLI and package `--all-libraries` host now execute this query when a
-focused `Integration:` section or `@Integrations` is selected. The section
-catalog binds every member of the family to the same query definition by object
-identity and owns a separate group-query registry because the query consumes an
-`AssemblyContextGroup`, not a single-library scanner context.
+The library CLI and package `--all-libraries` host execute this query when a
+focused detected-integration section is selected. `Integration: Opportunities`
+binds to `AssemblyContextIntegrationOpportunitiesQuery`, which declares the
+Integrations query as a typed prerequisite. The dependent query composes the
+existing-integration set from the prerequisite result, scans the same immutable
+participant snapshot for missing registration surfaces, and preserves
+available, rejected, and failed participant outcomes. Its declared local cost
+is network-free, while the registry exposes the unbounded transitive cost of its
+Integrations prerequisite.
 
-The library command retains its queried snapshot for the rest of inspection.
+The section catalog binds each member of the family to its owning query
+definition by object identity and owns a separate group-query registry because
+the queries consume an `AssemblyContextGroup`, not a single-library scanner
+context.
+
+The command creates one group for the selected assembly set, projects each typed
+entry into the corresponding `LibraryInspection`, and retains the workspace's
+authoritative immutable image for the rest of that library inspection. A path
+retarget after query execution therefore cannot mix one assembly's integration
+evidence with another assembly's metadata or opportunity evidence.
 `AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection`
 gates that shared-image boundary.
+
+`AssemblyContextIntegrationsQueryTests.Execute_ComposesOpportunitiesFromTypedIntegrations`
+gates typed prerequisite composition and suppression of integrations already
+present.
+`AssemblyContextIntegrationsQueryTests.RegistryRun_OpportunityQueryUsesOneImmutableSnapshot`
+gates reuse of the acquired image across both queries.
+`AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection` gates the
+section-specific structured failure surface. Independently inducing a late
+opportunity metadata-decode failure remains unverified. Cancellation-aware
+group execution and optional concurrency remain later slices.
 
 Package `--all-libraries` creates one binding-consistent group per package asset
 directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`
@@ -170,25 +192,31 @@ acquisition, not package-controlled nuspec fields. A local archive uses a
 trimmed, valid nuspec coordinate when available and otherwise carries
 local-archive provenance.
 
-`Integration: Opportunities` remains a CLI composition scanner. It consumes
-query-produced evidence and emits no gaps when its prerequisite failed or a
-compatibility-skipped participant has no grouped evidence; opportunity
-production has not moved into the L1 group query. Ecosystem and
-OpenTelemetry evidence form one grouped query outcome, so malformed participant
-metadata fails that grouped unit. Grouped failures leave successful rows
-renderable, emit one warning per affected library and reason, and make the
+When Opportunities is selected, the package host executes the typed
+Integrations prerequisite and dependent Opportunities query inside the same
+participant callback before releasing the retained image. A prerequisite
+rejection or failure becomes the corresponding typed Opportunities outcome;
+a compatibility-skipped participant emits no gap rows. Ecosystem and
+OpenTelemetry evidence form one grouped prerequisite outcome, so malformed
+participant metadata fails that grouped unit. Grouped failures leave successful
+rows renderable, emit one warning per affected library and reason, and make the
 command incomplete with a nonzero exit code. Direct `library` and package
 `--library` remain single-assembly controls.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
-gates grouping, correlation, provenance, and retained-generation reuse.
+and `Create_PartitionsNonNetFrameworkFolders` gate framework partitioning.
+`Create_PartitionsSameFrameworkAcrossAssetContexts` gates package asset context
+partitioning. Together they gate correlation, provenance, and
+retained-generation reuse.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
 gates participant-at-a-time retention.
+`PackageIntegrationsWorkspaceTests.OpportunityDemand_UsesTheStreamingParticipantSnapshot`
+gates typed dependent-query execution before release.
 `PackageIntegrationsWorkspaceTests.UnreadablePreflight_DoesNotFallBackToPathInspection`
 gates terminal failure for unreadable managed participants.
 `PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
 and
-`PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
+`PackageIntegrationsWorkspaceTests.IntegrationRejection_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
 `PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
 and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition-owned

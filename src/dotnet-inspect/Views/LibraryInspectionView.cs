@@ -199,6 +199,40 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
+    public bool HasSourceLinkDiagnostics =>
+        _data.SourceLinkMap?.HasDiagnostics == true;
+
+    [MarkoutSection(
+        Name = SectionNames.SourceLinkDiagnostics,
+        ShowWhenProperty = nameof(HasSourceLinkDiagnostics))]
+    public List<SourceLinkDiagnosticRow>? SourceLinkDiagnosticsSection
+    {
+        get
+        {
+            if (!HasSourceLinkDiagnostics || _data.SourceLinkMap is not { } map)
+                return null;
+
+            List<SourceLinkDiagnosticRow> rows = [];
+            if (map.Error is { } error)
+            {
+                rows.Add(new SourceLinkDiagnosticRow(
+                    "Map error",
+                    null,
+                    error));
+            }
+
+            rows.AddRange(
+                (map.RejectedKeys ?? [])
+                    .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
+                    .Select(key => new SourceLinkDiagnosticRow(
+                        "Rejected mapping",
+                        key,
+                        "entry does not conform to the SourceLink document-map schema")));
+            return rows;
+        }
+    }
+
+    [MarkoutIgnore]
     public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
 
     [MarkoutSection(Name = "P/Invoke Methods", ShowWhenProperty = nameof(HasPInvokeMethods))]
@@ -1643,6 +1677,21 @@ public record AuditSignalRow(
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+}
+
+[MarkoutSerializable]
+public record SourceLinkDiagnosticRow(
+    string Kind,
+    string? Document,
+    string Detail)
+{
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    [MarkoutSkipNull]
+    public string? Document { get; init; } = LibraryViewText.Contain(Document);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Detail { get; init; } = LibraryViewText.Contain(Detail);
 }
 
 [MarkoutSerializable]
