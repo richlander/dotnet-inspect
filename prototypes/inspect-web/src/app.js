@@ -6060,7 +6060,8 @@ async function renderTypeGraph() {
 }
 
 function navigateToTypeByName(fullName) {
-  const target = state.package.types.find(candidate => candidate.id === fullName);
+  const target = state.package.types.find(candidate =>
+    (candidate.queryId ?? candidate.id) === fullName);
   if (!target) return;
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
@@ -6083,7 +6084,8 @@ function navigateToTypeByName(fullName) {
 // included (with an accessibility filter), so only types in OTHER assemblies
 // remain unbrowsable.
 function typeIsNavigable(fullName) {
-  return !!state.package && state.package.types.some(candidate => candidate.id === fullName);
+  return !!state.package && state.package.types.some(candidate =>
+    (candidate.queryId ?? candidate.id) === fullName);
 }
 
 // Render a related-type chip: an active button when it resolves to a browsable
@@ -7782,6 +7784,8 @@ async function restoreWorkspaceFromLocation(
   state.home = false;
   state.loading = true;
   state.error = "";
+  state.packages = [];
+  state.package = null;
   render();
   const target = {
     id: loc.package,

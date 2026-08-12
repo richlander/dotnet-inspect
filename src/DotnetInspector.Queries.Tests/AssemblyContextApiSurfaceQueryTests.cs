@@ -16,27 +16,49 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextApiSurfaceQueryTests
 {
     [Fact]
-    public void MetadataTypeIdentity_DistinguishesNestedAndNamespaceQualifiedTypes()
+    public void MetadataTypeIdentity_PreservesStructuredSegments()
     {
+        MetadataTypeDefinitionName nestedName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Outer", "Inner"]))
+            .Name;
+        MetadataTypeDefinitionName topLevelName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Outer+Inner"]))
+            .Name;
         var nested = new ApiType
         {
             Namespace = "Sample",
             Name = "Outer.Inner",
             MetadataName = "Outer+Inner",
+            DefinitionName = nestedName,
         };
         var topLevel = new ApiType
         {
-            Namespace = "Sample.Outer",
-            Name = "Inner",
-            MetadataName = "Inner",
+            Namespace = "Sample",
+            Name = "Outer+Inner",
+            MetadataName = "Outer+Inner",
+            DefinitionName = topLevelName,
         };
 
         Assert.Equal(
             "Sample.Outer+Inner",
             AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(nested));
         Assert.Equal(
-            "Sample.Outer.Inner",
+            @"Sample.Outer\+Inner",
             AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(topLevel));
+        Assert.Equal(
+            @"Sample\\Tools.Outer\.Name+Inner\+Name",
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        @"Sample\Tools",
+                        ["Outer.Name", "Inner+Name"]))
+                .Name
+                .ToEscapedFullName());
     }
 
     [Fact]

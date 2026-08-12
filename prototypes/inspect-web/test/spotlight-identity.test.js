@@ -278,6 +278,9 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /deepLink: deep,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
+  assert.match(
+    appSource,
+    /state\.packages = \[\];\s+state\.package = null;\s+render\(\);/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

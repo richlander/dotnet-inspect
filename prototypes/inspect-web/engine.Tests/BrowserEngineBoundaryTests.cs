@@ -304,19 +304,46 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void SurfaceProjection_UsesExactMetadataTypeIdentityForBrowserKeys()
     {
+        MetadataTypeDefinitionName nestedName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Outer", "Inner"]))
+            .Name;
         var type = new ApiType
         {
             Namespace = "Sample",
             Name = "Outer.Inner",
             MetadataName = "Outer+Inner",
+            DefinitionName = nestedName,
             Kind = "class",
         };
 
         BrowserTypeSurface projected = BrowserSurfaceProjection.Type(type, "Sample.dll");
 
         Assert.Equal("Sample.Outer+Inner", projected.Id);
-        Assert.Equal(projected.Id, projected.QueryId);
+        Assert.Equal("Sample.Outer.Inner", projected.QueryId);
         Assert.Equal(projected.Id, projected.MetadataId);
+
+        var literalPlus = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Outer+Inner",
+            MetadataName = "Outer+Inner",
+            DefinitionName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Outer+Inner"]))
+                .Name,
+            Kind = "class",
+        };
+        BrowserTypeSurface projectedLiteral =
+            BrowserSurfaceProjection.Type(literalPlus, "Sample.dll");
+
+        Assert.Equal(@"Sample.Outer\+Inner", projectedLiteral.Id);
+        Assert.NotEqual(projected.Id, projectedLiteral.Id);
+        Assert.Equal("Sample.Outer+Inner", projectedLiteral.QueryId);
+        Assert.Equal(projected.MetadataId, projectedLiteral.MetadataId);
     }
 
     static string NestedDocumentation(int depth)

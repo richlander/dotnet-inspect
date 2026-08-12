@@ -229,6 +229,9 @@ public static class AssemblyContextApiSurfaceQuery
     internal static string MetadataTypeIdentity(ApiType type)
     {
         ArgumentNullException.ThrowIfNull(type);
+        if (type.DefinitionName is { } definitionName)
+            return definitionName.ToEscapedFullName();
+
         string name = type.MetadataName ?? type.Name;
         return string.IsNullOrEmpty(type.Namespace)
             ? name

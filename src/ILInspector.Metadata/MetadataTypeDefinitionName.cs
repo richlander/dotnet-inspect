@@ -75,6 +75,29 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             : $"{Namespace}.{typeName}";
     }
 
+    /// <summary>
+    /// Projects an injective text identity for browser and composition keys. Delimiters that are
+    /// literal metadata-name characters are escaped before nested segments are joined.
+    /// <c>AssemblyContextApiSurfaceQueryTests.MetadataTypeIdentity_PreservesStructuredSegments</c>
+    /// gates the segment-boundary and literal-delimiter distinction.
+    /// </summary>
+    public string ToEscapedFullName()
+    {
+        static string EscapeNamespace(string value) =>
+            value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("+", "\\+", StringComparison.Ordinal);
+        static string EscapeSegment(string value) =>
+            EscapeNamespace(value)
+                .Replace(".", "\\.", StringComparison.Ordinal);
+
+        string typeName = string.Join(
+            '+',
+            Segments.Select(EscapeSegment));
+        return Namespace.Length == 0
+            ? typeName
+            : $"{EscapeNamespace(Namespace)}.{typeName}";
+    }
+
     public static MetadataTypeDefinitionNameResult Create(
         string? @namespace,
         ImmutableArray<string> segments)
