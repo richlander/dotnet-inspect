@@ -680,6 +680,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 SignatureHeader = signature.Header.RawValue,
                 RequiredParameterCount =
                     signature.RequiredParameterCount,
+                IsVirtualDispatchOpen =
+                    DispatchCanTargetOverride(
+                        typeDef,
+                        methodDef),
             };
 
             var body =
@@ -921,8 +925,19 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             SignatureHeader = signatureHeader,
             RequiredParameterCount = requiredParameterCount,
+            IsVirtualDispatchOpen =
+                DispatchCanTargetOverride(
+                    _reader.GetTypeDefinition(typeHandle),
+                    methodDef),
         };
     }
+
+    static bool DispatchCanTargetOverride(
+        TypeDefinition declaringType,
+        MethodDefinition method) =>
+        (method.Attributes & MethodAttributes.Virtual) != 0
+        && (method.Attributes & MethodAttributes.Final) == 0
+        && (declaringType.Attributes & TypeAttributes.Sealed) == 0;
 
     ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
     {
