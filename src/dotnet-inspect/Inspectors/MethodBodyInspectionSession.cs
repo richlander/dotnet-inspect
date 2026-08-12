@@ -189,7 +189,7 @@ public sealed class MethodBodyInspectionSession
         Analysis.CallTreeNode tree =
             BodyIndex.BuildCallerTree(methodToken, scope);
         diagnostics = scope.Diagnostics;
-        return WithoutGraphEvidence(tree);
+        return scope.Detach(tree);
     }
 
     internal Analysis.CallTreeNode CallerTree(
@@ -241,19 +241,8 @@ public sealed class MethodBodyInspectionSession
         Analysis.CallTreeNode tree =
             BodyIndex.BuildCallTree(methodToken, scope);
         diagnostics = scope.Diagnostics;
-        return WithoutGraphEvidence(tree);
+        return scope.Detach(tree);
     }
-
-    static Analysis.CallTreeNode WithoutGraphEvidence(
-        Analysis.CallTreeNode node) =>
-        node with
-        {
-            GraphEvidence = null,
-            Children =
-            [
-                .. node.Children.Select(WithoutGraphEvidence),
-            ],
-        };
 
     internal static Analysis.CatalogCallGraphScope CreateCallGraphScope(
         IReadOnlyList<MethodBodyInspectionSession> sessions)

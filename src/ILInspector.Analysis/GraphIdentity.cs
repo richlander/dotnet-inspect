@@ -22,6 +22,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
 
     GraphNodeStorageKey(
         AssemblyAcquisitionRegistration source,
+        AssemblyReferenceIdentity assemblyIdentity,
         Guid moduleVersionId,
         GraphNodeStorageKind kind,
         int methodToken,
@@ -29,6 +30,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
         int operandToken)
     {
         _source = source;
+        AssemblyIdentity = assemblyIdentity;
         ModuleVersionId = moduleVersionId;
         Kind = kind;
         MethodToken = methodToken;
@@ -36,6 +38,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
         OperandToken = operandToken;
     }
 
+    internal AssemblyReferenceIdentity AssemblyIdentity { get; }
     public Guid ModuleVersionId { get; }
     public GraphNodeStorageKind Kind { get; }
     public int MethodToken { get; }
@@ -48,6 +51,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
         int methodToken) =>
         new(
             source.Registration,
+            source.Identity,
             moduleVersionId,
             GraphNodeStorageKind.Definition,
             methodToken,
@@ -60,6 +64,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
         DirectCall call) =>
         new(
             source.Registration,
+            source.Identity,
             moduleVersionId,
             GraphNodeStorageKind.CallSite,
             call.Caller.MetadataToken,
@@ -93,6 +98,8 @@ public enum GraphNodeIdentityKind
 {
     Storage,
     CatalogCorrespondence,
+    ArtifactMember,
+    DetachedCatalog,
     Structural,
 }
 
@@ -120,6 +127,27 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
         CatalogMemberJoinKey correspondence) =>
         new(GraphNodeIdentityKind.CatalogCorrespondence, correspondence);
 
+    internal static GraphNodeIdentity FromArtifactMember(
+        GraphNodeStorageKey definition)
+    {
+        if (definition.Kind != GraphNodeStorageKind.Definition)
+        {
+            throw new ArgumentException(
+                "Artifact-member identity requires definition storage.",
+                nameof(definition));
+        }
+
+        return new(
+            GraphNodeIdentityKind.ArtifactMember,
+            new ArtifactMemberKey(
+                definition.AssemblyIdentity,
+                definition.ModuleVersionId,
+                definition.MethodToken));
+    }
+
+    internal static GraphNodeIdentity CreateDetachedCatalog() =>
+        new(GraphNodeIdentityKind.DetachedCatalog, new object());
+
     internal static GraphNodeIdentity FromMember(MemberRef member) =>
         new(
             GraphNodeIdentityKind.Structural,
@@ -144,6 +172,11 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
         GraphNodeIdentity? left,
         GraphNodeIdentity? right) =>
         !Equals(left, right);
+
+    sealed record ArtifactMemberKey(
+        AssemblyReferenceIdentity AssemblyIdentity,
+        Guid ModuleVersionId,
+        int MethodToken);
 }
 
 /// <summary>How strongly a graph occurrence corresponds to other occurrences.</summary>
