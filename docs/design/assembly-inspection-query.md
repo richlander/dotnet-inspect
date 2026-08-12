@@ -357,7 +357,11 @@ image is different from a dependency candidate: after PE identity validation, ma
 AssemblyRef or ExportedType adjacency degrades only the root inventory so healthy TypeDef rows
 still extract, while the same image remains rejected when selected as a dependency.
 `CatalogExtraction_DegradesRootAdjacencyAndKeepsHealthyTypes` and
-`ResolutionCandidate_RejectsMalformedAdjacency` gate that role boundary;
+`ResolutionCandidate_RejectsMalformedAdjacency` gate that role boundary. Root and strict roles
+share one registration-scoped candidate and retained image rather than reopening independent
+generations, as gated by `RootAndStrictRegistration_ShareOneImmutableImage`; strict selection
+revalidates an already-degraded root, including cached binding replay, as gated by
+`CatalogExtraction_WhenRootIsSelectedAsDependency_UsesStrictAdjacency`;
 `MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal` gates the CLI result and exit
 status. Finally,
 `ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
@@ -391,8 +395,11 @@ resolved definition with unknown kind and typed kind-failure evidence, rather th
 failed type lookup (`TransitiveDependencyOpenFailurePreservesResolvedIdentity`), and that
 evidence survives multiple kind-authentication hops
 (`MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity`). The builder defensively
-withholds kind-incomplete resolutions from catalog promotion; this cache-hygiene property is
-not independently observable because candidate failures are memoized per registration. An
+withholds kind-incomplete resolutions from catalog promotion. The reproduced transitive
+missing-binding outcome retains typed kind-failure evidence rather than becoming a
+success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
+case. The equivalent unavailable, missing-type, and ambiguity arms are typed but remain
+unverified. An
 API surface that copies a resolved forwarded type also carries that target surface's bounded,
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
@@ -400,7 +407,9 @@ to the target image rather than appearing to address a row in the facade
 (`ApiServices_PreservesForwardedConstraintFailures`). Research change identities retain the subject assembly when available and otherwise the
 source-image identity, so equal side/token pairs from different inputs do not collapse
 (`FromApiDiff_ScopesInspectionFailureToSubjectAssembly` and
-`FromApiDiff_ScopesInspectionFailureToSourceImage`). Diff member filtering preserves the
+`FromApiDiff_ScopesInspectionFailureToSourceImage`). Dependency assembly identity also survives
+API, diff, Research, and CLI projection rather than being inferred from display text
+(`FromApiDiff_ScopesInspectionFailureToDependencyAssembly`). Diff member filtering preserves the
 failure set, document JSON/Markdown renders contained failure rows, and single-shape output
 reports an explicit incomplete-comparison diagnostic; every incomplete comparison exits
 nonzero (`FilterApiDiffByMemberTargets_PreservesInspectionFailures`,
@@ -411,9 +420,10 @@ diagnostics rather than rejected metadata rows
 (`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). True rejected-row
 failures remain visible and fatal even when a selected type or member is successfully rendered
 (`RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands`). Distinct resolution
-failures on one subject remain distinct, and type filtering reprojects the bounded visible
-failure set to retained subjects
-(`DistinctResolutionFailuresOnOneSubjectArePreserved` and
+failures on one subject remain distinct, including same-named failures from different dependency
+assemblies. Type filtering reprojects the bounded visible failure set to retained subjects
+(`DistinctResolutionFailuresOnOneSubjectArePreserved`,
+`SameNamedResolutionFailuresFromDistinctAssembliesArePreserved`, and
 `ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
