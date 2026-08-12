@@ -39,6 +39,10 @@ public static class SignatureBlobGuard
         /// param count], param count, return type, parameters.</summary>
         Method,
 
+        /// <summary>A StandAloneMethodSig used by <c>calli</c>. Unlike other method signatures,
+        /// this permits a sentinel for both managed vararg and unmanaged cdecl conventions.</summary>
+        StandaloneMethod,
+
         /// <summary>A FieldSig: header, custom-mods, type.</summary>
         Field,
 
@@ -203,10 +207,12 @@ public static class SignatureBlobGuard
             }
 
             case Kind.Method:
+            case Kind.StandaloneMethod:
                 return SeedMethodRoots(
                     ref blob,
                     work,
                     depth: 1,
+                    allowCdeclSentinel: kind == Kind.StandaloneMethod,
                     ref remainingTypeNodes);
 
             default:
@@ -218,6 +224,7 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Stack<WorkItem> work,
         int depth,
+        bool allowCdeclSentinel,
         ref int remainingTypeNodes)
     {
         var header = blob.ReadSignatureHeader();
@@ -231,7 +238,10 @@ public static class SignatureBlobGuard
         remainingTypeNodes -= paramCount + 1;
         var state = new MethodState(
             header.CallingConvention
-                == SignatureCallingConvention.VarArgs);
+                == SignatureCallingConvention.VarArgs
+            || (allowCdeclSentinel
+                && header.CallingConvention
+                    == SignatureCallingConvention.CDecl));
         for (int i = paramCount - 1; i >= 0; i--)
             work.Push(WorkItem.MethodParameter(depth, state));
         work.Push(WorkItem.Type(depth));
@@ -331,6 +341,7 @@ public static class SignatureBlobGuard
                     ref blob,
                     work,
                     depth + 1,
+                    allowCdeclSentinel: false,
                     ref remainingTypeNodes);
 
             case ElementTypeClass:

@@ -122,10 +122,11 @@ public class SignatureBlobGuardTests
         signature.WriteByte(0x41);
 
         Assert.False(GuardMethodSig(signature));
+        Assert.False(GuardStandaloneMethodSig(signature));
     }
 
     [Fact]
-    public void MidSignatureSentinel_RequiresVarArgsAndOccursOnce()
+    public void MidSignatureSentinel_RequiresApplicableVarArgConventionAndOccursOnce()
     {
         static BlobBuilder Signature(
             SignatureCallingConvention convention,
@@ -147,6 +148,14 @@ public class SignatureBlobGuardTests
             Signature(
                 SignatureCallingConvention.VarArgs,
                 repeatSentinel: false)));
+        Assert.True(GuardStandaloneMethodSig(
+            Signature(
+                SignatureCallingConvention.CDecl,
+                repeatSentinel: false)));
+        Assert.False(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.CDecl,
+                repeatSentinel: false)));
         Assert.False(GuardMethodSig(
             Signature(
                 SignatureCallingConvention.Default,
@@ -154,6 +163,10 @@ public class SignatureBlobGuardTests
         Assert.False(GuardMethodSig(
             Signature(
                 SignatureCallingConvention.VarArgs,
+                repeatSentinel: true)));
+        Assert.False(GuardStandaloneMethodSig(
+            Signature(
+                SignatureCallingConvention.CDecl,
                 repeatSentinel: true)));
     }
 
@@ -309,6 +322,15 @@ public class SignatureBlobGuardTests
     {
         var (reader, handle) = BuildStandaloneSig(sig);
         return SignatureBlobGuard.IsSafeToDecode(reader, reader.GetStandaloneSignature(handle).Signature, SignatureBlobGuard.Kind.Method);
+    }
+
+    static bool GuardStandaloneMethodSig(BlobBuilder sig)
+    {
+        var (reader, handle) = BuildStandaloneSig(sig);
+        return SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            reader.GetStandaloneSignature(handle).Signature,
+            SignatureBlobGuard.Kind.StandaloneMethod);
     }
 
     static byte[] Nested(byte wrapper, int count)
