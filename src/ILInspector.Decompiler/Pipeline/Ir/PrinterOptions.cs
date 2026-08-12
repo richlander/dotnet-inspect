@@ -108,7 +108,8 @@ public sealed record PrinterOptions
     /// ordinal member-name order by default. The compiler erases their authored
     /// order, and reordering labels within one body has no control-flow or IL
     /// consequence. Sections containing an unnamed or non-enum label retain
-    /// recovered value order.
+    /// recovered value order. Byte neutrality is enforced by
+    /// <c>ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff</c>.
     /// </summary>
     public EnumCaseLabelOrder EnumCaseLabelOrder { get; init; } = EnumCaseLabelOrder.Alphabetical;
 

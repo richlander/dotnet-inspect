@@ -656,6 +656,11 @@ body move. Sections containing an unnamed or non-enum label retain value order;
 source comments/trivia are represented by different nodes or are absent at this
 IR layer, so this constant-label printer path cannot reorder them.
 
+`ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff`
+enforces the byte-neutral claim, and
+`EnumCaseLabelOrderTests.AlphabeticalDefault_IsACompileDecompileFixedPoint`
+enforces the compile/decompile fixed point.
+
 The declared runtime oracle is silent: no `dotnet_style_*` or `csharp_style_*`
 rule governs case-label ordering. The revealed runtime source is mixed rather
 than dominant: examples exist in alphabetical, declaration/numeric, and
