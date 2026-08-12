@@ -46,6 +46,16 @@ AssertAll(
         "pull_request",
         "README.md",
         outputs,
+        reportedChangedFileCount: "1",
+        changedFileCountIsString: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
         resolutionSucceeds: false),
     "true");
 foreach ((string json, string count) in new[]
@@ -80,6 +90,11 @@ foreach ((string json, string count) in new[]
         "{\"status\":\"modified\",\"filename\":\"README.md\"}," +
         "{\"status\":\"modified\",\"filename\":\"README.md\"}" +
         "]", "2"),
+    ("[{" +
+        "\"status\":\"renamed\"," +
+        "\"previous_filename\":\"README.md\"," +
+        "\"filename\":\"README.md\"" +
+        "}]", "1"),
 })
 {
     Dictionary<string, string> malformed = RunDetection(
@@ -108,6 +123,15 @@ AssertAll(
         "pull_request",
         "README.md",
         outputs,
+        truncateRecordStream: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
         nulFileRecord: true),
     "true");
 AssertAll(
@@ -123,20 +147,23 @@ AssertAll(
     RunDetection(
         repository,
         body,
-        "pull_request",
+        "push",
         "src/dotnet-inspect/Program.cs",
         outputs,
-        failDecodeAt: 1),
+        truncatePushStream: true),
     "true");
-AssertAll(
-    RunDetection(
-        repository,
-        body,
-        "pull_request",
-        "README.md",
-        outputs,
-        failDecodeAt: 2),
-    "true");
+foreach (int decode in new[] { 1, 2, 3 })
+{
+    AssertAll(
+        RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "README.md",
+            outputs,
+            failDecodeAt: decode),
+        "true");
+}
 AssertAll(
     RunDetection(
         repository,
@@ -203,6 +230,21 @@ if (source["code"] != "true")
         $"Source canary did not select code: {FormatValues(source)}");
 }
 AssertRouting(source, selected: "shipped", notSelected: "csharpdiff");
+
+Dictionary<string, string> multipleFiles = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/dotnet-inspect/Program.cs\nREADME.md",
+    outputs);
+if (multipleFiles["code"] != "true" ||
+    multipleFiles["docs"] != "true" ||
+    multipleFiles["packaging"] != "false")
+{
+    throw new InvalidOperationException(
+        $"Distinct multi-file canary did not discriminate: " +
+        FormatValues(multipleFiles));
+}
 
 Dictionary<string, string> csharpDiff = RunDetection(
     repository,
@@ -300,14 +342,17 @@ if (renamedBuildInput["code"] != "true")
         FormatValues(renamedBuildInput));
 }
 
-string brokenGhInvocation = body.Replace(
-    "| @base64)",
-    ")",
-    StringComparison.Ordinal);
-if (brokenGhInvocation == body)
+int recordEncoding = body.IndexOf("| @json", StringComparison.Ordinal);
+int recordBase64 = recordEncoding < 0
+    ? -1
+    : body.IndexOf("| @base64", recordEncoding, StringComparison.Ordinal);
+if (recordBase64 < 0)
 {
     throw new InvalidOperationException("Could not construct the gh invocation mutation.");
 }
+string brokenGhInvocation = body.Remove(
+    recordBase64,
+    "| @base64".Length);
 
 Dictionary<string, string> brokenGh = RunDetection(
     repository,
@@ -407,10 +452,10 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         changes,
         "steps",
         "jobs.changes");
-    if (steps.Children.Count < 2)
+    if (steps.Children.Count != 5)
     {
         throw new InvalidOperationException(
-            "jobs.changes must check out the repository before detection.");
+            "jobs.changes must contain exactly the four pinned prerequisites and self-test.");
     }
 
     YamlMappingNode checkoutStep = RequireMapping(
@@ -525,13 +570,17 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "jobs.changes EVIL provenance step");
 
     if (selfTestSteps.Count != 1 ||
-        selfTestSteps[0].Index <= detectionSteps[0].Index)
+        selfTestSteps[0].Index != 4)
     {
         throw new InvalidOperationException(
             "Self-test change detection must run once after Detect changes.");
     }
 
     YamlMappingNode selfTestStep = selfTestSteps[0].Step;
+    RequireExactKeys(
+        selfTestStep,
+        ["name", "shell", "run", "env"],
+        "Self-test change detection");
     RequireScalarValue(
         selfTestStep,
         "run",
@@ -600,6 +649,10 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
     RequireAbsent(
         aggregate,
         "continue-on-error",
+        "jobs.ci-required");
+    RequireAbsent(
+        aggregate,
+        "defaults",
         "jobs.ci-required");
     YamlMappingNode aggregateEnvironment = GetRequiredMapping(
         aggregate,
@@ -694,7 +747,12 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
     YamlMappingNode check = namedSteps[requiredStepNames[0]].Step;
     RequireExactKeys(
         check,
-        ["name", "env", "run"],
+        ["name", "shell", "env", "run"],
+        "ci-required structural check");
+    RequireScalarValue(
+        check,
+        "shell",
+        "bash",
         "ci-required structural check");
     RequireExactScalarValues(
         GetRequiredMapping(
@@ -720,7 +778,12 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
     YamlMappingNode filterSelfTest = namedSteps[requiredStepNames[1]].Step;
     RequireExactKeys(
         filterSelfTest,
-        ["name", "run"],
+        ["name", "shell", "run"],
+        "ci-required result-filter self-test");
+    RequireScalarValue(
+        filterSelfTest,
+        "shell",
+        "bash",
         "ci-required result-filter self-test");
     RequireScalarSha256(
         filterSelfTest,
@@ -731,7 +794,12 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
     YamlMappingNode resultCheck = namedSteps[requiredStepNames[2]].Step;
     RequireExactKeys(
         resultCheck,
-        ["name", "env", "run"],
+        ["name", "shell", "env", "run"],
+        "ci-required result check");
+    RequireScalarValue(
+        resultCheck,
+        "shell",
+        "bash",
         "ci-required result check");
     RequireExactScalarValues(
         GetRequiredMapping(
@@ -966,13 +1034,16 @@ static Dictionary<string, string> RunDetection(
     IReadOnlyCollection<string> expectedOutputs,
     string previousFiles = "",
     string? reportedChangedFileCount = null,
+    bool changedFileCountIsString = false,
     bool resolutionSucceeds = true,
     string malformedFileRecordJson = "",
     bool objectShapedFilePage = false,
     bool nulFileRecord = false,
     bool nulPreviousFileRecord = false,
     string fileStatus = "modified",
-    int failDecodeAt = 0)
+    int failDecodeAt = 0,
+    bool truncateRecordStream = false,
+    bool truncatePushStream = false)
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
@@ -1003,24 +1074,25 @@ static Dictionary<string, string> RunDetection(
 
         const string FakeGh = """
             #!/bin/sh
+            COUNT_JQ='if ((.changed_files | type) == "number") and (.changed_files >= 0) and (.changed_files == (.changed_files | floor)) then (.changed_files | tostring) else error("invalid changed_files") end'
             if [ "$RESOLUTION_SUCCEEDS" != "true" ]; then
               exit 1
             fi
             if [ "$#" -eq 4 ] && [ "$1" = "api" ] \
                && [ "$2" = "repos/richlander/dotnet-inspect/pulls/3704" ] \
-               && [ "$3" = "--jq" ] && [ "$4" = ".changed_files" ]; then
+               && [ "$3" = "--jq" ] && [ "$4" = "$COUNT_JQ" ]; then
               if [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
-              printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
+              count=$REPORTED_CHANGED_FILE_COUNT
               elif [ -n "$MALFORMED_FILE_RECORD_JSON" ]; then
-              printf '1\n'
+              count=1
               elif [ "$NUL_FILE_RECORD" = "true" ]; then
-              printf '1\n'
+              count=1
               elif [ "$NUL_PREVIOUS_FILE_RECORD" = "true" ]; then
-              printf '1\n'
+              count=1
               elif [ -n "$PREVIOUS_FILES" ]; then
-              printf '1\n'
+              count=1
               elif [ -z "$CHANGED_FILES" ]; then
-              printf '0\n'
+              count=0
               else
               count=0
               while IFS= read -r file; do
@@ -1028,9 +1100,15 @@ static Dictionary<string, string> RunDetection(
               done <<EOF
             $CHANGED_FILES
             EOF
-              printf '%s\n' "$count"
               fi
-              exit 0
+              if [ "$CHANGED_FILE_COUNT_IS_STRING" = "true" ]; then
+                jq -cn --arg count "$count" '{changed_files: $count}' |
+                  jq -r "$4"
+              else
+                printf '{"changed_files":%s}\n' "$count" |
+                  jq -r "$4"
+              fi
+              exit $?
             fi
             if [ "$#" -eq 5 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] \
                && [ "$3" = "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
@@ -1069,8 +1147,13 @@ static Dictionary<string, string> RunDetection(
                   printf '[]\n'
                 fi
               ) || exit 1
-              printf '%s\n' "$records" | jq -r "$5"
-              exit $?
+              rendered=$(printf '%s\n' "$records" | jq -r "$5") || exit 1
+              if [ "$TRUNCATE_RECORD_STREAM" = "true" ]; then
+                printf '%s' "${rendered%?}"
+              else
+                printf '%s\n' "$rendered"
+              fi
+              exit 0
             fi
             echo "unexpected gh invocation: $*" >&2
             exit 64
@@ -1088,11 +1171,15 @@ static Dictionary<string, string> RunDetection(
                && [ "$3" = "--name-only" ] && [ "$4" = "-z" ] \
                && [ "$5" = "$EXPECTED_BEFORE" ] && [ "$6" = "$EXPECTED_SHA" ]; then
               if [ -n "$CHANGED_FILES" ]; then
-                while IFS= read -r file; do
-                  printf '%s\0' "$file"
-                done <<EOF
+                if [ "$TRUNCATE_PUSH_STREAM" = "true" ]; then
+                  printf '%s' "$CHANGED_FILES"
+                else
+                  while IFS= read -r file; do
+                    printf '%s\0' "$file"
+                  done <<EOF
             $CHANGED_FILES
             EOF
+                fi
               fi
               exit 0
             fi
@@ -1138,6 +1225,8 @@ static Dictionary<string, string> RunDetection(
         startInfo.ArgumentList.Add(standardErrorPath);
         startInfo.Environment["BASH_ENV"] = "";
         startInfo.Environment["CHANGED_FILES"] = files;
+        startInfo.Environment["CHANGED_FILE_COUNT_IS_STRING"] =
+            changedFileCountIsString.ToString().ToLowerInvariant();
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
         startInfo.Environment["EXPECTED_SHA"] = Sha;
         startInfo.Environment["FILE_STATUS"] = fileStatus;
@@ -1161,6 +1250,10 @@ static Dictionary<string, string> RunDetection(
             reportedChangedFileCount ?? "";
         startInfo.Environment["RESOLUTION_SUCCEEDS"] =
             resolutionSucceeds.ToString().ToLowerInvariant();
+        startInfo.Environment["TRUNCATE_RECORD_STREAM"] =
+            truncateRecordStream.ToString().ToLowerInvariant();
+        startInfo.Environment["TRUNCATE_PUSH_STREAM"] =
+            truncatePushStream.ToString().ToLowerInvariant();
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start Bash.");

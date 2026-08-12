@@ -217,7 +217,7 @@ jobs:
                 EXPECTED_FILES=$(
                   gh api \
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-                    --jq '.changed_files'
+                    --jq 'if ((.changed_files | type) == "number") and (.changed_files >= 0) and (.changed_files == (.changed_files | floor)) then (.changed_files | tostring) else error("invalid changed_files") end'
                 ) || exit 1
                 NON_DIGITS=${EXPECTED_FILES//[0-9]/}
                 if [ -z "$EXPECTED_FILES" ] || [ -n "$NON_DIGITS" ]; then
@@ -233,25 +233,23 @@ jobs:
                         and (.filename | length) > 0
                         and (.filename | index("\u0000")) == null
                         and (
-                          (.previous_filename? == null)
-                          or (
-                            (.previous_filename | type) == "string"
-                            and (.previous_filename | length) > 0
-                            and (.previous_filename | index("\u0000")) == null
-                          )
-                        )
-                        and (
-                          .status == "added"
-                          or .status == "removed"
-                          or .status == "modified"
-                          or .status == "copied"
-                          or .status == "changed"
-                          or .status == "unchanged"
-                          or (
+                          (
                             .status == "renamed"
                             and (.previous_filename | type) == "string"
                             and (.previous_filename | length) > 0
                             and (.previous_filename | index("\u0000")) == null
+                            and .previous_filename != .filename
+                          )
+                          or (
+                            (
+                              .status == "added"
+                              or .status == "removed"
+                              or .status == "modified"
+                              or .status == "copied"
+                              or .status == "changed"
+                              or .status == "unchanged"
+                            )
+                            and (.previous_filename? == null)
                           )
                         );
                       if type != "array" then
@@ -260,29 +258,53 @@ jobs:
                         error("pull request files response contains an invalid record")
                       else
                         .[]
-                        | ":file:" + (.filename | @base64),
-                          ([.previous_filename?, .filename][]
-                            | select(. != null)
-                            | @base64)
+                        | @json
+                        | @base64
                       end
                     '
                 ) || exit 1
                 ACTUAL_FILES=0
                 SEEN_FILES=""
-                while IFS= read -r encoded; do
-                  if [[ "$encoded" == :file:* ]]; then
-                    identity=${encoded#:file:}
-                    if printf '%s' "$SEEN_FILES" | grep -Fqx "$identity"; then
-                      exit 1
-                    else
-                      grep_status=$?
-                      if [ "$grep_status" -ne 1 ]; then
-                        exit 1
-                      fi
-                    fi
-                    SEEN_FILES="${SEEN_FILES}${identity}"$'\n'
-                    ACTUAL_FILES=$((ACTUAL_FILES + 1))
+                PATH_RECORDS=""
+                while IFS= read -r encoded_record; do
+                  if [ -z "$encoded_record" ]; then
+                    exit 1
                   fi
+                  record=$(
+                    printf '%s' "$encoded_record" | base64 --decode
+                  ) || exit 1
+                  fields=$(
+                    printf '%s' "$record" |
+                      jq -r '
+                        [.status, (.previous_filename // ""), .filename]
+                        | map(@base64)
+                        | join(":")
+                      '
+                  ) || exit 1
+                  status=${fields%%:*}
+                  remainder=${fields#*:}
+                  previous=${remainder%%:*}
+                  current=${remainder#*:}
+                  if [ -z "$status" ] || [ -z "$current" ] \
+                     || [ "$remainder" = "$fields" ] \
+                     || [ "$current" = "$remainder" ] \
+                     || [[ "$current" == *:* ]]; then
+                    exit 1
+                  fi
+                  if printf '%s' "$SEEN_FILES" | grep -Fqx "$current"; then
+                    exit 1
+                  else
+                    grep_status=$?
+                    if [ "$grep_status" -ne 1 ]; then
+                      exit 1
+                    fi
+                  fi
+                  SEEN_FILES="${SEEN_FILES}${current}"$'\n'
+                  if [ -n "$previous" ]; then
+                    PATH_RECORDS="${PATH_RECORDS}${previous}"$'\n'
+                  fi
+                  PATH_RECORDS="${PATH_RECORDS}${current}"$'\n'
+                  ACTUAL_FILES=$((ACTUAL_FILES + 1))
                 done <<< "$RECORDS"
                 # Compare the API's canonical decimal text without Bash integer
                 # coercion: an out-of-range value must fail closed, not turn the
@@ -291,14 +313,14 @@ jobs:
                   exit 1
                 fi
                 while IFS= read -r encoded; do
-                  if [ -z "$encoded" ] || [[ "$encoded" == :file:* ]]; then
+                  if [ -z "$encoded" ]; then
                     continue
                   fi
                   if ! printf '%s' "$encoded" | base64 --decode; then
                     exit 1
                   fi
                   printf '\0'
-                done <<< "$RECORDS"
+                done <<< "$PATH_RECORDS"
               } |
                 base64 -w0
             ) && [ -n "$FILES" ]; then
@@ -330,6 +352,13 @@ jobs:
             if [ -z "$DECODED_FILES" ] \
                || ! printf '%s' "$FILES" | base64 --decode > "$DECODED_FILES"; then
               RESOLVED=false
+            elif [ -s "$DECODED_FILES" ]; then
+              LAST_BYTE=$(
+                tail -c 1 "$DECODED_FILES" | od -An -t u1 | tr -d '[:space:]'
+              ) || RESOLVED=false
+              if [ "$LAST_BYTE" != "0" ]; then
+                RESOLVED=false
+              fi
             fi
           fi
           if [ "$RESOLVED" != "true" ]; then
@@ -576,10 +605,6 @@ jobs:
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
           GH_TOKEN: ${{ github.token }}
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
 
       - name: Self-test change detection
         shell: bash
@@ -1475,6 +1500,7 @@ jobs:
       # required set, and both directions fail -- a job missing from `needs`
       # and a `needs` entry naming a job that no longer exists.
       - name: Verify this gate depends on every other job
+        shell: bash
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
@@ -1547,6 +1573,7 @@ jobs:
       # This is that assertion: if the filter stops selecting bad results, this
       # step fails even when every real job is green.
       - name: Self-test the result filter
+        shell: bash
         run: |
           set -euo pipefail
           probe='{"changes":{"result":"skipped"},"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
@@ -1559,6 +1586,7 @@ jobs:
           echo "Filter discriminates correctly: [$got]"
 
       - name: Verify no required job failed or was cancelled
+        shell: bash
         env:
           # Passed through the environment rather than interpolated into the
           # script body so job outputs can never terminate the shell string.
