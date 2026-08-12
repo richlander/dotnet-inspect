@@ -185,6 +185,9 @@ public static class CommandLineBuilder
         // Find command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateFindCommand(opts));
 
+        // Body shape command
+        rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateBodyShapeCommand(opts));
+
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
 
