@@ -285,6 +285,9 @@ to entry points and outbound calls in one view), and project per-node cost with
 `--rows` selects the same ordered relationships in every rendering. Markdown
 defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
 standalone diagram, or `--markdown --mermaid` for an embedded diagram.
+When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
+`Call Graph` traverses both callers and callees across that scope; `Callers`
+retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -572,6 +575,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S C
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
+dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll -S "Call Graph" --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --tree
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --markdown --mermaid

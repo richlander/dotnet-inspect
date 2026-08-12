@@ -71,6 +71,18 @@ The projection owns everything a host must not re-invent in JavaScript:
   incomplete projections retain their unique storage identity and therefore
   cannot fabricate a join. Definitions and call sites remain separate physical
   occurrences even when correspondence collapses them onto one logical node.
+  A host that must release a catalog before projection detaches the tree through
+  `CatalogCallGraphScope.Detach`: exact occurrences with one definition retain a
+  stable assembly-identity/MVID/MethodDef identity; unresolved or indeterminate
+  joins receive a scope-local detached identity; and incomplete occurrences
+  retain their unique physical storage identity. Generation-scoped
+  correspondence is removed. Detached trees from separate scopes can therefore
+  join the same exact physical definition without collapsing different versions
+  or artifacts, while repeated unresolved occurrences remain joined within
+  their original scope. These boundaries are gated by
+  `DetachedVersionSkewedDefinitionsRemainDistinct`,
+  `DetachedRepeatedExternalOccurrencesStayJoined`, and
+  `DetachedArtifactIdentityIgnoresAcquisitionRegistration`.
   Generic recursion, constructed `MethodSpec` calls, varargs, modifiers,
   function pointers, instance/static shape, member kind, generic arity,
   parameters, and return types follow `CatalogMemberCorrespondencePlan`.
@@ -203,8 +215,14 @@ roots directly or projects them with
 bindings to a different identity of the primary assembly, distilled before any
 temporary catalog scope is released. A host can therefore disclose those
 boundaries without retaining generation-bound graph evidence or rebuilding the
-graph. The exact binding remains exact graph identity; the diagnostic does not
-join one assembly version to another.
+graph. The CLI's direction-specific scopes also detach their trees before
+release, preserving physical evidence and safe exact or scope-local identity
+while dropping generation-scoped correspondence. The exact binding remains
+exact graph identity; the diagnostic does not join one assembly version to
+another. If either direction is scoped, the CLI builds the other direction in
+a target-only catalog rather than mixing a detached tree with an evidence-free
+local tree; `CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped` gates
+that projection never falls back to structural identity and collapses versions.
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library
