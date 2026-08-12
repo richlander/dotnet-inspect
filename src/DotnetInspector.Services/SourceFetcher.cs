@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
-using SLF = SourceLinkFetch;
 
 namespace DotnetInspector.Services;
 
@@ -10,7 +9,7 @@ internal enum SourceFetchFailureKind
 {
     InvalidUrl,
     Unavailable,
-    AttributedOriginChanged,
+    AttributedOriginUnverified,
     ValidationFailed,
 }
 
@@ -26,6 +25,7 @@ public class SourceFetcher(HttpClient httpClient)
     private readonly ConcurrentDictionary<string, byte[]> _byteMemoryCache = new();
     private readonly HttpClient _httpClient = httpClient;
     private const string ByteCacheCategory = "source-bytes-v2";
+    internal const long MaxSourceDownloadSize = 16_000_000;
 
     /// <summary>
     /// Fetches exact source bytes and returns them only when they satisfy
@@ -97,33 +97,24 @@ public class SourceFetcher(HttpClient httpClient)
 
         try
         {
-            using var response = await HttpRetryHelper.GetWithRetryAsync(
+            HttpRetryHelper.HttpBodyFetchResult fetch =
+                await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                 _httpClient,
                 url,
+                response => SourceFetchOriginValidator.Validate(
+                    url,
+                    response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
                 cancellationToken: cancellationToken,
                 trafficKind: NetworkTrafficKind.SourceFetch,
-                completionOption: HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            if (response is null)
-                return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
-
-            string? finalUrl = response.RequestMessage?.RequestUri?.AbsoluteUri;
-            if (finalUrl is null
-                || !SLF.SourceLinkProvenance.ValidateFetchOrigin(url, finalUrl).IsAllowed)
+                maxDownloadSize: MaxSourceDownloadSize).ConfigureAwait(false);
+            if (fetch.Status == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
             {
                 return new SourceFetchBytesResult(
                     null,
-                    SourceFetchFailureKind.AttributedOriginChanged);
+                    SourceFetchFailureKind.AttributedOriginUnverified);
             }
-
-            const long MaxDownloadSize = 500_000_000;
-            if (response.Content.Headers.ContentLength is > MaxDownloadSize)
-            {
-                throw new InvalidOperationException(
-                    $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
-            }
-
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken)
-                .ConfigureAwait(false);
+            if (fetch.Bytes is not { } bytes)
+                return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
 
             if (!validator(bytes))
                 return new SourceFetchBytesResult(null, SourceFetchFailureKind.ValidationFailed);

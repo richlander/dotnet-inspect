@@ -84,12 +84,9 @@ public static class AuthoredSourceAcquisition
 
         var documentComplete = (FindingInspection<SourceDocumentObservation>.Complete)
             documentInspection.Value;
-        var document = documentComplete.Findings
-            .Select(static finding => finding.Payload)
-            .FirstOrDefault(candidate => string.Equals(
-                candidate.CanonicalPath,
-                mapping.CanonicalPath,
-                StringComparison.OrdinalIgnoreCase));
+        var document = SelectMappedDocument(
+            mapping,
+            documentComplete.Findings.Select(static finding => finding.Payload));
         if (document is null)
             return Absent("The selected member's source document is not in the portable PDB.");
         if (document.ChecksumAlgorithm is not { Length: > 0 }
@@ -149,12 +146,37 @@ public static class AuthoredSourceAcquisition
 
             return Failed(
                 subject,
-                fetch.Failure == SourceFetchFailureKind.AttributedOriginChanged
-                    ? "The SourceLink fetch left the attributed source origin."
+                fetch.Failure == SourceFetchFailureKind.AttributedOriginUnverified
+                    ? "Could not verify the final SourceLink response origin."
                     : "Could not fetch authored source.");
         }
 
         return FromContent(mapping, document, fetch.Bytes, methodName, subject);
+    }
+
+    internal static SourceDocumentObservation? SelectMappedDocument(
+        MemberSourceObservation mapping,
+        IEnumerable<SourceDocumentObservation> documents)
+    {
+        SourceDocumentObservation? match = null;
+        foreach (SourceDocumentObservation candidate in documents)
+        {
+            if (candidate.DocumentRowId != mapping.DocumentRowId
+                || !string.Equals(
+                    candidate.OriginalPath,
+                    mapping.OriginalPath,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (match is not null)
+                return null;
+
+            match = candidate;
+        }
+
+        return match;
     }
 
     public static async Task<VerifiedSourceTextResult> FetchVerifiedSourceTextAsync(
@@ -186,8 +208,8 @@ public static class AuthoredSourceAcquisition
                 null,
                 fetch.Failure switch
                 {
-                    SourceFetchFailureKind.AttributedOriginChanged =>
-                        "The SourceLink fetch left the attributed source origin.",
+                    SourceFetchFailureKind.AttributedOriginUnverified =>
+                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched source does not match the portable-PDB checksum.",
                     _ => "Could not fetch SourceLink source.",

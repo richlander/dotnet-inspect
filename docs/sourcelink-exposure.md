@@ -211,6 +211,12 @@ requested URL has an attributable SourceLink origin, the final URL must name the
 same host, repository, and revision. The response body is then used only when it
 matches the portable-PDB checksum. Availability and integrity audits apply the
 same final-origin rule before recording reachability or reading content.
+Browser/Wasm cannot report the final URL after an automatic redirect, so
+attributed SourceLink fetches fail closed on that platform; checksum-verified
+URLs outside the known provenance grammars remain available. Header-first body
+reads retain the untrusted-fetch timeout and enforce the download cap against
+decoded bytes even when the server omits `Content-Length`. Each source body is
+capped at 16 MB.
 
 The section pipeline lowers selected SourceLink sections to typed query demand:
 

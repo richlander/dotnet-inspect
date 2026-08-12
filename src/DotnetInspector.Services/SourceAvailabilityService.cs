@@ -3,7 +3,6 @@ using System.Collections.Immutable;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
-using SLF = SourceLinkFetch;
 
 namespace DotnetInspector.Services;
 
@@ -116,8 +115,7 @@ public static class SourceAvailabilityService
                     using var response = result.Response;
                     string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
                     bool originPreserved = response is not null
-                        && finalUrl is not null
-                        && SLF.SourceLinkProvenance.ValidateFetchOrigin(
+                        && SourceFetchOriginValidator.Validate(
                             document.ResolvedUrl!,
                             finalUrl).IsAllowed;
                     if (originPreserved)
@@ -134,7 +132,7 @@ public static class SourceAvailabilityService
                         if (response is not null)
                         {
                             log?.Invoke(
-                                "Source fetch left the attributed source origin.");
+                                "Could not verify the final SourceLink response origin.");
                         }
                         else if (result.IsNotFound)
                         {

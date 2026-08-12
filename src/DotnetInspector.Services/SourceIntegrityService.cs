@@ -3,7 +3,6 @@ using System.Collections.Immutable;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
-using SLF = SourceLinkFetch;
 
 namespace DotnetInspector.Services;
 
@@ -102,38 +101,33 @@ public static class SourceIntegrityService
                     byte[]? body;
                     try
                     {
-                        using var response = await HttpRetryHelper.GetWithRetryAsync(
-                            httpClient,
-                            document.ResolvedUrl!,
-                            log: null,
-                            cancellationToken: ct,
-                            trafficKind: NetworkTrafficKind.SourceIntegrity,
-                            completionOption: HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-                        string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
-                        if (response is null)
-                        {
-                            body = null;
-                        }
-                        else if (finalUrl is null
-                            || !SLF.SourceLinkProvenance.ValidateFetchOrigin(
+                        HttpRetryHelper.HttpBodyFetchResult fetch =
+                            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                                httpClient,
                                 document.ResolvedUrl!,
-                                finalUrl).IsAllowed)
+                                response => SourceFetchOriginValidator.Validate(
+                                    document.ResolvedUrl!,
+                                    response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
+                                log: null,
+                                cancellationToken: ct,
+                                trafficKind: NetworkTrafficKind.SourceIntegrity,
+                                maxDownloadSize: SourceFetcher.MaxSourceDownloadSize)
+                                .ConfigureAwait(false);
+                        if (fetch.Status
+                            == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
                         {
                             log?.Invoke(
-                                "Source integrity fetch left the attributed source origin.");
+                                "Could not verify the final SourceLink response origin.");
                             body = null;
+                        }
+                        else if (fetch.Bytes is { } bytes)
+                        {
+                            body = bytes;
                         }
                         else
                         {
-                            const long MaxDownloadSize = 500_000_000;
-                            if (response.Content.Headers.ContentLength is > MaxDownloadSize)
-                            {
-                                throw new InvalidOperationException(
-                                    $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
-                            }
-
-                            body = await response.Content.ReadAsByteArrayAsync(ct)
-                                .ConfigureAwait(false);
+                            log?.Invoke("Source integrity fetch failed.");
+                            body = null;
                         }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)

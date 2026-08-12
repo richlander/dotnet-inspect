@@ -187,6 +187,34 @@ public class SourceLinkQueryServiceTests
         Assert.DoesNotContain(logs, message => message.Contains("https://", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void BrowserTransport_FailsClosedOnlyForAttributedSourceUrls()
+    {
+        const string Attributed =
+            "https://raw.githubusercontent.com/dotnet/runtime/"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs";
+        const string Unattributed = "https://example.test/source.cs";
+
+        SourceLinkFetch.SourceLinkFetchOriginResult attributed =
+            SourceFetchOriginValidator.Validate(
+                Attributed,
+                Attributed,
+                finalUrlReliable: false);
+        SourceLinkFetch.SourceLinkFetchOriginResult unattributed =
+            SourceFetchOriginValidator.Validate(
+                Unattributed,
+                Unattributed,
+                finalUrlReliable: false);
+
+        Assert.Equal(
+            SourceLinkFetch.SourceLinkFetchOriginStatus.Changed,
+            attributed.Status);
+        Assert.Equal(
+            SourceLinkFetch.SourceLinkFetchOriginStatus.Unattributed,
+            unattributed.Status);
+        Assert.True(unattributed.IsAllowed);
+    }
+
     private static SourceDocumentObservation Document(
         string path,
         SourceDocumentStorage storage = SourceDocumentStorage.SourceLink,

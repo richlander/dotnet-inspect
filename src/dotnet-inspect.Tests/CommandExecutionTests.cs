@@ -6668,7 +6668,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("left the attributed source origin", error);
+            Assert.Contains("Could not verify the final SourceLink response origin", error);
             Assert.DoesNotContain("spsprodeus27", error);
         }
         finally

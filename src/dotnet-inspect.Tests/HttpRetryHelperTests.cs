@@ -143,4 +143,231 @@ public class HttpRetryHelperTests
     {
         Assert.Equal(3, HttpRetryHelper.DefaultRetryCount);
     }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody()
+    {
+        var handler = new StallingBodyHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(25),
+        };
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                retryCount: 1,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Unavailable, result.Status);
+        Assert.Null(result.Bytes);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes()
+    {
+        using var client = new HttpClient(new ByteHandler("123456789"u8.ToArray()));
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                maxDownloadSize: 8,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.TooLarge, result.Status);
+        Assert.Null(result.Bytes);
+    }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_RetriesAMidBodyIoFailure()
+    {
+        var handler = new RetryingBodyHandler("complete"u8.ToArray());
+        using var client = new HttpClient(handler);
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                retryCount: 1,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Success, result.Status);
+        Assert.Equal("complete"u8.ToArray(), result.Bytes);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    sealed class StallingBodyHandler : HttpMessageHandler
+    {
+        int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new StallingStream()),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    sealed class ByteHandler(byte[] body) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new NonSeekableStream(body)),
+                RequestMessage = request,
+            });
+    }
+
+    sealed class RetryingBodyHandler(byte[] successfulBody) : HttpMessageHandler
+    {
+        int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            int attempt = Interlocked.Increment(ref _requestCount);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    attempt == 1
+                        ? new FailingBodyStream()
+                        : new NonSeekableStream(successfulBody)),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    sealed class StallingStream : Stream
+    {
+        bool _sentByte;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_sentByte)
+            {
+                _sentByte = true;
+                buffer.Span[0] = (byte)'x';
+                return 1;
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    sealed class FailingBodyStream : Stream
+    {
+        bool _sentByte;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_sentByte)
+                throw new IOException("mid-body failure");
+
+            _sentByte = true;
+            buffer.Span[0] = (byte)'x';
+            return ValueTask.FromResult(1);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    sealed class NonSeekableStream(byte[] body) : Stream
+    {
+        int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int count = Math.Min(buffer.Length, body.Length - _position);
+            if (count == 0)
+                return ValueTask.FromResult(0);
+
+            body.AsMemory(_position, count).CopyTo(buffer);
+            _position += count;
+            return ValueTask.FromResult(count);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
 }

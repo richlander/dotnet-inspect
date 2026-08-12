@@ -292,6 +292,38 @@ public class AuthoredSourceAcquisitionTests
             finding => finding.Payload.Contains("Preceding", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated()
+    {
+        byte[] firstContent = "first"u8.ToArray();
+        byte[] secondContent = "second"u8.ToArray();
+        var first = Document(firstContent);
+        var second = Document(secondContent) with { DocumentRowId = 2 };
+        var mapping = Mapping() with { DocumentRowId = 2 };
+
+        SourceDocumentObservation? selected =
+            AuthoredSourceAcquisition.SelectMappedDocument(
+                mapping,
+                [first, second]);
+
+        Assert.Same(second, selected);
+    }
+
+    [Fact]
+    public void SelectMappedDocument_RejectsAMismatchedRowPathPair()
+    {
+        var mapping = Mapping() with { DocumentRowId = 2 };
+        var document = Document("content"u8.ToArray()) with
+        {
+            DocumentRowId = 2,
+            OriginalPath = "/_/Other.cs",
+        };
+
+        Assert.Null(AuthoredSourceAcquisition.SelectMappedDocument(
+            mapping,
+            [document]));
+    }
+
     static MemberSourceObservation DestructorMapping(
         string memberName, int startLine, int endLine, bool isFinalizer)
         => new(

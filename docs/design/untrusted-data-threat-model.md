@@ -600,9 +600,16 @@ type=text/html; charset=utf-8
 origin tuple from the requested URL with the tuple read from
 `HttpResponseMessage.RequestMessage.RequestUri`. A final URL with no
 attributable origin, or one naming another repository or revision, is rejected
-before its body is read or cached. URLs outside the known provenance grammars
-remain fetchable because no repository is reported for them; checksum
-verification remains their content-authenticity boundary.
+before its body is read or cached. Browser/Wasm's HTTP transport does not expose
+the final URL after an automatic redirect, so attributed SourceLink fetches fail
+closed there; unattributed URLs remain fetchable because no repository is
+reported for them, and checksum verification remains their
+content-authenticity boundary.
+
+Header-first source fetches keep the untrusted-fetch timeout active through the
+body read, retry transient mid-body failures, and count decoded bytes against
+the download limit even when `Content-Length` is absent or describes compressed
+content. Source bodies are capped at 16 MB each, including decoded bytes.
 
 Every product consumer that renders or derives output from fetched source now
 uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. Original Source,
@@ -614,6 +621,14 @@ reachability or reading bytes. The source-byte, availability, and integrity
 cache categories were versioned when this rule landed, so entries created
 without final-origin evidence cannot satisfy the new path.
 
+Checksum evidence follows the portable-PDB document row rather than a display
+or canonical path. Direct member, type, and IL-offset projections join on row
+identity and verify the authored path; path-only heuristic projections attach a
+checksum only when that path names one document row. This is gated by
+`AuthoredSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+`...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
+`MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
+
 The fetch-origin grammar is gated by
 `SourceLinkProvenanceTests.FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin`,
 `...FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository`, and
@@ -622,7 +637,11 @@ exercises the response boundary, pre-fix cache invalidation, and the
 availability/integrity projections in
 `AuthoredSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
+`HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
+`...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
+`...HeaderFirstBodyRead_RetriesAMidBodyIoFailure`,
 `SourceLinkQueryServiceTests.Availability_DoesNotCountCrossOriginRedirectAsReachable`,
+`...BrowserTransport_FailsClosedOnlyForAttributedSourceUrls`,
 and
 `...Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect`.
 
