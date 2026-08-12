@@ -4,11 +4,33 @@ This document describes the NuGet APIs used by `dotnet-inspect` for fetching pac
 
 ## Service Index
 
-All NuGet API endpoints are discovered via the service index:
+NuGet API endpoints are discovered from each configured source's V3 service index. NuGet.org's
+index is the default only when source resolution selects it:
 
 ```text
 https://api.nuget.org/v3/index.json
 ```
+
+Package source mapping and acquisition-derived producer restrictions are applied before metadata
+discovery. Sources are considered in configured order. A lower source is consulted only after
+the higher source's registration and flat-container resources authoritatively report that the
+package version is absent; an unreadable or metadata-incapable higher source produces no metadata
+rather than borrowing another feed's answer.
+
+Metadata cache entries include the canonical source identity, so equal package coordinates from
+different feeds cannot share aggregate metadata. The filesystem-derived package inspection cache
+uses the same producer identity for the same reason.
+
+Endpoints on the explicitly configured feed origin use the feed client and its scoped credentials.
+That exact host and port may resolve to private addresses; redirects and cross-origin connections
+must resolve entirely to public addresses. These guarded clients connect directly rather than
+through an ambient HTTP proxy, whose endpoint would hide the redirect destination from the
+address check. Cross-origin URLs discovered from service-index, catalog, or vulnerability data
+never receive feed credentials.
+
+Equivalent endpoints at the selected capability version are tried in service-index order,
+including after malformed successful responses. Failed vulnerability endpoints do not create a
+clean cache entry; the next request retries them.
 
 ## APIs Used
 
@@ -16,7 +38,9 @@ https://api.nuget.org/v3/index.json
 
 **Purpose:** Version-specific package metadata (what the NuGet client uses for restore)
 
-**Endpoint:** `https://api.nuget.org/v3/registration5-semver1/{id-lower}/{version-lower}.json`
+**Service type:** `RegistrationsBaseUrl/*`
+
+**Request:** `{registration-base}/{id-lower}/{version-lower}.json`
 
 **Fields returned:**
 
@@ -30,15 +54,19 @@ https://api.nuget.org/v3/index.json
 
 **Notes:**
 
-- This is static Azure Blob storage (fast, cacheable)
+- Feeds may omit this optional resource
+- When capability versions differ, the highest advertised version is used; equivalent endpoints
+  at that version are tried in advertised order
 - Does NOT include: deprecation, downloads, owners, verified status
-- The `catalogEntry` is a URL, not embedded data
+- The `catalogEntry` may be a URL or an embedded object
 
 ### 2. Search API
 
 **Purpose:** Package discovery and aggregate metadata (what nuget.org website uses)
 
-**Endpoint:** `https://azuresearch-usnc.nuget.org/query?q=packageid:{id}&take=1`
+**Service type:** `SearchQueryService/*`
+
+**Request:** `{search-endpoint}?q={id}&skip={offset}&take=20&prerelease=true&semVerLevel=2.0.0`
 
 **Fields returned:**
 
@@ -59,7 +87,8 @@ https://api.nuget.org/v3/index.json
 
 **Notes:**
 
-- Backed by Azure Search (dynamic, always current)
+- Feed implementations vary; aggregate fields that are absent remain unavailable
+- Results are paged until the exact package ID is found or 1,000 candidates have been examined
 - Best source for: deprecation, downloads, verified status, owners
 - Returns data for latest version only (not version-specific deprecation)
 
@@ -67,7 +96,7 @@ https://api.nuget.org/v3/index.json
 
 **Purpose:** Security vulnerability data for all packages
 
-**Index:** `https://api.nuget.org/v3/vulnerabilities/index.json`
+**Service type:** `VulnerabilityInfo/*`
 
 **Structure:**
 
@@ -108,6 +137,7 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 **Notes:**
 
 - Must check if package version falls within affected range
+- Many private feeds do not advertise vulnerability data
 - Advisory URL typically points to GitHub Security Advisory (GHSA)
 - To get CVE ID, fetch the GHSA from GitHub Advisory API
 
@@ -115,9 +145,14 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 
 **Purpose:** Package content and version listing
 
-**Version list:** `https://api.nuget.org/v3-flatcontainer/{id-lower}/index.json`
+**Service type:** `PackageBaseAddress/*`
 
-**Package download:** `https://api.nuget.org/v3-flatcontainer/{id-lower}/{version-lower}/{id-lower}.{version-lower}.nupkg`
+**Version list:** `{package-base}/{id-lower}/index.json`
+
+**Package download:** `{package-base}/{id-lower}/{version-lower}/{id-lower}.{version-lower}.nupkg`
+
+**Metadata probe:** the package download URL is requested with `Range: bytes=0-0`; the
+response establishes package existence and reports package size without downloading the body.
 
 **Notes:**
 
@@ -176,9 +211,10 @@ NuGet supports two levels of deprecation:
 
 **Access pattern for version-specific deprecation:**
 
-1. Fetch Registration API: `https://api.nuget.org/v3/registration5-semver1/{package}/{version}.json`
-2. Extract `catalogEntry` URL from response
-3. Fetch catalog entry to get `deprecation` field
+1. Discover `RegistrationsBaseUrl/*` from the selected source's service index
+2. Fetch `{registration-base}/{package}/{version}.json`
+3. Extract `catalogEntry` URL from response
+4. Fetch catalog entry to get `deprecation` field
 
 The Search API only returns deprecation for the latest version, so it won't show deprecation for older versions of actively maintained packages.
 

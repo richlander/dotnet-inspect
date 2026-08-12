@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using DotnetInspector.Packages;
 
@@ -145,6 +146,38 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
+    public async Task GetWithRetryResultAsync_NonRangeRequestBuffersWithinRetryOperation()
+    {
+        using var client = new HttpClient(new ThrowingContentHandler());
+
+        HttpRetryHelper.HttpRetryResult result =
+            await HttpRetryHelper.GetWithRetryResultAsync(
+                client,
+                "https://feed.example/index.json",
+                retryCount: 0,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task GetWithRetryResultAsync_RangeRequestReturnsAfterHeaders()
+    {
+        using var client = new HttpClient(new ThrowingContentHandler());
+
+        HttpRetryHelper.HttpRetryResult result =
+            await HttpRetryHelper.GetWithRetryResultAsync(
+                client,
+                "https://feed.example/package.nupkg",
+                retryCount: 0,
+                cancellationToken: TestContext.Current.CancellationToken,
+                range: new RangeHeaderValue(0, 0));
+
+        using HttpResponseMessage? response = result.Response;
+        Assert.NotNull(response);
+    }
+
+    [Fact]
     public async Task HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody()
     {
         var handler = new StallingBodyHandler();
@@ -200,6 +233,31 @@ public class HttpRetryHelperTests
         Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Success, result.Status);
         Assert.Equal("complete"u8.ToArray(), result.Bytes);
         Assert.Equal(2, handler.RequestCount);
+    }
+
+    private sealed class ThrowingContentHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ThrowingContent(),
+            });
+    }
+
+    private sealed class ThrowingContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+            => Task.FromException(new HttpRequestException("Broken response body."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     sealed class StallingBodyHandler : HttpMessageHandler

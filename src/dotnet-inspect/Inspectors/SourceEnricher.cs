@@ -24,7 +24,8 @@ internal static class SourceEnricher
         string? packageName, string? packageVersion,
         bool isPlatformAssembly, Action<string>? log,
         bool cacheOnly = false,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default)
         => await PdbAcquisitionService.AcquireAsync(
             context,
             httpClient,
@@ -33,7 +34,8 @@ internal static class SourceEnricher
             isPlatformAssembly,
             log,
             cacheOnly,
-            sourceOptions).ConfigureAwait(false);
+            sourceOptions,
+            cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Acquires symbols using the provenance of the descriptor that supplied the
@@ -45,14 +47,16 @@ internal static class SourceEnricher
         HttpClient httpClient,
         Action<string>? log,
         bool cacheOnly = false,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default)
         => PdbAcquisitionService.AcquireAsync(
             context,
             assembly,
             httpClient,
             log,
             cacheOnly,
-            sourceOptions);
+            sourceOptions,
+            cancellationToken);
 
     // ===== Verbosity-Aware Enrichment Gateways =====
 

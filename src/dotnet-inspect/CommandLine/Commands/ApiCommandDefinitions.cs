@@ -188,18 +188,18 @@ public static class ApiCommandDefinitions
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var binOption = new Option<string[]>("--bin")
         {
-            Description = "Scan output directory(s) for inbound callers of the selected member (Callers section). Can repeat.",
+            Description = "Scan output directory(s) for cross-assembly callers and Call Graph traversal. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
         binOption.Aliases.Add("--directory");
         var callerProjectOption = new Option<string[]>("--project")
         {
-            Description = "Source: restored project.assets.json context when no other source is supplied; also scans restored dependencies for inbound callers. Can repeat.",
+            Description = "Source: restored project.assets.json context when no other source is supplied; also scans restored dependencies for callers and Call Graph traversal. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
         var callerPackageOption = new Option<string[]>("--caller-package")
         {
-            Description = "Download and scan package(s) for inbound callers (Callers section). Can repeat.",
+            Description = "Download and scan package(s) for cross-assembly callers and Call Graph traversal. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
         var repoOption = new Option<string[]>("--repo")

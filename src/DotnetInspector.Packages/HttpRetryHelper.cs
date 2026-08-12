@@ -213,7 +213,6 @@ public static class HttpRetryHelper
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <param name="auth">Optional authentication header for authenticated feeds</param>
-    /// <param name="completionOption">When the operation completes relative to reading the response body</param>
     /// <returns>Response if successful, null if failed or not found</returns>
     public static async Task<HttpResponseMessage?> GetWithRetryAsync(
         HttpClient client,
@@ -222,8 +221,7 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
-        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
         var result = await GetWithRetryResultAsync(
             client,
@@ -232,8 +230,7 @@ public static class HttpRetryHelper
             log,
             cancellationToken,
             auth,
-            trafficKind,
-            completionOption).ConfigureAwait(false);
+            trafficKind).ConfigureAwait(false);
         return result.Response;
     }
 
@@ -248,7 +245,7 @@ public static class HttpRetryHelper
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
-        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
+        RangeHeaderValue? range = null)
     {
         return ExecuteWithRetryAsync(
             ct =>
@@ -256,7 +253,13 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
-                return client.SendAsync(request, completionOption, ct);
+                request.Headers.Range = range;
+                return range is null
+                    ? client.SendAsync(request, ct)
+                    : client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        ct);
             },
             url,
             "GET",
