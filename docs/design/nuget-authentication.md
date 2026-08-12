@@ -447,9 +447,11 @@ segment, which is the organization. Organizations therefore acquire independentl
 organization's configured service-index URL and Azure's project/feed-GUID endpoint aliases reuse
 the same credential.
 
-When an automatic redirect ends in an authentication challenge, credential acquisition and
-replay follow the effective request that received the challenge, not the original request.
-This prevents a redirecting origin from receiving credentials requested by another authority.
+When an automatic redirect ends in an authentication challenge, credential acquisition remains
+scoped to the caller-selected source URI and the retry starts again from that URI. A redirect
+target cannot choose the plugin query, credential cache slot, replay destination, or successful
+response body. This also matches feed authentication behavior: once the original source receives
+valid credentials, it can serve the requested resource instead of redirecting to sign-in.
 
 ## Tests
 
@@ -463,8 +465,8 @@ Two tiers, in `src/NuGetFetch.Tests`:
     directory tree and `PATH`.
   - `PluginAuthenticationHandlerTests` pins the 401 loop: retry bound, `IsRetry` progression,
     origin scoping for ordinary hosts, organization scoping and GUID-alias reuse for Azure
-    Artifacts, redirect challenge scoping, 403 opt-in, and that an existing credential is not
-    overwritten.
+    Artifacts, redirect isolation from credential scope and returned content, 403 opt-in, and that
+    an existing credential is not overwritten.
   - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
     the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
     and shutdown are exercised end to end rather than mocked.

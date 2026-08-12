@@ -140,40 +140,46 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
-    public async Task RedirectedChallengeAcquiresForAndReplaysTheEffectiveUri()
+    public async Task RedirectedChallengeAcquiresForAndReplaysTheOriginalSource()
     {
         var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
-        var transport = new RedirectedChallengeTransport();
+        var transport = new RedirectedSourceTransport();
         using var client = Client(source, transport);
 
         using HttpResponseMessage response = await client.GetAsync(
-            "http://origin.example/index.json",
+            "https://feed.example/resource",
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(
-            ["https://challenger.example/private/index.json"],
+            "REAL-RESOURCE",
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "https://feed.example/resource",
+            response.RequestMessage?.RequestUri?.AbsoluteUri);
+        Assert.Equal(
+            ["https://feed.example/resource"],
             source.Uris.Select(uri => uri.AbsoluteUri));
         Assert.Equal(
             [
-                ("http://origin.example/index.json", (string?)null),
-                ("https://challenger.example/private/index.json", Basic("user", "token").Parameter),
+                ("https://feed.example/resource", (string?)null),
+                ("https://feed.example/resource", Basic("user", "token").Parameter),
             ],
             transport.Requests);
     }
 
     [Fact]
-    public async Task RedirectedChallengeReusesTheCachedEffectiveCredential()
+    public async Task RedirectedChallengeReusesTheOriginalSourcesCachedCredential()
     {
         var source = new OneShotCredentialSource();
-        var transport = new RedirectedChallengeTransport();
+        var transport = new RedirectedSourceTransport();
         using var client = Client(source, transport);
 
         using HttpResponseMessage first = await client.GetAsync(
-            "http://origin.example/index.json",
+            "https://feed.example/resource",
             TestContext.Current.CancellationToken);
         using HttpResponseMessage second = await client.GetAsync(
-            "http://origin.example/index.json",
+            "https://feed.example/resource",
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
@@ -181,62 +187,35 @@ public sealed class PluginAuthenticationHandlerTests
         Assert.Equal(1, source.Calls);
         Assert.Equal(
             [
-                ("http://origin.example/index.json", (string?)null),
-                ("https://challenger.example/private/index.json", Basic("user", "token").Parameter),
-                ("http://origin.example/index.json", (string?)null),
-                ("https://challenger.example/private/index.json", Basic("user", "token").Parameter),
+                ("https://feed.example/resource", (string?)null),
+                ("https://feed.example/resource", Basic("user", "token").Parameter),
+                ("https://feed.example/resource", Basic("user", "token").Parameter),
             ],
             transport.Requests);
     }
 
     [Fact]
-    public async Task SameOriginRedirectReplaysACachedCredentialStrippedInTransit()
+    public async Task RedirectTargetCannotChooseCredentialScopeOrSuccessfulBody()
     {
-        var source = new OneShotCredentialSource();
-        var transport = new SameOriginRedirectChallengeTransport();
-        using var client = Client(source, transport);
-
-        using HttpResponseMessage warm = await client.GetAsync(
-            "https://feed.example/private",
-            TestContext.Current.CancellationToken);
-        using HttpResponseMessage redirected = await client.GetAsync(
-            "https://feed.example/start",
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(HttpStatusCode.OK, warm.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, redirected.StatusCode);
-        Assert.Equal(1, source.Calls);
-        Assert.Equal(
-            [
-                ("https://feed.example/private", (string?)null),
-                ("https://feed.example/private", Basic("user", "token").Parameter),
-                ("https://feed.example/start", Basic("user", "token").Parameter),
-                ("https://feed.example/private", Basic("user", "token").Parameter),
-            ],
-            transport.Requests);
-    }
-
-    [Fact]
-    public async Task SameOriginRedirectReplaysARefreshedCredentialStrippedInTransit()
-    {
-        var source = new RotatingCredentialSource();
-        var transport = new RefreshThenRedirectTransport();
+        var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
+        var transport = new CrossOriginRedirectSourceTransport();
         using var client = Client(source, transport);
 
         using HttpResponseMessage response = await client.GetAsync(
-            "https://feed.example/start",
+            "https://origin.example/resource",
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(2, source.Calls);
         Assert.Equal(
-            [
-                ("https://feed.example/start", (string?)null),
-                ("https://feed.example/start", Basic("user", "stale").Parameter),
-                ("https://feed.example/start", Basic("user", "fresh").Parameter),
-                ("https://feed.example/private", Basic("user", "fresh").Parameter),
-            ],
-            transport.Requests);
+            "REAL-RESOURCE",
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            ["https://origin.example/resource"],
+            source.Uris.Select(uri => uri.AbsoluteUri));
+        Assert.DoesNotContain(
+            transport.Requests,
+            entry => entry.Uri == "https://challenger.example/login"
+                && entry.Authorization is not null);
     }
 
     [Fact]
@@ -582,30 +561,6 @@ public sealed class PluginAuthenticationHandlerTests
         }
     }
 
-    private sealed class RotatingCredentialSource : ICredentialSource
-    {
-        private int _calls;
-
-        public bool HasCredentialSources => true;
-
-        public int Calls => _calls;
-
-        public Task<PackageSourceCredential?> GetCredentialsAsync(
-            Uri uri,
-            bool isRetry,
-            CancellationToken cancellationToken)
-        {
-            int call = Interlocked.Increment(ref _calls);
-            return Task.FromResult<PackageSourceCredential?>(
-                call switch
-                {
-                    1 => new PackageSourceCredential("user", "stale"),
-                    2 => new PackageSourceCredential("user", "fresh"),
-                    _ => null,
-                });
-        }
-    }
-
     /// <summary>A transport whose reply is a pure function of the request's Authorization header.</summary>
     private sealed class ScriptedTransport(Func<HttpRequestHeaders, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -626,7 +581,35 @@ public sealed class PluginAuthenticationHandlerTests
         }
     }
 
-    private sealed class RedirectedChallengeTransport : HttpMessageHandler
+    private sealed class RedirectedSourceTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
+
+            if (request.Headers.Authorization is null)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = new HttpRequestMessage(
+                        request.Method,
+                        "https://feed.example/challenge"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent("REAL-RESOURCE"),
+            });
+        }
+    }
+
+    private sealed class CrossOriginRedirectSourceTransport : HttpMessageHandler
     {
         public List<(string Uri, string? Authorization)> Requests { get; } = [];
 
@@ -639,13 +622,26 @@ public sealed class PluginAuthenticationHandlerTests
             if (string.Equals(
                     request.RequestUri.Host,
                     "origin.example",
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal)
+                && request.Headers.Authorization is null)
             {
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
                 {
                     RequestMessage = new HttpRequestMessage(
                         request.Method,
-                        "https://challenger.example/private/index.json"),
+                        "https://challenger.example/login"),
+                });
+            }
+
+            if (string.Equals(
+                    request.RequestUri.Host,
+                    "origin.example",
+                    StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = request,
+                    Content = new StringContent("REAL-RESOURCE"),
                 });
             }
 
@@ -655,74 +651,7 @@ public sealed class PluginAuthenticationHandlerTests
                     : HttpStatusCode.OK)
             {
                 RequestMessage = request,
-            });
-        }
-    }
-
-    private sealed class SameOriginRedirectChallengeTransport : HttpMessageHandler
-    {
-        public List<(string Uri, string? Authorization)> Requests { get; } = [];
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
-
-            if (request.RequestUri.AbsolutePath == "/start")
-            {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
-                {
-                    RequestMessage = new HttpRequestMessage(
-                        request.Method,
-                        "https://feed.example/private"),
-                });
-            }
-
-            return Task.FromResult(new HttpResponseMessage(
-                request.Headers.Authorization is null
-                    ? HttpStatusCode.Unauthorized
-                    : HttpStatusCode.OK)
-            {
-                RequestMessage = request,
-            });
-        }
-    }
-
-    private sealed class RefreshThenRedirectTransport : HttpMessageHandler
-    {
-        public List<(string Uri, string? Authorization)> Requests { get; } = [];
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            string? authorization = request.Headers.Authorization?.Parameter;
-            Requests.Add((request.RequestUri!.AbsoluteUri, authorization));
-
-            if (request.RequestUri.AbsolutePath == "/start"
-                && string.Equals(
-                    authorization,
-                    Basic("user", "fresh").Parameter,
-                    StringComparison.Ordinal))
-            {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
-                {
-                    RequestMessage = new HttpRequestMessage(
-                        request.Method,
-                        "https://feed.example/private"),
-                });
-            }
-
-            bool succeeds = request.RequestUri.AbsolutePath == "/private"
-                && string.Equals(
-                    authorization,
-                    Basic("user", "fresh").Parameter,
-                    StringComparison.Ordinal);
-            return Task.FromResult(new HttpResponseMessage(
-                succeeds ? HttpStatusCode.OK : HttpStatusCode.Unauthorized)
-            {
-                RequestMessage = request,
+                Content = new StringContent("LOGIN-PAGE"),
             });
         }
     }
