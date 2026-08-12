@@ -25,8 +25,8 @@ dnx dotnet-inspect -y -- <command>
 | Find rendered body syntax | `body-shape ObjectCreationExpression --library path/to.dll`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
-| Inspect packages | `package Foo -D` discovers effective package evidence; bare `-S` is conservative, while `-S @Package` requests the complete package-native lens. Load `skill private-feeds` for authenticated/custom sources. |
-| Inspect libraries | `library Foo -D` is a cheap target-aware catalog; add `--effective` to run full probes. Bare `-S` is conservative; load `skill metadata` for raw ECMA-335 tables/heaps. |
+| Inspect packages | `package Foo -D` discovers effective package evidence; bare `-S` returns high-value fixed-length sections, while `-S @Package` requests the complete package-native lens. Load `skill private-feeds` for authenticated/custom sources. |
+| Inspect libraries | `library Foo -D` is a cheap target-aware catalog; add `--effective` to run full probes. Bare `-S` returns high-value fixed-length sections; load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
 
 ## Member lookup
@@ -44,7 +44,7 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 
 ## Tips
 
-- Default output is Markdown. `package -D` is effective for a target; `library -D` is a cheap orientation gesture, while named/category discovery is structural unless `--effective` is added. Bare `-S` keeps only effective, fixed-size, network-free base evidence. For the full query model, load `dotnet-inspect skill query`.
+- Default output is Markdown. `package -D` is effective for a target; `library -D` is a cheap orientation gesture, while named/category discovery is structural unless `--effective` is added. Bare `-S` returns high-value, fixed-length, network-free base sections. For the full query model, load `dotnet-inspect skill query`.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.

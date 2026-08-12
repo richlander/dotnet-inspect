@@ -92,11 +92,12 @@ nuspec, README, and skill-file family. Other commands expose categories such as
 member `@Source`; `Switches` is a section. There are no user-facing `@All`,
 `@Default`, or `@Hidden` categories.
 
-Bare `-S` is deliberately conservative on package and library: it renders only
-effective, fixed-size, network-free base sections. `-S --count` returns their
-count map, including zero rows. Explicit sections/categories override base
-scope and may authorize expensive work. Focused selection omits identity;
-include `Package Info` or `Library Info` when needed.
+Bare `-S` returns high-value, fixed-length, network-free sections from the
+package or library base categories. Sections without evidence are omitted.
+`-S --count` returns the candidate count map, including zero rows. Explicit
+sections/categories override base scope and may authorize expensive work.
+Focused selection omits identity; include `Package Info` or `Library Info` when
+needed.
 
 Some large families expose only their category door in the top-level catalog.
 Use `library X -D @Performance` or `-D @Metadata`; add `--effective` for
