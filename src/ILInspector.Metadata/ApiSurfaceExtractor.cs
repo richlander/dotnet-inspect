@@ -100,20 +100,23 @@ public static class ApiSurfaceExtractor
                 subjectAssembly);
         }
 
-        foreach (MetadataTypeNameFailure resolutionFailure
-            in constraintResolution.Plan.ResolutionFailures)
+        foreach (TypeParameterKindClassifier.ResolutionPlan
+            .ResolutionFailureEntry resolutionFailure
+            in constraintResolution.Plan.ResolutionFailureEntries)
         {
             TrackConstraintResolutionFailure(
                 surface,
-                resolutionFailure,
-                subjectAssembly);
+                resolutionFailure.Failure,
+                subjectAssembly,
+                resolutionFailure.DependencyAssembly);
         }
     }
 
     static void TrackConstraintResolutionFailure(
         ApiSurface surface,
         MetadataTypeNameFailure failure,
-        AssemblyReferenceIdentity subjectAssembly)
+        AssemblyReferenceIdentity subjectAssembly,
+        AssemblyReferenceIdentity? dependencyAssembly = null)
     {
         var projected = new ApiSurfaceInspectionFailure(
             ApiSurface.ConstraintResolutionOperation,
@@ -121,7 +124,8 @@ public static class ApiSurfaceExtractor
             failure.Mechanism,
             failure.Kind,
             failure.Detail,
-            subjectAssembly);
+            subjectAssembly,
+            dependencyAssembly);
         var subject = new ApiSurfaceInspectionSubject(
             SourceAssemblyPath: null,
             projected.SubjectToken);

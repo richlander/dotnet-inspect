@@ -102,6 +102,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     readonly Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
         _rootEntriesByRegistration =
             new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
+        _sharedEntriesByRegistration =
+            new(ReferenceEqualityComparer.Instance);
     readonly HashSet<AssemblyAcquisitionRegistration> _registrations =
         new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyCandidateId, CandidateEntry> _entriesById = [];
@@ -178,18 +181,23 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             }
             else
             {
-                var id = new AssemblyCandidateId(Guid.NewGuid());
-                var candidate = new ResolvedAssemblyCandidate(
-                    CatalogId,
-                    id,
-                    assembly);
-                entry = new CandidateEntry(
-                    this,
-                    candidate,
-                    allowRootAdjacencyDegradation);
+                if (!_sharedEntriesByRegistration.TryGetValue(
+                        assembly.Registration,
+                        out entry!))
+                {
+                    var id = new AssemblyCandidateId(Guid.NewGuid());
+                    var candidate = new ResolvedAssemblyCandidate(
+                        CatalogId,
+                        id,
+                        assembly);
+                    entry = new CandidateEntry(this, candidate);
+                    _sharedEntriesByRegistration.Add(
+                        assembly.Registration,
+                        entry);
+                    _registrations.Add(assembly.Registration);
+                    _entriesById.Add(id, entry);
+                }
                 entries.Add(assembly.Registration, entry);
-                _registrations.Add(assembly.Registration);
-                _entriesById.Add(id, entry);
             }
 
             _activeOperations++;
@@ -197,7 +205,18 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
         try
         {
-            return entry.Inventory.Value;
+            CandidateRegistrationResult result = entry.Inventory.Value;
+            if (!allowRootAdjacencyDegradation
+                && result is CandidateRegistrationResult.Ready
+                {
+                    InventoryFailure: { } failure,
+                } ready)
+            {
+                return new CandidateRegistrationResult.Rejected(
+                    ready.Candidate.Assembly,
+                    failure);
+            }
+            return result;
         }
         finally
         {
@@ -292,15 +311,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     ex is BadImageFormatException
                         or ArgumentOutOfRangeException)
                 {
-                    if (!entry.AllowRootAdjacencyDegradation)
-                    {
-                        return RejectInvalid(
-                            entry,
-                            "The selected image has an invalid AssemblyRef row.");
-                    }
-
                     entry.RecordRootAdjacencyFailure(
-                        "The root image has an invalid AssemblyRef row.");
+                        "The selected image has an invalid AssemblyRef row.");
                 }
             }
 
@@ -324,15 +336,10 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                                 out EntityHandle terminal,
                                 out _))
                     {
-                        if (!entry.AllowRootAdjacencyDegradation)
-                        {
-                            return RejectInvalid(
-                                entry,
-                                "The selected image has an invalid ExportedType relationship.");
-                        }
-
                         // Root extraction diagnoses this ExportedType row from
                         // the retained session; only adjacency discovery skips it.
+                        entry.RecordRootAdjacencyFailure(
+                            "The selected image has an invalid ExportedType relationship.");
                         continue;
                     }
 
@@ -340,15 +347,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     {
                         if (!reader.GetExportedType(rootToLeaf[0]).IsForwarder)
                         {
-                            if (!entry.AllowRootAdjacencyDegradation)
-                            {
-                                return RejectInvalid(
-                                    entry,
-                                    "An AssemblyRef-terminated ExportedType chain is not a forwarder.");
-                            }
-
                             entry.RecordRootAdjacencyFailure(
-                                "The root image has an AssemblyRef-terminated "
+                                "The selected image has an AssemblyRef-terminated "
                                     + "ExportedType chain that is not a forwarder.");
                             continue;
                         }
@@ -371,30 +371,20 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     }
                     else if (terminal.Kind != HandleKind.AssemblyFile)
                     {
-                        if (!entry.AllowRootAdjacencyDegradation)
-                        {
-                            return RejectInvalid(
-                                entry,
-                                "The selected image has an unsupported ExportedType terminal.");
-                        }
-
                         // Root extraction diagnoses this ExportedType row from
                         // the retained session; only adjacency discovery skips it.
+                        entry.RecordRootAdjacencyFailure(
+                            "The selected image has an unsupported ExportedType terminal.");
                     }
                 }
                 catch (Exception ex) when (
                     ex is BadImageFormatException
                         or ArgumentOutOfRangeException)
                 {
-                    if (!entry.AllowRootAdjacencyDegradation)
-                    {
-                        return RejectInvalid(
-                            entry,
-                            "The selected image has an invalid ExportedType row.");
-                    }
-
                     // Root extraction diagnoses this ExportedType row from the
                     // retained session; only adjacency discovery skips it.
+                    entry.RecordRootAdjacencyFailure(
+                        "The selected image has an invalid ExportedType row.");
                 }
             }
 
@@ -593,16 +583,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             while (_activeOperations != 0)
                 Monitor.Wait(_gate);
 
-            foreach (CandidateEntry entry in _entriesByRegistration.Values)
-            {
-                if (entry.Session.IsValueCreated
-                    && entry.Session.Value is CandidateSessionResult.Ready ready)
-                {
-                    sessions.Add(ready.Session);
-                }
-            }
             foreach (CandidateEntry entry
-                in _rootEntriesByRegistration.Values)
+                in _sharedEntriesByRegistration.Values)
             {
                 if (entry.Session.IsValueCreated
                     && entry.Session.Value
@@ -621,12 +603,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     {
         internal CandidateEntry(
             InspectionAcquisitionPlan owner,
-            ResolvedAssemblyCandidate candidate,
-            bool allowRootAdjacencyDegradation)
+            ResolvedAssemblyCandidate candidate)
         {
             Candidate = candidate;
-            AllowRootAdjacencyDegradation =
-                allowRootAdjacencyDegradation;
             Inventory = new Lazy<CandidateRegistrationResult>(
                 () => owner.ReadInventory(this),
                 LazyThreadSafetyMode.ExecutionAndPublication);
@@ -634,9 +613,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 () => owner.OpenSessionCore(this),
                 LazyThreadSafetyMode.ExecutionAndPublication);
         }
-
         internal ResolvedAssemblyCandidate Candidate { get; }
-        internal bool AllowRootAdjacencyDegradation { get; }
         internal CandidateOpenFailure? RootAdjacencyFailure { get; private set; }
         internal Lazy<CandidateRegistrationResult> Inventory { get; }
         internal Lazy<CandidateSessionResult> Session { get; }

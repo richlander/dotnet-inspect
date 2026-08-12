@@ -414,7 +414,11 @@ public static class DiffOutputFormatter
                             failure.Mechanism.ToString(),
                             failure.Kind,
                             CSharpIdentifier.ContainRenderedText(
-                                failure.Detail))),
+                                failure.Detail),
+                            failure.DependencyAssembly is null
+                                ? null
+                                : AssemblyIdentityDisplay(
+                                    failure.DependencyAssembly))),
             ];
 
     /// <summary>

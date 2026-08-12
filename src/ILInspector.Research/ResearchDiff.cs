@@ -342,6 +342,14 @@ public static class ResearchDiff
             failure.SubjectAssembly is null
                 ? null
                 : AssemblyIdentityDisplay(failure.SubjectAssembly);
+        string? dependencyKey =
+            failure.DependencyAssembly is null
+                ? null
+                : AssemblyIdentityKey(failure.DependencyAssembly);
+        string? dependencyDisplay =
+            failure.DependencyAssembly is null
+                ? null
+                : AssemblyIdentityDisplay(failure.DependencyAssembly);
         string? sourcePathKey =
             failure.SourceAssemblyPath is null
                 ? null
@@ -355,6 +363,18 @@ public static class ResearchDiff
         string? scopeKey = assemblyKey ?? sourcePathKey;
         string? scopeDisplay =
             assemblyDisplay ?? sourceDisplay;
+        string subjectKey =
+            scopeKey is null
+                ? $"api:{failure.Side}:{token}"
+                : $"api:{failure.Side}:{scopeKey}:{token}";
+        if (dependencyKey is not null)
+            subjectKey += $":dependency:{dependencyKey}";
+        string subjectDisplay =
+            scopeDisplay is null
+                ? $"{failure.Side} metadata {token}"
+                : $"{failure.Side} metadata {scopeDisplay} {token}";
+        if (dependencyDisplay is not null)
+            subjectDisplay += $" via {dependencyDisplay}";
         string detail = (scopeDisplay is null
                 ? $"{failure.Operation}: "
                 : $"{failure.Operation} in {scopeDisplay}: ")
@@ -362,12 +382,8 @@ public static class ResearchDiff
         return new ResearchChange(
             new ResearchSubjectKey(
                 ResearchSubjectKind.Type,
-                scopeKey is null
-                    ? $"api:{failure.Side}:{token}"
-                    : $"api:{failure.Side}:{scopeKey}:{token}",
-                scopeDisplay is null
-                    ? $"{failure.Side} metadata {token}"
-                    : $"{failure.Side} metadata {scopeDisplay} {token}"),
+                subjectKey,
+                subjectDisplay),
             ResearchChangeMechanism.Api,
             Descriptor(
                 "api.identity-resolution-failure",

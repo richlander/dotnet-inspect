@@ -404,6 +404,84 @@ public abstract class TypeResolutionFailure
         public CandidateOpenFailure Failure { get; }
     }
 
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind had no binding.
+    /// </summary>
+    public sealed class KindDependencyUnbound : TypeResolutionFailure
+    {
+        internal KindDependencyUnbound(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope)
+        {
+            Target = target;
+            Origin = origin;
+            Scope = scope;
+        }
+
+        public AssemblyBindingTarget Target { get; }
+        public AssemblyBindingOrigin Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind was unavailable.
+    /// </summary>
+    public sealed class KindDependencyUnavailable : TypeResolutionFailure
+    {
+        internal KindDependencyUnavailable(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope,
+            AssemblyBindingFailure failure)
+        {
+            Target = target;
+            Origin = origin;
+            Scope = scope;
+            Failure = failure;
+        }
+
+        public AssemblyBindingTarget Target { get; }
+        public AssemblyBindingOrigin Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
+        public AssemblyBindingFailure Failure { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind had no matching
+    /// type definition.
+    /// </summary>
+    public sealed class KindDependencyTypeNotFound : TypeResolutionFailure
+    {
+        internal KindDependencyTypeNotFound(
+            ResolvedAssemblyCandidate assembly,
+            MetadataTypeDefinitionName type)
+        {
+            Assembly = assembly;
+            Type = type;
+        }
+
+        public ResolvedAssemblyCandidate Assembly { get; }
+        public MetadataTypeDefinitionName Type { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind was ambiguous.
+    /// </summary>
+    public sealed class KindDependencyAmbiguous : TypeResolutionFailure
+    {
+        internal KindDependencyAmbiguous(
+            TypeResolutionAmbiguity ambiguity,
+            MetadataTypeDefinitionName type)
+        {
+            Ambiguity = ambiguity;
+            Type = type;
+        }
+
+        public TypeResolutionAmbiguity Ambiguity { get; }
+        public MetadataTypeDefinitionName Type { get; }
+    }
+
     /// <summary>Discovery exceeded the configured candidate budget.</summary>
     public sealed class DiscoveryBudgetExceeded : TypeResolutionFailure
     {

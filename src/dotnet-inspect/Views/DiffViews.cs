@@ -165,7 +165,8 @@ public record DiffInspectionFailureRow(
     string Subject,
     string Mechanism,
     string Kind,
-    string Detail)
+    string Detail,
+    string? DependencyAssembly = null)
 {
     public string Side { get; init; } =
         CSharpIdentifier.ContainRenderedText(Side);
@@ -181,6 +182,12 @@ public record DiffInspectionFailureRow(
         CSharpIdentifier.ContainRenderedText(Kind);
     public string Detail { get; init; } =
         CSharpIdentifier.ContainRenderedText(Detail);
+    [MarkoutSkipNull]
+    public string? DependencyAssembly { get; init; } =
+        DependencyAssembly is null
+            ? null
+            : CSharpIdentifier.ContainRenderedText(
+                DependencyAssembly);
 }
 
 [MarkoutSerializable(

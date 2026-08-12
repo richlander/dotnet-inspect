@@ -54,7 +54,12 @@ internal static class TypeParameterKindClassifier
                 int SubjectToken),
             ConstraintClass> _resolvedClasses = [];
         readonly List<MetadataTypeNameFailure> _resolutionFailures = [];
-        readonly HashSet<(int SubjectToken, string Detail)>
+        readonly List<ResolutionFailureEntry>
+            _resolutionFailureEvidence = [];
+        readonly HashSet<(
+            int SubjectToken,
+            TypeResolutionManifestKey? Request,
+            string Detail)>
             _resolutionFailureKeys = [];
         readonly List<MetadataTypeNameFailure> _requestBudgetFailures = [];
         readonly HashSet<int> _requestBudgetFailureSubjects = [];
@@ -89,6 +94,12 @@ internal static class TypeParameterKindClassifier
             RequestBudgetFailures => _requestBudgetFailures;
         internal IReadOnlyList<MetadataTypeNameFailure>
             ResolutionFailures => _resolutionFailures;
+        internal IReadOnlyList<ResolutionFailureEntry>
+            ResolutionFailureEntries => _resolutionFailureEvidence;
+
+        internal sealed record ResolutionFailureEntry(
+            MetadataTypeNameFailure Failure,
+            AssemblyReferenceIdentity? DependencyAssembly);
 
         internal RequestCheckpoint Checkpoint() =>
             new(
@@ -287,7 +298,10 @@ internal static class TypeParameterKindClassifier
                 }
                 else
                 {
-                    RecordResolutionFailure(subject, kindFailure);
+                    RecordResolutionFailure(
+                        subject,
+                        kindFailure,
+                        request);
                 }
             }
 
@@ -299,7 +313,8 @@ internal static class TypeParameterKindClassifier
                     "A generic-constraint dependency resolved with generic "
                         + $"arity {resolved.Definition.GenericParameterCount}, "
                         + "but the constraint uses arity "
-                        + $"{dependency.GenericArgumentCount}.");
+                        + $"{dependency.GenericArgumentCount}.",
+                    request);
                 return ConstraintClass.Unreadable;
             }
 
@@ -346,7 +361,10 @@ internal static class TypeParameterKindClassifier
                 }
                 else
                 {
-                    RecordResolutionFailure(handle, kindFailure);
+                    RecordResolutionFailure(
+                        handle,
+                        kindFailure,
+                        request);
                 }
             }
 
@@ -357,7 +375,8 @@ internal static class TypeParameterKindClassifier
                     handle,
                     "A generic-constraint dependency resolved with generic "
                         + $"arity {definition.GenericParameterCount}, but "
-                        + $"the constraint uses arity {expected}.");
+                        + $"the constraint uses arity {expected}.",
+                    request);
                 return ConstraintClass.Unreadable;
             }
 
@@ -401,34 +420,39 @@ internal static class TypeParameterKindClassifier
                 case TypeResolutionOutcome.Rejected rejected:
                     RecordResolutionFailure(
                         handle,
-                        rejected.Failure);
+                        rejected.Failure,
+                        request);
                     break;
                 case TypeResolutionOutcome.Unavailable unavailable:
                     RecordResolutionFailure(
                         handle,
                         "A generic-constraint dependency assembly was "
-                            + $"unavailable: '{unavailable.Failure.Kind}'.");
+                            + $"unavailable: '{unavailable.Failure.Kind}'.",
+                        request);
                     break;
                 case TypeResolutionOutcome.NotFound:
                     RecordResolutionFailure(
                         handle,
                         $"Generic-constraint dependency "
                             + $"'{request.Type.ToMetadataFullName()}' "
-                            + "was not found.");
+                            + "was not found.",
+                        request);
                     break;
                 case TypeResolutionOutcome.UnboundBinding:
                     RecordResolutionFailure(
                         handle,
                         $"Generic-constraint dependency "
                             + $"'{request.Type.ToMetadataFullName()}' "
-                            + "could not be bound to an acquired assembly.");
+                            + "could not be bound to an acquired assembly.",
+                        request);
                     break;
                 case TypeResolutionOutcome.Ambiguous:
                     RecordResolutionFailure(
                         handle,
                         $"Generic-constraint dependency "
                             + $"'{request.Type.ToMetadataFullName()}' "
-                            + "resolved ambiguously.");
+                            + "resolved ambiguously.",
+                        request);
                     break;
             }
         }
@@ -467,7 +491,8 @@ internal static class TypeParameterKindClassifier
 
         void RecordResolutionFailure(
             EntityHandle handle,
-            TypeResolutionFailure failure)
+            TypeResolutionFailure failure,
+            TypeResolutionRequest? request = null)
         {
             string detail = failure switch
             {
@@ -497,30 +522,105 @@ internal static class TypeParameterKindClassifier
                 TypeResolutionFailure.InvalidBindingPolicy invalid =>
                     "The generic-constraint binding policy returned "
                         + $"'{invalid.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyUnbound =>
+                    "A transitive generic-constraint dependency could not "
+                        + "be bound to an acquired assembly.",
+                TypeResolutionFailure.KindDependencyUnavailable unavailable =>
+                    "A transitive generic-constraint dependency assembly "
+                        + $"was unavailable: '{unavailable.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyTypeNotFound notFound =>
+                    "Transitive generic-constraint dependency "
+                        + $"'{notFound.Type.ToMetadataFullName()}' was not "
+                        + "found.",
+                TypeResolutionFailure.KindDependencyAmbiguous ambiguous =>
+                    "Transitive generic-constraint dependency "
+                        + $"'{ambiguous.Type.ToMetadataFullName()}' resolved "
+                        + "ambiguously.",
                 TypeResolutionFailure.PlanExpansionRequired =>
                     "A generic-constraint dependency was absent from the "
                         + "frozen type-resolution plan.",
                 _ => "Generic-constraint resolution was rejected.",
             };
-            RecordResolutionFailure(handle, detail);
+            RecordResolutionFailure(handle, detail, request, failure);
         }
 
         void RecordResolutionFailure(
             EntityHandle handle,
-            string detail)
+            string detail,
+            TypeResolutionRequest? request = null,
+            TypeResolutionFailure? failure = null)
         {
             int subjectToken = handle.IsNil
                 ? 0
                 : MetadataTokens.GetToken(handle);
+            TypeResolutionManifestKey? requestKey = request is null
+                ? null
+                : TypeResolutionManifestKey.From(request);
+            AssemblyReferenceIdentity? dependencyAssembly =
+                GetDependencyAssembly(request, failure);
+            if (dependencyAssembly is not null)
+            {
+                detail += " Dependency assembly: "
+                    + $"'{dependencyAssembly.Name}'.";
+            }
             if (!_resolutionFailureKeys.Add(
-                    (subjectToken, detail)))
+                    (subjectToken, requestKey, detail)))
                 return;
 
-            _resolutionFailures.Add(
+            MetadataTypeNameFailure projected =
                 MetadataTypeNameFailure.ForMechanism(
                     MetadataTypeNameFailureMechanism.Metadata,
                     handle,
-                    detail));
+                    detail);
+            _resolutionFailures.Add(projected);
+            _resolutionFailureEvidence.Add(
+                new ResolutionFailureEntry(
+                    projected,
+                    dependencyAssembly));
+        }
+
+        static AssemblyReferenceIdentity? GetDependencyAssembly(
+            TypeResolutionRequest? request,
+            TypeResolutionFailure? failure)
+        {
+            AssemblyReferenceIdentity? failureAssembly =
+                failure switch
+                {
+                    TypeResolutionFailure.CandidateOpenFailed open =>
+                        open.Assembly.Identity,
+                    TypeResolutionFailure.KindDependencyUnbound
+                    {
+                        Target:
+                            AssemblyBindingTarget.AssemblyReference target,
+                    } => target.Identity,
+                    TypeResolutionFailure.KindDependencyUnavailable
+                    {
+                        Target:
+                            AssemblyBindingTarget.AssemblyReference target,
+                    } => target.Identity,
+                    TypeResolutionFailure.KindDependencyTypeNotFound
+                        notFound => notFound.Assembly.Assembly.Identity,
+                    TypeResolutionFailure.KindDependencyAmbiguous
+                    {
+                        Ambiguity:
+                            TypeResolutionAmbiguity.AssemblyBinding
+                                ambiguity,
+                    } when ambiguity.Target
+                        is AssemblyBindingTarget.AssemblyReference target =>
+                            target.Identity,
+                    TypeResolutionFailure.KindDependencyAmbiguous
+                    {
+                        Ambiguity:
+                            TypeResolutionAmbiguity.TypeDeclaration
+                                ambiguity,
+                    } => ambiguity.Assembly.Assembly.Identity,
+                    _ => null,
+                };
+            return failureAssembly
+                ?? (request?.Start
+                    is TypeResolutionStart.Reference reference
+                        ? reference.Value
+                        : null);
         }
 
         TypeResolutionRequest? CreateRequest(

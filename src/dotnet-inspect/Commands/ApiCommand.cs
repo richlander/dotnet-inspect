@@ -1055,6 +1055,7 @@ public class ApiCommand
                         StringComparison.Ordinal))
                 .DistinctBy(failure => (
                     failure.SubjectAssembly,
+                    failure.DependencyAssembly,
                     failure.SubjectToken,
                     failure.Mechanism,
                     failure.Kind,
@@ -1102,9 +1103,14 @@ public class ApiCommand
             failure.SubjectAssembly is null
                 ? ""
                 : $" in '{failure.SubjectAssembly.Name}'";
+        string dependency =
+            failure.DependencyAssembly is null
+                ? ""
+                : $" via '{failure.DependencyAssembly.Name}'";
         CommandError.WriteWarning(
             "Generic-constraint classification was incomplete"
-                + $"{assembly} at 0x{failure.SubjectToken:X8} "
+                + $"{assembly}{dependency} "
+                + $"at 0x{failure.SubjectToken:X8} "
                 + $"({failure.Mechanism}/{failure.Kind}): "
                 + failure.Detail);
     }

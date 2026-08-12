@@ -406,7 +406,8 @@ public static class ApiFindingClassifier
                     failure.Mechanism,
                     failure.Kind,
                     failure.Detail,
-                    failure.SubjectAssembly)
+                    failure.SubjectAssembly,
+                    failure.DependencyAssembly)
                 {
                     SourceAssemblyPath =
                         failure.SourceAssemblyPath,
@@ -419,7 +420,8 @@ public static class ApiFindingClassifier
                     failure.Mechanism,
                     failure.Kind,
                     failure.Detail,
-                    failure.SubjectAssembly)
+                    failure.SubjectAssembly,
+                    failure.DependencyAssembly)
                 {
                     SourceAssemblyPath =
                         failure.SourceAssemblyPath,

@@ -187,10 +187,15 @@ public class DiffCommandTests
                     "MalformedMetadata",
                     "Dependency resolution failed.",
                     new AssemblyReferenceIdentity(
-                        "Dependency",
+                        "Subject",
                         new Version(1, 2, 3, 4),
                         null,
-                        "0011223344556677")),
+                        "0011223344556677"),
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        new Version(4, 3, 2, 1),
+                        null,
+                        null)),
             ],
         };
 
@@ -210,7 +215,11 @@ public class DiffCommandTests
             markdown,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Dependency, Version=1.2.3.4",
+            "Subject, Version=1.2.3.4",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=4.3.2.1",
             markdown,
             StringComparison.Ordinal);
         Assert.Contains(

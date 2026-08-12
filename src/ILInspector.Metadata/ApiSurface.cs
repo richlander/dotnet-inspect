@@ -167,6 +167,8 @@ public class ApiSurface
         if (!subjectFailures.Any(existing =>
             existing.Mechanism == failure.Mechanism
             && existing.Kind == failure.Kind
+            && existing.DependencyAssembly
+                == failure.DependencyAssembly
             && existing.Detail == failure.Detail))
         {
             subjectFailures.Add(failure);
@@ -202,6 +204,7 @@ public class ApiSurface
     {
         var key = new ConstraintResolutionVisibleKey(
             failure.SubjectAssembly,
+            failure.DependencyAssembly,
             failure.Mechanism,
             failure.Kind,
             failure.Detail);
@@ -346,6 +349,7 @@ public class ApiSurface
 
     readonly record struct ConstraintResolutionVisibleKey(
         AssemblyReferenceIdentity? SubjectAssembly,
+        AssemblyReferenceIdentity? DependencyAssembly,
         MetadataTypeNameFailureMechanism Mechanism,
         string Kind,
         string Detail);
@@ -357,7 +361,8 @@ public sealed record ApiSurfaceInspectionFailure(
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
     string Detail,
-    AssemblyReferenceIdentity? SubjectAssembly = null)
+    AssemblyReferenceIdentity? SubjectAssembly = null,
+    AssemblyReferenceIdentity? DependencyAssembly = null)
 {
     public const string
         GenericParameterConstraintResolutionOperation =

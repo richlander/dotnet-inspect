@@ -233,7 +233,8 @@ public sealed record ApiDiffInspectionFailure(
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
     string Detail,
-    AssemblyReferenceIdentity? SubjectAssembly = null)
+    AssemblyReferenceIdentity? SubjectAssembly = null,
+    AssemblyReferenceIdentity? DependencyAssembly = null)
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public string? SourceAssemblyPath { get; init; }
@@ -331,7 +332,8 @@ public static class ApiDiffAnalyzer
                         failure.Mechanism,
                         failure.Kind,
                         failure.Detail,
-                        failure.SubjectAssembly)
+                        failure.SubjectAssembly,
+                        failure.DependencyAssembly)
                     {
                         SourceAssemblyPath =
                             failure.SourceAssemblyPath,
@@ -344,7 +346,8 @@ public static class ApiDiffAnalyzer
                         failure.Mechanism,
                         failure.Kind,
                         failure.Detail,
-                        failure.SubjectAssembly)
+                        failure.SubjectAssembly,
+                        failure.DependencyAssembly)
                     {
                         SourceAssemblyPath =
                             failure.SourceAssemblyPath,

@@ -630,6 +630,64 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromApiDiff_ScopesInspectionFailureToDependencyAssembly()
+    {
+        var subject =
+            new AssemblyReferenceIdentity(
+                "Subject",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+        var firstDependency =
+            new AssemblyReferenceIdentity(
+                "DependencyA",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+        var secondDependency =
+            new AssemblyReferenceIdentity(
+                "DependencyB",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+        var apiDiff = new ApiDiff
+        {
+            InspectionFailures =
+            [
+                Failure(firstDependency),
+                Failure(secondDependency),
+            ],
+        };
+
+        var diff = ResearchDiff.FromApiDiff(apiDiff);
+
+        Assert.Equal(2, diff.Changes.Length);
+        Assert.NotEqual(
+            diff.Changes[0].Subject.Id,
+            diff.Changes[1].Subject.Id);
+        Assert.Contains(
+            "DependencyA",
+            diff.Changes[0].Subject.Display,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DependencyB",
+            diff.Changes[1].Subject.Display,
+            StringComparison.Ordinal);
+
+        ApiDiffInspectionFailure Failure(
+            AssemblyReferenceIdentity dependency) =>
+            new(
+                "new",
+                "resolve generic parameter constraints",
+                0x2A000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "Dependency resolution failed.",
+                subject,
+                dependency);
+    }
+
+    [Fact]
     public void FromApiDiff_ScopesInspectionFailureToSourceImage()
     {
         var apiDiff = new ApiDiff

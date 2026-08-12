@@ -796,6 +796,45 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void TransitiveUnboundDependencyIsVisibleOnApiSurface()
+    {
+        byte[] derivedImage =
+            BuildDerivedWithExternalConstructedBase();
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Derived",
+                "Derived",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference derived = Descriptor(derivedImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(derived));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains(
+            "transitive generic-constraint dependency",
+            failure.Detail,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            "Dependency",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
     public void SameImageConstructedBaseHopPreservesTerminalKindDependency()
     {
         byte[] dependencyImage =
@@ -1124,6 +1163,44 @@ public class ConstraintResolutionHardeningTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void SameNamedResolutionFailuresFromDistinctAssembliesArePreserved()
+    {
+        byte[] image =
+            BuildConsumerWithSameNamedMissingConstraints();
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var pe = Reader(image);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy());
+
+        List<ApiSurfaceInspectionFailure> failures =
+            Assert.Single(
+                surface.ConstraintResolutionFailuresBySubject)
+            .Value;
+        Assert.Equal(2, failures.Count);
+        Assert.Equal(2, surface.InspectionFailures.Count);
+        Assert.Equal(
+            ["DependencyA", "DependencyB"],
+            failures
+                .Select(failure =>
+                    Assert.IsType<AssemblyReferenceIdentity>(
+                        failure.DependencyAssembly)
+                    .Name)
+                .Order()
+                .ToArray());
+        Assert.All(
+            failures,
+            failure => Assert.Contains(
+                failure.DependencyAssembly!.Name,
+                failure.Detail,
+                StringComparison.Ordinal));
+    }
+
     static byte[] BuildChain(
         string assemblyName,
         string prefix,
@@ -1229,6 +1306,38 @@ public class ConstraintResolutionHardeningTests
         metadata.AddGenericParameterConstraint(
             secondParameter,
             second);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildConsumerWithSameNamedMissingConstraints()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("SameNamedMissingConstraints");
+        AssemblyReferenceHandle firstAssembly =
+            AddReference(metadata, "DependencyA");
+        AssemblyReferenceHandle secondAssembly =
+            AddReference(metadata, "DependencyB");
+        AddModule(metadata);
+        TypeReferenceHandle first =
+            metadata.AddTypeReference(
+                firstAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Marker"));
+        TypeReferenceHandle second =
+            metadata.AddTypeReference(
+                secondAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Marker"));
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(parameter, first);
+        metadata.AddGenericParameterConstraint(parameter, second);
         return Serialize(metadata);
     }
 

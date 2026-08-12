@@ -10742,7 +10742,13 @@ public partial class CommandExecutionTests
             MethodToken,
             MetadataTypeNameFailureMechanism.Metadata,
             "MalformedMetadata",
-            "Dependency unavailable.")
+            "Dependency unavailable.",
+            DependencyAssembly:
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null))
         {
             SourceAssemblyPath = Path,
         };
@@ -10763,6 +10769,10 @@ public partial class CommandExecutionTests
         Assert.True(incomplete);
         Assert.Contains(
             "Generic-constraint classification was incomplete",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "via 'Dependency'",
             error,
             StringComparison.Ordinal);
     }

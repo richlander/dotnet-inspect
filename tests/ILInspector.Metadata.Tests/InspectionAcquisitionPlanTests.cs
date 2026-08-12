@@ -190,6 +190,34 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void RootAndStrictRegistration_ShareOneImmutableImage()
+    {
+        byte[] firstImage =
+            BuildSimpleAssembly("Changing", "First", Guid.NewGuid());
+        byte[] secondImage =
+            BuildSimpleAssembly("Changing", "Second", Guid.NewGuid());
+        int opens = 0;
+        var descriptor = Descriptor(
+            ReadIdentity(firstImage),
+            () => Interlocked.Increment(ref opens) <= 2
+                ? firstImage
+                : secondImage);
+        using var plan = new InspectionAcquisitionPlan();
+
+        var root = Assert.IsType<CandidateRegistrationResult.Ready>(
+            plan.RegisterRoot(descriptor));
+        Assert.IsType<CandidateSessionResult.Ready>(
+            plan.OpenSession(root.Candidate));
+        var strict = Assert.IsType<CandidateRegistrationResult.Ready>(
+            plan.Register(descriptor));
+
+        Assert.Same(root.Candidate, strict.Candidate);
+        Assert.Same(root.Inventory, strict.Inventory);
+        Assert.Equal(2, opens);
+        Assert.Equal(1, plan.CandidateCount);
+    }
+
+    [Fact]
     public void Register_EqualDescriptorFieldsWithFreshRegistrations_StayDistinct()
     {
         byte[] image = SelfBytes();

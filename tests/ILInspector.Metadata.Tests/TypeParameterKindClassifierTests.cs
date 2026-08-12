@@ -1057,6 +1057,45 @@ public class TypeParameterKindClassifierTests
     }
 
     [Fact]
+    public void CatalogExtraction_WhenRootIsSelectedAsDependency_UsesStrictAdjacency()
+    {
+        byte[] image = BuildMalformedSelfConstraintAssembly();
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                openRead: () =>
+                    new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        CatalogExtraction_WhenRootIsSelectedAsDependency_UsesStrictAdjacency)));
+        using var catalog = new TypeResolutionCatalog();
+        var policy = new MappingPolicy(source);
+
+        for (int pass = 0; pass < 2; pass++)
+        {
+            ApiSurface surface =
+                Assert.IsType<ResolutionAwareApiSurfaceOutcome.Read>(
+                    catalog.ExtractApiSurface(
+                        source,
+                        policy))
+                .Surface;
+
+            ApiType consumer = Assert.Single(
+                surface.Types,
+                type => type.Name == "Consumer`1");
+            Assert.Equal(
+                TypeParameterTypeKind.Undetermined,
+                Assert.Single(consumer.TypeParameters).TypeKind);
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure =>
+                    failure.Operation
+                        == ApiSurface.ConstraintResolutionOperation);
+        }
+    }
+
+    [Fact]
     public void CatalogExtraction_RejectsImageChangedAfterInventory()
     {
         Guid mvid = Guid.NewGuid();
@@ -1603,6 +1642,44 @@ public class TypeParameterKindClassifierTests
             TypeAttributes.NotPublic);
         AddTypeDefinition(metadata, "HealthyOne");
         AddTypeDefinition(metadata, "HealthyTwo");
+        return SerializePe(metadata);
+    }
+
+    static byte[] BuildMalformedSelfConstraintAssembly()
+    {
+        string assemblyName =
+            $"MalformedSelfConstraint{Guid.NewGuid():N}";
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AssemblyReferenceHandle self =
+            AddAssemblyReference(metadata, assemblyName);
+        metadata.AddExportedType(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("NotAForwarder"),
+            self,
+            typeDefinitionId: 0);
+
+        AddTypeDefinition(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        AddTypeDefinition(metadata, "ReferenceBase");
+        TypeDefinitionHandle consumer =
+            AddTypeDefinition(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                self,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("ReferenceBase"));
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
         return SerializePe(metadata);
     }
 

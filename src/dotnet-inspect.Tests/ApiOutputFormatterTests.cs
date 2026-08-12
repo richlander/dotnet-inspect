@@ -2280,6 +2280,7 @@ public class ApiOutputFormatterTests
     public void BuildFullApiView_ContainsInspectionFailureDetail()
     {
         const string Marker = "INJECTEDDETAIL";
+        const string DependencyMarker = "INJECTEDDEPENDENCY";
         var surface = new ApiSurface();
         surface.InspectionFailures.Add(
             new ApiSurfaceInspectionFailure(
@@ -2287,7 +2288,13 @@ public class ApiOutputFormatterTests
                 0x02000002,
                 MetadataTypeNameFailureMechanism.Metadata,
                 "MalformedMetadata",
-                "prefix " + Marker + "\n\u202E\u001B[31m"));
+                "prefix " + Marker + "\n\u202E\u001B[31m",
+                DependencyAssembly:
+                    new AssemblyReferenceIdentity(
+                        DependencyMarker + "\n\u202E",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(
             surface,
@@ -2308,6 +2315,13 @@ public class ApiOutputFormatterTests
         HostileOutputAssert.NoLineSplit(
             row.Detail,
             [Marker]);
+        HostileOutputAssert.MarkersRendered(
+            row.DependencyAssembly!,
+            "inspection failure dependency assembly",
+            DependencyMarker);
+        HostileOutputAssert.NoRenderingHazard(
+            row.DependencyAssembly!,
+            "inspection failure dependency assembly");
     }
 
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---
