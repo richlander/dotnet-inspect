@@ -1092,6 +1092,38 @@ public class ConstraintResolutionHardeningTests
                     StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void DistinctResolutionFailuresOnOneSubjectArePreserved()
+    {
+        byte[] image =
+            BuildConsumerWithTwoMissingConstraints();
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var pe = Reader(image);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy());
+
+        List<ApiSurfaceInspectionFailure> failures =
+            Assert.Single(
+                surface.ConstraintResolutionFailuresBySubject)
+                .Value;
+        Assert.Equal(2, failures.Count);
+        Assert.Contains(
+            failures,
+            failure => failure.Detail.Contains(
+                "MissingA",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            failures,
+            failure => failure.Detail.Contains(
+                "MissingB",
+                StringComparison.Ordinal));
+    }
+
     static byte[] BuildChain(
         string assemblyName,
         string prefix,
@@ -1157,6 +1189,46 @@ public class ConstraintResolutionHardeningTests
                 parameter,
                 constraint);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildConsumerWithTwoMissingConstraints()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("TwoMissingConstraints");
+        AssemblyReferenceHandle missing =
+            AddReference(metadata, "Missing");
+        AddModule(metadata);
+        TypeReferenceHandle first =
+            metadata.AddTypeReference(
+                missing,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("MissingA"));
+        TypeReferenceHandle second =
+            metadata.AddTypeReference(
+                missing,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("MissingB"));
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`2");
+        GenericParameterHandle firstParameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        GenericParameterHandle secondParameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                1);
+        metadata.AddGenericParameterConstraint(
+            firstParameter,
+            first);
+        metadata.AddGenericParameterConstraint(
+            secondParameter,
+            second);
         return Serialize(metadata);
     }
 

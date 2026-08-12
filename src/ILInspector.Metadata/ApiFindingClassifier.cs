@@ -406,7 +406,11 @@ public static class ApiFindingClassifier
                     failure.Mechanism,
                     failure.Kind,
                     failure.Detail,
-                    failure.SubjectAssembly)),
+                    failure.SubjectAssembly)
+                {
+                    SourceAssemblyPath =
+                        failure.SourceAssemblyPath,
+                }),
             .. newSurface.InspectionFailures.Select(failure =>
                 new ApiDiffInspectionFailure(
                     "new",
@@ -415,6 +419,10 @@ public static class ApiFindingClassifier
                     failure.Mechanism,
                     failure.Kind,
                     failure.Detail,
-                    failure.SubjectAssembly)),
+                    failure.SubjectAssembly)
+                {
+                    SourceAssemblyPath =
+                        failure.SourceAssemblyPath,
+                }),
         ];
 }

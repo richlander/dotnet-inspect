@@ -172,6 +172,34 @@ public class ApiSurface
             subjectFailures.Add(failure);
         }
 
+        AddVisibleConstraintResolutionFailure(failure);
+    }
+
+    public void ReprojectConstraintResolutionFailures(
+        Func<ApiSurfaceInspectionSubject, bool> includeSubject)
+    {
+        ArgumentNullException.ThrowIfNull(includeSubject);
+        InspectionFailures.RemoveAll(
+            static failure =>
+                failure.Operation == ConstraintResolutionOperation);
+        _constraintResolutionVisibleKeys.Clear();
+        _constraintResolutionSummaryIndex = -1;
+        _suppressedConstraintResolutionFailureCount = 0;
+
+        foreach (var (subject, failures)
+            in ConstraintResolutionFailuresBySubject)
+        {
+            if (!includeSubject(subject))
+                continue;
+
+            foreach (ApiSurfaceInspectionFailure failure in failures)
+                AddVisibleConstraintResolutionFailure(failure);
+        }
+    }
+
+    void AddVisibleConstraintResolutionFailure(
+        ApiSurfaceInspectionFailure failure)
+    {
         var key = new ConstraintResolutionVisibleKey(
             failure.SubjectAssembly,
             failure.Mechanism,

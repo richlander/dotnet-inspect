@@ -56,6 +56,7 @@ public class DiffDocumentView
     public string? ImplementationDiffSummary { get; set; }
     public string? ImplementationDiffNote { get; set; }
     public string? FindingTransitionsSummary { get; set; }
+    public string? InspectionFailuresSummary { get; set; }
 
     [MarkoutSection(Name = "Changes")]
     public List<DiffDetailedChangeRow>? Changes { get; set; }
@@ -68,6 +69,9 @@ public class DiffDocumentView
 
     [MarkoutSection(Name = "Finding Transitions")]
     public List<FindingTransitionRow>? FindingTransitions { get; set; }
+
+    [MarkoutSection(Name = "Inspection Failures")]
+    public List<DiffInspectionFailureRow>? InspectionFailures { get; set; }
 }
 
 [MarkoutSerializable(

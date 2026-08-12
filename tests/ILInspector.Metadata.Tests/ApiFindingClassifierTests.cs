@@ -30,7 +30,10 @@ public class ApiFindingClassifierTests
                 0x01000001,
                 MetadataTypeNameFailureMechanism.Metadata,
                 "MalformedMetadata",
-                "A dependency could not be opened."));
+                "A dependency could not be opened.")
+            {
+                SourceAssemblyPath = "/inputs/Old.dll",
+            });
         var newSurface = Surface(Type("Added"));
         var options = new ApiDiffOptions(ApiDiffScope.All);
 
@@ -55,6 +58,14 @@ public class ApiFindingClassifierTests
             static change => change.Kind == ChangeKind.TypeAdded);
         Assert.Single(legacy.InspectionFailures);
         Assert.Single(classified.InspectionFailures);
+        Assert.Equal(
+            "/inputs/Old.dll",
+            Assert.Single(legacy.InspectionFailures)
+                .SourceAssemblyPath);
+        Assert.Equal(
+            "/inputs/Old.dll",
+            Assert.Single(classified.InspectionFailures)
+                .SourceAssemblyPath);
     }
 
     [Fact]

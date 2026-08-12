@@ -285,12 +285,23 @@ assembly-level inspection without a selector.
 for that fan-out. It returns an owned `AssemblySet`: entries retain source, version, source kind,
 and selected TFM, while the set owns package-extraction directories until disposal.
 `AssemblySetSurfaceBuilder` composes an acquired set into one deterministic `ApiSurface` when a
-consumer, such as `diff`, needs package-level API comparison. The CLI still owns endpoint-range
-parsing, compatibility filtering, ranking, and rendering; it does not select package TFMs, merge
-assembly surfaces, or manage extraction directories.
+consumer, such as `diff`, needs package-level API comparison. Its disposable
+`AssemblySetResolutionSession` owns one Metadata resolution catalog and one source-relative
+binding policy for the set. Diff creates a separate session for each endpoint, so old and new
+versions never share resolution currency; wide platform type browse uses the same
+resolution-aware builder. Direct Research path acquisition likewise creates one Metadata
+catalog per side and binds exact identities within the supplied assembly group, without
+introducing an engine-to-tool dependency. The acquired `AssemblySet` remains alive while
+the session reads package files, and acquisition or extraction failures become typed surface
+failures instead of log-only omissions.
+`BuildApiSurface_ClassifiesConstraintAcrossAssemblySet` gates cross-library classification
+through this path. The CLI still owns endpoint-range parsing, compatibility filtering, ranking,
+and rendering; it does not select package TFMs, merge assembly surfaces, or manage extraction
+directories.
 
-**Cross-assembly constraint bridge.** The `type` and `member` declaration paths use the
-Metadata-owned type-resolution catalog when API extraction encounters a named generic
+**Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
+wide platform type browse, and direct Research API comparison use the Metadata-owned
+type-resolution catalog when API extraction encounters a named generic
 constraint outside the selected image. Extraction records requests only for surfaced
 generic-parameter groups, freezes one resolution generation, and then materializes the
 reference/value/neither classification onto the API model while the source reader remains
@@ -341,7 +352,14 @@ fail closed while shared acyclic dependencies remain valid;
 identity projection is shared by the retained declaration index, and an unflagged token
 must contain exactly eight bytes before it is converted to hex;
 `DeclarationIndexReusesAssemblyReferenceProjection` and
-`InvalidAssemblyReferenceTokenLengthIsRejected` gate the retained-allocation bound. Finally,
+`InvalidAssemblyReferenceTokenLengthIsRejected` gate the retained-allocation bound. A root
+image is different from a dependency candidate: after PE identity validation, malformed
+AssemblyRef or ExportedType adjacency degrades only the root inventory so healthy TypeDef rows
+still extract, while the same image remains rejected when selected as a dependency.
+`CatalogExtraction_DegradesRootAdjacencyAndKeepsHealthyTypes` and
+`ResolutionCandidate_RejectsMalformedAdjacency` gate that role boundary;
+`MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal` gates the CLI result and exit
+status. Finally,
 `ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
 Authentic `System.ValueType` and `System.Enum` roots never confer class identity even when
 hostile metadata labels them `CLASS`; `AuthenticCoreValueTypeRootsDoNotAuthenticateAsClass`
@@ -379,16 +397,24 @@ API surface that copies a resolved forwarded type also carries that target surfa
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
 to the target image rather than appearing to address a row in the facade
-(`ApiServices_PreservesForwardedConstraintFailures`). Research change identities retain that
-assembly scope even when side and token match
-(`FromApiDiff_ScopesInspectionFailureToSubjectAssembly`), and the normal diff view renders
-inspection failures, including a failure-only comparison, rather than claiming no API changes
-(`RenderDiff_FailureOnlyComparisonIsNotClean`). Type listings, selected types, and
+(`ApiServices_PreservesForwardedConstraintFailures`). Research change identities retain the subject assembly when available and otherwise the
+source-image identity, so equal side/token pairs from different inputs do not collapse
+(`FromApiDiff_ScopesInspectionFailureToSubjectAssembly` and
+`FromApiDiff_ScopesInspectionFailureToSourceImage`). Diff member filtering preserves the
+failure set, document JSON/Markdown renders contained failure rows, and single-shape output
+reports an explicit incomplete-comparison diagnostic; every incomplete comparison exits
+nonzero (`FilterApiDiffByMemberTargets_PreservesInspectionFailures`,
+`BuildDocumentView_ProjectsInspectionFailuresToJson`, and
+`Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes`). Type listings, selected types, and
 selected members present these failures consistently as nonfatal constraint-classification
 diagnostics rather than rejected metadata rows
 (`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). True rejected-row
 failures remain visible and fatal even when a selected type or member is successfully rendered
-(`RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands`). An extraction lease keeps retained
+(`RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands`). Distinct resolution
+failures on one subject remain distinct, and type filtering reprojects the bounded visible
+failure set to retained subjects
+(`DistinctResolutionFailuresOnOneSubjectArePreserved` and
+`ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open

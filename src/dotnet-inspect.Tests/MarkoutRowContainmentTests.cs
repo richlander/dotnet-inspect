@@ -224,6 +224,7 @@ public class MarkoutRowContainmentTests
         "DiffDocumentView.FindingTransitionsSummary",
         "DiffDocumentView.ImplementationDiffNote",
         "DiffDocumentView.ImplementationDiffSummary",
+        "DiffDocumentView.InspectionFailuresSummary",
         "DiffDocumentView.Title",
         "DiffDocumentView.Versions",
         "DiffFullView.Summary",

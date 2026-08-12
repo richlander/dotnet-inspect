@@ -73,7 +73,8 @@ public static class ApiSurfaceExtractor
             return surface;
         }
 
-        using TypeResolutionContext context = catalog.CreateContext(
+        using TypeResolutionContext context =
+            catalog.CreateApiSurfaceContext(
             bindingPolicy,
             [source],
             constraintResolution.Requests);

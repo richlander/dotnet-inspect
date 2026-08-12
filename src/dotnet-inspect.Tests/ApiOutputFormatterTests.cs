@@ -2215,6 +2215,101 @@ public class ApiOutputFormatterTests
         Assert.True(ApiAnalysisInspection.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
     }
 
+    [Fact]
+    public void ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes()
+    {
+        const string Path = "/inputs/Filtered.dll";
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                Type("Keep", 0x02000002),
+                Type("Drop", 0x02000003),
+            ],
+        };
+        AddFailure(0x02000002, "KEEP");
+        AddFailure(0x02000003, "DROP");
+
+        ApiCommand.ApplySurfaceFilters(
+            surface,
+            new TypeOptions(),
+            "N.Keep");
+
+        Assert.Equal(
+            2,
+            surface.ConstraintResolutionFailuresBySubject.Count);
+        ApiSurfaceInspectionFailure visible =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains("KEEP", visible.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            failure => failure.Detail.Contains(
+                "DROP",
+                StringComparison.Ordinal));
+
+        static ApiType Type(string name, int token) =>
+            new()
+            {
+                Namespace = "N",
+                Name = name,
+                Kind = "class",
+                MetadataToken = token,
+                SourceAssemblyPath = Path,
+                Members = [],
+            };
+
+        void AddFailure(int token, string marker)
+        {
+            var failure =
+                new ApiSurfaceInspectionFailure(
+                    ApiSurface.ConstraintResolutionOperation,
+                    token,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "MalformedMetadata",
+                    $"{marker} dependency failed.")
+                {
+                    SourceAssemblyPath = Path,
+                };
+            surface.AddConstraintResolutionFailure(
+                new ApiSurfaceInspectionSubject(Path, token),
+                failure);
+        }
+    }
+
+    [Fact]
+    public void BuildFullApiView_ContainsInspectionFailureDetail()
+    {
+        const string Marker = "INJECTEDDETAIL";
+        var surface = new ApiSurface();
+        surface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "resolve\n" + Marker,
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "prefix " + Marker + "\n\u202E\u001B[31m"));
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            surface,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Normal,
+            });
+
+        ApiInspectionFailureRow row =
+            Assert.Single(view.InspectionFailures!);
+        HostileOutputAssert.MarkersRendered(
+            row.Detail,
+            "inspection failure detail",
+            Marker);
+        HostileOutputAssert.NoRenderingHazard(
+            row.Detail,
+            "inspection failure detail");
+        HostileOutputAssert.NoLineSplit(
+            row.Detail,
+            [Marker]);
+    }
+
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---
 
     [Fact]

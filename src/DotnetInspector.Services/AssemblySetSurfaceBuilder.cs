@@ -24,8 +24,11 @@ public static class AssemblySetSurfaceBuilder
             .ToList();
         var tfm = tfms.Count == 1 ? tfms[0] : null;
 
-        return Build(
-            entries.Select(static entry => entry.Path).ToList(),
+        using var session =
+            new AssemblySetResolutionSession(
+                assemblySet,
+                log);
+        return session.BuildApiSurface(
             includeAll,
             packageName,
             tfm,
@@ -39,41 +42,18 @@ public static class AssemblySetSurfaceBuilder
         string? tfm = null,
         Action<string>? log = null)
     {
-        if (assemblyPaths.Count == 0)
-            return null;
-
-        if (assemblyPaths.Count == 1)
-        {
-            var single = AssemblyReader.ExtractApiSurface(assemblyPaths[0], includeAll);
-            if (single is not null)
-            {
-                single.Name = name ?? Path.GetFileNameWithoutExtension(assemblyPaths[0]);
-                single.Tfm = tfm;
-            }
-            return single;
-        }
-
-        var merged = new ApiSurface { Name = name, Tfm = tfm };
-        foreach (var path in assemblyPaths)
-        {
-            var surface = AssemblyReader.ExtractApiSurface(path, includeAll);
-            if (surface is null)
-            {
-                log?.Invoke($"  ! {Path.GetFileName(path)}: API surface unavailable");
-                continue;
-            }
-
-            log?.Invoke($"  + {Path.GetFileNameWithoutExtension(path)}: {surface.PublicTypeCount} types");
-            merged.Types.AddRange(surface.Types);
-            merged.MergeInspectionFailuresFrom(surface);
-            merged.PublicTypeCount += surface.PublicTypeCount;
-            merged.PublicMethodCount += surface.PublicMethodCount;
-            merged.PublicPropertyCount += surface.PublicPropertyCount;
-            merged.PublicEventCount += surface.PublicEventCount;
-            merged.PublicFieldCount += surface.PublicFieldCount;
-        }
-
-        merged.Types = merged.Types.OrderBy(static type => type.FullName).ToList();
-        return merged.Types.Count == 0 ? null : merged;
+        using var session =
+            new AssemblySetResolutionSession(
+                assemblyPaths,
+                log);
+        return session.BuildApiSurface(
+            includeAll,
+            name
+                ?? (assemblyPaths.Count == 1
+                    ? Path.GetFileNameWithoutExtension(
+                        assemblyPaths[0])
+                    : null),
+            tfm,
+            log);
     }
 }

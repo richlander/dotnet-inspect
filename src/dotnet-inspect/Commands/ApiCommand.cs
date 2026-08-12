@@ -537,6 +537,10 @@ public class ApiCommand
 
     internal static void ApplySurfaceFilters(ApiSurface api, ApiOptions options, string? typeFilter = null)
     {
+        bool filtersConstraintSubjects =
+            !string.IsNullOrEmpty(typeFilter)
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly;
         if (!string.IsNullOrEmpty(typeFilter))
         {
             api.Types = api.Types
@@ -563,6 +567,48 @@ public class ApiCommand
             api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
             api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
             api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
+        }
+
+        if (filtersConstraintSubjects)
+            ReprojectConstraintFailures(api);
+
+        static void ReprojectConstraintFailures(ApiSurface surface)
+        {
+            var retainedSubjects =
+                new HashSet<ApiSurfaceInspectionSubject>();
+            var retainedTokens = new HashSet<int>();
+            foreach (ApiType type in surface.Types)
+            {
+                Add(type.SourceAssemblyPath, type.MetadataToken);
+                foreach (ApiMember member in type.Members)
+                {
+                    Add(type.SourceAssemblyPath, member.MetadataToken);
+                    Add(type.SourceAssemblyPath, member.GetterToken);
+                    Add(type.SourceAssemblyPath, member.SetterToken);
+                    Add(type.SourceAssemblyPath, member.AdderToken);
+                    Add(type.SourceAssemblyPath, member.RemoverToken);
+                }
+            }
+
+            surface.ReprojectConstraintResolutionFailures(
+                subject =>
+                    retainedTokens.Contains(subject.SubjectToken)
+                    && (subject.SourceAssemblyPath is null
+                        || retainedSubjects.Contains(subject)
+                        || retainedSubjects.Contains(
+                            new ApiSurfaceInspectionSubject(
+                                null,
+                                subject.SubjectToken))));
+
+            void Add(string? path, int? token)
+            {
+                if (token is not int value)
+                    return;
+
+                retainedTokens.Add(value);
+                retainedSubjects.Add(
+                    new ApiSurfaceInspectionSubject(path, value));
+            }
         }
     }
 

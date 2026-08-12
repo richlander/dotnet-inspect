@@ -207,13 +207,14 @@ public class DiffCommand
 
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
-                    await WriteSelectedDocumentAsync(
+                    bool inspectionIncomplete =
+                        await WriteSelectedDocumentAsync(
                         inputs,
                         options,
                         queryResults,
                         context.HttpClient,
                         logger);
-                    return 0;
+                    return inspectionIncomplete ? 1 : 0;
                 }
 
                 if (SelectsFindingTransitions(options))
@@ -329,14 +330,18 @@ public class DiffCommand
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
                             options.Rows);
                     }
+
+                    WriteIncompleteComparisonDiagnostic(diff);
                 }
                 else
                 {
                     var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
                     Console.WriteLine(output);
+                    if (options.NameOnly)
+                        WriteIncompleteComparisonDiagnostic(diff);
                 }
 
-                return 0;
+                return diff.InspectionFailures.Count > 0 ? 1 : 0;
             }
             finally
             {
@@ -758,7 +763,7 @@ public class DiffCommand
         return pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
     }
 
-    private static async Task WriteSelectedDocumentAsync(
+    private static async Task<bool> WriteSelectedDocumentAsync(
         DiffInputs inputs,
         DiffOptions options,
         InspectionQueryResults queryResults,
@@ -773,17 +778,18 @@ public class DiffCommand
                     : DiffSections.Changes.Name
             };
 
+        ApiDiff? changesDiff = null;
         DiffDetailedChangesView? changesView = null;
         if (selected.Contains(DiffSections.Changes.Name))
         {
-            var diff = BuildApiDiff(
+            changesDiff = BuildApiDiff(
                 queryResults.Get(ApiComparisonQuery.Definition),
                 inputs.FromSurface,
                 inputs.ToSurface,
                 options);
             changesView = DiffOutputFormatter.BuildDetailedChangesView(
                 inputs.Name,
-                ApplyFilters(diff, options),
+                ApplyFilters(changesDiff, options),
                 inputs.FromVersion,
                 inputs.ToVersion);
         }
@@ -838,16 +844,18 @@ public class DiffCommand
             changesView,
             analysisView,
             implementationView,
-            findingTransitionsView);
+            findingTransitionsView,
+            changesDiff?.InspectionFailures ?? []);
 
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
-            return;
+            return changesDiff?.InspectionFailures.Count > 0;
         }
 
         Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
             view, OutputFormatter.CreateWindowedOptions(options.Rows)));
+        return changesDiff?.InspectionFailures.Count > 0;
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -1881,10 +1889,22 @@ public class DiffCommand
         return new ApiDiff
         {
             TypeDiffs = filtered,
+            InspectionFailures = diff.InspectionFailures,
             TotalBreaking = filtered.Sum(typeDiff => typeDiff.BreakingCount),
             TotalAdditive = filtered.Sum(typeDiff => typeDiff.AdditiveCount),
             TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount)
         };
+    }
+
+    static void WriteIncompleteComparisonDiagnostic(ApiDiff diff)
+    {
+        if (diff.InspectionFailures.Count == 0)
+            return;
+
+        CommandError.WriteWarning(
+            "API comparison is incomplete because metadata inspection "
+                + $"reported {diff.InspectionFailures.Count} failure(s); "
+                + "use Markdown or JSON output for failure details.");
     }
 
     sealed record ResolvedDiffMemberTargets(

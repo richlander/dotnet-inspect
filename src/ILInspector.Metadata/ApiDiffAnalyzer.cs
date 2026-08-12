@@ -233,7 +233,11 @@ public sealed record ApiDiffInspectionFailure(
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
     string Detail,
-    AssemblyReferenceIdentity? SubjectAssembly = null);
+    AssemblyReferenceIdentity? SubjectAssembly = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SourceAssemblyPath { get; init; }
+}
 
 /// <summary>
 /// Compares two <see cref="ApiSurface"/> instances and produces a structured diff
@@ -327,7 +331,11 @@ public static class ApiDiffAnalyzer
                         failure.Mechanism,
                         failure.Kind,
                         failure.Detail,
-                        failure.SubjectAssembly)),
+                        failure.SubjectAssembly)
+                    {
+                        SourceAssemblyPath =
+                            failure.SourceAssemblyPath,
+                    }),
                 .. newSurface.InspectionFailures.Select(failure =>
                     new ApiDiffInspectionFailure(
                         "new",
@@ -336,7 +344,11 @@ public static class ApiDiffAnalyzer
                         failure.Mechanism,
                         failure.Kind,
                         failure.Detail,
-                        failure.SubjectAssembly)),
+                        failure.SubjectAssembly)
+                    {
+                        SourceAssemblyPath =
+                            failure.SourceAssemblyPath,
+                    }),
             ],
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,

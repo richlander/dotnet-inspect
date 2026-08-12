@@ -54,7 +54,8 @@ internal static class TypeParameterKindClassifier
                 int SubjectToken),
             ConstraintClass> _resolvedClasses = [];
         readonly List<MetadataTypeNameFailure> _resolutionFailures = [];
-        readonly HashSet<int> _resolutionFailureSubjects = [];
+        readonly HashSet<(int SubjectToken, string Detail)>
+            _resolutionFailureKeys = [];
         readonly List<MetadataTypeNameFailure> _requestBudgetFailures = [];
         readonly HashSet<int> _requestBudgetFailureSubjects = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
@@ -511,7 +512,8 @@ internal static class TypeParameterKindClassifier
             int subjectToken = handle.IsNil
                 ? 0
                 : MetadataTokens.GetToken(handle);
-            if (!_resolutionFailureSubjects.Add(subjectToken))
+            if (!_resolutionFailureKeys.Add(
+                    (subjectToken, detail)))
                 return;
 
             _resolutionFailures.Add(

@@ -336,6 +336,77 @@ public partial class CommandExecutionTests
             path,
             includeHealthyType: true);
 
+    private static void WriteMalformedAdjacencyAssembly(
+        string path,
+        bool malformedAssemblyReference)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedAdjacency"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        BlobHandle token = default;
+        if (malformedAssemblyReference)
+        {
+            var tokenBytes = new BlobBuilder();
+            tokenBytes.WriteUInt32(0x01020304);
+            token = metadata.GetOrAddBlob(tokenBytes);
+        }
+
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                default,
+                token,
+                default,
+                default);
+        if (!malformedAssemblyReference)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("NotAForwarder"),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Healthy"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private static void WriteMissingConstraintAssembly(string path)
     {
         var metadata = new MetadataBuilder();
@@ -3239,6 +3310,88 @@ public partial class CommandExecutionTests
             Assert.Contains("\"changes\"", json.Output);
             Assert.Contains("\"type\": \"Widget\"", json.Output);
             Assert.Contains("Added", json.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-failure-output-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string oldPath =
+                Path.Combine(tempDir, "old.dll");
+            string newPath =
+                Path.Combine(tempDir, "new.dll");
+            WriteMalformedAdjacencyAssembly(
+                oldPath,
+                malformedAssemblyReference: true);
+            WriteMalformedAdjacencyAssembly(
+                newPath,
+                malformedAssemblyReference: true);
+            string range = $"{oldPath}..{newPath}";
+
+            var markdown = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "--tips",
+                "q");
+            var json = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, markdown.Exit);
+            Assert.Contains(
+                "## Inspection Failures",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(1, json.Exit);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                json.Output,
+                StringComparison.Ordinal);
+
+            string[][] singleShapeModes =
+            [
+                ["--table"],
+                ["--tsv"],
+                ["--jsonl"],
+                ["--name-only"],
+            ];
+            foreach (string[] mode in singleShapeModes)
+            {
+                var result = await RunAppAsync(
+                    [
+                        "diff",
+                        "--library",
+                        range,
+                        "--tips",
+                        "q",
+                        .. mode,
+                    ]);
+
+                Assert.Equal(1, result.Exit);
+                Assert.Contains(
+                    "API comparison is incomplete",
+                    result.Error,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {
@@ -9888,6 +10041,54 @@ public partial class CommandExecutionTests
                     selectedMember.Error,
                     StringComparison.OrdinalIgnoreCase);
             }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal(
+        bool malformedAssemblyReference)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference);
+        try
+        {
+            var selectedType = await RunAppAsync(
+                "type",
+                "N.Healthy",
+                "--library",
+                path,
+                "--tips",
+                "q");
+            var selectedMember = await RunAppAsync(
+                "member",
+                "N.Healthy",
+                "--library",
+                path,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, selectedType.Exit);
+            Assert.Contains("N.Healthy", selectedType.Output);
+            Assert.Contains(
+                "rejected 1 metadata row",
+                selectedType.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, selectedMember.Exit);
+            Assert.Contains("N.Healthy", selectedMember.Output);
+            Assert.Contains(
+                "rejected 1 metadata row",
+                selectedMember.Error,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

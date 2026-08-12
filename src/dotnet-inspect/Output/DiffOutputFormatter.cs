@@ -111,7 +111,8 @@ public static class DiffOutputFormatter
         DiffDetailedChangesView? changes,
         AnalysisDiffView? analysisDiff,
         ImplementationDiffView? implementationDiff,
-        FindingTransitionsView? findingTransitions)
+        FindingTransitionsView? findingTransitions,
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures)
         => new()
         {
             Title = $"Diff: {name}",
@@ -122,10 +123,18 @@ public static class DiffOutputFormatter
             ImplementationDiffSummary = implementationDiff?.Summary,
             ImplementationDiffNote = DistinctStatusMessage(implementationDiff),
             FindingTransitionsSummary = findingTransitions?.Status.Message,
+            InspectionFailuresSummary =
+                inspectionFailures.Count == 0
+                    ? null
+                    : "API comparison is incomplete because metadata "
+                        + $"inspection reported {inspectionFailures.Count} "
+                        + "failure(s).",
             Changes = changes?.Rows,
             AnalysisDiff = analysisDiff?.Rows,
             ImplementationDiff = implementationDiff?.Rows,
-            FindingTransitions = findingTransitions?.Rows
+            FindingTransitions = findingTransitions?.Rows,
+            InspectionFailures =
+                BuildInspectionFailureRows(inspectionFailures),
         };
 
     public static string RenderDocumentView(DiffDocumentView view, MarkoutWriterOptions? options = null)
@@ -194,6 +203,43 @@ public static class DiffOutputFormatter
                 {
                     row.Transition, row.Finding, row.Target, row.From,
                     row.To, row.Old, row.New, row.Detail ?? ""
+                }));
+        }
+
+        if (view.InspectionFailuresSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Inspection Failures",
+                view.InspectionFailuresSummary,
+                null,
+                [
+                    "Side",
+                    "Assembly",
+                    "Operation",
+                    "Subject",
+                    "Mechanism",
+                    "Kind",
+                    "Detail",
+                ],
+                [
+                    "side",
+                    "assembly",
+                    "operation",
+                    "subject",
+                    "mechanism",
+                    "kind",
+                    "detail",
+                ],
+                view.InspectionFailures?.Select(row => new[]
+                {
+                    row.Side,
+                    row.Assembly,
+                    row.Operation,
+                    row.Subject,
+                    row.Mechanism,
+                    row.Kind,
+                    row.Detail,
                 }));
         }
 
@@ -272,22 +318,8 @@ public static class DiffOutputFormatter
         {
             Title = $"API Diff: {name}",
             Versions = $"**{fromVersion}** → **{toVersion}**",
-            InspectionFailures = inspectionFailures.Count == 0
-                ? null
-                :
-                [
-                    .. inspectionFailures.Select(
-                        static failure =>
-                            new DiffInspectionFailureRow(
-                                failure.Side,
-                                AssemblyIdentityDisplay(
-                                    failure.SubjectAssembly),
-                                failure.Operation,
-                                $"0x{failure.SubjectToken:X8}",
-                                failure.Mechanism.ToString(),
-                                failure.Kind,
-                                failure.Detail)),
-                ],
+            InspectionFailures =
+                BuildInspectionFailureRows(inspectionFailures),
         };
 
         if (typeDiffs.Count == 0)
@@ -361,6 +393,29 @@ public static class DiffOutputFormatter
                 + $"Culture={identity.Culture ?? "neutral"}, "
                 + "PublicKeyToken="
                 + $"{identity.PublicKeyToken ?? "null"}";
+
+    static List<DiffInspectionFailureRow>? BuildInspectionFailureRows(
+        IReadOnlyList<ApiDiffInspectionFailure> failures) =>
+        failures.Count == 0
+            ? null
+            :
+            [
+                .. failures.Select(
+                    static failure =>
+                        new DiffInspectionFailureRow(
+                            failure.Side,
+                            failure.SubjectAssembly is null
+                                ? Path.GetFileName(
+                                    failure.SourceAssemblyPath ?? "")
+                                : AssemblyIdentityDisplay(
+                                    failure.SubjectAssembly),
+                            failure.Operation,
+                            $"0x{failure.SubjectToken:X8}",
+                            failure.Mechanism.ToString(),
+                            failure.Kind,
+                            CSharpIdentifier.ContainRenderedText(
+                                failure.Detail))),
+            ];
 
     /// <summary>
     /// Builds the Analysis Diff view with a caller-supplied summary line.

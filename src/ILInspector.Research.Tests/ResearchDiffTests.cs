@@ -630,6 +630,46 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromApiDiff_ScopesInspectionFailureToSourceImage()
+    {
+        var apiDiff = new ApiDiff
+        {
+            InspectionFailures =
+            [
+                Failure("/inputs/First.dll"),
+                Failure("/inputs/Second.dll"),
+            ],
+        };
+
+        var diff = ResearchDiff.FromApiDiff(apiDiff);
+
+        Assert.Equal(2, diff.Changes.Length);
+        Assert.NotEqual(
+            diff.Changes[0].Subject.Id,
+            diff.Changes[1].Subject.Id);
+        Assert.Contains(
+            "First.dll",
+            diff.Changes[0].Subject.Display,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Second.dll",
+            diff.Changes[1].Subject.Display,
+            StringComparison.Ordinal);
+
+        static ApiDiffInspectionFailure Failure(string path) =>
+            new(
+                "new",
+                "type identity",
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "Identity resolution failed.")
+            {
+                SourceAssemblyPath = path,
+            };
+    }
+
+    [Fact]
     public void FromCSharpBodyDiff_PreservesProducerFailureRow()
     {
         var csharp = CSharpBodyDiff.CompareAssemblies(

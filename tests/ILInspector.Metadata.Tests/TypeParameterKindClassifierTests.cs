@@ -969,6 +969,93 @@ public class TypeParameterKindClassifierTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CatalogExtraction_DegradesRootAdjacencyAndKeepsHealthyTypes(
+        bool malformedAssemblyReference)
+    {
+        byte[] image =
+            BuildMalformedAdjacencyAssembly(
+                malformedAssemblyReference);
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                openRead: () =>
+                    new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        CatalogExtraction_DegradesRootAdjacencyAndKeepsHealthyTypes)));
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface =
+            Assert.IsType<
+                ResolutionAwareApiSurfaceOutcome.Read>(
+                    catalog.ExtractApiSurface(
+                        source,
+                        new MissingPolicy()))
+                .Surface;
+
+        Assert.Contains(
+            surface.Types,
+            type => type.Name == "HealthyOne");
+        Assert.Contains(
+            surface.Types,
+            type => type.Name == "HealthyTwo");
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure =>
+                failure.Operation
+                    != ApiSurface.ConstraintResolutionOperation);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolutionCandidate_RejectsMalformedAdjacency(
+        bool malformedAssemblyReference)
+    {
+        byte[] image =
+            BuildMalformedAdjacencyAssembly(
+                malformedAssemblyReference);
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                openRead: () =>
+                    new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionCandidate_RejectsMalformedAdjacency)));
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["HealthyOne"]))
+                .Name;
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromAssembly(
+                source,
+                AssemblyResolutionScope.Any,
+                name);
+        using var catalog = new TypeResolutionCatalog();
+        Assert.IsType<ResolutionAwareApiSurfaceOutcome.Read>(
+            catalog.ExtractApiSurface(
+                source,
+                new MissingPolicy()));
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                new MissingPolicy(),
+                [source],
+                [request]);
+
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                context.Resolve(request))
+                .Failure);
+    }
+
     [Fact]
     public void CatalogExtraction_RejectsImageChangedAfterInventory()
     {
@@ -1476,6 +1563,46 @@ public class TypeParameterKindClassifierTests
             "<Module>",
             TypeAttributes.NotPublic);
         AddTypeDefinition(metadata, typeName);
+        return SerializePe(metadata);
+    }
+
+    static byte[] BuildMalformedAdjacencyAssembly(
+        bool malformedAssemblyReference)
+    {
+        MetadataBuilder metadata =
+            NewMetadata($"MalformedAdjacency{Guid.NewGuid():N}");
+        BlobHandle token = default;
+        if (malformedAssemblyReference)
+        {
+            var tokenBytes = new BlobBuilder();
+            tokenBytes.WriteUInt32(0x01020304);
+            token = metadata.GetOrAddBlob(tokenBytes);
+        }
+
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: token,
+                flags: default,
+                hashValue: default);
+        if (!malformedAssemblyReference)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("NotAForwarder"),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        AddTypeDefinition(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        AddTypeDefinition(metadata, "HealthyOne");
+        AddTypeDefinition(metadata, "HealthyTwo");
         return SerializePe(metadata);
     }
 

@@ -99,7 +99,8 @@ public static class ApiOutputFormatter
                     $"0x{failure.SubjectToken:X8}",
                     failure.Mechanism.ToString(),
                     failure.Kind,
-                    failure.Detail,
+                    CSharpIdentifier.ContainRenderedText(
+                        failure.Detail),
                     failure.SubjectAssembly is null
                         ? null
                         : CSharpIdentifier.ContainRenderedText(

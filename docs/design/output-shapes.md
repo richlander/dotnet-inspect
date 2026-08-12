@@ -133,6 +133,12 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
+An incomplete comparison is not narrowed into a clean result. Diff document
+formats include typed inspection-failure rows. Single-shape diff formats
+(`--table`, `--tsv`, `--jsonl`, and `--name-only`) cannot append a second
+failure table, so they emit an explicit incomplete-comparison diagnostic and
+exit nonzero.
+
 ## How dotnet-inspect flags select a shape
 
 Flags are how the user (or an agent) walks the ladder. The important distinction

@@ -648,7 +648,9 @@ public static class TypeCommand
                 continue;
             }
 
-            var api = AssemblyReader.ExtractApiSurface(assemblyPath, options.IncludeAll);
+            var api = AssemblySetSurfaceBuilder.Build(
+                [assemblyPath],
+                options.IncludeAll);
             if (api == null)
                 continue;
 

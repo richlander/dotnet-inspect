@@ -171,7 +171,7 @@ public sealed class TypeResolutionCatalog : IDisposable
 
         using IDisposable lease = AcquireExtractionLease();
         CandidateRegistrationResult registration =
-            _acquisition.Register(source);
+            _acquisition.RegisterRoot(source);
         if (registration
             is CandidateRegistrationResult.Rejected rejected)
         {
@@ -198,6 +198,17 @@ public sealed class TypeResolutionCatalog : IDisposable
                     bindingPolicy,
                     includeAll,
                     typesOnly);
+        if (readyRegistration.InventoryFailure is { } inventoryFailure)
+        {
+            surface.InspectionFailures.Add(
+                new ApiSurfaceInspectionFailure(
+                    "inventory assembly adjacency",
+                    0,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    inventoryFailure.Kind.ToString(),
+                    inventoryFailure.Detail,
+                    source.Identity));
+        }
         return new ResolutionAwareApiSurfaceOutcome.Read(surface);
     }
 
@@ -429,7 +440,21 @@ public sealed class TypeResolutionCatalog : IDisposable
             bindingRequests,
             requests,
             ownsCatalog: false,
+            allowRootAdjacencyDegradation: false,
             cancellationToken);
+
+    internal TypeResolutionContext CreateApiSurfaceContext(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<TypeResolutionRequest> requests) =>
+        CreateContextCore(
+            policy,
+            roots,
+            [],
+            requests,
+            ownsCatalog: false,
+            allowRootAdjacencyDegradation: true,
+            CancellationToken.None);
 
     internal TypeResolutionContext CreateOwnedContext(
         IAssemblyBindingPolicy policy,
@@ -442,6 +467,7 @@ public sealed class TypeResolutionCatalog : IDisposable
             [],
             requests,
             ownsCatalog: true,
+            allowRootAdjacencyDegradation: false,
             cancellationToken);
 
     TypeResolutionContext CreateContextCore(
@@ -450,6 +476,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         IEnumerable<AssemblyBindingRequest> bindingRequests,
         IEnumerable<TypeResolutionRequest> requests,
         bool ownsCatalog,
+        bool allowRootAdjacencyDegradation,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(policy);
@@ -471,6 +498,7 @@ public sealed class TypeResolutionCatalog : IDisposable
                 requests,
                 _options,
                 ownsCatalog,
+                allowRootAdjacencyDegradation,
                 cancellationToken);
         }
         finally
@@ -850,6 +878,7 @@ public sealed class TypeResolutionContext : IDisposable
         IEnumerable<TypeResolutionRequest> requests,
         TypeResolutionContextOptions options,
         bool ownsCatalog,
+        bool allowRootAdjacencyDegradation,
         CancellationToken cancellationToken)
     {
         var builder = new Builder(
@@ -863,7 +892,9 @@ public sealed class TypeResolutionContext : IDisposable
         foreach (ResolvedAssemblyReference root in roots)
         {
             ArgumentNullException.ThrowIfNull(root);
-            builder.Register(root);
+            builder.Register(
+                root,
+                allowRootAdjacencyDegradation);
         }
 
         foreach (AssemblyBindingRequest request in bindingRequests)
@@ -1282,7 +1313,9 @@ public sealed class TypeResolutionContext : IDisposable
             _cancellationToken = cancellationToken;
         }
 
-        internal void Register(ResolvedAssemblyReference assembly)
+        internal void Register(
+            ResolvedAssemblyReference assembly,
+            bool allowRootAdjacencyDegradation = false)
         {
             _cancellationToken.ThrowIfCancellationRequested();
             if (_candidates.ContainsKey(assembly.Registration)
@@ -1292,7 +1325,11 @@ public sealed class TypeResolutionContext : IDisposable
             }
 
             _descriptors.Add(assembly.Registration, assembly);
-            switch (_acquisition.Register(assembly))
+            CandidateRegistrationResult registration =
+                allowRootAdjacencyDegradation
+                    ? _acquisition.RegisterRoot(assembly)
+                    : _acquisition.Register(assembly);
+            switch (registration)
             {
                 case CandidateRegistrationResult.Ready ready:
                     _candidates.Add(assembly.Registration, ready.Candidate);
