@@ -533,6 +533,24 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalDependencyPackage()
+        => CreateLocalReadmePackage(
+            "Test.DependencyGroups",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+            """
+            <dependencies>
+              <group targetFramework="net8.0">
+                <dependency id="Test.Dependency.One" />
+              </group>
+              <group targetFramework="net9.0">
+                <dependency id="Test.Dependency.One" />
+                <dependency id="Test.Dependency.Two" />
+              </group>
+            </dependencies>
+            """);
+
     private static (string PackagePath, string TempDir) CreateLocalReadmePackage(
         string id,
         string readmeFile,
@@ -17952,6 +17970,96 @@ public partial class CommandExecutionTests
             Assert.Contains("## Signals", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Signals_CountMatchesRenderedRows()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (renderExit, renderOutput, renderError) = await RunAppAsync(
+                "package", packagePath, "-S", "Signals");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package", packagePath, "-S", "Signals", "--count");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.Empty(renderError);
+            Assert.Empty(countError);
+            var renderedRows = CountOutput.CountMarkdownTableRows(renderOutput);
+            Assert.True(renderedRows > 0);
+            Assert.Equal(
+                renderedRows.ToString(CultureInfo.InvariantCulture),
+                countOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsCountAggregatesRenderedRows()
+    {
+        var (firstPackagePath, firstTempDir) = CreateLocalRefPackage("System.Runtime");
+        var (secondPackagePath, secondTempDir) = CreateLocalRefPackage("System.Collections");
+        try
+        {
+            var (firstExit, firstOutput, firstError) = await RunAppAsync(
+                "package", firstPackagePath, "-S", "Signals", "--count");
+            var (secondExit, secondOutput, secondError) = await RunAppAsync(
+                "package", secondPackagePath, "-S", "Signals", "--count");
+            var (combinedExit, combinedOutput, combinedError) = await RunAppAsync(
+                "package", firstPackagePath, secondPackagePath,
+                "-S", "Signals", "--count", "--json");
+
+            Assert.Equal(0, firstExit);
+            Assert.Equal(0, secondExit);
+            Assert.Equal(0, combinedExit);
+            Assert.Empty(firstError);
+            Assert.Empty(secondError);
+            Assert.Empty(combinedError);
+            var expected = int.Parse(firstOutput, CultureInfo.InvariantCulture)
+                + int.Parse(secondOutput, CultureInfo.InvariantCulture);
+            Assert.True(expected > 0);
+            Assert.Equal(
+                expected.ToString(CultureInfo.InvariantCulture),
+                combinedOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsUseSelectedTfm()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "--tfm", "net9.0", "-S", "Signals", "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            foreach (var package in document.RootElement.EnumerateArray())
+            {
+                var directDependencies = Assert.Single(
+                    package.GetProperty("audit_signals").EnumerateArray(),
+                    signal => signal.GetProperty("signal").GetString() == "Direct dependencies");
+                Assert.Equal("2", directDependencies.GetProperty("value").GetString());
+                Assert.Equal("net9.0", directDependencies.GetProperty("evidence").GetString());
+            }
         }
         finally
         {
