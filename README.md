@@ -534,6 +534,10 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 
 For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, `member Type -m Name` uses `Methods` overload rows, and a selected `member Type.Member:N` renders `Signature`. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
 
+Package uses `@Package` and `@Files` for its ordinary evidence, with focused
+`@Dependencies`, `@Audit`, and `@SourceLink` doors. Library similarly uses
+`@Library` and `@Surface` as its ordinary evidence scope.
+
 ## Common examples
 
 ```bash
@@ -544,6 +548,9 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S @Package
+dotnet-inspect package System.Text.Json -S @Dependencies
+dotnet-inspect package System.Text.Json -S @Audit
 dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json --versions
