@@ -302,6 +302,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_InvalidProductConstructorBody_RemainsRecompileFailure()
     {
         string assemblyPath = Path.Combine(
