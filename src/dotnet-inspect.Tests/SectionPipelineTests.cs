@@ -318,7 +318,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -992,6 +992,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_ExplicitLocalDiagnosticsReadCachedPdbWithoutDownloading()
+    {
+        foreach (string section in new[]
+        {
+            SectionNames.SourceLinkDiagnostics,
+            SectionNames.NonNormalizedPaths,
+        })
+        {
+            var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+            var plan = LibrarySourcePlans.For(Verbosity.Quiet, include);
+
+            Assert.False(plan.AllowPdbDownload);
+            Assert.False(plan.CollectSourceFiles);
+            Assert.True(plan.ReadCachedPdb);
+        }
+    }
+
+    [Fact]
     public void LibrarySourcePlan_PreservesAuthorizationForEverySelection()
     {
         string[] sourceSections =
@@ -1038,7 +1056,8 @@ public class SectionPipelineTests
         {
             Assert.True(sectionNames.Add(section.Name));
             Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
-            Assert.True(section.DownloadPdb);
+            Assert.True(section.DownloadPdb || section.ReadCachedPdb);
+            Assert.False(section.CollectSourceFiles && !section.DownloadPdb);
         }
     }
 
@@ -1253,6 +1272,8 @@ public class SectionPipelineTests
         {
             ("library", LibrarySections.CreatePipeline().AllSectionNames,
                 LibrarySections.CreatePipeline().GetCategoryMap()),
+            ("package", PackageSectionDescriptors.CreatePipeline().AllSectionNames,
+                PackageSectionDescriptors.CreatePipeline().GetCategoryMap()),
             ("api-type", ApiTypeSectionDescriptors.CreatePipeline().AllSectionNames,
                 ApiTypeSectionDescriptors.CreatePipeline().GetCategoryMap()),
             ("api-member", ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames,
@@ -1284,6 +1305,7 @@ public class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols
             ],
@@ -1994,7 +2016,8 @@ public class SectionPipelineTests
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
                 PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath });
+                new InspectionOptions { Count = true, OutputPath = outputPath },
+                PackageSectionDescriptors.CreatePipeline());
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
@@ -4459,6 +4482,133 @@ public class SectionPipelineTests
     // ===== Package pipeline tests =====
 
     [Fact]
+    public void PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categorized = pipeline.GetCategoryMap()
+            .SelectMany(pair => pair.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var uncategorized = pipeline.SelectableSectionNames
+            .Where(name => !categorized.Contains(name))
+            .ToArray();
+
+        Assert.True(
+            uncategorized.Length == 0,
+            $"Package section(s) have no authored category: {string.Join(", ", uncategorized)}");
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseScopeIsDerivedFromPackageAndFilesCategories()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.Equal(
+            [SectionCategoryNames.Files, SectionCategoryNames.Package],
+            pipeline.GetBaseCategoryDoors().OrderBy(name => name, StringComparer.Ordinal));
+
+        var expected = categories[SectionCategoryNames.Package]
+            .Concat(categories[SectionCategoryNames.Files])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            expected.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.BaseSectionNames.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void PackagePipeline_CategoryCompositionMatchesPackageEvidenceDomains()
+    {
+        var categories = PackageSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                PackageSections.PackageInfo,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies,
+                PackageSections.Files
+            ],
+            categories[SectionCategoryNames.Package]);
+        Assert.Equal(
+            [PackageSections.Dependencies, PackageSections.RuntimeDependencies],
+            categories[SectionCategoryNames.Dependencies]);
+        Assert.Equal(
+            [
+                PackageSections.Signals,
+                PackageSections.Signature,
+                PackageSections.Vulnerabilities,
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkMissingFiles,
+                PackageSections.SourceLinkIntegrity
+            ],
+            categories[SectionCategoryNames.Audit]);
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseCategoriesPreserveAutomaticCandidateSets()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(
+            [PackageSections.Summary],
+            pipeline.GetCandidateSections(Verbosity.Quiet));
+        Assert.Equal(
+            [PackageSections.PackageInfo],
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.Equal(
+            new[]
+            {
+                PackageSections.Summary,
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.TargetFrameworks,
+                PackageSections.FilesNuspec,
+                PackageSections.FilesSkills,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Normal)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            new[]
+            {
+                PackageSections.Summary,
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.FilesNuspec,
+                PackageSections.FilesSkills,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Detailed)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.FilesNuspec,
+                PackageSections.Signature,
+                PackageSections.Manifest
+            ],
+            pipeline.BareSelectSectionNames);
+    }
+
+    [Fact]
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
@@ -5322,6 +5472,14 @@ public class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_FixedOverview_IsExactlySignature()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal([SectionNames.Signature], pipeline.FixedOverviewSectionNames);
     }
 
     [Fact]

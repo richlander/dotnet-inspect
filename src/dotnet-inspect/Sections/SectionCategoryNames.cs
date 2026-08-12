@@ -17,7 +17,23 @@ public static class SectionCategoryNames
     /// </summary>
     public const string Library = "@Library";
 
+    /// <summary>
+    /// The package command's ordinary identity, relationship, registry, diagnostic, and
+    /// whole-package evidence. Together with <see cref="Files"/>, this forms the package base
+    /// scope.
+    /// </summary>
+    public const string Package = "@Package";
+
+    /// <summary>
+    /// Safety, provenance, integrity, and vulnerability evidence at package or library scope.
+    /// Members that are also ordinary command evidence remain cross-listed in their base category.
+    /// </summary>
     public const string Audit = "@Audit";
+
+    /// <summary>
+    /// Direct package dependencies and runtime-specific package dependencies.
+    /// </summary>
+    public const string Dependencies = "@Dependencies";
 
     /// <summary>
     /// Actual source content: decompiled, original, and annotated source views plus source diffs
@@ -55,7 +71,8 @@ public static class SectionCategoryNames
     public const string Integrations = "@Integrations";
 
     /// <summary>
-    /// Package file listings scoped to a layout root or document kind: the
+    /// Package file listings scoped to a layout root or document kind. This is a package base
+    /// category alongside <see cref="Package"/>. Its members are the
     /// <c>Package &lt;X&gt; file(s)</c> members. The plain <c>Package files</c> section is the
     /// whole-package listing rather than a subset, so it is deliberately not a member;
     /// including it would render most rows twice.

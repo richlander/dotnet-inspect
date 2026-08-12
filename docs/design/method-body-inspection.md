@@ -219,15 +219,24 @@ resource-lifecycle results. Topic-specific Analysis services consume those
 results rather than adding more unrelated algorithms to the facade.
 For each decoded method, `MethodBodyAnalysisContext` packages the method
 identity, exception regions, the shared Layer-0 `MethodInstructions`, and
-Analysis-owned loop regions. Raw IL and reader-bound method bodies remain
-outside the context so a topic producer cannot create a second decode path.
-`BodySignalAnalysis` is the first topic service to consume that context.
+Analysis-owned loop regions and decoded local types. Local signatures are
+decoded once during acquisition rather than independently by safety evidence
+and occurrence scans. Raw IL, generic decoding scope, metadata readers, and
+reader-bound method bodies remain outside the context so a topic producer
+cannot create a second decode or metadata traversal path.
 Allocation path contexts, confidence, and post-dominance remain private
 Layer-1 interpretations rather than becoming neutral context.
 `BodySignalAnalysis` owns array, throw, exception-region, allocating-box, and
 throw-path object signals; it receives the metadata-dependent box judgment
 through a narrow callback. `MethodBodyFlowProbe` owns the bounded throw-path
 probes reused by body-signal and allocation analysis.
+`MethodSafetyAnalysis` owns unsafe API/signature/local classification, body
+opcode and call evidence, and the pointer-stack interpretation that emits
+unsafety occurrences. The assembly reader retains calli-signature resolution
+and passes only the display detail into the producer. Call-site acquisition and
+multiplicity remain separate; that scan delegates safety projection rather than
+owning the unsafe-type policy. `MethodInstructionFacts` owns the metadata-free
+local/argument-slot grammar shared by safety and allocation interpretation.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 

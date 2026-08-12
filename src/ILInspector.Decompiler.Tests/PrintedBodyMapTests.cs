@@ -11,9 +11,12 @@ namespace ILInspector.Decompiler.Tests;
 public class PrintedBodyMapTests
 {
     static (string Output, PrintedRangeMap Ranges) Print(string methodName)
+        => Print(typeof(AllocSampleClass), methodName);
+
+    static (string Output, PrintedRangeMap Ranges) Print(Type fixtureType, string methodName)
     {
-        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
+        using var source = MetadataSource.Open(fixtureType.Assembly.Location);
+        var function = IrImporter.Import(source, fixtureType.FullName!, methodName);
         Assert.NotNull(function);
         var result = CSharpPrinter.PrintRaised(function!, out var ranges);
         Assert.NotNull(result.Output);
@@ -32,22 +35,1342 @@ public class PrintedBodyMapTests
         var map = PrintedBodyMap.Create(ranges);
         Assert.NotEmpty(map.Nodes);
 
-        // Read the emitted spans, not recomputed coordinates. Checking only the
-        // count let a map of entirely bogus spans pass.
-        var expected = new List<(string Kind, string Text)>();
+        // Independently slice the printer's absolute offsets and compare them
+        // with the portable line/column projection. Reusing only TryGetExtent
+        // on both sides would let a coordinate conversion defect agree with
+        // itself.
+        var expected = new HashSet<(string Kind, PrintedExtent Extent)>();
         foreach (var printed in ranges)
         {
-            if (!ranges.TryGetExtent(printed.Node, out _))
+            if (!ranges.TryGetExtent(printed.Node, out var extent))
                 continue;
             int start = printed.Characters.Start.GetOffset(output.Length);
             int end = printed.Characters.End.GetOffset(output.Length);
-            expected.Add((printed.Node.GetType().Name, output[start..end].TrimEnd('\r', '\n')));
+            Assert.Equal(
+                output[start..end].TrimEnd('\r', '\n'),
+                Text(map, extent));
+            expected.Add((
+                AnnotatedSourceNodeKindProjection.From(printed.Node),
+                extent));
         }
 
         Assert.Equal(expected.Count, map.Nodes.Count);
+        Assert.True(expected.SetEquals(map.Nodes.Select(node => (node.Kind, node.Extent))));
+    }
+
+    [Fact]
+    public void StableKindProjectionMakesAnExplicitDecisionForEveryIrNode()
+    {
+        var concreteNodes = typeof(IrNode).Assembly
+            .GetTypes()
+            .Where(type => !type.IsAbstract && typeof(IrNode).IsAssignableFrom(type))
+            .OrderBy(type => type.FullName)
+            .ToArray();
+        var mappings = AnnotatedSourceNodeKindProjection.Mappings
+            .OrderBy(pair => pair.Key.FullName)
+            .ToArray();
+
+        Assert.NotEmpty(concreteNodes);
+        Assert.Equal(concreteNodes, mappings.Select(pair => pair.Key));
+        Assert.All(mappings, pair => Assert.True(
+            AnnotatedSourceNodeKinds.IsKnown(pair.Value),
+            $"{pair.Key.Name} maps to undocumented kind {pair.Value}."));
+        Assert.DoesNotContain(mappings, pair => pair.Value == AnnotatedSourceNodeKinds.Unknown);
+
+        Assert.Equal("ConversionExpression", AnnotatedSourceNodeKindProjection.From(
+            new Coerce(
+                TypeRef.CoreLib("System", "Int64"),
+                new Constant(1, TypeRef.CoreLib("System", "Int32")))));
+        Assert.Equal("AssignmentStatement", AnnotatedSourceNodeKindProjection.From(
+            new StoreStackSlot(0, new Constant(1, TypeRef.CoreLib("System", "Int32")))));
+        Assert.Equal("BinaryExpression", AnnotatedSourceNodeKindProjection.From(
+            new LogicalBinary(
+                LogicalKind.And,
+                new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                new Constant(false, TypeRef.CoreLib("System", "Boolean")))));
+
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var indexer = new MethodRef(objectType, "get_Item", objectType, [intType], HasThis: true);
+        Assert.Equal("ElementAccessExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadProperty(
+                indexer,
+                new LoadArgument(0, "items", objectType),
+                [new Constant(0, intType)])));
+        Assert.Equal("MemberAccessExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadProperty(
+                indexer with { Name = "get_Count", ParameterTypes = [] },
+                new LoadArgument(0, "items", objectType),
+                [])));
+
+        Assert.Equal("TypeOfExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadToken(RuntimeTokenKind.Type, objectType, objectType.ToDisplayString())));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadToken(RuntimeTokenKind.Field, null, "C.F")));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadFunctionPointer(
+                new MethodRef(objectType, "Target", intType, [], HasThis: false),
+                isVirtual: false,
+                instance: null)));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(new EndFinally()));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new EndFilter(new Constant(1, intType))));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new CopyBlock(
+                new Constant(0, intType),
+                new Constant(0, intType),
+                new Constant(1, intType))));
+    }
+
+    [Fact]
+    public void ReplayToleratesKindsAddedByANewerProducer()
+    {
+        var map = new PrintedBodyMap(
+            ["future"],
+            [new PrintedNodeSpan(0, "FutureSyntax", new PrintedExtent(0, 0, 0, 6))],
+            [],
+            []);
+
+        Assert.False(AnnotatedSourceNodeKinds.IsKnown(Assert.Single(map.Nodes).Kind));
+    }
+
+    [Theory]
+    [MemberData(nameof(UnsupportedCommentPlaceholders))]
+    public void UnsupportedCommentPlaceholdersRecordUnsupportedKind(
+        IrNode node,
+        string expectedText)
+    {
+        var block = new Block(0);
+        block.Add(node);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        Assert.True(ranges.TryGetRange(node, out var range));
+        Assert.Equal(expectedText, ranges.Output[range]);
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.Contains(
+            map.Nodes,
+            candidate => candidate.Kind == "UnsupportedExpression"
+                && Text(map, candidate.Extent) == expectedText.TrimEnd());
+        Assert.DoesNotContain(
+            map.Nodes,
+            candidate => candidate.Kind == "ExpressionStatement"
+                && Text(map, candidate.Extent) == expectedText.TrimEnd());
+    }
+
+    public static TheoryData<IrNode, string> UnsupportedCommentPlaceholders =>
+        new()
+        {
+            { new EndFinally(), "// endfinally\n" },
+            {
+                new EndFilter(new Constant(1, TypeRef.CoreLib("System", "Int32"))),
+                "// endfilter(1)\n"
+            },
+            {
+                new CopyBlock(
+                    new Constant(0, TypeRef.CoreLib("System", "Int32")),
+                    new Constant(0, TypeRef.CoreLib("System", "Int32")),
+                    new Constant(1, TypeRef.CoreLib("System", "Int32"))),
+                "/* unsupported cpblk */\n"
+            },
+            {
+                new ExpressionStatement(
+                    new UnsupportedNode(0x05, "calli", "unsupported call site")),
+                "/* Unsupported IL_0005 calli: unsupported call site */\n"
+            },
+        };
+
+    [Fact]
+    public void NestedUnsupportedStatementCanonicalizesWrapperAndExpression()
+    {
+        var unsupported = new UnsupportedNode(0x05, "calli", "unsupported call site");
+        var statement = new ExpressionStatement(unsupported);
+        var nested = new Block();
+        nested.Add(statement);
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            nested,
+            null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [statement] = [new Annotation(Alloc, 0, "wrapper")],
+                [unsupported] = [new Annotation(Alloc, 0, "expression")],
+            });
+
+        var node = Assert.Single(
+            map.Nodes,
+            candidate => candidate.Kind == "UnsupportedExpression");
         Assert.Equal(
-            expected.Order(),
-            map.Nodes.Select(node => (node.Kind, Text(map, node.Extent))).Order());
+            "/* Unsupported IL_0005 calli: unsupported call site */",
+            Text(map, node.Extent));
+        Assert.Equal(2, map.Annotations.Count);
+        Assert.All(map.Annotations, annotation => Assert.Equal(node.Id, annotation.NodeId));
+    }
+
+    [Fact]
+    public void EndFilterCommentDoesNotPublishOperandSyntax()
+    {
+        var value = new LoadStackSlot(6, TypeRef.CoreLib("System", "Int32"));
+        var endFilter = new EndFilter(value);
+        var block = new Block(0);
+        block.Add(endFilter);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(
+            map.Nodes,
+            node => node.Kind == "UnsupportedExpression"
+                && Text(map, node.Extent) == "// endfilter(S_6)");
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "NameExpression"
+                && Text(map, node.Extent) == "S_6");
+    }
+
+    [Theory]
+    [MemberData(nameof(NonFiniteConstants))]
+    public void NonFiniteConstantsRecordMemberAccessKind(
+        Constant constant,
+        string expectedText)
+    {
+        var block = new Block(0);
+        block.Add(new Return(constant));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                constant.Type!,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        AssertSurfaceKind(ranges, constant, expectedText, "MemberAccessExpression");
+    }
+
+    public static TheoryData<Constant, string> NonFiniteConstants =>
+        new()
+        {
+            {
+                new Constant(
+                    float.NaN,
+                    TypeRef.CoreLib("System", "Single")),
+                "float.NaN"
+            },
+            {
+                new Constant(
+                    float.PositiveInfinity,
+                    TypeRef.CoreLib("System", "Single")),
+                "float.PositiveInfinity"
+            },
+            {
+                new Constant(
+                    float.NegativeInfinity,
+                    TypeRef.CoreLib("System", "Single")),
+                "float.NegativeInfinity"
+            },
+            {
+                new Constant(
+                    double.NaN,
+                    TypeRef.CoreLib("System", "Double")),
+                "double.NaN"
+            },
+            {
+                new Constant(
+                    double.PositiveInfinity,
+                    TypeRef.CoreLib("System", "Double")),
+                "double.PositiveInfinity"
+            },
+            {
+                new Constant(
+                    double.NegativeInfinity,
+                    TypeRef.CoreLib("System", "Double")),
+                "double.NegativeInfinity"
+            },
+        };
+
+    [Theory]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "-(a + b)", "UnaryExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "a + b", "BinaryExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.MoneyToInt), "(int)m", "ConversionExpression")]
+    [InlineData(typeof(GenericIsInstanceSpecimens<>), nameof(GenericIsInstanceSpecimens<object>.DirectIs), "value is T", "PatternExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.IsNotNullReference), "o is not null", "PatternExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.FloatUnordered), "!(a <= b)", "UnaryExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.ConstantUIntSpan), "new uint[] { 1, 10, 100, 1000, 10000 }", "ArrayCreationExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.AsWithoutPattern), "o as string", "ConversionExpression")]
+    [InlineData(typeof(LifetimeSampleClass), nameof(LifetimeSampleClass.EscapingStackPointer), "return (int*)__stackalloc;", "ReturnStatement")]
+    [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdGet), "a[i, j]", "ElementAccessExpression")]
+    [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdSet), "a[i, j] = v", "AssignmentStatement")]
+    [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdNew), "new int[3, 4]", "ArrayCreationExpression")]
+    public void RenderSpecializationsRecordTheirSurfaceKind(
+        Type fixtureType,
+        string methodName,
+        string text,
+        string expectedKind)
+    {
+        var (_, ranges) = Print(fixtureType, methodName);
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(map.Nodes, node => node.Kind == expectedKind && Text(map, node.Extent) == text);
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind is "InvocationExpression" or "ObjectCreationExpression"
+                && Text(map, node.Extent) == text);
+    }
+
+    [Fact]
+    public void RectangularArrayPseudoMemberReadRecordsInvocationKind()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var arrayType = TypeRef.MdArray(intType, 2);
+        var tupleType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "ValueTuple`2"),
+            [intType, intType]);
+        var load = new LoadElement(
+            intType,
+            new LoadArgument(0, "a", arrayType),
+            new TupleExpression(
+                tupleType,
+                [new LoadStackSlot(0, intType), new LoadStackSlot(0, intType)]));
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(0, intType)));
+        block.Add(new Return(load));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                intType,
+                [new Parameter("a", arrayType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        AssertSurfaceKind(ranges, load, "a.Get(S_0, S_0)", "InvocationExpression");
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "ElementAccessExpression"
+                && Text(map, node.Extent) == "a.Get(S_0, S_0)");
+    }
+
+    [Fact]
+    public void ContextRenderedSwitchRecordsSwitchAndArmKinds()
+    {
+        var (_, ranges) = Print(
+            typeof(CfgSampleClass),
+            nameof(CfgSampleClass.PowerOfTwo));
+        var map = PrintedBodyMap.Create(ranges);
+
+        var switchNode = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "SwitchExpression");
+        Assert.Equal(
+            """
+            x switch
+            {
+                0 => 1,
+                1 => 2,
+                2 => 4,
+                3 => 8,
+                _ => 0,
+            }
+            """,
+            Text(map, switchNode.Extent));
+        Assert.Equal(
+            ["0 => 1", "1 => 2", "2 => 4", "3 => 8", "_ => 0"],
+            map.Nodes
+                .Where(node => node.Kind == "SwitchExpressionArm")
+                .Select(node => Text(map, node.Extent)));
+    }
+
+    [Fact]
+    public void TargetCoercedInlineSwitchRecordsRootAndFactJoin()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var switchExpression = new SwitchExpression(
+            new LoadArgument(0, "x", intType),
+            [
+                new SwitchExpressionArm(
+                    [0],
+                    isDefault: false,
+                    new Constant(1, intType)),
+                new SwitchExpressionArm(
+                    [],
+                    isDefault: true,
+                    new Constant(2, intType)),
+            ]);
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, intType, switchExpression));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("x", intType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [switchExpression] = [new Annotation(Alloc, 0)],
+            });
+
+        var node = Assert.Single(
+            map.Nodes,
+            candidate => candidate.Kind == "SwitchExpression");
+        Assert.Equal(
+            "x switch { 0 => 1, _ => 2 }",
+            Text(map, node.Extent));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(node.Id, fact.NodeId);
+        Assert.Equal(node.Kind, fact.Kind);
+        Assert.Equal(node.Extent, fact.Extent);
+    }
+
+    [Fact]
+    public void PatternSwitchRecordsSynthesizedDefaultArm()
+    {
+        using var source = MetadataSource.Open(typeof(PatternSwitchSample).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(PatternSwitchSample).FullName!,
+            nameof(PatternSwitchSample.Classify));
+        CSharpPrinter.PrintRaised(
+            function!,
+            out var ranges,
+            method => IrImporter.Import(source, method),
+            source.AreProvablyDisjoint);
+        var synthesizedDefault = Assert.Single(
+            function!.Descendants.OfType<SynthesizedSwitchExpressionArm>());
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [synthesizedDefault] = [new Annotation(Alloc, 0)],
+            });
+
+        var arms = map.Nodes
+            .Where(node => node.Kind == "SwitchExpressionArm")
+            .Select(node => Text(map, node.Extent))
+            .ToArray();
+        Assert.Equal(3, arms.Length);
+        Assert.Contains("_ => false", arms);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal("SwitchExpressionArm", fact.Kind);
+        Assert.True(fact.Extent.HasValue);
+        Assert.Equal("_ => false", Text(map, fact.Extent.Value));
+    }
+
+    [Fact]
+    public void ContextRenderedConditionRecordsPatternKind()
+    {
+        var (_, ranges) = Print(
+            typeof(CfgSampleClass),
+            nameof(CfgSampleClass.LenOrZero));
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(
+            map.Nodes,
+            node => node.Kind == "PatternExpression"
+                && Text(map, node.Extent) == "o is string s");
+    }
+
+    [Fact]
+    public void InvertedNullConditionRecordsPatternKind()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var condition = new LogicalNot(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadArgument(0, "o", objectType),
+                new Constant(null, objectType)));
+        var thenBlock = new Block();
+        thenBlock.Add(new Return(null));
+        var block = new Block(0);
+        block.Add(new IfStatement(condition, thenBlock, null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("o", objectType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(
+            map.Nodes,
+            node => node.Kind == "PatternExpression"
+                && Text(map, node.Extent) == "o is not null");
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "BinaryExpression"
+                && Text(map, node.Extent) == "o is not null");
+    }
+
+    [Fact]
+    public void SynthesizedDiscardRecordsAssignmentKind()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var statement = new ExpressionStatement(
+            new ArrayLength(
+                new NewArray(
+                    byteType,
+                    new Constant(4, intType))));
+        var block = new Block(0);
+        block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+
+        AssertSurfaceKind(
+            ranges,
+            statement,
+            "_ = (new byte[4]).Length;\n",
+            "AssignmentStatement");
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "ExpressionStatement"
+                && Text(map, node.Extent) == "_ = (new byte[4]).Length;");
+    }
+
+    [Fact]
+    public void TargetCoercedConditionalRecordsVisibleRootKind()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var diamond = new Conditional(
+            new LoadArgument(0, "exists", boolType),
+            new Constant(true, boolType),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, intType, diamond));
+        block.Add(new Return(new LoadLocal(0, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                intType,
+                [new Parameter("exists", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [diamond] = [new Annotation(Alloc, 0)],
+            });
+
+        Assert.NotNull(result.Output);
+        Assert.True(ranges.TryGetRange(diamond, out var range));
+        Assert.Equal("exists && true", ranges.Output[range]);
+        Assert.True(ranges.TryGetNodeKind(diamond, out string? kind));
+        Assert.Equal("BinaryExpression", kind);
+        var wrapper = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConditionalExpression"
+                && Text(map, node.Extent) == "exists && true ? 1 : 0");
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "BinaryExpression"
+                && Text(map, node.Extent) == "exists && true");
+        Assert.True(
+            SlotOf(ranges, diamond)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "exists && true ? 1 : 0",
+                "ConditionalExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal("BinaryExpression", fact.Kind);
+        Assert.True(fact.Extent.HasValue);
+        Assert.Equal("exists && true", Text(map, fact.Extent.Value));
+    }
+
+    [Fact]
+    public void ContextualTruthinessPreservesOperandAndWrapperKinds()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var argument = new LoadArgument(0, "value", objectType);
+        var thenBlock = new Block();
+        thenBlock.Add(new Return(null));
+        var block = new Block(0);
+        block.Add(new IfStatement(argument, thenBlock, null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("value", objectType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [argument] = [new Annotation(Alloc, 0)],
+            });
+
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "NameExpression"
+                && Text(map, node.Extent) == "value");
+        var wrapper = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "PatternExpression"
+                && Text(map, node.Extent) == "value is not null");
+        Assert.True(
+            SlotOf(ranges, argument)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "value is not null",
+                "PatternExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(operand.Id, fact.NodeId);
+        Assert.Equal("NameExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void AddressStrippedOperatorTruthinessRecordsNameKind()
+    {
+        using var source = MetadataSource.Open(typeof(BoolBoxProbe).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(BoolBoxProbe).FullName!,
+            nameof(BoolBoxProbe.Branch));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var address = Assert.Single(
+            function!.Descendants.OfType<LoadArgumentAddress>());
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [address] = [new Annotation(Alloc, 0)],
+            });
+
+        var name = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "NameExpression"
+                && Text(map, node.Extent) == "value");
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind == "AddressExpression"
+                && Text(map, node.Extent) == "value");
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(name.Id, fact.NodeId);
+        Assert.Equal("NameExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void ContextualStackallocConversionPreservesOperandAndWrapperKinds()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var intPointer = TypeRef.Pointer(intType);
+        var voidPointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Void"));
+        var allocation = new StackAllocArray(
+            intType,
+            new Constant(1, intType),
+            intPointer);
+        var block = new Block(0);
+        block.Add(new Return(allocation));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                voidPointer,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [allocation] = [new Annotation(Alloc, 0)],
+            });
+
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "StackAllocationExpression");
+        Assert.Equal("stackalloc int[1]", Text(map, operand.Extent));
+        var wrapper = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "(void*)(stackalloc int[1])");
+        Assert.True(
+            SlotOf(ranges, allocation)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "(void*)(stackalloc int[1])",
+                "ConversionExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(operand.Id, fact.NodeId);
+        Assert.Equal("StackAllocationExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void CoercedJoinArmPreservesLiteralAndConversionKinds()
+    {
+        using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(EnumCastSamples).FullName!,
+            nameof(EnumCastSamples.CrossSignCoalesceConstant));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var fallback = Assert.Single(
+            function!.Descendants.OfType<Constant>(),
+            constant => constant.Value is int value && value == -1);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [fallback] = [new Annotation(Alloc, 0)],
+            });
+
+        var literal = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "LiteralExpression"
+                && Text(map, node.Extent) == "-1");
+        var conversion = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "unchecked((uint)(-1))");
+        Assert.True(
+            SlotOf(ranges, fallback)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "unchecked((uint)(-1))",
+                "ConversionExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(literal.Id, fact.NodeId);
+        Assert.Equal("LiteralExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void ContextualUnsignedComparisonCastPreservesOperandAndWrapperKinds()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var zero = new Constant(0, intType);
+        var comparison = new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: true,
+            new LoadArgument(0, "value", byteType),
+            zero);
+        var block = new Block(0);
+        block.Add(new Return(comparison));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                boolType,
+                [new Parameter("value", byteType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [zero] = [new Annotation(Alloc, 0)],
+            });
+
+        var literal = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "LiteralExpression"
+                && Text(map, node.Extent) == "0");
+        var conversion = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "(uint)0");
+        Assert.True(
+            SlotOf(ranges, zero)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "(uint)0",
+                "ConversionExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(literal.Id, fact.NodeId);
+        Assert.Equal("LiteralExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void FixedBufferPointerAddressPreservesElementAndAddressKinds()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.PointerReturn));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var address = Assert.Single(
+            function!.Descendants.OfType<FixedBufferElementAddress>());
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [address] = [new Annotation(Alloc, 0)],
+            });
+
+        var element = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ElementAccessExpression"
+                && Text(map, node.Extent) == "value.Data[index]");
+        var addressOf = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "AddressExpression"
+                && Text(map, node.Extent) == "&value.Data[index]");
+        Assert.True(element.Extent.StartColumn > addressOf.Extent.StartColumn);
+        Assert.Equal(element.Extent.EndColumn, addressOf.Extent.EndColumn);
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(element.Id, fact.NodeId);
+        Assert.Equal("ElementAccessExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void IntegerTruthinessContainingPatternTextRecordsBinaryKind()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var typeTest = new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new IsInstance(
+                stringType,
+                new LoadArgument(0, "value", objectType)),
+            new Constant(null, objectType));
+        var integerConditional = new Conditional(
+            typeTest,
+            new Constant(1, intType),
+            new Constant(0, intType))
+        {
+            MergedType = intType,
+        };
+        var negated = new LogicalNot(integerConditional);
+        var block = new Block(0);
+        block.Add(new Return(negated));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                boolType,
+                [new Parameter("value", objectType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        Assert.True(ranges.TryGetRange(negated, out var range));
+        Assert.Equal("(value is string ? 1 : 0) == 0", ranges.Output[range]);
+        Assert.True(ranges.TryGetNodeKind(negated, out string? kind));
+        Assert.Equal("BinaryExpression", kind);
+    }
+
+    [Fact]
+    public void TransparentWrappersRecordTheSyntaxTheyExpose()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var pointerType = TypeRef.Pointer(intType);
+        var holderType = TypeRef.Definition("synthetic", "", "Holder");
+        var enumType = TypeRef.Definition("synthetic", "", "Mode");
+        var nullableIntType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var boxed = new Box(
+            intType,
+            new LoadArgument(0, "value", intType));
+        var coerced = new Coerce(
+            intType,
+            new LoadArgument(0, "value", intType));
+        var managedRead = new LoadIndirect(
+            intType,
+            new LoadArgument(1, "managed", TypeRef.ByRef(intType)));
+        var pointerRead = new LoadIndirect(
+            intType,
+            new LoadArgument(2, "pointer", TypeRef.Pointer(intType)));
+        var conditional = new Coerce(
+            intType,
+            new Conditional(
+                new LoadArgument(3, "flag", boolType),
+                new Constant(1, intType),
+                new Constant(0, intType))
+            {
+                MergedType = intType,
+            });
+        var typeTest = new IsInstance(
+            intType,
+            new LoadArgument(4, "subject", objectType));
+        var coalesced = new Coerce(
+            intType,
+            new Coalesce(
+                new LoadArgument(5, "optional", nullableIntType),
+                new Constant(4, intType)));
+        var collapsedConstant = new Coerce(
+            uintType,
+            new ILInspector.Decompiler.Pipeline.Convert(
+                intType,
+                isChecked: false,
+                isUnsigned: false,
+                new Constant(1, intType)));
+        var binary = new Coerce(
+            uintType,
+            new Binary(
+                BinaryKind.Remainder,
+                isChecked: false,
+                isUnsigned: true,
+                new ILInspector.Decompiler.Pipeline.Convert(
+                    uintType,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadArgument(6, "signed", intType)),
+                new ILInspector.Decompiler.Pipeline.Convert(
+                    uintType,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new Constant(32, intType))));
+        var pointerArithmetic = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(2, "pointer", pointerType),
+            new LoadArgument(0, "value", intType));
+        var enumConstant = new Constant(3, enumType);
+        var namedEnumSink = new Coerce(
+            enumType,
+            new Constant(1, intType));
+        var namedEnumOperand = new Constant(1, enumType);
+        var enumComparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(11, enumType),
+            namedEnumOperand);
+        var increment = new StoreLocal(
+            1,
+            intType,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadLocal(1, intType),
+                new Constant(1, intType)));
+        var checkedIncrement = new StoreLocal(
+            1,
+            intType,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: true,
+                isUnsigned: false,
+                new LoadLocal(1, intType),
+                new Constant(1, intType)));
+        var checkedOperator = new IncrementDecrement(
+            new LoadLocal(1, intType),
+            isIncrement: true,
+            isPrefix: false,
+            isUserDefined: true,
+            isChecked: true);
+        var checkedOperatorStatement = new ExpressionStatement(checkedOperator);
+        var fieldLoad = new LoadField(
+            new FieldRef(holderType, "Count", intType),
+            new LoadArgument(0, "this", holderType));
+        var fieldAddressRead = new LoadIndirect(
+            intType,
+            new LoadFieldAddress(
+                new FieldRef(holderType, "Count", intType),
+                new LoadArgument(0, "this", holderType)));
+        var propertyLoad = new LoadProperty(
+            new MethodRef(holderType, "get_Total", intType, [], HasThis: true),
+            new LoadArgument(0, "this", holderType),
+            []);
+        var functionPointer = new LoadFunctionPointer(
+            new MethodRef(holderType, "Target", intType, [], HasThis: false),
+            isVirtual: false,
+            instance: null);
+        var pattern = new IsPattern(
+            new LoadArgument(4, "subject", objectType),
+            stringType,
+            localIndex: 8);
+        var lengthGetter = new MethodRef(
+            stringType,
+            "get_Length",
+            intType,
+            [],
+            HasThis: true);
+        var foldedPattern = new Conditional(
+            pattern,
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadProperty(
+                    lengthGetter,
+                    new LoadLocal(8, stringType),
+                    []),
+                new Constant(5, intType)),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, objectType, boxed));
+        block.Add(new StoreLocal(1, intType, coerced));
+        block.Add(new StoreLocal(2, intType, pointerRead));
+        block.Add(new StoreLocal(3, intType, conditional));
+        block.Add(new StoreLocal(4, boolType, typeTest));
+        block.Add(new StoreLocal(5, intType, coalesced));
+        block.Add(new StoreLocal(6, uintType, collapsedConstant));
+        block.Add(new StoreLocal(7, uintType, binary));
+        block.Add(new StoreLocal(9, boolType, foldedPattern));
+        block.Add(new StoreLocal(10, pointerType, pointerArithmetic));
+        block.Add(new StoreLocal(11, enumType, enumConstant));
+        block.Add(new StoreLocal(12, enumType, namedEnumSink));
+        block.Add(new StoreLocal(13, boolType, enumComparison));
+        block.Add(increment);
+        block.Add(checkedIncrement);
+        block.Add(checkedOperatorStatement);
+        block.Add(new StoreLocal(14, intType, fieldLoad));
+        block.Add(new StoreLocal(15, intType, propertyLoad));
+        block.Add(new StoreLocal(16, intType, fieldAddressRead));
+        block.Add(new ExpressionStatement(functionPointer));
+        block.Add(new Return(managedRead));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            holderType,
+            new MethodSignature(
+                intType,
+                [
+                    new Parameter("value", intType),
+                    new Parameter("managed", TypeRef.ByRef(intType)),
+                    new Parameter("pointer", pointerType),
+                    new Parameter("flag", boolType),
+                    new Parameter("subject", objectType),
+                    new Parameter("optional", nullableIntType),
+                    new Parameter("signed", intType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [
+                objectType,
+                intType,
+                intType,
+                intType,
+                boolType,
+                intType,
+                uintType,
+                uintType,
+                stringType,
+                boolType,
+                pointerType,
+                enumType,
+                enumType,
+                boolType,
+                intType,
+                intType,
+                intType,
+            ],
+            container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [enumType] = TypeShape.Enum,
+            },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+            {
+                [enumType] = intType,
+            },
+            EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+            {
+                [enumType] = new Dictionary<long, string>
+                {
+                    [1] = "Enabled",
+                },
+            },
+        };
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        AssertSurfaceKind(ranges, boxed, "value", "NameExpression");
+        AssertSurfaceKind(ranges, coerced, "value", "NameExpression");
+        AssertSurfaceKind(ranges, managedRead, "managed", "NameExpression");
+        AssertSurfaceKind(ranges, pointerRead, "*pointer", "IndirectAccessExpression");
+        AssertSurfaceKind(ranges, conditional, "flag ? 1 : 0", "ConditionalExpression");
+        AssertSurfaceKind(ranges, typeTest, "subject is int", "PatternExpression");
+        AssertSurfaceKind(ranges, coalesced, "optional ?? 4", "CoalesceExpression");
+        AssertSurfaceKind(ranges, collapsedConstant, "1", "LiteralExpression");
+        AssertSurfaceKind(ranges, binary, "((uint)signed) % ((uint)32)", "BinaryExpression");
+        AssertSurfaceKind(ranges, foldedPattern, "subject is string { Length: 5 }", "PatternExpression");
+        AssertSurfaceKind(ranges, pointerArithmetic, "(int*)((byte*)pointer + value)", "ConversionExpression");
+        AssertSurfaceKind(ranges, enumConstant, "(Mode)3", "ConversionExpression");
+        AssertSurfaceKind(ranges, namedEnumSink, "Mode.Enabled", "MemberAccessExpression");
+        AssertSurfaceKind(ranges, namedEnumOperand, "Mode.Enabled", "MemberAccessExpression");
+        AssertSurfaceKind(ranges, increment, "V_1++;\n", "IncrementOrDecrementExpression");
+        AssertSurfaceKind(ranges, checkedIncrement, "checked { V_1++; }\n", "CheckedStatement");
+        AssertSurfaceKind(ranges, checkedOperatorStatement, "checked { V_1++; }\n", "CheckedStatement");
+        AssertSurfaceKind(ranges, checkedOperator, "V_1++", "IncrementOrDecrementExpression");
+        AssertSurfaceKind(ranges, fieldLoad, "Count", "NameExpression");
+        AssertSurfaceKind(ranges, propertyLoad, "Total", "NameExpression");
+        AssertSurfaceKind(ranges, fieldAddressRead, "Count", "NameExpression");
+        Assert.True(ranges.TryGetRange(functionPointer, out var functionPointerRange));
+        Assert.StartsWith("/* LoadFunctionPointer", ranges.Output[functionPointerRange]);
+        Assert.True(ranges.TryGetNodeKind(functionPointer, out string? functionPointerKind));
+        Assert.Equal("UnsupportedExpression", functionPointerKind);
+    }
+
+    [Fact]
+    public void UnplacedFactKeepsPrinterSelectedKind()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var node = new Box(
+            intType,
+            new LoadArgument(0, "value", intType));
+        var ranges = new PrintedRangeMap();
+        ranges.SetNodeKind(node, "NameExpression");
+        ranges.Complete("");
+
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [node] = [new Annotation(Alloc, 0)],
+            });
+
+        var fact = Assert.Single(map.Annotations);
+        Assert.Null(fact.NodeId);
+        Assert.Null(fact.Extent);
+        Assert.Equal("NameExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void SynthesizedStackallocDeclarationsStayOutsideStatementRanges()
+    {
+        static int SlotOf(PrintedRangeMap map, IrNode node)
+            => map.Select((range, index) => (range.Node, index))
+                .Single(x => ReferenceEquals(x.Node, node))
+                .index;
+
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var pointerType = TypeRef.Pointer(intType);
+        var allocation = new StackAllocate(new Constant(16, intType));
+        var store = new StoreLocal(0, pointerType, allocation);
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [pointerType],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        Assert.True(ranges.TryGetRange(store, out var storeRange));
+        Assert.Equal("int* V_0 = (int*)__stackalloc;\n", ranges.Output[storeRange]);
+        Assert.True(ranges.TryGetRange(allocation, out var allocationRange));
+        Assert.Equal("stackalloc byte[16]", ranges.Output[allocationRange]);
+        Assert.True(SlotOf(ranges, allocation) < SlotOf(ranges, store));
+        Assert.True(ranges.TryGetLine(allocation, out int allocationLine));
+        Assert.True(ranges.TryGetLine(store, out int storeAnchorLine));
+        Assert.True(ranges.TryGetLineColumn(store, out int storeSyntaxLine, out _, out _));
+        Assert.Equal(allocationLine, storeAnchorLine);
+        Assert.NotEqual(storeAnchorLine, storeSyntaxLine);
+
+        using var source = MetadataSource.Open(typeof(UnsafeSampleClass).Assembly.Location);
+        var imported = IrImporter.Import(
+            source,
+            typeof(UnsafeSampleClass).FullName!,
+            nameof(UnsafeSampleClass.StackScratch));
+        Assert.NotNull(imported);
+        CSharpPrinter.PrintRaised(imported!, out var importedRanges);
+        var slotStore = Assert.Single(
+            imported!.Descendants.OfType<StoreStackSlot>(),
+            candidate => candidate.Value is StackAllocate);
+        var slotAllocation = Assert.IsType<StackAllocate>(slotStore.Value);
+
+        Assert.True(importedRanges.TryGetRange(slotStore, out var slotRange));
+        Assert.Equal("byte* S_256 = __stackalloc;\n", importedRanges.Output[slotRange]);
+        Assert.True(SlotOf(importedRanges, slotAllocation) < SlotOf(importedRanges, slotStore));
+        Assert.True(importedRanges.TryGetLine(slotAllocation, out int slotAllocationLine));
+        Assert.True(importedRanges.TryGetLine(slotStore, out int slotAnchorLine));
+        Assert.True(importedRanges.TryGetLineColumn(slotStore, out int slotSyntaxLine, out _, out _));
+        Assert.Equal(slotAllocationLine, slotAnchorLine);
+        Assert.NotEqual(slotAnchorLine, slotSyntaxLine);
+
+        using var returnSource = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
+        var returnFunction = IrImporter.Import(
+            returnSource,
+            typeof(LifetimeSampleClass).FullName!,
+            nameof(LifetimeSampleClass.EscapingStackPointer));
+        Assert.NotNull(returnFunction);
+        CSharpPrinter.PrintRaised(returnFunction!, out var returnRanges);
+        var returnStatement = Assert.Single(
+            returnFunction!.Descendants.OfType<Return>(),
+            candidate => candidate.Value is StackAllocate);
+        var returnAllocation = Assert.IsType<StackAllocate>(returnStatement.Value);
+
+        Assert.True(returnRanges.TryGetRange(returnStatement, out var returnRange));
+        Assert.Equal("return (int*)__stackalloc;\n", returnRanges.Output[returnRange]);
+        Assert.True(SlotOf(returnRanges, returnAllocation) < SlotOf(returnRanges, returnStatement));
+        Assert.True(returnRanges.TryGetLine(returnAllocation, out int returnAllocationLine));
+        Assert.True(returnRanges.TryGetLine(returnStatement, out int returnAnchorLine));
+        Assert.True(returnRanges.TryGetLineColumn(returnStatement, out int returnSyntaxLine, out _, out _));
+        Assert.Equal(returnAllocationLine, returnAnchorLine);
+        Assert.NotEqual(returnAnchorLine, returnSyntaxLine);
+    }
+
+    [Fact]
+    public void RenderSpecializationKeepsPlacedFactAndNodeKindsEqual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NegateSum));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var addition = Assert.Single(
+            function!.Descendants.OfType<Call>(),
+            call => AnnotatedSourceNodeKindProjection.OperatorKind(call) == "BinaryExpression");
+
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [addition] = [new Annotation(Alloc, addition.SourceOffset)],
+            });
+
+        var fact = Assert.Single(map.Annotations);
+        var node = map.Nodes[Assert.IsType<int>(fact.NodeId)];
+        Assert.Equal("BinaryExpression", fact.Kind);
+        Assert.Equal(node.Kind, fact.Kind);
+        Assert.Equal(node.Extent, fact.Extent);
     }
 
     [Fact]
@@ -156,9 +1479,9 @@ public class PrintedBodyMapTests
     [Fact]
     public void PlacedFactsNameTheExactNodeTheyWereAnchoredTo()
     {
-        // Two nodes print the same characters under the same kind, so recovering
-        // the join by matching kind and extent could only guess. The id is
-        // minted while IrNode identity is alive, which is what makes it exact.
+        // Two implementation nodes print one identical surface-syntax element.
+        // They normalize to one portable node while identity is still alive, so
+        // either implementation node resolves to the same unambiguous id.
         var first = new LoadLocal(0, TypeRef.CoreLib("System", "Int32"));
         var second = new LoadLocal(1, TypeRef.CoreLib("System", "Int32"));
         var ranges = new PrintedRangeMap();
@@ -170,11 +1493,10 @@ public class PrintedBodyMapTests
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>> { [second] = [new Annotation(Alloc, 12)] });
 
-        Assert.Equal(2, map.Nodes.Count);
-        Assert.Equal(map.Nodes[0].Extent, map.Nodes[1].Extent);
+        var node = Assert.Single(map.Nodes);
         var fact = Assert.Single(map.Annotations);
-        Assert.Equal(1, fact.NodeId);
-        Assert.Equal(map.Nodes[1].Extent, fact.Extent);
+        Assert.Equal(node.Id, fact.NodeId);
+        Assert.Equal(node.Extent, fact.Extent);
     }
 
     [Fact]
@@ -1043,8 +2365,21 @@ public class PrintedBodyMapTests
 
         var map = PrintedBodyMap.Create(ranges);
         var span = Assert.Single(map.Nodes);
-        Assert.Equal("LoadLocal", span.Kind);
+        Assert.Equal("NameExpression", span.Kind);
         Assert.Equal("efgh", Text(map, span.Extent));
+    }
+
+    static void AssertSurfaceKind(
+        PrintedRangeMap ranges,
+        IrNode node,
+        string expectedText,
+        string expectedKind)
+    {
+        Assert.True(ranges.TryGetRange(node, out var range));
+        Assert.Equal(expectedText, ranges.Output[range]);
+        Assert.True(ranges.TryGetNodeKind(node, out string? kind));
+        Assert.Equal(expectedKind, kind);
+        Assert.True(AnnotatedSourceNodeKinds.IsKnown(kind));
     }
 
     static int ComparePosition(int line, int column, int otherLine, int otherColumn)
@@ -1052,6 +2387,22 @@ public class PrintedBodyMapTests
         int c = line.CompareTo(otherLine);
         return c != 0 ? c : column.CompareTo(otherColumn);
     }
+
+    static int SlotOf(PrintedRangeMap ranges, IrNode node)
+        => ranges.Select((range, index) => (range.Node, index))
+            .Single(item => ReferenceEquals(item.Node, node))
+            .index;
+
+    static IrNode ContextualRoot(
+        PrintedRangeMap ranges,
+        string text,
+        string kind)
+        => Assert.Single(
+            ranges,
+            printed => printed.Node is SynthesizedRenderedExpression
+                && ranges.TryGetNodeKind(printed.Node, out string? renderedKind)
+                && renderedKind == kind
+                && ranges.Output[printed.Characters] == text).Node;
 
     static string Text(PrintedBodyMap map, PrintedExtent extent) => Text(map.Lines, extent);
 

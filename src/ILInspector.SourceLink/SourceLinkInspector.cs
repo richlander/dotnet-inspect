@@ -6,6 +6,12 @@ public static class SourceLinkInspector
     public static LibraryDebugInfo InspectDll(string dllPath)
     {
         using var source = SourceLinkService.Open(dllPath);
+        return Inspect(source);
+    }
+
+    /// <summary>Audits an already-open assembly and its current PDB state.</summary>
+    public static LibraryDebugInfo Inspect(SourceLinkService source)
+    {
         var context = source.Context;
 
         if (!context.HasMetadata)
@@ -18,44 +24,57 @@ public static class SourceLinkInspector
             };
         }
 
+        SourceLinkDebugAudit debugAudit = InspectDebugInformation(source);
         var audit = new LibraryDebugInfo
         {
             HasReproducibleFlag = context.HasReproducibleFlag,
             HasEmbeddedPdb = context.HasEmbeddedPdb,
-            HasNormalizedPaths = context.HasNormalizedPaths,
+            HasNormalizedPaths = debugAudit.HasNormalizedPaths,
             PdbPath = context.CodeViewPdbPath,
-            PdbFormat = context.HasEmbeddedPdb ? "Portable" : null,
-            HasSourceLink = context.HasEmbeddedPdb && source.HasSourceLink,
-            SourceLinkJson = context.HasEmbeddedPdb ? source.SourceLinkJson : null,
-            RepositoryUrl = context.HasEmbeddedPdb ? source.RepositoryUrl : null,
-            NonNormalizedPaths = context.NonNormalizedPaths is null
+            PdbFormat = context.PdbFormat,
+            HasSourceLink = debugAudit.SourceLinkMap.IsPresent,
+            SourceLinkJson = source.SourceLinkJson,
+            SourceLinkMap = debugAudit.SourceLinkMap,
+            RepositoryUrl = source.RepositoryUrl,
+            NonNormalizedPaths = debugAudit.NonNormalizedPaths is null
                 ? null
-                : [.. context.NonNormalizedPaths],
+                : [.. debugAudit.NonNormalizedPaths],
             AssemblyInfo = context.ExtractFullAssemblyInfo(),
         };
-
-        if (audit.SourceLinkJson is not null)
-        {
-            var map = SourceLinkFetch.SourceLinkResolver.Parse(audit.SourceLinkJson);
-            if (map.ParseError is not null)
-            {
-                audit.HasNormalizedPaths = false;
-            }
-            else
-            {
-                foreach (string key in map.DocumentKeys)
-                {
-                    if (key.StartsWith("/_", StringComparison.Ordinal))
-                        continue;
-                    audit.HasNormalizedPaths = false;
-                    audit.NonNormalizedPaths ??= [];
-                    audit.NonNormalizedPaths.Add($"SourceLink: {key}");
-                }
-            }
-        }
 
         audit.IsDeterministic =
             audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
         return audit;
+    }
+
+    /// <summary>
+    /// Combines PE/PDB path normalization with SourceLink map parse and entry facts.
+    /// </summary>
+    public static SourceLinkDebugAudit InspectDebugInformation(
+        SourceLinkService source)
+    {
+        var context = source.Context;
+        SourceLinkMapInspection map = source.SourceLinkMap;
+        bool? hasNormalizedPaths = context.HasNormalizedPaths;
+        List<string>? nonNormalizedPaths = context.NonNormalizedPaths is null
+            ? null
+            : [.. context.NonNormalizedPaths];
+
+        if (map.Error is not null)
+            hasNormalizedPaths = false;
+
+        foreach (string key in map.DocumentKeys)
+        {
+            if (SourceDocumentPath.HasDeterministicRoot(key))
+                continue;
+            hasNormalizedPaths = false;
+            nonNormalizedPaths ??= [];
+            nonNormalizedPaths.Add($"SourceLink: {key}");
+        }
+
+        return new SourceLinkDebugAudit(
+            map,
+            hasNormalizedPaths,
+            nonNormalizedPaths);
     }
 }

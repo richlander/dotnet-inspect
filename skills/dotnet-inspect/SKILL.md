@@ -24,7 +24,7 @@ dnx dotnet-inspect -y -- <command>
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
-| Inspect packages | `package Foo -S Signals`; load `skill private-feeds` for authenticated/custom sources. |
+| Inspect packages | `package Foo`; use `@Package`, `@Dependencies`, `@Audit`, or `@Files` for an explicit lens. Load `skill private-feeds` for authenticated/custom sources. |
 | Inspect project guidance | `project path/to/project` lists dependency Skills; select `Agent Guidance` or focused `Package Docs` explicitly. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
