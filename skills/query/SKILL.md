@@ -72,16 +72,14 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 Structural discovery describes authored membership without running producers;
 effective discovery probes for data. Package and library differ:
 
-| Gesture | `package` | `library` |
-| ------- | --------- | --------- |
-| `-D` with target | Effective base catalog + category doors. | Cheap target-aware base catalog + category doors. |
-| `-D @Category` | Effective members. | Structural members. |
-| `-D @Category --effective` | Not needed. | Effective members. |
-| `-D Section` | Effective fields. | Structural fields; add `--effective` for effective fields. |
-| `-D --schema` | Complete static graph; target optional. | Complete static graph without inspection. |
+| Goal | `package` | `library` |
+| ---- | --------- | --------- |
+| Orient to a target | `package X -D` — effective base catalog. | `library X -D` — cheap target-aware base catalog. |
+| Inspect a category | `package X -D @Category` — effective members. | `library X -D @Category` — structural members; add `--effective` for populated members. |
+| Inspect section fields | `package X -D Section` — effective fields. | `library X -D Section` — structural fields; add `--effective` for rendered fields. |
+| Read the static graph | `package -D --schema` | `library -D --schema` |
 
-Without a package target, `package -D` is structural. On library, plain `-D`
-stays cheap; `-D --effective` runs full probes and remains scoped to base
+On library, `-D --effective` runs full probes and remains scoped to base
 evidence unless a category is named.
 
 | Command | Base categories | Domain categories |

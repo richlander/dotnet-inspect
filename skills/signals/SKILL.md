@@ -66,5 +66,4 @@ dnx dotnet-inspect -y -- package System.Text.Json -S "SourceLink: Availability,S
 ```
 
 On `library`, category discovery is structural until `--effective` is added.
-On `package`, target discovery is already effective and does not expose an
-`--effective` option.
+On `package`, target discovery is effective by default.
