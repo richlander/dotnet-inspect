@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.CommandLine;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -788,6 +789,21 @@ public class MemberOptionsParserTests
         Assert.Equal("JsonSerializer", options.TypeName);
         Assert.Contains("Serialize", options.MemberFilter);
         Assert.Equal("abc123", options.MemberDigest);
+    }
+
+    [Fact]
+    public async Task ExplicitLibrary_QualifiedExplicitInterfaceDigest_SplitsAtKindMarker()
+    {
+        var options = await ParseSuccessAsync(
+            "member",
+            "DiffFixtureSample.ExplicitSurface.explicit:DiffFixtureSample.IExplicitSurface.Get~dcbf2efba2",
+            "--library",
+            FixtureCatalog.DiffPair.OldAssemblyPath());
+
+        Assert.Equal("DiffFixtureSample.ExplicitSurface", options.TypeName);
+        Assert.Contains("DiffFixtureSample.IExplicitSurface.Get", options.MemberFilter);
+        Assert.Contains("explicit-interface-implementation", options.KindFilter);
+        Assert.Equal("dcbf2efba2", options.MemberDigest);
     }
 
     // ── Overload shorthand (Name:N) ──────────────────────────────────────

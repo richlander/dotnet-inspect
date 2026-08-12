@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -27,6 +28,8 @@ public static class HttpClientFactory
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
     private static HttpClient? _untrustedFetchOverride;
+    private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
+        _packageSourceClients = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
     private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
 
@@ -114,6 +117,12 @@ public static class HttpClientFactory
         _shared = null;
         _sharedUntrustedFetch = null;
         _untrustedFetchOverride = null;
+        foreach (Lazy<HttpClient> client in _packageSourceClients.Values)
+        {
+            if (client.IsValueCreated)
+                client.Value.Dispose();
+        }
+        _packageSourceClients.Clear();
         _networkTrafficLoggingSubscription?.Dispose();
         _networkTrafficLoggingSubscription = null;
     }
@@ -196,13 +205,7 @@ public static class HttpClientFactory
     /// </remarks>
     public static HttpClient CreateUntrustedFetchClient()
     {
-        HttpMessageHandler handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.All,
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 5,
-            ConnectCallback = SsrfGuardedConnectAsync,
-        };
+        HttpMessageHandler handler = CreateUntrustedSocketsHandler();
 
         if (_options.Offline)
             handler = new OfflineHandler(handler);
@@ -218,19 +221,127 @@ public static class HttpClientFactory
         return client;
     }
 
+    internal static SocketsHttpHandler CreateUntrustedSocketsHandler() =>
+        new()
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            UseProxy = false,
+            ConnectCallback = SsrfGuardedConnectAsync,
+        };
+
+    /// <summary>
+    /// Gets the process-lifetime credential-capable client for one explicitly configured
+    /// package-source origin.
+    /// </summary>
+    /// <remarks>
+    /// Clients are shared by scheme, host, and port so package audits reuse DNS, TCP, and TLS
+    /// state without extending the private-address exception to another origin. Do not dispose
+    /// the returned client.
+    /// </remarks>
+    public static HttpClient GetPackageSourceClient(string sourceUrl)
+    {
+        Uri source = ParsePackageSource(sourceUrl);
+        string originKey =
+            $"{source.Scheme.ToLowerInvariant()}\n"
+            + $"{source.IdnHost.ToLowerInvariant()}\n"
+            + source.Port;
+        var candidate = new Lazy<HttpClient>(
+            () => CreatePackageSourceClient(source.AbsoluteUri),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        return _packageSourceClients.GetOrAdd(originKey, candidate).Value;
+    }
+
+    /// <summary>
+    /// Creates a credential-capable client for one explicitly configured package-source origin.
+    /// Connections to that exact host and port may use private addresses; redirect and cross-origin
+    /// connections must resolve entirely to public addresses.
+    /// </summary>
+    /// <remarks>The caller owns and must dispose the returned client.</remarks>
+    public static HttpClient CreatePackageSourceClient(string sourceUrl)
+    {
+        Uri source = ParsePackageSource(sourceUrl);
+
+        string trustedHost = source.IdnHost;
+        int trustedPort = source.Port;
+        HttpMessageHandler handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            UseProxy = false,
+            ConnectCallback = (context, cancellationToken) =>
+                ConnectWithTrustedOriginAsync(
+                    context,
+                    trustedHost,
+                    trustedPort,
+                    cancellationToken),
+        };
+
+        if (_options.Offline)
+            handler = new OfflineHandler(handler);
+
+        if (InfoTracker.Enabled)
+            handler = new CountingHandler(handler);
+
+        handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
+
+        if (_authenticationDecorator is not null)
+            handler = _authenticationDecorator(handler);
+
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.Timeout = _options.DefaultTimeout;
+        return client;
+    }
+
+    private static Uri ParsePackageSource(string sourceUrl)
+    {
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            || source.Scheme is not ("http" or "https"))
+        {
+            throw new ArgumentException(
+                "Package source must be an absolute HTTP or HTTPS URL.",
+                nameof(sourceUrl));
+        }
+
+        return source;
+    }
+
     private static async ValueTask<Stream> SsrfGuardedConnectAsync(
         SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+        => await ConnectWithTrustedOriginAsync(
+            context,
+            trustedHost: null,
+            trustedPort: null,
+            cancellationToken).ConfigureAwait(false);
+
+    private static async ValueTask<Stream> ConnectWithTrustedOriginAsync(
+        SocketsHttpConnectionContext context,
+        string? trustedHost,
+        int? trustedPort,
+        CancellationToken cancellationToken)
     {
         var endpoint = context.DnsEndPoint;
         var addresses = await Dns.GetHostAddressesAsync(endpoint.Host, cancellationToken).ConfigureAwait(false);
         if (addresses.Length == 0)
             throw new HttpRequestException($"Could not resolve host: {endpoint.Host}");
 
-        foreach (var address in addresses)
+        bool isTrustedOrigin = trustedHost is not null
+            && endpoint.Port == trustedPort
+            && string.Equals(
+                endpoint.Host,
+                trustedHost,
+                StringComparison.OrdinalIgnoreCase);
+        if (!isTrustedOrigin)
         {
-            if (IsNonPublic(address))
-                throw new HttpRequestException(
-                    $"Blocked request to non-public address: {endpoint.Host} resolves to {address}");
+            foreach (var address in addresses)
+            {
+                if (IsNonPublic(address))
+                    throw new HttpRequestException(
+                        $"Blocked request to non-public address: {endpoint.Host} resolves to {address}");
+            }
         }
 
         var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
