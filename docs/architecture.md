@@ -634,8 +634,12 @@ Research overlay bridge, and the application layer:
 ├─────────────────────────────────────────────────────────────┤
 │  DotnetInspector.Packages (Domain provider — NuGet)         │
 │                                                             │
-│  PackageExtractor, NuGetCache (TfmResolver: NuGetFetch)     │
+│  PackageExtractor, NuGetCache                               │
 │  DependencyGroup, PackageDependency                         │
+├─────────────────────────────────────────────────────────────┤
+│  NuGetFetch (NuGet protocol client)                         │
+│                                                             │
+│  Feeds, downloads, TfmResolver — adopted in-repo (#3423)    │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.CSharp (C# type views)                         │
 │                                                             │
