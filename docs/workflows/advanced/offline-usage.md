@@ -50,7 +50,7 @@ dotnet-inspect package System.CommandLine@2.0.3 -v:q
 Then inspect offline:
 
 ```bash
-dotnet-inspect package System.CommandLine --offline -v:q
+dotnet-inspect package System.CommandLine@2.0.3 --offline -v:q
 ```
 
 ```expect
@@ -59,11 +59,12 @@ Source: NuGet
 ```
 
 ```bash
-dotnet-inspect type System.CommandLine --offline -v:q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command \
+  --offline --markdown -v:q
 ```
 
 ```expect
-# System.CommandLine
+# System.CommandLine.Command (System.CommandLine 2.0.3)
 Source: NuGet
 ```
 
@@ -72,9 +73,10 @@ Source: NuGet
 > Goal: Requesting a package that is not cached produces a clear error instead of hanging or crashing.
 
 ```bash
-dotnet-inspect package Humanizer --offline -v:q
+dotnet-inspect package DotnetInspect.Workflow.Missing.Package@99.99.99 \
+  --offline -v:q
 ```
 
 ```expect-error
-Network access is disabled (--offline mode)
+is not available offline; no cached package was found
 ```

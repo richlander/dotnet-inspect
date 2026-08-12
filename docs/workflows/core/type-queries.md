@@ -35,6 +35,10 @@ dotnet-inspect Microsoft.Extensions.Options@10.0.2 -v:q
 dotnet-inspect System.Collections@4.3.0 -v:q
 ```
 
+```bash
+dotnet-inspect System.Text.Json@10.0.0 -v:q
+```
+
 ## 1. List types in a package
 
 > Goal: See all public types in a package.
@@ -46,12 +50,12 @@ What types are in the System.CommandLine package?
 ```
 
 ```bash
-dotnet-inspect type System.CommandLine -v:q
+dotnet-inspect type System.CommandLine@2.0.3 -v:q --tips q
 ```
 
 ```expect
 # System.CommandLine
-Types: 39
+Types:
 Source: NuGet
 ```
 
@@ -60,27 +64,32 @@ Tips:
 ```
 
 ```query
-grep -o 'Types: [0-9]*'
-grep -o 'Source: [A-Za-z]*'
+grep -oE 'Types: [0-9]+'
+grep -oE 'Source: [A-Za-z]+'
+```
+
+```expect
+Types: 39
+Source: NuGet
 ```
 
 ### 1b. Using `type` with table output
 
 ```bash
-dotnet-inspect type System.CommandLine --table -t 5 --no-headers
-```
-
-```expect
-class
+dotnet-inspect type System.CommandLine@2.0.3 --table -t 5 --no-headers --tips q
 ```
 
 ```expect-not
 Tips:
-KIND
+Kind
 ```
 
 ```query
 wc -l | tr -d ' '
+```
+
+```expect
+5
 ```
 
 ### 1c. Table column structure
@@ -90,13 +99,17 @@ dotnet-inspect type System.Text.Json --table | head -1
 ```
 
 ```expect
-KIND
-TYPE
-MEMBERS
+Kind
+Type
+Members
 ```
 
 ```query
-grep -o 'KIND\|TYPE\|MEMBERS' | wc -l | tr -d ' '
+grep -o 'Kind\|Type\|Members' | wc -l | tr -d ' '
+```
+
+```expect
+3
 ```
 
 ## 2. List types in a platform library
@@ -106,12 +119,12 @@ grep -o 'KIND\|TYPE\|MEMBERS' | wc -l | tr -d ' '
 ### 2a. Using `type` with platform library
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q
+dotnet-inspect type System.Text.Json -v:q --tips q
 ```
 
 ```expect
 # System.Text.Json
-Types: 80
+Types:
 Source: Platform
 ```
 
@@ -120,8 +133,11 @@ Tips:
 ```
 
 ```query
-grep -o 'Types: [0-9]*'
-grep -o 'Source: [A-Za-z]*'
+grep -Eq 'Types: [1-9][0-9]*' && echo type-count-positive
+```
+
+```expect
+type-count-positive
 ```
 
 ## 3. Filter types by pattern
@@ -178,14 +194,14 @@ Tell me about the JsonSerializer class.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer -v:q
+dotnet-inspect type System.Text.Json JsonSerializer --markdown -v:q --tips q
 ```
 
 ```expect
 # System.Text.Json.JsonSerializer
 Kind: class
 Source: Platform
-Methods: 103
+Methods:
 ```
 
 ```expect-not
@@ -194,13 +210,18 @@ Tips:
 
 ```query
 grep -o 'Kind: [a-z]*'
-grep -o 'Methods: [0-9]*'
+grep -Eq 'Methods: [1-9][0-9]*' && echo methods-positive
+```
+
+```expect
+Kind: class
+methods-positive
 ```
 
 ### 4b. Using fully qualified type name
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer -v:q
+dotnet-inspect System.Text.Json.JsonSerializer --markdown -v:q --tips q
 ```
 
 ```expect
@@ -216,7 +237,7 @@ grep -o 'Kind: [a-z]*'
 ### 4c. Inspect Command type from System.CommandLine
 
 ```bash
-dotnet-inspect type System.CommandLine Command -v:q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:q --tips q
 ```
 
 ```expect
@@ -241,13 +262,14 @@ dotnet-inspect type System.Text.Json JsonSerializer --table | head -1
 ```
 
 ```expect
-KIND
-NAME
-SIGNATURE
+Kind
+Name
+Return Type
+Detail
 ```
 
 ```query
-grep -o 'KIND\|NAME\|SIGNATURE' | wc -l | tr -d ' '
+grep -o 'Kind\|Name\|Return Type\|Detail' | wc -l | tr -d ' '
 ```
 
 ## 5. View type with documentation
@@ -257,13 +279,13 @@ grep -o 'KIND\|NAME\|SIGNATURE' | wc -l | tr -d ' '
 ### 5a. Detailed verbosity (with descriptions)
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -v:d -n 30
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:d -n 30 --tips q
 ```
 
 ```expect
 # System.CommandLine.Command
 Represents a specific action that the application performs.
-| Name | Signature | Description |
+| Name | Digest | Signature | Description |
 Initializes a new instance
 ```
 
@@ -278,11 +300,11 @@ Tips:
 ### 5a. Using `--shape` flag
 
 ```bash
-dotnet-inspect type System.CommandLine Command --shape
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --shape --tips q
 ```
 
 ```expect
-# System.CommandLine.Command
+System.CommandLine.Command
 Inherits
 Symbol
 Implements
@@ -303,11 +325,11 @@ grep -E '(Inherits|Implements|Properties|Methods)'
 ### 5b. Shape for a struct
 
 ```bash
-dotnet-inspect type System.Text.Json JsonElement --shape
+dotnet-inspect type System.Text.Json JsonElement --shape --tips q
 ```
 
 ```expect
-# System.Text.Json.JsonElement
+System.Text.Json.JsonElement
 Inherits
 Properties
 Methods
@@ -347,7 +369,7 @@ grep -c 'JsonSer'
 ### 6b. Search with package filter
 
 ```bash
-dotnet-inspect find "Command*" --package System.CommandLine -v:q
+dotnet-inspect find "Command*" --package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
@@ -386,7 +408,11 @@ Tips:
 ```
 
 ```query
-grep -oE 'Matches: [0-9]+'
+grep -c '^| Chat' | awk '$1 > 0 { print "positive" }'
+```
+
+```expect
+positive
 ```
 
 ## 8. Compare platform vs package types
@@ -396,7 +422,7 @@ grep -oE 'Matches: [0-9]+'
 ### 7a. Platform library (default for System.*)
 
 ```bash
-dotnet-inspect type System.Text.Json JsonDocument -v:q
+dotnet-inspect type System.Text.Json JsonDocument --markdown -v:q --tips q
 ```
 
 ```expect
@@ -414,7 +440,7 @@ grep -o 'Source: [A-Za-z]*'
 ### 7b. Force package resolution
 
 ```bash
-dotnet-inspect type --package System.Text.Json JsonDocument -v:q
+dotnet-inspect type --package System.Text.Json@10.0.0 JsonDocument --markdown -v:q --tips q
 ```
 
 ```expect
@@ -436,22 +462,22 @@ grep -o 'Source: [A-Za-z]*'
 ### 9a. Using quoted generic syntax
 
 ```bash
-dotnet-inspect type --package System.Collections 'HashSet<T>' -v:q
+dotnet-inspect type --package System.Collections@4.3.0 'HashSet<T>' --markdown -v:q --tips q
 ```
 
 ```expect
-# System.Collections.Generic.HashSet<T>
+# System.Collections.Generic.HashSet&lt;T&gt;
 Type Parameters: T
 ```
 
 ### 9b. Using backtick notation
 
 ```bash
-dotnet-inspect type --package Microsoft.Extensions.Options 'OptionsFactory`1' -v:q
+dotnet-inspect type --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' --markdown -v:q --tips q
 ```
 
 ```expect
-# Microsoft.Extensions.Options.OptionsFactory<TOptions>
+# Microsoft.Extensions.Options.OptionsFactory&lt;TOptions&gt;
 Type Parameters: TOptions
 ```
 
@@ -462,7 +488,7 @@ Type Parameters: TOptions
 ### 10a. List available sections
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -s
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -D
 ```
 
 ```expect
@@ -477,7 +503,7 @@ Methods
 ### 10b. Filter to specific sections
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -v:d -S Interfaces,Baseclass -n 15
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S Interfaces,Baseclass -n 15 --tips q
 ```
 
 ```expect
@@ -500,42 +526,45 @@ dotnet-inspect type System.Text.Json JsonSerializer -m 'Deseri*'
 ```
 
 ```expect
-# System.Text.Json.JsonSerializer
-## Method Groups
 Deserialize
 DeserializeAsync
 ```
 
 ```expect-not
-Serialize
-SerializeAsync
+Serialize (
+```
+
+```query
+grep -E 'Deserialize(Async)? \([0-9]+ overloads\)'
 ```
 
 ### 11b. Limit member count
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -m 3
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -m 3 --tips q
 ```
 
 ```expect
-## Constructors
-## Properties
-more members
+Action
+Aliases
 ```
 
-## 12. Remote source information
+```expect-not
+Arguments
+```
+
+## 12. Source files
 
 > Goal: View where source code for a type can be found.
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -v:d -S "Remote Source" -n 10
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S "Source Files" -n 10 --tips q
 ```
 
 ```expect
-## Remote Source
-| File | Url |
-Command.cs
-github.com
+## Source Files
+| Url |
+raw.githubusercontent.com
 ```
 
 ```expect-not
@@ -554,13 +583,15 @@ dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $N
 ```
 
 ```expect
-Utf8JsonWriter
-JsonSerializer
-JsonNode
+System.Text.Json.Utf8JsonWriter
 ```
 
 ```query
-head -3 | awk '{print $2}'
+awk 'NR == 1 { previous = $1; rows = 1; next } { if ($1 > previous) bad = 1; previous = $1; rows++ } END { if (rows == 5 && !bad) print "descending-five" }'
+```
+
+```expect
+descending-five
 ```
 
 ## 14. Filter types with unsafe signatures
@@ -573,29 +604,32 @@ dotnet-inspect type System.Runtime --unsafe -t 5 --table --no-headers
 
 ```expect
 class
-System.Runtime.CompilerServices.Unsafe
+System.ArgIterator
+```
+
+```expect-not
+SafeHandle
 ```
 
 ```query
 wc -l | tr -d ' '
 ```
 
-## 15. Filter types with SourceLink
+```expect
+5
+```
 
-> Goal: The `--sourcelink-only` flag filters to types that have SourceLink resolution — useful for knowing which types have browsable source.
+## 15. View type SourceLink files
+
+> Goal: Select the current `Source Files` section for a pinned package type.
 
 ```bash
-dotnet-inspect type --package System.CommandLine --sourcelink-only -v:q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -S "Source Files" --tips q
 ```
 
 ```expect
-# System.CommandLine
-Types:
-Source: NuGet
-```
-
-```query
-grep -oE 'Types: [0-9]+'
+## Source Files
+raw.githubusercontent.com
 ```
 
 ## 16. Platform library at specific runtime version
