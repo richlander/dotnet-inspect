@@ -25,7 +25,7 @@ dnx dotnet-inspect -y -- <command>
 | Find rendered body syntax | `body-shape ObjectCreationExpression --library path/to.dll`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
-| Inspect packages | `package Foo`; use `-D` to discover sections. `-S @Package` groups package info, signals/statistics, frameworks, signing/vulnerability facts, dependencies, manifest, and the full file list. Load `skill private-feeds` for custom/authenticated sources. |
+| Inspect packages | `package Foo`; use `-D` to discover sections. Load `skill private-feeds` for custom/authenticated sources. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
 
