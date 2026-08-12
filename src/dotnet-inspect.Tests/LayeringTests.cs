@@ -110,13 +110,17 @@ public sealed class LayeringTests
         string source = File.ReadAllText(path);
         string commandTypeName =
             Path.GetFileNameWithoutExtension(commandFile);
-        string projectSource = string.Join(
-            Environment.NewLine,
-            Directory.EnumerateFiles(
+        var projectSources = Directory.EnumerateFiles(
                     projectDirectory,
                     "*.cs",
                     SearchOption.AllDirectories)
-                .Select(File.ReadAllText));
+                .Select(sourcePath => (
+                    Path: sourcePath,
+                    Source: File.ReadAllText(sourcePath)))
+                .ToArray();
+        string projectSource = string.Join(
+            Environment.NewLine,
+            projectSources.Select(file => file.Source));
         string qualifiedIndexType =
             $@"(?:global\s*::\s*)?"
             + $@"(?:@?\w+\s*\.\s*)*@?{nameof(LibraryBodyIndex)}";
@@ -134,12 +138,16 @@ public sealed class LayeringTests
         string sessionOpen =
             $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
             + $@"{nameof(MethodBodyInspectionSession.Open)}\w*\b";
-        string partialCommandDeclaration =
-            $@"(?m)^[ \t]*"
-            + $@"(?:(?:public|internal|protected|private|abstract|sealed|static|unsafe|new|file)\s+)*"
-            + $@"partial\s+"
-            + $@"(?:(?:public|internal|protected|private|abstract|sealed|static|unsafe|new|file)\s+)*"
-            + $@"class\s+@?{commandTypeName}\b";
+        string[] directIndexOwners = projectSources
+            .Where(file =>
+                System.Text.RegularExpressions.Regex.IsMatch(
+                    file.Source,
+                    directIndexAccess))
+            .Select(file =>
+                Path.GetRelativePath(projectDirectory, file.Path)
+                    .Replace(Path.DirectorySeparatorChar, '/'))
+            .Order()
+            .ToArray();
 
         Assert.Matches(
             directIndexAccess,
@@ -184,16 +192,12 @@ public sealed class LayeringTests
             obscuredGlobalIndexImport,
             $"global using static ILInspector.Analysis."
                 + $"@{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            partialCommandDeclaration,
-            $"public partial class {commandTypeName}");
-        Assert.Matches(
-            partialCommandDeclaration,
-            $"public partial class @{commandTypeName}");
+        Assert.Equal(
+            ["Inspectors/MethodBodyInspectionSession.cs"],
+            directIndexOwners);
         Assert.DoesNotMatch(directIndexAccess, source);
-        Assert.DoesNotMatch(obscuredIndexImport, source);
+        Assert.DoesNotMatch(obscuredIndexImport, projectSource);
         Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
-        Assert.DoesNotMatch(partialCommandDeclaration, source);
         Assert.Matches(sessionOpen, source);
     }
 }
