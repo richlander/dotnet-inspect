@@ -44,8 +44,8 @@ Organize scenarios as numbered **goals** (H2) with optional **variants** (H3):
 | Fence | Purpose |
 | --- | --- |
 | `bash` | The exact command to run |
-| `expect` | Substrings that must appear in stdout (all must match) |
-| `expect-not` | Substrings that must NOT appear in stdout or stderr |
+| `expect` | Substrings that must appear in the current assertion output |
+| `expect-not` | Substrings that must NOT appear in the current assertion output |
 | `expect-error` | Like expect, but command must exit nonzero |
 | `expect-stderr` | Substrings that must appear in stderr |
 | `expect-not-stderr` | Substrings that must NOT appear in stderr |
@@ -53,6 +53,10 @@ Organize scenarios as numbered **goals** (H2) with optional **variants** (H3):
 | `prompt` | Natural language request for eval systems |
 | `query` | Shell pipeline to extract a value from stdout |
 | `perf` | Latency (`max_ms`) and exit code constraints |
+
+Before the first `query`, the current assertion output is the command output.
+After a `query`, it is the derived query output. Put command-output negative
+assertions before the first query.
 
 ## Writing good expect blocks
 
@@ -113,7 +117,11 @@ Not every scenario needs a prompt — only add them where there's a clear natura
 ## Conventions
 
 - One workflow file per logical area (don't mix package inspection with member lookup).
-- Use `dotnet-inspect` (not `$INSPECT` or aliases) unless testing the DEBUG apphost specifically.
+- Use bare `dotnet-inspect` for ordinary commands. A workflow may bind
+  `$INSPECT` to `$DOTNET_INSPECT_WORKFLOW_BINARY` when repeated invocation or
+  timing needs an exact path, or to an explicitly built alternate apphost when
+  that runtime is the behavior under test. Verify the selected apphost's
+  version and required runtime flavor.
 - Use version pins (`@2.0.2`) for NuGet packages to ensure reproducible results.
 - Keep expect blocks minimal — assert structure, not decoration.
 - Use blockquote (`> Goal:`) descriptions on every H2 to explain why the goal matters.
