@@ -32,12 +32,14 @@ Add `--all` to include non-public members.
 
 Library triage is split into kind-scoped sections under `@Performance`
 (`Performance: Boxing`, `Performance: Arrays`, `Performance: Closures and
-delegates`, and more). Start with discovery or counts, then select the group or
-one concrete kind. Type/member scope keeps the focused `Performance Triage`
-lens.
+delegates`, and more). Structural discovery lists the authored kinds without
+running analysis; add `--effective` to retain only kinds with findings for this
+library. A count executes the selected group and includes zero-row kinds.
+Type/member scope keeps the focused `Performance Triage` lens.
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -D @Performance
+dnx dotnet-inspect -y -- library MyLib.dll -D @Performance --effective
 dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
