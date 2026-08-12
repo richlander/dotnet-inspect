@@ -87,25 +87,39 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         TypeParameterConstraintResolution constraintResolution)
     {
-        if (constraintResolution.Plan.RequestBudgetFailure
-            is { } budgetFailure)
+        foreach (MetadataTypeNameFailure budgetFailure
+            in constraintResolution.Plan.RequestBudgetFailures)
         {
-            AddInspectionFailure(
+            TrackConstraintResolutionFailure(
                 surface,
-                "resolve generic parameter constraints",
-                default,
                 budgetFailure);
         }
 
-        if (constraintResolution.Plan.ResolutionFailure
-            is { } resolutionFailure)
+        foreach (MetadataTypeNameFailure resolutionFailure
+            in constraintResolution.Plan.ResolutionFailures)
         {
-            AddInspectionFailure(
+            TrackConstraintResolutionFailure(
                 surface,
-                "resolve generic parameter constraints",
-                default,
                 resolutionFailure);
         }
+    }
+
+    static void TrackConstraintResolutionFailure(
+        ApiSurface surface,
+        MetadataTypeNameFailure failure)
+    {
+        var projected = new ApiSurfaceInspectionFailure(
+            ApiSurface.ConstraintResolutionOperation,
+            failure.SubjectToken ?? 0,
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail);
+        var subject = new ApiSurfaceInspectionSubject(
+            SourceAssemblyPath: null,
+            projected.SubjectToken);
+        surface.AddConstraintResolutionFailure(
+            subject,
+            projected);
     }
 
     static ApiSurface ExtractCore(
@@ -166,6 +180,7 @@ public static class ApiSurfaceExtractor
                         ? read.Name
                         : null,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
+                MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
                 Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
@@ -229,6 +244,7 @@ public static class ApiSurfaceExtractor
                 typeContext,
                 typeNullableContext,
                 includeVariance: true,
+                typeDefHandle,
                 constraintResolution);
 
             // Get interfaces
@@ -296,6 +312,7 @@ public static class ApiSurfaceExtractor
                 var signature = GetMethodSignature(
                     reader,
                     typeDef,
+                    methodHandle,
                     method,
                     typeNullableContext,
                     constraintResolution);
@@ -789,6 +806,7 @@ public static class ApiSurfaceExtractor
         GenericContext context,
         byte nullableContext,
         bool includeVariance,
+        EntityHandle subject,
         TypeParameterConstraintResolution? constraintResolution = null)
     {
         var parameters = new List<TypeParameter>();
@@ -799,7 +817,8 @@ public static class ApiSurfaceExtractor
         // each parameter from scratch would rewalk the chain's whole tail, which is
         // quadratic in the number of parameters.
         var chain = new TypeParameterKindClassifier.ChainState(
-            constraintResolution?.Plan);
+            constraintResolution?.Plan,
+            subject);
         foreach (var paramHandle in handles)
         {
             var param = reader.GetGenericParameter(paramHandle);
@@ -859,7 +878,7 @@ public static class ApiSurfaceExtractor
             tracked.Add((paramHandle, typeParam));
         }
 
-        constraintResolution?.Track(tracked);
+        constraintResolution?.Track(subject, tracked);
         return parameters;
     }
 
@@ -1701,6 +1720,7 @@ public static class ApiSurfaceExtractor
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
+        MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
         TypeParameterConstraintResolution? constraintResolution = null)
@@ -1799,6 +1819,7 @@ public static class ApiSurfaceExtractor
             context,
             nullableDefault,
             includeVariance: false,
+            methodHandle,
             constraintResolution);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
@@ -2680,9 +2701,7 @@ public static class ApiSurfaceExtractor
     sealed class TypeParameterConstraintResolution
     {
         readonly MetadataReader _reader;
-        readonly List<
-            List<(GenericParameterHandle Handle, TypeParameter Parameter)>>
-            _groups = [];
+        readonly List<Group> _groups = [];
 
         internal TypeParameterConstraintResolution(
             MetadataReader reader,
@@ -2720,11 +2739,12 @@ public static class ApiSurfaceExtractor
         }
 
         internal void Track(
+            EntityHandle subject,
             List<(GenericParameterHandle Handle, TypeParameter Parameter)>
                 group)
         {
             if (group.Count != 0)
-                _groups.Add(group);
+                _groups.Add(new Group(subject, group));
         }
 
         internal void Apply(TypeResolutionContext context)
@@ -2733,8 +2753,10 @@ public static class ApiSurfaceExtractor
             foreach (var group in _groups)
             {
                 var chain =
-                    new TypeParameterKindClassifier.ChainState(Plan);
-                foreach (var (handle, parameter) in group)
+                    new TypeParameterKindClassifier.ChainState(
+                        Plan,
+                        group.Subject);
+                foreach (var (handle, parameter) in group.Parameters)
                 {
                     GenericParameter definition =
                         _reader.GetGenericParameter(handle);
@@ -2761,5 +2783,10 @@ public static class ApiSurfaceExtractor
             int GroupCount,
             TypeParameterKindClassifier.ResolutionPlan.RequestCheckpoint
                 RequestCheckpoint);
+
+        readonly record struct Group(
+            EntityHandle Subject,
+            List<(GenericParameterHandle Handle, TypeParameter Parameter)>
+                Parameters);
     }
 }

@@ -894,6 +894,61 @@ public class ApiCommand
         return 0;
     }
 
+    internal static bool WarnSelectedApiInspectionIncomplete(
+        ApiSurface api,
+        ApiType selectedType,
+        HashSet<string>? selectedMemberNames = null)
+    {
+        HashSet<int> subjectTokens = [];
+        if (selectedType.MetadataToken is int typeToken)
+            subjectTokens.Add(typeToken);
+        foreach (ApiMember member in selectedType.Members)
+        {
+            if (selectedMemberNames is { Count: > 0 }
+                && !TypeMatcher.MatchesMemberFilter(
+                    member.Name,
+                    selectedMemberNames))
+            {
+                continue;
+            }
+
+            Add(member.MetadataToken);
+            Add(member.GetterToken);
+            Add(member.SetterToken);
+            Add(member.AdderToken);
+            Add(member.RemoverToken);
+        }
+
+        int failureCount =
+            api.ConstraintResolutionFailuresBySubject.Count(pair =>
+                subjectTokens.Contains(pair.Key.SubjectToken)
+                && (pair.Key.SourceAssemblyPath is null
+                    || string.Equals(
+                        pair.Key.SourceAssemblyPath,
+                        selectedType.SourceAssemblyPath,
+                        StringComparison.Ordinal))
+                && pair.Value.Any(failure =>
+                    failure.SourceAssemblyPath is null
+                    || string.Equals(
+                        failure.SourceAssemblyPath,
+                        selectedType.SourceAssemblyPath,
+                        StringComparison.Ordinal)));
+        if (failureCount == 0)
+            return false;
+
+        CommandError.WriteWarning(
+            $"API inspection could not authenticate generic-constraint "
+                + $"dependencies for {failureCount} selected declaration(s); "
+                + "constraint classification may be incomplete.");
+        return true;
+
+        void Add(int? token)
+        {
+            if (token is int value)
+                subjectTokens.Add(value);
+        }
+    }
+
     /// <summary>
     /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
     /// nothing. Returns false when the caller should stop.

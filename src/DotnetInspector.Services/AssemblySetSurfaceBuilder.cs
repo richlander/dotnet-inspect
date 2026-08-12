@@ -65,6 +65,7 @@ public static class AssemblySetSurfaceBuilder
 
             log?.Invoke($"  + {Path.GetFileNameWithoutExtension(path)}: {surface.PublicTypeCount} types");
             merged.Types.AddRange(surface.Types);
+            merged.MergeInspectionFailuresFrom(surface);
             merged.PublicTypeCount += surface.PublicTypeCount;
             merged.PublicMethodCount += surface.PublicMethodCount;
             merged.PublicPropertyCount += surface.PublicPropertyCount;

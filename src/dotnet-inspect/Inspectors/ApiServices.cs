@@ -289,20 +289,50 @@ internal static class ApiServices
                 if (targetApi == null)
                     continue;
 
-                foreach (var type in targetApi.Types)
+                List<ApiType> forwardedTypes =
+                [
+                    .. targetApi.Types.Where(type =>
+                        type.DefinitionName is not null
+                        && group.Types.Contains(type.DefinitionName)),
+                ];
+                var forwardedByToken = new Dictionary<int, ApiType>();
+                foreach (ApiType type in forwardedTypes)
                 {
-                    if (type.DefinitionName is not null
-                        && group.Types.Contains(type.DefinitionName))
+                    Add(type.MetadataToken, type);
+                    foreach (ApiMember member in type.Members)
                     {
-                        type.IsForwarded = true;
-                        type.SourceAssemblyPath = group.Assembly.Path;
-                        api.Types.Add(type);
-                        api.PublicMethodCount += type.Members.Count(DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
-                        api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
-                        api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
-                        api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
-                        resolvedCount++;
+                        Add(member.MetadataToken, type);
+                        Add(member.GetterToken, type);
+                        Add(member.SetterToken, type);
+                        Add(member.AdderToken, type);
+                        Add(member.RemoverToken, type);
                     }
+                }
+
+                api.MergeInspectionFailuresFrom(
+                    targetApi,
+                    subject => forwardedByToken.ContainsKey(
+                        subject.SubjectToken),
+                    includeNonConstraintFailures: false);
+
+                foreach (ApiType type in forwardedTypes)
+                {
+                    type.IsForwarded = true;
+                    type.SourceAssemblyPath = group.Assembly.Path;
+                    api.Types.Add(type);
+                    api.PublicMethodCount += type.Members.Count(DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
+                    api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
+                    api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
+                    api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
+                    resolvedCount++;
+                }
+
+                void Add(
+                    int? token,
+                    ApiType type)
+                {
+                    if (token is int value)
+                        forwardedByToken[value] = type;
                 }
             }
             catch (Exception ex) when (

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -41,7 +42,8 @@ public static class MetadataTypeDeclarationProbe
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
-                    or ArgumentOutOfRangeException)
+                    or ArgumentOutOfRangeException
+                    or IndexOutOfRangeException)
             {
                 return new TypeDeclarationResult.Rejected(
                     MetadataTypeNameFailure.Malformed(
@@ -94,12 +96,8 @@ public static class MetadataTypeDeclarationProbe
     internal sealed class Index
     {
         readonly MetadataReader _reader;
-        readonly Dictionary<string, List<TypeDefinitionHandle>>
-            _definitionsByLeaf =
-                new(StringComparer.Ordinal);
-        readonly Dictionary<string, List<ExportedTypeHandle>>
-            _exportsByLeaf =
-                new(StringComparer.Ordinal);
+        readonly DefinitionEntry[] _definitionsByHash = [];
+        readonly ExportEntry[] _exportsByHash = [];
         readonly MetadataTypeNameFailure? _failure;
         readonly bool _declaresCoreLibraryRoot;
 
@@ -108,6 +106,9 @@ public static class MetadataTypeDeclarationProbe
             _reader = reader;
             bool canDeclareCoreLibraryRoot =
                 reader.AssemblyReferences.Count == 0;
+            var definitions =
+                new DefinitionEntry[reader.TypeDefinitions.Count];
+            int definitionIndex = 0;
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
                 try
@@ -119,14 +120,16 @@ public static class MetadataTypeDeclarationProbe
                         && IsCoreLibraryRoot(
                             reader,
                             definition);
-                    Add(
-                        _definitionsByLeaf,
-                        reader.GetString(definition.Name),
-                        handle);
+                    definitions[definitionIndex++] =
+                        new DefinitionEntry(
+                            StringComparer.Ordinal.GetHashCode(
+                                reader.GetString(definition.Name)),
+                            handle);
                 }
                 catch (Exception ex) when (
                     ex is BadImageFormatException
-                        or ArgumentOutOfRangeException)
+                        or ArgumentOutOfRangeException
+                        or IndexOutOfRangeException)
                 {
                     _failure =
                         MetadataTypeNameFailure.Malformed(
@@ -135,16 +138,34 @@ public static class MetadataTypeDeclarationProbe
                     return;
                 }
             }
+            Array.Sort(
+                definitions,
+                static (left, right) =>
+                {
+                    int hashOrder =
+                        left.Hash.CompareTo(right.Hash);
+                    return hashOrder != 0
+                        ? hashOrder
+                        : MetadataTokens.GetRowNumber(left.Handle)
+                            .CompareTo(
+                                MetadataTokens.GetRowNumber(
+                                    right.Handle));
+                });
+            _definitionsByHash = definitions;
 
+            var exports =
+                new ExportEntry[reader.ExportedTypes.Count];
+            int exportIndex = 0;
             foreach (ExportedTypeHandle handle in reader.ExportedTypes)
             {
                 try
                 {
-                    Add(
-                        _exportsByLeaf,
-                        reader.GetString(
-                            reader.GetExportedType(handle).Name),
-                        handle);
+                    exports[exportIndex++] =
+                        new ExportEntry(
+                            StringComparer.Ordinal.GetHashCode(
+                                reader.GetString(
+                                    reader.GetExportedType(handle).Name)),
+                            handle);
                 }
                 catch (Exception ex) when (
                     ex is BadImageFormatException
@@ -157,6 +178,20 @@ public static class MetadataTypeDeclarationProbe
                     return;
                 }
             }
+            Array.Sort(
+                exports,
+                static (left, right) =>
+                {
+                    int hashOrder =
+                        left.Hash.CompareTo(right.Hash);
+                    return hashOrder != 0
+                        ? hashOrder
+                        : MetadataTokens.GetRowNumber(left.Handle)
+                            .CompareTo(
+                                MetadataTokens.GetRowNumber(
+                                    right.Handle));
+                });
+            _exportsByHash = exports;
         }
 
         internal TypeDeclarationResult Probe(
@@ -169,71 +204,110 @@ public static class MetadataTypeDeclarationProbe
             var forwarders =
                 new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
             string leaf = name.Segments[^1];
-            if (_definitionsByLeaf.TryGetValue(
-                    leaf,
-                    out List<TypeDefinitionHandle>? definitions))
+            int leafHash = StringComparer.Ordinal.GetHashCode(leaf);
+            for (int i = LowerBound(_definitionsByHash, leafHash);
+                i < _definitionsByHash.Length
+                    && _definitionsByHash[i].Hash == leafHash;
+                i++)
             {
-                foreach (TypeDefinitionHandle handle in definitions)
+                TypeDefinitionHandle handle =
+                    _definitionsByHash[i].Handle;
+                try
                 {
-                    MetadataTypeDefinitionNameMatch match =
-                        MetadataTypeDefinitionNameReader.Matches(
-                            _reader,
+                    if (!_reader.StringComparer.Equals(
+                            _reader.GetTypeDefinition(handle).Name,
+                            leaf))
+                    {
+                        continue;
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    return new TypeDeclarationResult.Rejected(
+                        MetadataTypeNameFailure.Malformed(
                             handle,
-                            name,
-                            out MetadataTypeNameFailure? failure);
-                    if (match == MetadataTypeDefinitionNameMatch.Rejected)
-                    {
-                        return new TypeDeclarationResult.Rejected(
-                            failure!);
-                    }
+                            ex.Message));
+                }
 
-                    if (match == MetadataTypeDefinitionNameMatch.Match)
-                    {
-                        candidates.Add(
-                            new PendingDefinition(
-                                handle,
-                                TypeDefinitionToken.FromHandle(
-                                    _reader,
-                                    handle)));
-                    }
+                MetadataTypeDefinitionNameMatch match =
+                    MetadataTypeDefinitionNameReader.Matches(
+                        _reader,
+                        handle,
+                        name,
+                        out MetadataTypeNameFailure? failure);
+                if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                {
+                    return new TypeDeclarationResult.Rejected(
+                        failure!);
+                }
+
+                if (match == MetadataTypeDefinitionNameMatch.Match)
+                {
+                    candidates.Add(
+                        new PendingDefinition(
+                            handle,
+                            TypeDefinitionToken.FromHandle(
+                                _reader,
+                                handle)));
                 }
             }
 
-            if (_exportsByLeaf.TryGetValue(
-                    leaf,
-                    out List<ExportedTypeHandle>? exports))
+            for (int i = LowerBound(_exportsByHash, leafHash);
+                i < _exportsByHash.Length
+                    && _exportsByHash[i].Hash == leafHash;
+                i++)
             {
-                foreach (ExportedTypeHandle handle in exports)
+                ExportedTypeHandle handle =
+                    _exportsByHash[i].Handle;
+                try
                 {
-                    MetadataTypeDefinitionNameMatch match =
-                        MetadataTypeDefinitionNameReader.Matches(
-                            _reader,
-                            handle,
-                            name,
-                            out MetadataTypeNameFailure? failure);
-                    if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                    if (!_reader.StringComparer.Equals(
+                            _reader.GetExportedType(handle).Name,
+                            leaf))
                     {
-                        return new TypeDeclarationResult.Rejected(
-                            failure!);
-                    }
-                    if (match == MetadataTypeDefinitionNameMatch.NoMatch)
                         continue;
-
-                    if (!TryReadExportedCandidate(
-                            _reader,
-                            handle,
-                            out TypeDeclarationCandidate? candidate,
-                            out failure))
-                    {
-                        return new TypeDeclarationResult.Rejected(
-                            failure!);
                     }
-
-                    AddCandidate(
-                        candidates,
-                        forwarders,
-                        candidate!);
                 }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    return new TypeDeclarationResult.Rejected(
+                        MetadataTypeNameFailure.Malformed(
+                            handle,
+                            ex.Message));
+                }
+
+                MetadataTypeDefinitionNameMatch match =
+                    MetadataTypeDefinitionNameReader.Matches(
+                        _reader,
+                        handle,
+                        name,
+                        out MetadataTypeNameFailure? failure);
+                if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                {
+                    return new TypeDeclarationResult.Rejected(
+                        failure!);
+                }
+                if (match == MetadataTypeDefinitionNameMatch.NoMatch)
+                    continue;
+
+                if (!TryReadExportedCandidate(
+                        _reader,
+                        handle,
+                        out TypeDeclarationCandidate? candidate,
+                        out failure))
+                {
+                    return new TypeDeclarationResult.Rejected(
+                        failure!);
+                }
+
+                AddCandidate(
+                    candidates,
+                    forwarders,
+                    candidate!);
             }
 
             return Complete(
@@ -242,19 +316,47 @@ public static class MetadataTypeDeclarationProbe
                 _declaresCoreLibraryRoot);
         }
 
-        static void Add<THandle>(
-            Dictionary<string, List<THandle>> index,
-            string leaf,
-            THandle handle)
+        static int LowerBound(
+            DefinitionEntry[] entries,
+            int hash)
         {
-            if (!index.TryGetValue(leaf, out List<THandle>? handles))
+            int low = 0;
+            int high = entries.Length;
+            while (low < high)
             {
-                handles = [];
-                index.Add(leaf, handles);
+                int middle = low + ((high - low) / 2);
+                if (entries[middle].Hash < hash)
+                    low = middle + 1;
+                else
+                    high = middle;
             }
-
-            handles.Add(handle);
+            return low;
         }
+
+        static int LowerBound(
+            ExportEntry[] entries,
+            int hash)
+        {
+            int low = 0;
+            int high = entries.Length;
+            while (low < high)
+            {
+                int middle = low + ((high - low) / 2);
+                if (entries[middle].Hash < hash)
+                    low = middle + 1;
+                else
+                    high = middle;
+            }
+            return low;
+        }
+
+        readonly record struct DefinitionEntry(
+            int Hash,
+            TypeDefinitionHandle Handle);
+
+        readonly record struct ExportEntry(
+            int Hash,
+            ExportedTypeHandle Handle);
     }
 
     static bool IsCoreLibraryRoot(
@@ -696,7 +798,7 @@ public static class MetadataTypeDeclarationProbe
         }
     }
 
-    static DefinitionKindDependency? ReadDefinitionKindDependency(
+    internal static DefinitionKindDependency? ReadDefinitionKindDependency(
         MetadataReader reader,
         TypeDefinitionHandle handle)
     {

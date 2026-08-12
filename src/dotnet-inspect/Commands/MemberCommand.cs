@@ -75,6 +75,7 @@ public static class MemberCommand
             var api = loaded.Api;
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
+            bool inspectionIncomplete = false;
 
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
@@ -383,6 +384,11 @@ public static class MemberCommand
                     return 1;
             }
 
+            inspectionIncomplete =
+                ApiCommand.WarnSelectedApiInspectionIncomplete(
+                    api,
+                    apiType,
+                    effectiveOptions.MemberFilter);
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
@@ -423,7 +429,7 @@ public static class MemberCommand
                 Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
             }
 
-            return 0;
+            return inspectionIncomplete ? 1 : 0;
         }
         catch (Exception ex)
         {

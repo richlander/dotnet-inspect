@@ -266,6 +266,11 @@ public static class TypeCommand
                             return 1;
                     }
 
+                    inspectionIncomplete =
+                        ApiCommand.WarnSelectedApiInspectionIncomplete(
+                            api,
+                            apiType,
+                            effectiveOptions.MemberFilter);
                     if (tabularProjection)
                     {
                         // Capture output so we can warn when a requested column produced no data
@@ -655,11 +660,47 @@ public static class TypeCommand
                 isPlatformAssembly: true,
                 options);
 
-            foreach (var type in api.Types.Where(t => fullNames.Contains(t.FullName)))
+            List<ApiType> selectedTypes =
+            [
+                .. api.Types.Where(type =>
+                    fullNames.Contains(type.FullName)),
+            ];
+            foreach (ApiType type in selectedTypes)
             {
                 type.SourceAssemblyPath ??= assemblyPath;
                 merged.Types.Add(type);
             }
+            var selectedSubjects =
+                new HashSet<ApiSurfaceInspectionSubject>();
+            foreach (ApiType type in selectedTypes)
+            {
+                string sourcePath =
+                    type.SourceAssemblyPath ?? assemblyPath;
+                Add(type.MetadataToken);
+                foreach (ApiMember member in type.Members)
+                {
+                    Add(member.MetadataToken);
+                    Add(member.GetterToken);
+                    Add(member.SetterToken);
+                    Add(member.AdderToken);
+                    Add(member.RemoverToken);
+                }
+
+                void Add(int? token)
+                {
+                    if (token is int value)
+                    {
+                        selectedSubjects.Add(
+                            new ApiSurfaceInspectionSubject(
+                                sourcePath,
+                                value));
+                    }
+                }
+            }
+            merged.MergeInspectionFailuresFrom(
+                api,
+                selectedSubjects.Contains,
+                includeNonConstraintFailures: false);
         }
 
         merged.Types = merged.Types

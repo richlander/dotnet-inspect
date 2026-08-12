@@ -158,6 +158,12 @@ public class ConstraintResolutionHardeningTests
             TypeParameterTypeKind.Undetermined,
             Assert.Single(Assert.Single(surface.Types).TypeParameters)
                 .TypeKind);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains(
+            "could not be bound",
+            failure.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -196,6 +202,7 @@ public class ConstraintResolutionHardeningTests
             TypeParameterTypeKind.Undetermined,
             Assert.Single(Assert.Single(surface.Types).TypeParameters)
                 .TypeKind);
+        Assert.Empty(surface.InspectionFailures);
     }
 
     [Theory]
@@ -237,6 +244,40 @@ public class ConstraintResolutionHardeningTests
             TypeParameterTypeKind.Undetermined,
             Assert.Single(Assert.Single(surface.Types).TypeParameters)
                 .TypeKind);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Theory]
+    [InlineData("ValueType")]
+    [InlineData("Enum")]
+    public void SameImageTypeDefinitionBasedOnAuthenticCoreMarkerStaysUnknown(
+        string baseName)
+    {
+        AssemblyName coreIdentity = typeof(object).Assembly.GetName();
+        byte[] image =
+            BuildSameImageMarkedDerivedConsumer(
+                coreIdentity,
+                baseName);
+        ResolvedAssemblyReference source = Descriptor(image);
+        ResolvedAssemblyReference core =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(object).Assembly.Location,
+                AssemblyResolutionProvenance.Local("test"));
+        using var pe = Reader(image);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(core));
+
+        ApiType consumer = Assert.Single(
+            surface.Types,
+            type => type.Name == "Consumer`1");
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(consumer.TypeParameters).TypeKind);
     }
 
     [Theory]
@@ -298,6 +339,16 @@ public class ConstraintResolutionHardeningTests
             TypeParameterTypeKind.Undetermined,
             Assert.Single(Assert.Single(surface.Types).TypeParameters)
                 .TypeKind);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains(
+            "generic arity 0",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "uses arity 1",
+            failure.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -451,7 +502,16 @@ public class ConstraintResolutionHardeningTests
             new MissingPolicy());
 
         ApiSurfaceInspectionFailure failure =
-            Assert.Single(surface.InspectionFailures);
+            Assert.Single(
+                surface.InspectionFailures,
+                failure => failure.Detail.Contains(
+                    "configured budget of 1",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            failure => failure.Detail.Contains(
+                "absent from the frozen type-resolution plan",
+                StringComparison.Ordinal));
         Assert.Equal(
             "resolve generic parameter constraints",
             failure.Operation);
@@ -462,6 +522,36 @@ public class ConstraintResolutionHardeningTests
             "configured budget of 1",
             failure.Detail,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DistinctResolutionFailuresKeepCompleteSubjectsButBoundOutput()
+    {
+        const int Count = 100;
+        byte[] image =
+            BuildManyMissingConstraintConsumers(Count);
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var pe = Reader(image);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy());
+
+        Assert.Equal(
+            Count,
+            surface.ConstraintResolutionFailuresBySubject.Count);
+        Assert.Equal(
+            ApiSurface.MaxVisibleConstraintResolutionFailures + 1,
+            surface.InspectionFailures.Count);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Kind == "ResourceLimit"
+                && failure.Detail.Contains(
+                    "suppressed",
+                    StringComparison.Ordinal));
     }
 
     static byte[] BuildChain(
@@ -500,6 +590,35 @@ public class ConstraintResolutionHardeningTests
                 0);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildManyMissingConstraintConsumers(int count)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("ManyMissingConstraints");
+        AssemblyReferenceHandle missing =
+            AddReference(metadata, "Missing");
+        AddModule(metadata);
+        for (int i = 0; i < count; i++)
+        {
+            TypeReferenceHandle constraint =
+                metadata.AddTypeReference(
+                    missing,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString($"Base{i}"));
+            TypeDefinitionHandle consumer =
+                AddType(metadata, $"Consumer{i}`1");
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    consumer,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraint);
+        }
         return Serialize(metadata);
     }
 
@@ -799,6 +918,39 @@ public class ConstraintResolutionHardeningTests
         metadata.AddGenericParameterConstraint(
             parameter,
             constraint);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSameImageMarkedDerivedConsumer(
+        AssemblyName coreAssembly,
+        string coreTypeName)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("SameImageMarkedDerived");
+        AssemblyReferenceHandle reference =
+            AddReference(metadata, coreAssembly);
+        TypeReferenceHandle coreType =
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString(coreTypeName));
+        AddModule(metadata);
+        TypeDefinitionHandle derived =
+            AddType(
+                metadata,
+                "Derived",
+                AddClassSpecification(metadata, coreType));
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            derived);
         return Serialize(metadata);
     }
 

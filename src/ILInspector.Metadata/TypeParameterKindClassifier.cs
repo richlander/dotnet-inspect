@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -47,13 +48,17 @@ internal static class TypeParameterKindClassifier
         readonly AssemblyReferenceProjectionCache
             _assemblyReferenceProjection;
         readonly Dictionary<
-            (TypeReferenceHandle Handle, int? GenericArgumentCount),
+            (TypeReferenceHandle Handle,
+                int? GenericArgumentCount,
+                int SubjectToken),
             ConstraintClass> _resolvedClasses = [];
-        MetadataTypeNameFailure? _resolutionFailure;
+        readonly List<MetadataTypeNameFailure> _resolutionFailures = [];
+        readonly HashSet<int> _resolutionFailureSubjects = [];
+        readonly List<MetadataTypeNameFailure> _requestBudgetFailures = [];
+        readonly HashSet<int> _requestBudgetFailureSubjects = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
         bool _requestBudgetExhausted;
-        MetadataTypeNameFailure? _requestBudgetFailure;
 
         internal ResolutionPlan(
             MetadataReader reader,
@@ -77,17 +82,25 @@ internal static class TypeParameterKindClassifier
         internal int ProjectedReferenceCount =>
             _projectedRequests.Count;
         internal MetadataTypeNameFailure? RequestBudgetFailure =>
-            _requestBudgetFailure;
-        internal MetadataTypeNameFailure? ResolutionFailure =>
-            _resolutionFailure;
+            _requestBudgetFailures.FirstOrDefault();
+        internal IReadOnlyList<MetadataTypeNameFailure>
+            RequestBudgetFailures => _requestBudgetFailures;
+        internal IReadOnlyList<MetadataTypeNameFailure>
+            ResolutionFailures => _resolutionFailures;
 
         internal RequestCheckpoint Checkpoint() =>
-            new(_requestOrder.Count, _requestBudgetFailure);
+            new(
+                _requestOrder.Count,
+                _requestBudgetFailures.Count,
+                _requestBudgetExhausted);
 
         internal void Rollback(RequestCheckpoint checkpoint)
         {
             if (checkpoint.RequestCount < 0
-                || checkpoint.RequestCount > _requestOrder.Count)
+                || checkpoint.RequestCount > _requestOrder.Count
+                || checkpoint.BudgetFailureCount < 0
+                || checkpoint.BudgetFailureCount
+                    > _requestBudgetFailures.Count)
             {
                 throw new ArgumentOutOfRangeException(nameof(checkpoint));
             }
@@ -102,15 +115,24 @@ internal static class TypeParameterKindClassifier
             _requestOrder.RemoveRange(
                 checkpoint.RequestCount,
                 _requestOrder.Count - checkpoint.RequestCount);
-            _requestBudgetFailure = checkpoint.BudgetFailure;
-            _requestBudgetExhausted =
-                _requestBudgetFailure is not null
-                || _requests.Count >= _maxTypeResolutionRequests;
+            for (int i = _requestBudgetFailures.Count - 1;
+                i >= checkpoint.BudgetFailureCount;
+                i--)
+            {
+                _requestBudgetFailureSubjects.Remove(
+                    _requestBudgetFailures[i].SubjectToken ?? 0);
+            }
+            _requestBudgetFailures.RemoveRange(
+                checkpoint.BudgetFailureCount,
+                _requestBudgetFailures.Count
+                    - checkpoint.BudgetFailureCount);
+            _requestBudgetExhausted = checkpoint.BudgetExhausted;
         }
 
         internal readonly record struct RequestCheckpoint(
             int RequestCount,
-            MetadataTypeNameFailure? BudgetFailure);
+            int BudgetFailureCount,
+            bool BudgetExhausted);
 
         internal void Bind(TypeResolutionContext context)
         {
@@ -121,7 +143,8 @@ internal static class TypeParameterKindClassifier
         internal ConstraintClass Classify(
             MetadataReader reader,
             TypeReferenceHandle handle,
-            int? genericArgumentCount = null)
+            int? genericArgumentCount = null,
+            EntityHandle subject = default)
         {
             if (!_projectedRequests.TryGetValue(
                     handle,
@@ -129,7 +152,7 @@ internal static class TypeParameterKindClassifier
             {
                 if (_requestBudgetExhausted)
                 {
-                    RecordRequestBudgetFailure(handle);
+                    RecordRequestBudgetFailure(subject);
                     return ConstraintClass.Unreadable;
                 }
 
@@ -154,12 +177,17 @@ internal static class TypeParameterKindClassifier
                 else
                 {
                     _requestBudgetExhausted = true;
-                    RecordRequestBudgetFailure(handle);
+                    RecordRequestBudgetFailure(subject);
                 }
                 return ConstraintClass.Unreadable;
             }
 
-            var cacheKey = (handle, genericArgumentCount);
+            var cacheKey = (
+                handle,
+                genericArgumentCount,
+                subject.IsNil
+                    ? 0
+                    : MetadataTokens.GetToken(subject));
             if (_resolvedClasses.TryGetValue(
                     cacheKey,
                     out ConstraintClass cached))
@@ -169,39 +197,110 @@ internal static class TypeParameterKindClassifier
 
             TypeResolutionOutcome outcome =
                 _context.Resolve(request);
+            ConstraintClass result = ClassifyOutcome(
+                request,
+                outcome,
+                subject,
+                genericArgumentCount);
+            _resolvedClasses.Add(cacheKey, result);
+            return result;
+        }
+
+        internal ConstraintClass Classify(
+            DefinitionKindDependency dependency,
+            EntityHandle subject)
+        {
+            TypeResolutionRequest request =
+                TypeResolutionRequest.FromReference(
+                    dependency.Reference,
+                    AssemblyBindingOrigin.FromAssembly(source),
+                    dependency.Scope,
+                    dependency.Type);
+            if (_context is null)
+            {
+                if (_requests.Contains(request))
+                    return ConstraintClass.Unreadable;
+                if (_requests.Count < _maxTypeResolutionRequests
+                    && _requests.Add(request))
+                {
+                    _requestOrder.Add(request);
+                }
+                else
+                {
+                    _requestBudgetExhausted = true;
+                    RecordRequestBudgetFailure(subject);
+                }
+                return ConstraintClass.Unreadable;
+            }
+
+            TypeResolutionOutcome outcome =
+                _context.Resolve(request);
             if (outcome
                 is not TypeResolutionOutcome.Resolved resolved)
             {
-                if (outcome is TypeResolutionOutcome.Rejected rejected)
-                {
-                    if (rejected.Failure
-                        is TypeResolutionFailure.RequestBudgetExceeded
-                            budget)
-                    {
-                        RecordAuthenticationBudgetFailure(
-                            handle,
-                            budget.Budget);
-                    }
-                    else
-                    {
-                        RecordResolutionFailure(
-                            handle,
-                            rejected.Failure);
-                    }
-                }
+                RecordResolutionOutcomeFailure(
+                    request,
+                    outcome,
+                    subject);
+                return ConstraintClass.Unreadable;
+            }
 
-                _resolvedClasses.Add(
-                    cacheKey,
-                    ConstraintClass.Unreadable);
+            if (resolved.Definition.GenericParameterCount
+                != dependency.GenericArgumentCount)
+            {
+                RecordResolutionFailure(
+                    subject,
+                    "A generic-constraint dependency resolved with generic "
+                        + $"arity {resolved.Definition.GenericParameterCount}, "
+                        + "but the constraint uses arity "
+                        + $"{dependency.GenericArgumentCount}.");
+                return ConstraintClass.Unreadable;
+            }
+
+            if (resolved.Definition.Kind
+                != MetadataTypeDefinitionKind.Class)
+            {
+                return ConstraintClass.Unreadable;
+            }
+            if (resolved.Definition
+                    .DeclaringAssemblyDefinesCoreLibraryRoot
+                && resolved.Definition.Type.ToMetadataFullName()
+                    is "System.ValueType" or "System.Enum")
+            {
+                return ConstraintClass.Unreadable;
+            }
+            return ConstraintClass.ProvesReferenceType;
+        }
+
+        ConstraintClass ClassifyOutcome(
+            TypeResolutionRequest request,
+            TypeResolutionOutcome outcome,
+            EntityHandle handle,
+            int? genericArgumentCount)
+        {
+            if (outcome
+                is not TypeResolutionOutcome.Resolved resolved)
+            {
+                RecordResolutionOutcomeFailure(
+                    request,
+                    outcome,
+                    handle);
                 return ConstraintClass.Unreadable;
             }
 
             ResolvedTypeDefinition definition = resolved.Definition;
-            ConstraintClass result =
-                genericArgumentCount is int expected
-                    && definition.GenericParameterCount != expected
-                ? ConstraintClass.Unreadable
-                : definition.Kind switch
+            if (genericArgumentCount is int expected
+                && definition.GenericParameterCount != expected)
+            {
+                RecordResolutionFailure(
+                    handle,
+                    "A generic-constraint dependency resolved with generic "
+                        + $"arity {definition.GenericParameterCount}, but "
+                        + $"the constraint uses arity {expected}.");
+                return ConstraintClass.Unreadable;
+            }
+
+            return definition.Kind switch
             {
                 MetadataTypeDefinitionKind.Interface =>
                     ConstraintClass.ProvesNothing,
@@ -215,40 +314,100 @@ internal static class TypeParameterKindClassifier
                     ConstraintClass.ProvesReferenceType,
                 _ => ConstraintClass.Unreadable,
             };
-            _resolvedClasses.Add(cacheKey, result);
-            return result;
         }
 
-        void RecordRequestBudgetFailure(TypeReferenceHandle handle) =>
-            _requestBudgetFailure ??=
-                MetadataTypeNameFailure.ForMechanism(
-                    MetadataTypeNameFailureMechanism.Metadata,
-                    handle,
-                    "Type-resolution request discovery exceeded "
-                        + $"the configured budget of "
-                        + $"{_maxTypeResolutionRequests}.");
+        void RecordResolutionOutcomeFailure(
+            TypeResolutionRequest request,
+            TypeResolutionOutcome outcome,
+            EntityHandle handle)
+        {
+            switch (outcome)
+            {
+                case TypeResolutionOutcome.Rejected rejected
+                    when rejected.Failure
+                        is TypeResolutionFailure.RequestBudgetExceeded
+                            budget:
+                    RecordAuthenticationBudgetFailure(
+                        handle,
+                        budget.Budget);
+                    break;
+                case TypeResolutionOutcome.Rejected
+                {
+                    Failure:
+                        TypeResolutionFailure.PlanExpansionRequired,
+                } when _requestBudgetExhausted:
+                    break;
+                case TypeResolutionOutcome.Rejected rejected:
+                    RecordResolutionFailure(
+                        handle,
+                        rejected.Failure);
+                    break;
+                case TypeResolutionOutcome.Unavailable unavailable:
+                    RecordResolutionFailure(
+                        handle,
+                        "A generic-constraint dependency assembly was "
+                            + $"unavailable: '{unavailable.Failure.Kind}'.");
+                    break;
+                case TypeResolutionOutcome.NotFound:
+                    RecordResolutionFailure(
+                        handle,
+                        $"Generic-constraint dependency "
+                            + $"'{request.Type.ToMetadataFullName()}' "
+                            + "was not found.");
+                    break;
+                case TypeResolutionOutcome.UnboundBinding:
+                    RecordResolutionFailure(
+                        handle,
+                        $"Generic-constraint dependency "
+                            + $"'{request.Type.ToMetadataFullName()}' "
+                            + "could not be bound to an acquired assembly.");
+                    break;
+                case TypeResolutionOutcome.Ambiguous:
+                    RecordResolutionFailure(
+                        handle,
+                        $"Generic-constraint dependency "
+                            + $"'{request.Type.ToMetadataFullName()}' "
+                            + "resolved ambiguously.");
+                    break;
+            }
+        }
+
+        void RecordRequestBudgetFailure(EntityHandle handle) =>
+            RecordRequestBudgetFailure(
+                handle,
+                "Type-resolution request discovery exceeded "
+                    + $"the configured budget of "
+                    + $"{_maxTypeResolutionRequests}.");
 
         void RecordAuthenticationBudgetFailure(
-            TypeReferenceHandle handle,
+            EntityHandle handle,
             int budget) =>
-            _requestBudgetFailure ??=
+            RecordRequestBudgetFailure(
+                handle,
+                "Type-resolution dependency authentication exceeded "
+                    + $"the configured budget of {budget}.");
+
+        void RecordRequestBudgetFailure(
+            EntityHandle handle,
+            string detail)
+        {
+            int subjectToken = handle.IsNil
+                ? 0
+                : MetadataTokens.GetToken(handle);
+            if (!_requestBudgetFailureSubjects.Add(subjectToken))
+                return;
+
+            _requestBudgetFailures.Add(
                 MetadataTypeNameFailure.ForMechanism(
                     MetadataTypeNameFailureMechanism.Metadata,
                     handle,
-                    "Type-resolution dependency authentication exceeded "
-                        + $"the configured budget of {budget}.");
+                    detail));
+        }
 
         void RecordResolutionFailure(
-            TypeReferenceHandle handle,
+            EntityHandle handle,
             TypeResolutionFailure failure)
         {
-            if (_resolutionFailure is not null
-                || failure
-                    is TypeResolutionFailure.PlanExpansionRequired)
-            {
-                return;
-            }
-
             string detail = failure switch
             {
                 TypeResolutionFailure.CandidateOpenFailed open =>
@@ -277,13 +436,29 @@ internal static class TypeParameterKindClassifier
                 TypeResolutionFailure.InvalidBindingPolicy invalid =>
                     "The generic-constraint binding policy returned "
                         + $"'{invalid.Failure.Kind}'.",
+                TypeResolutionFailure.PlanExpansionRequired =>
+                    "A generic-constraint dependency was absent from the "
+                        + "frozen type-resolution plan.",
                 _ => "Generic-constraint resolution was rejected.",
             };
-            _resolutionFailure =
+            RecordResolutionFailure(handle, detail);
+        }
+
+        void RecordResolutionFailure(
+            EntityHandle handle,
+            string detail)
+        {
+            int subjectToken = handle.IsNil
+                ? 0
+                : MetadataTokens.GetToken(handle);
+            if (!_resolutionFailureSubjects.Add(subjectToken))
+                return;
+
+            _resolutionFailures.Add(
                 MetadataTypeNameFailure.ForMechanism(
                     MetadataTypeNameFailureMechanism.Metadata,
                     handle,
-                    detail);
+                    detail));
         }
 
         TypeResolutionRequest? CreateRequest(
@@ -417,6 +592,7 @@ internal static class TypeParameterKindClassifier
         MetadataReader reader,
         GenericParameterHandle handle,
         ResolutionPlan? resolution,
+        EntityHandle subject,
         SiblingParameterIndex siblingParameters,
         Dictionary<TypeDefinitionHandle, ConstraintClass>
             definitionClasses)
@@ -465,6 +641,7 @@ internal static class TypeParameterKindClassifier
                     reader,
                     constraint.Type,
                     resolution,
+                    subject,
                     definitionClasses))
                 {
                     case ConstraintClass.ProvesReferenceType:
@@ -711,10 +888,16 @@ internal static class TypeParameterKindClassifier
         readonly Dictionary<TypeDefinitionHandle, ConstraintClass>
             _definitionClasses = [];
         readonly ResolutionPlan? _resolution;
+        readonly EntityHandle _subject;
         readonly SiblingParameterIndex _siblingParameters = new();
 
-        internal ChainState(ResolutionPlan? resolution = null) =>
+        internal ChainState(
+            ResolutionPlan? resolution = null,
+            EntityHandle subject = default)
+        {
             _resolution = resolution;
+            _subject = subject;
+        }
 
         internal TypeParameterTypeKind Answer(MetadataReader reader, GenericParameterHandle handle)
         {
@@ -774,6 +957,7 @@ internal static class TypeParameterKindClassifier
                     reader,
                     handle,
                     _resolution,
+                    _subject,
                     _siblingParameters,
                     _definitionClasses);
                 nodes[handle] = node;
@@ -961,6 +1145,7 @@ internal static class TypeParameterKindClassifier
         MetadataReader reader,
         EntityHandle handle,
         ResolutionPlan? resolution,
+        EntityHandle subject,
         Dictionary<TypeDefinitionHandle, ConstraintClass>
             definitionClasses,
         int? genericArgumentCount = null)
@@ -989,7 +1174,11 @@ internal static class TypeParameterKindClassifier
                         out ConstraintClass definitionClass))
                 {
                     definitionClass =
-                        ClassifyDefinition(reader, definitionHandle);
+                        ClassifyDefinition(
+                            reader,
+                            definitionHandle,
+                            resolution,
+                            subject);
                     definitionClasses.Add(
                         definitionHandle,
                         definitionClass);
@@ -1008,7 +1197,8 @@ internal static class TypeParameterKindClassifier
                     reader,
                     (TypeReferenceHandle)handle,
                     resolution,
-                    genericArgumentCount);
+                    genericArgumentCount,
+                    subject);
 
             // A generic instantiation constrains to the instantiated type, so the
             // question is about its generic type definition.
@@ -1030,6 +1220,7 @@ internal static class TypeParameterKindClassifier
                             reader,
                             root.Type,
                             resolution,
+                            subject,
                             definitionClasses,
                             root.GenericArgumentCount),
                     TypeSpecificationRootKind.GenericTypeParameter
@@ -1043,7 +1234,11 @@ internal static class TypeParameterKindClassifier
         }
     }
 
-    static ConstraintClass ClassifyDefinition(MetadataReader reader, TypeDefinitionHandle handle)
+    static ConstraintClass ClassifyDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        ResolutionPlan? resolution,
+        EntityHandle subject)
     {
         TypeDefinition definition;
         string fullName;
@@ -1062,6 +1257,14 @@ internal static class TypeParameterKindClassifier
                 reader,
                 handle,
                 DeclaresCoreLibraryRoot(reader));
+        if (kind == MetadataTypeDefinitionKind.Unknown
+            && resolution is not null
+            && MetadataTypeDeclarationProbe.ReadDefinitionKindDependency(
+                reader,
+                handle) is { } dependency)
+        {
+            return resolution.Classify(dependency, subject);
+        }
         if (kind == MetadataTypeDefinitionKind.Interface)
             return ConstraintClass.ProvesNothing;
         if (kind != MetadataTypeDefinitionKind.Class)
@@ -1144,14 +1347,16 @@ internal static class TypeParameterKindClassifier
         MetadataReader reader,
         TypeReferenceHandle handle,
         ResolutionPlan? resolution,
-        int? genericArgumentCount)
+        int? genericArgumentCount,
+        EntityHandle subject)
     {
         if (resolution is not null)
         {
             return resolution.Classify(
                 reader,
                 handle,
-                genericArgumentCount);
+                genericArgumentCount,
+                subject);
         }
 
         if (genericArgumentCount is not null)

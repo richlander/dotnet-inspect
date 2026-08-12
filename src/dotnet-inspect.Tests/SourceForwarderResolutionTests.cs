@@ -168,6 +168,50 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public void ApiServices_PropagatesForwardedTargetInspectionFailures()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly("Facade", new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                    typeName: "Type`1"));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMissingConstraint());
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            Assert.True(Assert.Single(api.Types).IsForwarded);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Contains(
+                "N.ForwardedBase",
+                failure.Detail,
+                StringComparison.Ordinal);
+            Assert.Single(
+                api.ConstraintResolutionFailuresBySubject);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_ClassifiesConstraintsOnForwardedType()
     {
         string directory = CreateDirectory();
@@ -373,5 +417,97 @@ public class SourceForwarderResolutionTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildTargetWithMissingConstraint()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Target.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle missingAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Missing"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle forwardedBase =
+            metadata.AddTypeReference(
+                missingAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("ForwardedBase"));
+        TypeReferenceHandle unrelatedBase =
+            metadata.AddTypeReference(
+                missingAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("UnrelatedBase"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle forwarded =
+            metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Type`1"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle unrelated =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Unrelated`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AddMissingConstraint(
+            forwarded,
+            "T",
+            forwardedBase);
+        AddMissingConstraint(
+            unrelated,
+            "U",
+            unrelatedBase);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+
+        void AddMissingConstraint(
+            TypeDefinitionHandle type,
+            string name,
+            TypeReferenceHandle missingBase)
+        {
+            GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                type,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString(name),
+                index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                missingBase);
+        }
     }
 }

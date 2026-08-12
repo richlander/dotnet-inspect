@@ -34,8 +34,7 @@ public static class AssemblyReader
                 peReader,
                 includeAll,
                 typesOnly);
-            foreach (ApiType type in surface.Types)
-                type.SourceAssemblyPath = path;
+            SetSourceAssemblyPath(surface, path);
             return surface;
         }
         catch (Exception ex) when (
@@ -59,12 +58,10 @@ public static class AssemblyReader
             using var stream = File.OpenRead(dllPath);
             var surface = ExtractApiSurface(stream, includeAll, typesOnly);
             if (surface != null)
-            {
-                foreach (var type in surface.Types)
-                    type.SourceAssemblyPath = dllPath;
-            }
+                SetSourceAssemblyPath(surface, dllPath);
             return surface;
         }
+
         catch (IOException)
         {
             return null;
@@ -74,6 +71,11 @@ public static class AssemblyReader
             return null;
         }
     }
+
+    static void SetSourceAssemblyPath(
+        ApiSurface surface,
+        string path) =>
+        surface.SetInspectionSourceAssemblyPath(path);
 
     /// <summary>
     /// Extracts the public API surface from a stream containing a PE image.
