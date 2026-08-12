@@ -106,6 +106,31 @@ public static class CSharpStructuralDiffPrinter
             if (!annotationsByLine.TryGetValue(lineIndex, out var entries))
                 continue;
 
+            // A comment gutter cannot point into its own first three columns.
+            // Keep only the suffix that clears the gutter so no caret shifts
+            // right and claims characters beyond the selected span.
+            int minimumColumn = memberIndent.Length + 3;
+            for (int index = entries.Count - 1; index >= 0; index--)
+            {
+                var entry = entries[index];
+                if (entry.Extent.Column >= minimumColumn)
+                    continue;
+
+                int trim = minimumColumn - entry.Extent.Column;
+                if (trim >= entry.Extent.Length)
+                {
+                    entries.RemoveAt(index);
+                    continue;
+                }
+                entries[index] = (
+                    entry.Fact,
+                    new AnnotationAnchor.CaretExtent(
+                        minimumColumn,
+                        entry.Extent.Length - trim));
+            }
+            if (entries.Count == 0)
+                continue;
+
             entries.Sort(static (left, right) =>
             {
                 int result = left.Extent.Column.CompareTo(right.Extent.Column);

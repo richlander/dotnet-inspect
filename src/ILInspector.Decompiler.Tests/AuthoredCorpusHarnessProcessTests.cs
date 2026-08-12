@@ -81,6 +81,71 @@ public class AuthoredCorpusHarnessProcessTests
         }
     }
 
+    [Fact]
+    public void Harness_RejectsMissingRequiredStructuralCorrespondenceField()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace("\"after_node_id\": 0, ", "", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_ContainsUntrustedStructuralMarkdownCells()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"kind\": \"BreakStatement\"",
+                "\"kind\": \"Break | ![remote](https://example.test/image)\"",
+                StringComparison.Ordinal)
+            .Replace(
+                "\"note\": \"terminal IL_0072: ret\"",
+                "\"note\": \"retained | ![remote](https://example.test/image)\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            string richDiff = run.Output[run.Output.IndexOf("## Structural diff", StringComparison.Ordinal)..];
+            Assert.Contains("&#124;", richDiff, StringComparison.Ordinal);
+            Assert.Contains("&#33;&#91;remote&#93;", richDiff, StringComparison.Ordinal);
+            Assert.DoesNotContain(" | ![remote]", richDiff, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_DispatchesStructuralReviewBeforeFixtureInventory()
+    {
+        var run = RunHarness(
+            "--fixture-source-inventory",
+            "--structural-review",
+            "/does-not-exist/structural-review.json");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("Could not render structural review", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Fixture source inventory", run.Output, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Every mode that dispatches before a gate must refuse rather than run instead of
     /// it. One representative earlier mode per gate is enough here: which modes precede

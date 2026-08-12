@@ -245,6 +245,67 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_MultilineSpanNeverOverrunsContinuationLine()
+    {
+        const string beforeText = """
+            void M()
+            {
+                Call(
+                    first,
+                    second);
+            }
+            """;
+        string afterText = beforeText.Replace("second", "changed", StringComparison.Ordinal);
+        int beforeStart = beforeText.IndexOf("Call(", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("Call(", StringComparison.Ordinal);
+        int beforeEnd = beforeText.IndexOf(");", beforeStart, StringComparison.Ordinal) + 2;
+        int afterEnd = afterText.IndexOf(");", afterStart, StringComparison.Ordinal) + 2;
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(beforeStart, beforeEnd - beforeStart)])
+            ],
+            [new AnnotatedSourceRegion(PrintedRegionRole.Body, [new(0, beforeText.Length)])],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterStart, afterEnd - afterStart)])
+            ],
+            [new AnnotatedSourceRegion(PrintedRegionRole.Body, [new(0, afterText.Length)])],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+        int continuation = Array.FindIndex(rendered, line => line.Contains("first,", StringComparison.Ordinal));
+        Assert.True(continuation >= 0);
+        string sourceLine = rendered[continuation];
+        string caretLine = rendered[continuation + 1];
+        int firstCaret = caretLine.IndexOf('^');
+        int lastCaret = caretLine.LastIndexOf('^');
+        Assert.True(firstCaret >= 0);
+        Assert.True(lastCaret < sourceLine.Length);
+    }
+
+    [Fact]
     public void CompareStructure_RejectsDocumentLocalIdentityViolations()
     {
         var before = Document("return;", "ReturnStatement", "return;");

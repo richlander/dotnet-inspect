@@ -445,18 +445,18 @@ static class Program
             return Fail("--emit-harness-report requires exactly one of --return-address, --not-my-type, --return-to-sender-catalog, or --source-correspondence-census.");
         }
 
-        if (fixtureSourceInventory)
-        {
-            if (inputs.Count > 0)
-                return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
-            return FixtureSourceInventory(json);
-        }
-
         if (structuralReview is not null)
         {
             if (inputs.Count > 0 || packages.Count > 0)
                 return Fail("--structural-review reads its documents from the comparison artifact; do not pass assembly or package inputs.");
             return StructuralReview.Run(structuralReview);
+        }
+
+        if (fixtureSourceInventory)
+        {
+            if (inputs.Count > 0)
+                return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
+            return FixtureSourceInventory(json);
         }
 
         if (historyCard)

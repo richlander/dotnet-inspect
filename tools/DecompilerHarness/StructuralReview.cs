@@ -43,40 +43,46 @@ internal static class StructuralReview
             CSharpStructuralSide.After);
         var rows = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
 
-        var output = new StringBuilder();
-        output.AppendLine("# Structural review")
-            .AppendLine()
-            .Append("Target: ")
-            .AppendLine(InlineCode(comparison.Subject))
-            .AppendLine()
-            .AppendLine("## Before")
-            .AppendLine()
-            .AppendLine(FencedCSharp(beforeBody))
-            .AppendLine()
-            .AppendLine("## After")
-            .AppendLine()
-            .AppendLine(FencedCSharp(afterBody))
-            .AppendLine()
-            .AppendLine("## Structural diff")
-            .AppendLine();
+        using var output = new StringWriter { NewLine = "\n" };
+        output.WriteLine("# Structural review");
+        output.WriteLine();
+        output.Write("Target: ");
+        output.WriteLine(InlineCode(comparison.Subject));
+        output.WriteLine();
+        output.WriteLine("## Before");
+        output.WriteLine();
+        output.WriteLine(FencedCSharp(beforeBody));
+        output.WriteLine();
+        output.WriteLine("## After");
+        output.WriteLine();
+        output.WriteLine(FencedCSharp(afterBody));
+        output.WriteLine();
+        output.WriteLine("## Structural diff");
+        output.WriteLine();
 
         if (rows.IsEmpty)
         {
-            output.AppendLine("No structural changes.");
+            output.WriteLine("No structural changes.");
             return output.ToString();
         }
 
-        output.AppendLine("| Change | Structure | Region | Before spans | After spans | Fidelity |")
-            .AppendLine("| --- | --- | --- | --- | --- | --- |");
+        output.WriteLine("| Change | Structure | Region | Before spans | After spans | Fidelity |");
+        output.WriteLine("| --- | --- | --- | --- | --- | --- |");
         foreach (var row in rows)
         {
-            output.Append("| ")
-                .Append(TableCell(row.Change)).Append(" | ")
-                .Append(TableCell(row.Structure)).Append(" | ")
-                .Append(TableCell(row.Region)).Append(" | ")
-                .Append(TableCell(row.BeforeSpans)).Append(" | ")
-                .Append(TableCell(row.AfterSpans)).Append(" | ")
-                .Append(TableCell(row.Fidelity)).AppendLine(" |");
+            output.Write("| ");
+            output.Write(TableCell(row.Change));
+            output.Write(" | ");
+            output.Write(TableCell(row.Structure));
+            output.Write(" | ");
+            output.Write(TableCell(row.Region));
+            output.Write(" | ");
+            output.Write(TableCell(row.BeforeSpans));
+            output.Write(" | ");
+            output.Write(TableCell(row.AfterSpans));
+            output.Write(" | ");
+            output.Write(TableCell(row.Fidelity));
+            output.WriteLine(" |");
         }
 
         return output.ToString();
@@ -96,7 +102,11 @@ internal static class StructuralReview
     }
 
     static string TableCell(string value)
-        => WebUtility.HtmlEncode(value.ReplaceLineEndings(" "));
+        => WebUtility.HtmlEncode(value.ReplaceLineEndings(" "))
+            .Replace("|", "&#124;", StringComparison.Ordinal)
+            .Replace("!", "&#33;", StringComparison.Ordinal)
+            .Replace("[", "&#91;", StringComparison.Ordinal)
+            .Replace("]", "&#93;", StringComparison.Ordinal);
 
     static int LongestRun(string value, char character)
     {
@@ -118,7 +128,10 @@ internal static class StructuralReview
 }
 
 [JsonSourceGenerationOptions(
+    AllowDuplicateProperties = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    RespectRequiredConstructorParameters = true,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(CSharpStructuralComparisonInput))]
 internal sealed partial class StructuralReviewJsonContext : JsonSerializerContext;
