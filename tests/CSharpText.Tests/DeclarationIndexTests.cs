@@ -295,6 +295,44 @@ public class DeclarationIndexTests
             $"indexing allocated {allocated / (1024 * 1024)} MiB");
     }
 
+    [Fact]
+    public void ConditionalSiblingFanOut_RefusesEachSiblingOnce()
+    {
+        // Seven retained tokens and four physical lines per child keep both sources at 490,006
+        // tokens and 280,006 lines. The control puts the optional trailer before the empty group,
+        // so it performs the same lexical and row work without a terminator reaching backward.
+        const int count = 70_000;
+        var baselineSource = new StringBuilder("#if A\nclass Owner\n#endif\n{\n");
+        for (int i = 0; i < count; i++)
+            baselineSource.AppendLine("class T { };\n#if X\n#endif\n");
+        baselineSource.AppendLine("}");
+
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder("#if A\nclass Owner\n#endif\n{\n");
+        for (int i = 0; i < count; i++)
+            source.AppendLine("class T { }\n#if X\n#endif\n;");
+        source.AppendLine("}");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(count + 1, index.Declarations.Length);
+        Assert.All(index.Declarations, declaration => Assert.False(declaration.SpanKnown));
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 4 + TimeSpan.FromMilliseconds(500),
+            $"conditional sibling fan-out took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
     /// <summary>
     /// Completing a parent's outward walk does not complete its sibling prefix. A later child must
     /// still be refused before the memo stops at that parent; checking the memo first leaves

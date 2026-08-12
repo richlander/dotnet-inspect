@@ -536,9 +536,10 @@ internal static class DeclarationIndexBuilder
         // parent. A vouched stopping parent is deliberately not marked, because another refusal may
         // make it unknown later. SpanKnown only moves true to false and ParentIndex never changes,
         // so each direct sibling is refused once and each outward ancestor edge is traversed once
-        // across the scan. Gated by
+        // across the scan. Gated respectively by
+        // ConditionalSiblingFanOut_RefusesEachSiblingOnce and
         // ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce. Found by
-        // adversarial review rounds 10 and 15 (Claude Opus 5).
+        // adversarial review rounds 10, 15, and 16 (Claude Opus 5).
         void RefuseSiblingPrefix(int parent, int lastChild)
         {
             int alreadyRefused = parent >= 0

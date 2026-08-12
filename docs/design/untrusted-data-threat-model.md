@@ -678,11 +678,12 @@ rescanning every later row;
 that work and allocation bound. Conditional initializer tails inspect each
 pending token once. Conditional terminators revoke each direct sibling at most
 once and memoize each completed outward ancestor walk across the scan; a later
-child is still visited before its parent's completed walk stops the traversal;
-`DeclarationIndexTests.ConditionalInitializerTail_ExaminesEachPendingTokenOnce`
-and
-`DeclarationIndexTests.ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce`
-gate those bounds. Carried interpolation state maintains the number of
+child is still visited before its parent's completed walk stops the traversal.
+Those bounds are gated respectively by
+`DeclarationIndexTests.ConditionalInitializerTail_ExaminesEachPendingTokenOnce`,
+`DeclarationIndexTests.ConditionalSiblingFanOut_RefusesEachSiblingOnce`, and
+`DeclarationIndexTests.ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce`.
+Carried interpolation state maintains the number of
 line-bound frames as frames change rather than walking every frame after every
 physical line;
 `ScanTokenTests.DeepMultilineInterpolation_DoesNotMultiplyFrameDepthByPhysicalLines`
