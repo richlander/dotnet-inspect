@@ -76,8 +76,11 @@ public class FindCommand
             }
             else if (options.JsonOutput)
             {
-                var writer = new FindJsonWriter();
-                writer.Write(results, new WriterOptions(), Console.Out);
+                JsonOutputHelper.Write(
+                    results,
+                    TypeFindResultJsonContext.Default.ListTypeFindResult,
+                    TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
+                    options.CompactJson);
             }
             else
             {
@@ -121,8 +124,11 @@ public class FindCommand
         }
         else if (options.JsonOutput)
         {
-            var writer = new MemberFindJsonWriter();
-            writer.Write(results, new WriterOptions(), Console.Out);
+            JsonOutputHelper.Write(
+                results,
+                MemberFindResultJsonContext.Default.ListMemberFindResult,
+                MemberFindResultCompactJsonContext.Default.ListMemberFindResult,
+                options.CompactJson);
         }
         else
         {
