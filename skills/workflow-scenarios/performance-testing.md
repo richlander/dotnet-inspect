@@ -8,19 +8,37 @@ dotnet-inspect is designed for sub-50ms responses on common queries. Agents call
 
 ## Prerequisites
 
-Performance testing requires a **NativeAOT build** — CoreCLR and NativeAOT have very different baselines (~95ms vs ~7ms). Always measure with the production build:
+Performance testing requires a **NativeAOT build**. Publish the exact revision
+under test, then identify both its apphost and version explicitly:
 
 ```bash
-./install.sh
+set -e -o pipefail
+export DOTNET_INSPECT_WORKFLOW_BINARY=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+export DOTNET_INSPECT_WORKFLOW_VERSION="$(
+  dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj \
+    -getProperty:VersionPrefix -nologo
+)+$(git rev-parse --short=7 HEAD)"
+dotnet clean src/dotnet-inspect -c Release -r <runtime-id>
+rm -rf /tmp/dotnet-inspect-workflow-aot
+dotnet publish src/dotnet-inspect -c Release -r <runtime-id> \
+  --self-contained true -o /tmp/dotnet-inspect-workflow-aot
+export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
 ```
 
 Verify the install:
 
 ```bash
-time dotnet-inspect --version
+set -e -o pipefail
+: "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
+: "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
+test -x "$DOTNET_INSPECT_WORKFLOW_BINARY"
+test "$("$DOTNET_INSPECT_WORKFLOW_BINARY" --version)" = \
+  "$DOTNET_INSPECT_WORKFLOW_VERSION"
+test "$(command -v dotnet-inspect)" = "$DOTNET_INSPECT_WORKFLOW_BINARY"
+"$DOTNET_INSPECT_WORKFLOW_BINARY" --flavor | grep -q '^NativeAOT;'
 ```
 
-Expected: under 15ms steady-state.
+Expected flavor: `NativeAOT`.
 
 ## Running perf scenarios
 
@@ -46,12 +64,10 @@ To validate:
 
 ### Latency targets by command class
 
-| Command class | Target | Example |
-| --- | --- | --- |
-| Version lookups | ≤ 15ms | `--version`, `--latest-version` |
-| Cached metadata | ≤ 25ms | `package -v:q`, bare name routing |
-| Type/member listing | ≤ 50ms | `type System.Text.Json -v:q` |
-| Network-dependent | ≤ 1000ms | Nonexistent package lookup |
+The workflow document owns the current measured budgets. In particular,
+network-backed latest-version and missing-package checks are external-service
+smoke scenarios, not local-cache latency gates. Do not copy their limits into
+other workflows; follow the `perf` block beside each command.
 
 ## Interpreting failures
 
@@ -72,15 +88,20 @@ When a perf scenario fails, profile with `dotnet-trace` against the **Release Co
 ### Setup
 
 ```bash
-dotnet build src/dotnet-inspect -c Release
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect --version
+set -e -o pipefail
+: "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
+dotnet build src/dotnet-inspect -c Release -t:Rebuild
+export PROFILE_INSPECT="$PWD/artifacts/bin/dotnet-inspect/release/dotnet-inspect"
+test -x "$PROFILE_INSPECT"
+test "$("$PROFILE_INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
+"$PROFILE_INSPECT" --flavor | grep -q '^CoreCLR;'
 ```
 
 ### Profiling a single command
 
 ```bash
 dotnet-trace collect --providers Microsoft-DotNETCore-SampleProfiler -- \
-  ./artifacts/bin/dotnet-inspect/release/dotnet-inspect --version
+  "$PROFILE_INSPECT" --version
 ```
 
 This produces a `.nettrace` file. Open it with:
@@ -97,8 +118,7 @@ Use the regular `dotnet-inspect` command line with a warm cache and a repeated w
 
 ```bash
 dotnet-trace collect --providers Microsoft-DotNETCore-SampleProfiler -- \
-  ./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  package System.Text.Json -v:q
+  "$PROFILE_INSPECT" package System.Text.Json -v:q
 ```
 
 ### Cold vs warm comparison
@@ -107,13 +127,11 @@ Use a fresh cache to capture first-invocation latency (JIT, cache misses) and th
 
 ```bash
 # Cold start (clear cache first)
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect cache clear
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  package System.Text.Json -v:q
+"$PROFILE_INSPECT" cache clear
+"$PROFILE_INSPECT" package System.Text.Json -v:q
 
 # Warm path (same command, cache populated)
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  package System.Text.Json -v:q
+"$PROFILE_INSPECT" package System.Text.Json -v:q
 ```
 
 ### Diagnosing unexpected network access

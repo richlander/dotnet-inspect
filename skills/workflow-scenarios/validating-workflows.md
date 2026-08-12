@@ -13,14 +13,29 @@ The [format spec](../../docs/workflows/README.md) defines the code fence types a
 1. **Report tool version first**: Run `dotnet-inspect --version` and include the output in your report. This establishes which build was tested.
 2. Parse the `prompt` block as the input request (for eval systems, this is what the agent receives).
 3. If a `setup` block exists, run it first to establish scenario state.
-4. Run the `bash` block and capture stdout, stderr, and exit code.
-5. For each `expect` line, check that it appears as a substring in stdout.
-6. For each `expect-not` line, check that it does **not** appear in stdout or stderr.
-7. For each `expect-error` line, check that exit code ≠ 0 and the line appears in stdout+stderr.
-8. For each `expect-stderr` line, check that it appears as a substring in stderr.
-9. For each `expect-not-stderr` line, check that it does **not** appear in stderr.
-10. If a `query` block exists, pipe stdout through it and report the extracted value.
-11. If a `perf` block exists, compare wall-clock time against `max_ms` and exit code against `exit_code`.
+4. Run the `bash` block as one shell program and capture stdout, stderr, and exit
+   code. Start each workflow at the repository root. Initialize each executable
+   fence with the working directory and exported environment left by the
+   preceding fence; shell locals and functions do not persist. A trailing `\`
+   keeps multiline commands possible.
+5. Process assertion and query fences in document order. Before a `query`,
+   `expect` and `expect-not` validate the original command output.
+6. For a `query`, first fold trailing-`\` line continuations. Apply each
+   remaining nonempty logical line independently to the original command
+   stdout, then concatenate the results in source order. Query lines do not
+   pipe into one another.
+7. After a `query`, `expect` and `expect-not` validate that derived query
+   output only. Place original stdout/stderr negative assertions before the
+   first query. A later query replaces the derived output used by following
+   assertions.
+8. For each `expect-error` line, check that exit code ≠ 0 and the line appears
+   in stdout+stderr.
+9. For each `expect-stderr` line, check that it appears as a substring in
+   stderr.
+10. For each `expect-not-stderr` line, check that it does **not** appear in
+    stderr.
+11. If a `perf` block exists, compare wall-clock time against `max_ms` and exit
+    code against `exit_code`.
 
 Commands are expected to exit 0 unless `expect-error` is used.
 
@@ -32,7 +47,28 @@ Many workflows have a **Preconditions** section at the top (isolated sessions, c
 
 General preconditions for all workflows:
 
-- **NativeAOT build**: Performance numbers assume `./install.sh` has been run.
+- **Exact NativeAOT build**: Set `DOTNET_INSPECT_WORKFLOW_BINARY` to the
+  published apphost for the exact revision under test,
+  `DOTNET_INSPECT_WORKFLOW_VERSION` to its `--version` output, and prepend the
+  apphost directory to `PATH`. Verify that bare `dotnet-inspect`, `$INSPECT`
+  workflows, and the recorded version all identify that same NativeAOT apphost:
+
+  ```bash
+  set -e -o pipefail
+  : "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
+  : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
+  test -x "$DOTNET_INSPECT_WORKFLOW_BINARY"
+  export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
+  test "$(command -v dotnet-inspect)" = "$DOTNET_INSPECT_WORKFLOW_BINARY"
+  test "$(dotnet-inspect --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
+  dotnet-inspect --flavor | grep -q '^NativeAOT;'
+  ```
+
+  A workflow may explicitly build an alternate apphost when that runtime or
+  configuration is the behavior under test. It must verify the same
+  `DOTNET_INSPECT_WORKFLOW_VERSION` and its required flavor. The DEBUG-only
+  network-guard workflow is the current exception.
+
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
 - **Network**: Some commands require network access (e.g., `--latest-version`). Others are fully offline (e.g., `--version` with cached data).
 
@@ -42,8 +78,9 @@ Parse the code fences and execute them in order:
 
 1. Run the Preconditions section if present.
 2. For each numbered goal/variant, run `setup` blocks, then `bash` blocks.
-3. Check all `expect`, `expect-not`, `expect-error`, `expect-stderr`, `expect-not-stderr` assertions.
-4. If `perf` blocks exist, check wall-clock time against `max_ms`.
+3. Process assertions and queries in fence order, using original or derived
+   output according to the sequential rule above.
+4. Check `expect-error`, stderr assertions, and any `perf` constraints.
 5. Report pass/fail per scenario.
 
 ## Running all workflows
@@ -102,7 +139,11 @@ Eval scenarios are distributed across all workflow docs via `prompt` blocks. Fil
 
 Before shipping a new build:
 
-1. Install with `./install.sh` (NativeAOT build).
+1. Publish the exact revision as NativeAOT and set
+   `DOTNET_INSPECT_WORKFLOW_BINARY` and `DOTNET_INSPECT_WORKFLOW_VERSION`.
+   Clean the product's intermediate artifacts before publishing, remove the
+   prior publish directory, prepend the new apphost directory to `PATH`, and
+   verify the apphost as described above.
 2. Run all workflow scenarios.
 3. Run [perf scenarios](performance-testing.md) and check latency targets.
 4. Report version + pass/fail summary.
