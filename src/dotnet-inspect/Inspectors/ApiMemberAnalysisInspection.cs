@@ -33,8 +33,8 @@ internal sealed class ApiMemberAnalysisInspection
     bool _callerScopesResolved;
     List<MethodBodyInspectionSession>? _graphScopes;
     bool _graphScopesResolved;
-    List<MethodBodyInspectionSession>? _callGraphScopes;
-    bool _callGraphScopesResolved;
+    List<MethodBodyInspectionSession>? _calleeScopes;
+    bool _calleeScopesResolved;
     Analysis.CatalogCallGraphDiagnostics _callGraphDiagnostics =
         Analysis.CatalogCallGraphDiagnostics.Empty;
 
@@ -107,7 +107,8 @@ internal sealed class ApiMemberAnalysisInspection
         ILInspector.CallGraph.CallGraphProjection projection =
             Session.CallGraph(
                 methodToken,
-                CallGraphScopes(),
+                CallerScopes(_includeAllocations, methodToken),
+                CalleeScopes(),
                 out Analysis.CatalogCallGraphDiagnostics diagnostics);
         _callGraphDiagnostics = diagnostics;
         return projection;
@@ -246,22 +247,115 @@ internal sealed class ApiMemberAnalysisInspection
         return cached;
     }
 
-    IReadOnlyList<MethodBodyInspectionSession>? CallGraphScopes()
+    internal IReadOnlyList<MethodBodyInspectionSession>? CalleeScopes()
     {
-        if (_callGraphScopesResolved)
-            return _callGraphScopes;
+        if (_calleeScopesResolved)
+            return _calleeScopes;
 
-        _callGraphScopesResolved = true;
+        _calleeScopesResolved = true;
         if (_callerScopeAssemblies is not { Count: > 0 })
             return null;
 
         List<MethodBodyInspectionSession> opened =
-            OpenScopes(ScopeCandidates, _includeAllocations);
+            OpenScopes(ForwardScopeCandidates(), _includeAllocations);
         if (opened.Count == 0)
             return null;
 
-        _callGraphScopes = opened;
-        return _callGraphScopes;
+        _calleeScopes = opened;
+        return _calleeScopes;
+    }
+
+    IReadOnlyList<ResolvedAssemblyReference> ForwardScopeCandidates()
+    {
+        var byName = ScopeCandidates
+            .GroupBy(
+                candidate => candidate.Identity.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+        var selected = new HashSet<AssemblyAcquisitionRegistration>(
+            ReferenceEqualityComparer.Instance);
+        var pending = new Queue<ResolvedAssemblyReference>();
+
+        if (!TryReferenceNames(
+                TargetAssembly,
+                out IReadOnlyList<string>? references))
+        {
+            return ScopeCandidates;
+        }
+
+        Enqueue(references);
+        while (pending.TryDequeue(out ResolvedAssemblyReference? candidate))
+        {
+            if (!selected.Add(candidate.Registration))
+                continue;
+
+            if (!TryReferenceNames(
+                    candidate,
+                    out IReadOnlyList<string>? candidateReferences))
+            {
+                return ScopeCandidates;
+            }
+
+            Enqueue(candidateReferences);
+        }
+
+        return
+        [
+            .. ScopeCandidates.Where(candidate =>
+                selected.Contains(candidate.Registration)),
+        ];
+
+        void Enqueue(IReadOnlyList<string> names)
+        {
+            foreach (string name in names)
+            {
+                if (!byName.TryGetValue(
+                        name,
+                        out ResolvedAssemblyReference[]? matches))
+                {
+                    continue;
+                }
+
+                foreach (ResolvedAssemblyReference match in matches)
+                    pending.Enqueue(match);
+            }
+        }
+    }
+
+    static bool TryReferenceNames(
+        ResolvedAssemblyReference assembly,
+        [NotNullWhen(true)]
+        out IReadOnlyList<string>? references)
+    {
+        if (assembly.Path is null)
+        {
+            references = null;
+            return false;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(assembly.Path);
+            using var pe =
+                new System.Reflection.PortableExecutable.PEReader(stream);
+            AssemblyIdentityNames names =
+                AssemblyIdentityScanner.Scan(pe);
+            references = names.ReferenceNames;
+            return names.ReferencesComplete;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException
+                or NotSupportedException)
+        {
+            references = null;
+            return false;
+        }
     }
 
     internal IReadOnlyList<MethodBodyInspectionSession>? DirectCallerScopes(

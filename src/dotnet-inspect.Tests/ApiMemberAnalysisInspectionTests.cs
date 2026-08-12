@@ -215,16 +215,24 @@ public class ApiMemberAnalysisInspectionTests
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
         string target =
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
-        var inspection = Create(caller, [target]);
+        string unrelated =
+            FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
+        var inspection = Create(caller, [unrelated, target]);
         int root = TokenOf(caller, "Entry", "RunAcrossBoundary");
 
         IReadOnlyList<MethodBodyInspectionSession>? callerScopes =
             inspection.CallerScopes(includeAllocations: true);
+        IReadOnlyList<MethodBodyInspectionSession>? calleeScopes =
+            inspection.CalleeScopes();
         ILInspector.CallGraph.CallGraphProjection projection =
             inspection.BuildCallGraph(root);
 
         Assert.NotNull(callerScopes);
         Assert.Empty(callerScopes);
+        Assert.NotNull(calleeScopes);
+        Assert.Equal(
+            ["ILInspector.Analysis.CallerGraphTarget"],
+            calleeScopes.Select(scope => scope.SourceName));
         Assert.Contains(
             projection.Nodes,
             node => node.Member.Name == "Forward"

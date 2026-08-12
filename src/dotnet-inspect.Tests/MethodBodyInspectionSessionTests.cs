@@ -174,7 +174,8 @@ public class MethodBodyInspectionSessionTests
 
         CallGraphProjection projection = caller.CallGraph(
             root.MetadataToken,
-            [target],
+            callerScopes: [],
+            calleeScopes: [target],
             out Analysis.CatalogCallGraphDiagnostics diagnostics);
 
         Assert.False(diagnostics.IsIncomplete);

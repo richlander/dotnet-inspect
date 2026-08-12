@@ -198,10 +198,34 @@ public sealed class MethodBodyInspectionSession
         BodyIndex.BuildCallerTree(methodToken, scope);
 
     /// <summary>
-    /// Builds one bidirectional projection over the target and every supplied
-    /// assembly session. Both traversal directions share one catalog graph.
+    /// Builds one bidirectional projection over direction-specific assembly
+    /// scopes.
     /// </summary>
     public CallGraphProjection CallGraph(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? callerScopes,
+        IReadOnlyList<MethodBodyInspectionSession>? calleeScopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        Analysis.CallTreeNode callerRoot = CallerTree(
+            methodToken,
+            callerScopes,
+            out Analysis.CatalogCallGraphDiagnostics callerDiagnostics);
+        Analysis.CallTreeNode calleeRoot = CalleeTree(
+            methodToken,
+            calleeScopes,
+            out Analysis.CatalogCallGraphDiagnostics calleeDiagnostics);
+        diagnostics = new Analysis.CatalogCallGraphDiagnostics(
+            callerDiagnostics.IncompleteNodeCount
+                + calleeDiagnostics.IncompleteNodeCount,
+            callerDiagnostics.IncompleteEdgeCount
+                + calleeDiagnostics.IncompleteEdgeCount,
+            callerDiagnostics.BindingIdentityConflictCount
+                + calleeDiagnostics.BindingIdentityConflictCount);
+        return CallGraphProjection.Create(callerRoot, calleeRoot);
+    }
+
+    Analysis.CallTreeNode CalleeTree(
         int methodToken,
         IReadOnlyList<MethodBodyInspectionSession>? scopes,
         out Analysis.CatalogCallGraphDiagnostics diagnostics)
@@ -209,20 +233,15 @@ public sealed class MethodBodyInspectionSession
         if (scopes is null)
         {
             diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
-            return CallGraphProjection.Create(
-                BodyIndex.BuildCallerTree(methodToken),
-                BodyIndex.BuildCallTree(methodToken));
+            return BodyIndex.BuildCallTree(methodToken);
         }
 
         using Analysis.CatalogCallGraphScope scope =
             CreateCallGraphScope([this, .. scopes]);
-        CallGraphProjection projection = CallGraphProjection.Create(
-            WithoutGraphEvidence(
-                BodyIndex.BuildCallerTree(methodToken, scope)),
-            WithoutGraphEvidence(
-                BodyIndex.BuildCallTree(methodToken, scope)));
+        Analysis.CallTreeNode tree =
+            BodyIndex.BuildCallTree(methodToken, scope);
         diagnostics = scope.Diagnostics;
-        return projection;
+        return WithoutGraphEvidence(tree);
     }
 
     static Analysis.CallTreeNode WithoutGraphEvidence(
