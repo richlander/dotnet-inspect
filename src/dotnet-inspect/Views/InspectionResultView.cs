@@ -795,18 +795,29 @@ public record PackageSourceLinkFileRow(
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public sealed record PackageSourceAvailabilitySection(
-    [property: MarkoutIgnore] InertString AuditedLibrariesText = default,
+    InertString AuditedLibrariesText = default,
     int Embedded = 0,
-    [property: MarkoutIgnore] InertString? FailedLibrariesText = null,
+    InertString? FailedLibrariesText = null,
     int Missing = 0,
-    [property: MarkoutIgnore] InertString SourceFilesText = default,
-    [property: MarkoutIgnore] InertString StatusText = default,
-    [property: MarkoutIgnore] InertString? UnavailableLibrariesText = null)
+    InertString SourceFilesText = default,
+    InertString StatusText = default,
+    InertString? UnavailableLibrariesText = null)
 {
-    public string AuditedLibraries => AuditedLibrariesText.ToString();
+    [MarkoutIgnore]
+    public InertString AuditedLibrariesText { get; init; } = AuditedLibrariesText;
     public int Embedded { get; init; } = Embedded;
-    public string? FailedLibraries => PackageViewText.Render(FailedLibrariesText);
+    [MarkoutIgnore]
+    public InertString? FailedLibrariesText { get; init; } = FailedLibrariesText;
     public int Missing { get; init; } = Missing;
+    [MarkoutIgnore]
+    public InertString SourceFilesText { get; init; } = SourceFilesText;
+    [MarkoutIgnore]
+    public InertString StatusText { get; init; } = StatusText;
+    [MarkoutIgnore]
+    public InertString? UnavailableLibrariesText { get; init; } = UnavailableLibrariesText;
+
+    public string AuditedLibraries => AuditedLibrariesText.ToString();
+    public string? FailedLibraries => PackageViewText.Render(FailedLibrariesText);
     public string SourceFiles => SourceFilesText.ToString();
     public string Status => StatusText.ToString();
     public string? UnavailableLibraries => PackageViewText.Render(UnavailableLibrariesText);
@@ -815,26 +826,39 @@ public sealed record PackageSourceAvailabilitySection(
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public sealed record PackageSourceIntegritySection(
-    [property: MarkoutIgnore] InertString CheckedLibrariesText = default,
-    [property: MarkoutIgnore] InertString? CrlfMismatchText = null,
-    [property: MarkoutIgnore] InertString? FailedLibrariesText = null,
+    InertString CheckedLibrariesText = default,
+    InertString? CrlfMismatchText = null,
+    InertString? FailedLibrariesText = null,
     int Mismatched = 0,
-    [property: MarkoutIgnore] InertString? MismatchedFilesText = null,
-    [property: MarkoutIgnore] InertString StatusText = default,
-    [property: MarkoutIgnore] InertString? UnavailableLibrariesText = null,
+    InertString? MismatchedFilesText = null,
+    InertString StatusText = default,
+    InertString? UnavailableLibrariesText = null,
     int Unverifiable = 0,
     int Verified = 0)
 {
+    [MarkoutIgnore]
+    public InertString CheckedLibrariesText { get; init; } = CheckedLibrariesText;
+    [MarkoutIgnore]
+    public InertString? CrlfMismatchText { get; init; } = CrlfMismatchText;
+    [MarkoutIgnore]
+    public InertString? FailedLibrariesText { get; init; } = FailedLibrariesText;
+    public int Mismatched { get; init; } = Mismatched;
+    [MarkoutIgnore]
+    public InertString? MismatchedFilesText { get; init; } = MismatchedFilesText;
+    [MarkoutIgnore]
+    public InertString StatusText { get; init; } = StatusText;
+    [MarkoutIgnore]
+    public InertString? UnavailableLibrariesText { get; init; } = UnavailableLibrariesText;
+    public int Unverifiable { get; init; } = Unverifiable;
+    public int Verified { get; init; } = Verified;
+
     public string CheckedLibraries => CheckedLibrariesText.ToString();
     [MarkoutPropertyName("CR/LF Mismatch")]
     public string? CrlfMismatch => PackageViewText.Render(CrlfMismatchText);
     public string? FailedLibraries => PackageViewText.Render(FailedLibrariesText);
-    public int Mismatched { get; init; } = Mismatched;
     public string? MismatchedFiles => PackageViewText.Render(MismatchedFilesText);
     public string Status => StatusText.ToString();
     public string? UnavailableLibraries => PackageViewText.Render(UnavailableLibrariesText);
-    public int Unverifiable { get; init; } = Unverifiable;
-    public int Verified { get; init; } = Verified;
 }
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
