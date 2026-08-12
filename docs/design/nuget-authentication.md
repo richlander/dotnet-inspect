@@ -126,6 +126,10 @@ convention directory at all — it only puts `nuget-plugin-microsoft-artifacts-c
 on `PATH`. An implementation that scans `~/.nuget/plugins` alone finds nothing on such a machine
 while `dotnet restore` authenticates happily.
 
+Discovery itself is deferred until a feed first answers with an authentication challenge.
+Commands and public-feed requests therefore do not scan the convention directory or `PATH`.
+Once discovery runs, its result is kept for the process lifetime.
+
 Implementation: [`PluginDiscovery`](../../src/NuGetFetch/Plugins/PluginDiscovery.cs), mirroring
 `PluginDiscoverer.cs` and `PluginDiscoveryUtility.cs` in
 [NuGet.Client](https://github.com/NuGet/NuGet.Client/tree/dev/src/NuGet.Core/NuGet.Protocol/Plugins).
