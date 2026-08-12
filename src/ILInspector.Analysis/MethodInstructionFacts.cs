@@ -75,6 +75,29 @@ internal static class MethodInstructionFacts
         }
     }
 
-    static int OperandInt32(DecodedInstruction instruction)
+    /// <summary>
+    /// The instruction's operand as a metadata token / slot index. Throws
+    /// <see cref="OverflowException"/> for an operand that does not fit, so a
+    /// malformed body reaches its owner's recoverable-failure gate rather than
+    /// silently reading a truncated token.
+    /// </summary>
+    internal static int OperandInt32(DecodedInstruction instruction)
         => checked((int)instruction.OperandValue);
+
+    /// <summary>
+    /// The single branch target of a one-target branch. False for a switch (or a
+    /// non-branch), whose arms need the full target list.
+    /// </summary>
+    internal static bool TrySingleBranchTarget(
+        DecodedInstruction instruction,
+        out int target)
+    {
+        if (instruction.BranchTargets.Length == 1)
+        {
+            target = instruction.BranchTargets[0];
+            return true;
+        }
+        target = -1;
+        return false;
+    }
 }
