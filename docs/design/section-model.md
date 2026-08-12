@@ -405,12 +405,15 @@ domains.
 
 ## Registration invariants
 
-The section pipeline enforces these invariants:
+The section pipeline and derived catalog gates enforce these invariants:
 
 1. Section names are unique.
 2. Category names are unique and use the `@` prefix.
 3. Every category member names a registered section.
-4. Every selectable section in an authored-category pipeline has category ownership.
+4. Every selectable library and package section has authored category
+   ownership. Gates:
+   `LibraryPipeline_EverySelectableSectionBelongsToAnAuthoredCategory` and
+   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every scanner key resolves, and a descriptor cannot understate scanner cost.
