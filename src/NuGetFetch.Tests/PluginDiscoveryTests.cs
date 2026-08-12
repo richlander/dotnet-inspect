@@ -34,6 +34,49 @@ public sealed class PluginDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task ProviderConstructionDoesNotRunDiscovery()
+    {
+        int discoveryCalls = 0;
+        await using var provider = new PluginCredentialProvider(null, Discover);
+
+        Assert.True(provider.HasCredentialSources);
+        Assert.Equal(0, discoveryCalls);
+
+        IReadOnlyList<PluginExecutable> Discover()
+        {
+            discoveryCalls++;
+            return [];
+        }
+    }
+
+    [Fact]
+    public async Task FirstCredentialRequestRunsDiscoveryOnce()
+    {
+        int discoveryCalls = 0;
+        await using var provider = new PluginCredentialProvider(null, Discover);
+        var source = new Uri("https://feed.example/v3/index.json");
+
+        Assert.Null(await provider.GetCredentialsAsync(
+            source,
+            isRetry: false,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, discoveryCalls);
+        Assert.False(provider.HasCredentialSources);
+
+        Assert.Null(await provider.GetCredentialsAsync(
+            source,
+            isRetry: false,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, discoveryCalls);
+
+        IReadOnlyList<PluginExecutable> Discover()
+        {
+            discoveryCalls++;
+            return [];
+        }
+    }
+
+    [Fact]
     public void NetCoreVariable_NamesEntryPointsDirectly()
     {
         string plugin = CreateFile("explicit/CredentialProvider.Microsoft.dll");
