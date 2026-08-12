@@ -32,6 +32,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
+    readonly object _asyncSiblingCacheGate = new();
+    readonly object _externalAsyncSiblingResolutionGate = new();
+    readonly Dictionary<
+        (MemberRef Callee, TypeRef CallerType, string CallerAssembly),
+        MemberRef?> _asyncSiblingCache = [];
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle>? _localTypeDefinitions;
 
     internal LibraryBodyAnalysisBuilder(string path, MetadataReader reader, PEReader peReader, IAssemblyReferenceResolver? resolver = null)
     {
@@ -156,13 +164,29 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return null;
         }
 
-        var identity = AssemblyReferenceIdentity.From(_reader, assemblyReference);
-        var scope = ScopeForReference(assemblyReference);
+        return TryResolveExternalTypeDefinition(
+            AssemblyReferenceIdentity.From(_reader, assemblyReference),
+            ScopeForReference(assemblyReference),
+            valid.Name);
+    }
+
+    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName type)
+    {
+        if (_resolutionCatalog is null
+            || _bindingPolicy is null
+            || _rootAssembly is null)
+        {
+            return null;
+        }
+
         var request = TypeResolutionRequest.FromReference(
             identity,
             AssemblyBindingOrigin.FromAssembly(_rootAssembly),
             scope,
-            valid.Name);
+            type);
         using TypeResolutionContext context =
             _resolutionCatalog.CreateContext(
                 _bindingPolicy,
@@ -348,6 +372,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             // pass reads it read-only.
             if (includeMethodEvidence)
                 _ = AsyncStateMachineTypes();
+            if (includeOpportunities)
+            {
+                _ = AsyncStateMachineSourceMethods();
+                _ = LocalTypeDefinitions();
+            }
             Parallel.For(0, workItems.Count, i =>
             {
                 var w = workItems[i];
@@ -601,13 +630,41 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             var methodAttributes = methodDef.GetCustomAttributes();
             if (includeOpportunities)
             {
-                if (!typeSourceGenerated
+                bool collectOrdinaryOpportunities =
+                    !typeSourceGenerated
                     && !HasGeneratedCodeAttribute(methodAttributes)
                     && !HasCompilerGeneratedAttribute(methodAttributes)
-                    && !IsBlazorRenderMethod(caller))
-                    result.Opportunities = CollectOptimizationOpportunities(allocations.DiscoveredOccurrences, allocationAnalysis, il, context, scope);
+                    && !IsBlazorRenderMethod(caller);
+                var opportunities =
+                    ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+                if (collectOrdinaryOpportunities)
+                {
+                    opportunities.AddRange(
+                        CollectOptimizationOpportunities(
+                            allocations.DiscoveredOccurrences,
+                            allocationAnalysis,
+                            il,
+                            context,
+                            scope));
+                }
                 else
+                {
                     result.Suppressed = true;
+                }
+
+                MethodIdentity? asyncSource = AsyncSourceMethod(
+                    caller,
+                    methodDef,
+                    typeSourceGenerated);
+                if (asyncSource is not null)
+                {
+                    opportunities.AddRange(
+                        CollectAsyncSiblingOpportunities(
+                            context,
+                            scope,
+                            asyncSource));
+                }
+                result.Opportunities = opportunities.ToImmutable();
             }
             var signals = BodySignalAnalysis.Collect(
                 context,
@@ -1263,6 +1320,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     }
 
     IReadOnlySet<string>? _asyncStateMachineTypes;
+    IReadOnlyDictionary<string, MethodIdentity>? _asyncStateMachineSourceMethods;
 
     bool IsAsyncStateMachineType(TypeRef? type)
     {
@@ -1300,6 +1358,133 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
         _asyncStateMachineTypes = set;
         return set;
+    }
+
+    MethodIdentity? AsyncSourceMethod(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated)
+    {
+        if (MethodClassificationScanner.ClassifyAsyncMethod(
+                _reader,
+                methodDefinition) is not null)
+        {
+            return !typeSourceGenerated
+                && !HasGeneratedCodeAttribute(
+                    methodDefinition.GetCustomAttributes())
+                && !HasCompilerGeneratedAttribute(
+                    methodDefinition.GetCustomAttributes())
+                && !IsBlazorRenderMethod(physicalMethod)
+                    ? physicalMethod
+                    : null;
+        }
+
+        return physicalMethod.Name == "MoveNext"
+            && AsyncStateMachineSourceMethods().TryGetValue(
+                physicalMethod.DeclaringType.ToQualifiedDisplayString(),
+                out MethodIdentity? source)
+                    ? source
+                    : null;
+    }
+
+    IReadOnlyDictionary<string, MethodIdentity> AsyncStateMachineSourceMethods()
+    {
+        if (_asyncStateMachineSourceMethods is not null)
+            return _asyncStateMachineSourceMethods;
+
+        var methods = new Dictionary<string, MethodIdentity>(
+            StringComparer.Ordinal);
+        foreach (var typeHandle in _reader.TypeDefinitions)
+        {
+            var typeDefinition = _reader.GetTypeDefinition(typeHandle);
+            if (HasGeneratedCodeAttribute(
+                    typeDefinition.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            foreach (var methodHandle in typeDefinition.GetMethods())
+            {
+                var methodDefinition =
+                    _reader.GetMethodDefinition(methodHandle);
+                if (HasGeneratedCodeAttribute(
+                        methodDefinition.GetCustomAttributes())
+                    || HasCompilerGeneratedAttribute(
+                        methodDefinition.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                string? stateMachineType = AsyncStateMachineTypeName(
+                    methodDefinition.GetCustomAttributes());
+                if (stateMachineType is null)
+                    continue;
+
+                var scope = CreateScope(
+                    typeDefinition,
+                    methodDefinition);
+                MethodIdentity method = CreateMethodIdentity(
+                    typeHandle,
+                    methodHandle,
+                    methodDefinition,
+                    scope);
+                if (!IsBlazorRenderMethod(method))
+                {
+                    methods.TryAdd(
+                        NormalizeStateMachineTypeName(stateMachineType),
+                        method);
+                }
+            }
+        }
+
+        _asyncStateMachineSourceMethods = methods;
+        return methods;
+    }
+
+    string? AsyncStateMachineTypeName(
+        CustomAttributeHandleCollection attributes)
+    {
+        foreach (var handle in attributes)
+        {
+            var attribute = _reader.GetCustomAttribute(handle);
+            string? name = AttributeDecoder.GetAttributeTypeName(
+                _reader,
+                attribute.Constructor);
+            if (name is not (
+                    KnownAttributeNames.AsyncStateMachineAttribute
+                    or KnownAttributeNames.AsyncIteratorStateMachineAttribute))
+            {
+                continue;
+            }
+
+            if (AttributeDecoder.TryDecode(
+                    _reader,
+                    attribute) is { FixedArguments.Length: 1 } decoded
+                && decoded.FixedArguments[0].Value is string typeName)
+            {
+                return typeName;
+            }
+        }
+        return null;
+    }
+
+    static string NormalizeStateMachineTypeName(string name)
+    {
+        var normalized = new System.Text.StringBuilder(name.Length);
+        for (int i = 0; i < name.Length; i++)
+        {
+            if (name[i] == '`')
+            {
+                while (i + 1 < name.Length
+                    && char.IsAsciiDigit(name[i + 1]))
+                {
+                    i++;
+                }
+                continue;
+            }
+            normalized.Append(name[i] == '+' ? '.' : name[i]);
+        }
+        return normalized.ToString();
     }
 
     TypeRef TypeFromEntity(EntityHandle handle)
@@ -1808,6 +1993,491 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return OptimizationOpportunityAnalysis.AddFallbackMetadata(annotated);
         }
     }
+
+    ImmutableArray<OptimizationOpportunity> CollectAsyncSiblingOpportunities(
+        MethodBodyAnalysisContext context,
+        GenericScope callerScope,
+        MethodIdentity asyncSource)
+    {
+        var opportunities =
+            ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+        var calls = context.Instructions.Instructions
+            .Where(instruction => instruction.OpCode is
+                ILOpCode.Call or ILOpCode.Callvirt)
+            .Select(instruction => (
+                Instruction: instruction,
+                Callee: MemberResolver.ResolveMethod(
+                    _reader,
+                    MetadataTokens.EntityHandle(
+                        MethodInstructionFacts.OperandInt32(
+                            instruction)),
+                    callerScope)))
+            .ToArray();
+        foreach (var (instruction, callee) in calls)
+        {
+            MemberRef? sibling = FindAsyncSibling(
+                callee,
+                asyncSource);
+            if (sibling is null
+                || IsSameMethod(sibling, asyncSource)
+                || calls.Any(call =>
+                    IsSameMethod(call.Callee, sibling)))
+            {
+                continue;
+            }
+
+            opportunities.Add(new OptimizationOpportunity(
+                asyncSource,
+                "sync-call-in-async",
+                $"{FormatMember(callee)} is called from an async method; "
+                    + $"{FormatMember(sibling)} is available",
+                $"Prefer {FormatMember(sibling)} with await or await foreach "
+                    + "when its behavior matches the synchronous call.",
+                "medium",
+                context.IsInLoopRegion(instruction.Offset),
+                instruction.Offset,
+                "Name and signature shape establish the sibling relationship; "
+                    + "confirm ordering, exception, cancellation, and enumeration semantics.")
+            {
+                EvidenceMethodToken = context.Method.MetadataToken,
+            });
+        }
+        return opportunities.ToImmutable();
+    }
+
+    MemberRef? FindAsyncSibling(
+        MemberRef callee,
+        MethodIdentity asyncSource)
+    {
+        if (callee.Kind != MemberKind.Method
+            || callee.Name.EndsWith("Async", StringComparison.Ordinal)
+            || IsAsyncReturnType(callee.ReturnType))
+        {
+            return null;
+        }
+
+        var key = (
+            callee,
+            asyncSource.DeclaringType,
+            asyncSource.AssemblyName);
+        lock (_asyncSiblingCacheGate)
+        {
+            if (_asyncSiblingCache.TryGetValue(
+                    key,
+                    out MemberRef? cached))
+            {
+                return cached;
+            }
+        }
+
+        MemberRef? sibling = FindAsyncSiblingCore(
+            callee,
+            asyncSource);
+        lock (_asyncSiblingCacheGate)
+        {
+            _asyncSiblingCache[key] = sibling;
+            return sibling;
+        }
+    }
+
+    MemberRef? FindAsyncSiblingCore(
+        MemberRef callee,
+        MethodIdentity asyncSource)
+    {
+        if (TryResolveTypeDefinition(callee.DeclaringType)
+            is not { } resolved)
+        {
+            return null;
+        }
+
+        bool sameAssembly = ReferenceEquals(
+            resolved.DefiningReader,
+            _reader);
+        var declaringDefinition =
+            resolved.DefiningReader.GetTypeDefinition(
+                resolved.Definition);
+        MemberRef? best = null;
+        foreach (var methodHandle
+            in declaringDefinition.GetMethods())
+        {
+            var methodDefinition =
+                resolved.DefiningReader.GetMethodDefinition(
+                    methodHandle);
+            if (!resolved.DefiningReader.StringComparer.Equals(
+                    methodDefinition.Name,
+                    callee.Name + "Async")
+                || !IsCallableAsyncSibling(
+                    methodDefinition,
+                    sameAssembly,
+                    callee.DeclaringType,
+                    asyncSource))
+            {
+                continue;
+            }
+
+            MemberRef? candidate = DecodeAsyncSibling(
+                resolved.DefiningReader,
+                declaringDefinition,
+                methodDefinition,
+                callee);
+            if (candidate is null
+                || !ParametersMatchAsyncSibling(
+                    callee,
+                    candidate))
+            {
+                continue;
+            }
+
+            if (best is not null
+                && candidate.ParameterTypes.Length
+                    == best.ParameterTypes.Length)
+            {
+                // Two equally specific Async siblings cannot be distinguished
+                // from call-site metadata alone (for example, return-only or
+                // custom-modifier variants). Do not guess.
+                return null;
+            }
+            if (best is null
+                || candidate.ParameterTypes.Length
+                    < best.ParameterTypes.Length)
+                best = candidate;
+        }
+        return best;
+    }
+
+    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveTypeDefinition(TypeRef type)
+    {
+        TypeRef definition = type.Kind
+            == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        if (definition.Resolution is not { } resolution)
+            return null;
+
+        if (resolution.Origin
+            is TypeReferenceOrigin.CurrentAssembly)
+        {
+            return LocalTypeDefinitions().TryGetValue(
+                resolution.Type,
+                out TypeDefinitionHandle handle)
+                    ? (_reader, handle)
+                    : null;
+        }
+
+        if (resolution.Origin
+            is not TypeReferenceOrigin.AssemblyReference assembly)
+        {
+            return null;
+        }
+
+        AssemblyResolutionScope scope =
+            AssemblyResolutionScope.Any;
+        foreach (var handle in _reader.AssemblyReferences)
+        {
+            if (AssemblyReferenceIdentity.From(_reader, handle)
+                == assembly.Assembly)
+            {
+                scope = ScopeForReference(handle);
+                break;
+            }
+        }
+        lock (_externalAsyncSiblingResolutionGate)
+        {
+            return TryResolveExternalTypeDefinition(
+                assembly.Assembly,
+                scope,
+                resolution.Type);
+        }
+    }
+
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle> LocalTypeDefinitions()
+    {
+        if (_localTypeDefinitions is not null)
+            return _localTypeDefinitions;
+
+        var definitions = new Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle>();
+        foreach (var handle in _reader.TypeDefinitions)
+        {
+            TypeRef type =
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    _reader,
+                    handle,
+                    0);
+            if (type.Resolution?.Type is { } name)
+                definitions.TryAdd(name, handle);
+        }
+        _localTypeDefinitions = definitions;
+        return definitions;
+    }
+
+    static bool IsCallableAsyncSibling(
+        MethodDefinition method,
+        bool sameAssembly,
+        TypeRef declaringType,
+        MethodIdentity asyncSource)
+    {
+        var access =
+            method.Attributes & MethodAttributes.MemberAccessMask;
+        bool sameType =
+            declaringType.Equals(asyncSource.DeclaringType);
+        return access switch
+        {
+            MethodAttributes.Public => true,
+            MethodAttributes.Assembly
+                or MethodAttributes.FamORAssem => sameAssembly,
+            MethodAttributes.Private
+                or MethodAttributes.Family
+                or MethodAttributes.FamANDAssem => sameAssembly
+                    && sameType,
+            _ => false,
+        };
+    }
+
+    static MemberRef? DecodeAsyncSibling(
+        MetadataReader reader,
+        TypeDefinition declaringDefinition,
+        MethodDefinition methodDefinition,
+        MemberRef callee)
+    {
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                methodDefinition.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            return null;
+        }
+
+        var scope = new GenericScope(
+            GenericParameterNames(
+                reader,
+                declaringDefinition.GetGenericParameters()),
+            GenericParameterNames(
+                reader,
+                methodDefinition.GetGenericParameters()));
+        var signature = methodDefinition.DecodeSignature(
+            TypeRefDecoder.Instance,
+            scope);
+        ImmutableArray<TypeRef> typeArguments =
+            callee.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? callee.DeclaringType.TypeArguments
+                    : [];
+        ImmutableArray<TypeRef> methodArguments =
+            callee.TypeArguments;
+        var candidate = new MemberRef(
+            callee.DeclaringType,
+            reader.GetString(methodDefinition.Name),
+            [.. signature.ParameterTypes.Select(
+                parameter => parameter.Instantiate(
+                    typeArguments,
+                    methodArguments))],
+            signature.ReturnType.Instantiate(
+                typeArguments,
+                methodArguments),
+            MemberKind.Method)
+        {
+            OpenParameterTypes = signature.ParameterTypes,
+            OpenReturnType = signature.ReturnType,
+            HasThis = signature.Header.IsInstance,
+            SignatureHeader = signature.Header.RawValue,
+            RequiredParameterCount =
+                signature.RequiredParameterCount,
+            GenericArity = signature.GenericParameterCount,
+        };
+        return candidate.HasThis == callee.HasThis
+            && candidate.GenericArity == callee.GenericArity
+            && AsyncReturnMatches(
+                callee.ReturnType,
+                candidate.ReturnType)
+                ? candidate
+                : null;
+    }
+
+    static ImmutableArray<string> GenericParameterNames(
+        MetadataReader reader,
+        GenericParameterHandleCollection handles)
+    {
+        if (handles.Count == 0)
+            return [];
+        var names = ImmutableArray.CreateBuilder<string>(
+            handles.Count);
+        foreach (var handle in handles)
+        {
+            names.Add(
+                reader.GetString(
+                    reader.GetGenericParameter(handle).Name));
+        }
+        return names.MoveToImmutable();
+    }
+
+    static bool ParametersMatchAsyncSibling(
+        MemberRef synchronous,
+        MemberRef asynchronous)
+    {
+        int synchronousCount =
+            synchronous.ParameterTypes.Length;
+        int asynchronousCount =
+            asynchronous.ParameterTypes.Length;
+        if (asynchronousCount != synchronousCount
+                && asynchronousCount != synchronousCount + 1)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < synchronousCount; i++)
+        {
+            if (!synchronous.ParameterTypes[i].Equals(
+                    asynchronous.ParameterTypes[i]))
+            {
+                return false;
+            }
+        }
+        return asynchronousCount == synchronousCount
+            || IsCancellationToken(
+                asynchronous.ParameterTypes[^1]);
+    }
+
+    static bool IsSameMethod(
+        MemberRef candidate,
+        MethodIdentity method)
+        => candidate.DeclaringType.Equals(
+                method.DeclaringType)
+            && candidate.Name == method.Name
+            && candidate.ParameterTypes.SequenceEqual(
+                method.ParameterTypes)
+            && candidate.ReturnType.Equals(
+                method.ReturnType)
+            && candidate.HasThis == !method.IsStatic
+            && candidate.GenericArity
+                == method.GenericArity;
+
+    static bool IsSameMethod(
+        MemberRef left,
+        MemberRef right)
+        => left.DeclaringType.Equals(right.DeclaringType)
+            && left.Name == right.Name
+            && left.ParameterTypes.SequenceEqual(
+                right.ParameterTypes)
+            && left.ReturnType.Equals(right.ReturnType)
+            && left.HasThis == right.HasThis
+            && left.GenericArity == right.GenericArity;
+
+    static bool IsCancellationToken(TypeRef type)
+    {
+        TypeRef definition = type.Kind
+            == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        return FrameworkIdentity.IsCoreLibraryType(
+            definition,
+            "System.Threading",
+            "CancellationToken");
+    }
+
+    static bool IsAsyncReturnType(TypeRef type)
+    {
+        TypeRef definition = type.Kind
+            == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        return FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "Task")
+            || FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "Task`1")
+            || FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "ValueTask")
+            || FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "ValueTask`1")
+            || FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Collections.Generic",
+                "IAsyncEnumerable`1");
+    }
+
+    static bool AsyncReturnMatches(
+        TypeRef synchronous,
+        TypeRef asynchronous)
+    {
+        TypeRef definition = asynchronous.Kind
+            == TypeRefKind.GenericInstance
+                ? asynchronous.ElementType ?? asynchronous
+                : asynchronous;
+        if (FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "Task")
+            || FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "ValueTask"))
+        {
+            return FrameworkIdentity.IsCoreLibraryType(
+                synchronous,
+                "System",
+                "Void");
+        }
+
+        if (asynchronous.Kind != TypeRefKind.GenericInstance
+            || asynchronous.TypeArguments.Length != 1)
+        {
+            return false;
+        }
+
+        if (FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "Task`1")
+            || FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Threading.Tasks",
+                "ValueTask`1"))
+        {
+            return synchronous.Equals(
+                asynchronous.TypeArguments[0]);
+        }
+
+        if (!FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System.Collections.Generic",
+                "IAsyncEnumerable`1")
+            || synchronous.Kind
+                != TypeRefKind.GenericInstance
+            || synchronous.TypeArguments.Length != 1)
+        {
+            return false;
+        }
+        TypeRef synchronousDefinition =
+            synchronous.ElementType ?? synchronous;
+        return FrameworkIdentity.IsCoreLibraryType(
+                synchronousDefinition,
+                "System.Collections.Generic",
+                "IEnumerable`1")
+            && synchronous.TypeArguments[0].Equals(
+                asynchronous.TypeArguments[0]);
+    }
+
+    static string FormatMember(MemberRef member)
+        => $"{member.DeclaringType.ToQualifiedDisplayString()}"
+            + $"::{member.Name}("
+            + string.Join(
+                ", ",
+                member.ParameterTypes.Select(
+                    parameter =>
+                        parameter.ToQualifiedDisplayString()))
+            + ")";
 
     // True when a delegate's target method is a closure body emitted on a compiler-
     // generated display class (it closes over captured locals/parameters). The

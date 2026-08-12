@@ -69,10 +69,12 @@ include `capturing-delegate`, `box-value-type`, `small-array`,
 `linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
 from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
 that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
-`async-state-machine`, and `allocation-hotspot`. Query the algorithmic shapes
-explicitly: `scan-method-in-loop-call` stays low-confidence because static
-analysis cannot prove that the scanned sequence grows with the caller's loop,
-so a `--min-confidence high` pass intentionally excludes it.
+`async-state-machine`, `sync-call-in-async` (an async method calling a
+synchronous API with a signature-compatible `Async` sibling), and
+`allocation-hotspot`. Query the algorithmic shapes explicitly:
+`scan-method-in-loop-call` stays low-confidence because static analysis cannot
+prove that the scanned sequence grows with the caller's loop, so a
+`--min-confidence high` pass intentionally excludes it.
 
 For registry, pipeline, or object-graph construction that does not match a local
 rewrite shape, opt into the aggregate allocation fanout:
@@ -94,9 +96,11 @@ Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
-`Operation`, `Token`, and `IL`. Use these fields for runtime/static joins or to
-carry one triage row into the matching `diff`/`timeline` confirmation workflow
-without parsing `Evidence` text:
+`Operation`, `Token`, `EvidenceMethod`, and `IL`. `EvidenceMethod` is the
+MethodDef containing the instruction; for a source async member, it can name
+the generated `MoveNext` body whose offset appears in `IL`. Use these fields for
+runtime/static joins or to carry one triage row into the matching
+`diff`/`timeline` confirmation workflow without parsing `Evidence` text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \

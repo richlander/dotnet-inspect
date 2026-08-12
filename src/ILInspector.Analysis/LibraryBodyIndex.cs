@@ -185,7 +185,8 @@ public sealed class LibraryBodyIndex
                             .AddFallbackMetadata(adjusted);
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
-                        .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
+                        .Where(o => o.Shape != "sync-call-in-async"
+                            && !(o.Shape == "async-state-machine" && o.Amortized))
                         .Select(o => o.Method.MetadataToken)))
                         .Select(OptimizationOpportunityAnalysis
                             .AddFallbackMetadata),
@@ -337,14 +338,24 @@ public sealed class LibraryBodyIndex
             if (opportunity.ILOffset is { } offset)
             {
                 int methodToken = opportunity.Method.MetadataToken;
-                if (_allocationOccurrences.TryGetValue(methodToken, out var occurrences))
+                int evidenceMethodToken =
+                    opportunity.EvidenceMethodToken ?? methodToken;
+                if (opportunity.Shape != "sync-call-in-async"
+                    && _allocationOccurrences.TryGetValue(
+                        evidenceMethodToken,
+                        out var occurrences))
                 {
-                    if (!allocationFindings.TryGetValue(methodToken, out var findings))
+                    if (!allocationFindings.TryGetValue(
+                            evidenceMethodToken,
+                            out var findings))
                     {
                         findings = AnalysisFindings.InspectAllocations(
                             occurrences,
-                            FindingSubjectFor(opportunity.Method));
-                        allocationFindings[methodToken] = findings;
+                            FindingSubjectFor(
+                                DeclaredMethod(evidenceMethodToken)
+                                    ?? opportunity.Method));
+                        allocationFindings[evidenceMethodToken] =
+                            findings;
                     }
                     allocation = SingleFindingAtOffset(
                         findings,
@@ -355,14 +366,18 @@ public sealed class LibraryBodyIndex
                 // newobj and GetEnumerator calls can appear in both censuses. Their triage
                 // shapes describe the allocation, so the allocation Finding owns provenance.
                 if (allocation is null
-                    && GetDirectCallsByCaller().TryGetValue(methodToken, out var calls))
+                    && GetDirectCallsByCaller().TryGetValue(
+                        evidenceMethodToken,
+                        out var calls))
                 {
-                    if (!callSiteFindings.TryGetValue(methodToken, out var findings))
+                    if (!callSiteFindings.TryGetValue(
+                            evidenceMethodToken,
+                            out var findings))
                     {
                         findings = AnalysisFindings.InspectCallSites(
                             calls,
-                            FindingSubjectFor(opportunity.Method));
-                        callSiteFindings[methodToken] = findings;
+                            FindingSubjectFor(calls[0].Caller));
+                        callSiteFindings[evidenceMethodToken] = findings;
                     }
                     callSite = SingleFindingAtOffset(
                         findings,

@@ -47,7 +47,8 @@ public static class PerformanceKinds
         "allocation-hotspot"
         or "allocation-fanout" => SectionNames.PerformanceHotspots,
 
-        "async-state-machine" => SectionNames.PerformanceAsync,
+        "async-state-machine"
+        or "sync-call-in-async" => SectionNames.PerformanceAsync,
 
         _ => SectionNames.PerformanceOther,
     };

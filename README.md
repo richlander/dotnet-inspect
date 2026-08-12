@@ -258,10 +258,11 @@ group renders as one self-describing table with a leading `Kind` column, so
 every row states which performance kind it belongs to. These sections rank in-loop (hot) and high-confidence
 opportunities first across actionable rewrite shapes (small non-escaping
 arrays, temporary or span-to-array copies, capturing and instance method-group
-delegates, async state-machine setup, loop-invariant materialization, and
-value-type boxing) plus `allocation-hotspot` rows for methods that allocate
-heavily without matching a specific shape. The `type` and `member` commands keep
-the single `Performance Triage` lens.
+delegates, async state-machine setup, synchronous calls from async methods when
+a signature-compatible `Async` sibling exists, loop-invariant materialization,
+and value-type boxing) plus `allocation-hotspot` rows for methods that allocate
+heavily without matching a specific shape. The `type` and `member` commands
+keep the single `Performance Triage` lens.
 
 The tight markdown columns carry the ranked, human-facing fields; the full
 per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
@@ -352,9 +353,9 @@ normal-return paths, not runtime bytes or workload frequency; virtual, external,
 delegate, recursive, and runtime-library effects remain opaque.
 
 Common `--triage-shape` values include `capturing-delegate`,
-`async-state-machine`, `box-value-type`, `small-array`, `linq-scan-in-loop`,
-`materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
-`allocation-hotspot`.
+`async-state-machine`, `sync-call-in-async`, `box-value-type`, `small-array`,
+`linq-scan-in-loop`, `materialize-in-loop`, `string-build-in-loop`,
+`enumerator-allocation`, and `allocation-hotspot`.
 
 ### Decompiler
 

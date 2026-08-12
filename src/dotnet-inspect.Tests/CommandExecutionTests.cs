@@ -1298,6 +1298,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceAsync_FindsSyncCallsWithAsyncSiblings()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Async",
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Performance: Async", output);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+        Assert.Contains("ReadValueAsync", output);
+        Assert.Contains("CallsFileReadLinesFromAsync", output);
+        Assert.Contains("System.IO.File::ReadLinesAsync", output);
+    }
+
+    [Fact]
     public async Task PerformanceTriageEvidence_TypeScope_RendersAsCodeSpan_WithoutHtmlEscapingGenerics()
     {
         // The type/member Performance Triage lens has the same Evidence column; a generic value-type

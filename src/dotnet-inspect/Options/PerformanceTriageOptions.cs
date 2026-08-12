@@ -38,6 +38,7 @@ public sealed record PerformanceTriageOptions
         "Shape",
         "Operation",
         "Token",
+        "EvidenceMethod",
         "Evidence",
         "Fix",
         "Confidence",
@@ -77,6 +78,7 @@ public sealed record PerformanceTriageOptions
         "Shape",
         "Operation",
         "Token",
+        "EvidenceMethod",
         "IL",
         "Allocation",
         "Path",
@@ -108,6 +110,7 @@ public sealed record PerformanceTriageOptions
         "span-to-array-copy",
         "stackalloc-candidate",
         "string-build-in-loop",
+        "sync-call-in-async",
         "temporary-byte-array-copy",
     ];
 

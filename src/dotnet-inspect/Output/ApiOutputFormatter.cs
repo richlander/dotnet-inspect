@@ -2314,6 +2314,9 @@ public static class ApiOutputFormatter
                 opportunity.Shape,
                 opportunity.Operation,
                 opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
+                opportunity.EvidenceMethodToken is { } evidenceMethod
+                    ? MarkoutInline.Code($"0x{evidenceMethod:X8}")
+                    : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,

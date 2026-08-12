@@ -67,6 +67,19 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = requiredScanners is null
                 ? Analysis.LibraryBodyAnalysisFeatures.None
                 : SelectBodyAnalysisFeatures(requiredScanners);
+            IAssemblyReferenceResolver? bodyReferenceResolver =
+                bodyAnalysisFeatures.HasFlag(
+                    Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities)
+                    ? new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path)
+                        {
+                            TargetFramework = options.Tfm,
+                            IncludeDepsJsonAssets = false,
+                            IncludeAspNetCoreSharedFramework = false,
+                            PreferImplementationAssemblies = true,
+                        })
+                    : null;
             using var service = assemblyReference is not null
                 ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(assemblyReference, logger.Log)
@@ -112,6 +125,7 @@ internal static class LibraryMetadataService
                     {
                         AssemblyPath = path,
                         AssemblyReference = assemblyReference,
+                        BodyReferenceResolver = bodyReferenceResolver,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -248,6 +262,7 @@ internal static class LibraryMetadataService
                 {
                     AssemblyPath = path,
                     AssemblyReference = assemblyReference,
+                    BodyReferenceResolver = bodyReferenceResolver,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -1055,6 +1070,8 @@ internal static class LibraryMetadataService
                     Shape = opportunity.Shape,
                     Operation = opportunity.Operation,
                     Token = FormatToken(opportunity.OperandToken),
+                    EvidenceMethod = FormatToken(
+                        opportunity.EvidenceMethodToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
@@ -1443,6 +1460,7 @@ internal static class LibraryMetadataService
             "Shape" => opportunity.Shape,
             "Operation" => opportunity.Operation,
             "Token" => FormatToken(opportunity.OperandToken),
+            "EvidenceMethod" => FormatToken(opportunity.EvidenceMethodToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
             "Confidence" => opportunity.Confidence,

@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 
@@ -17,6 +18,113 @@ namespace ILInspector.Analysis.Tests;
 
 public class LibraryBodyIndexTests
 {
+    [Fact]
+    public void OptimizationOpportunities_FindSyncCallsWithAsyncSiblings()
+    {
+        string path = typeof(OptimizationOpportunityFixtures)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+        var index = LibraryBodyIndex.Open(path, resolver);
+        var opportunities = index.OptimizationOpportunities
+            .Where(opportunity =>
+                opportunity.Shape == "sync-call-in-async")
+            .ToArray();
+
+        var local = Assert.Single(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsSyncSiblingFromAsync));
+        Assert.Equal(
+            nameof(OptimizationOpportunityFixtures
+                .CallsSyncSiblingFromAsync),
+            local.Method.Name);
+        Assert.Contains(
+            "ReadValuesAsync",
+            local.Evidence,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "analysis.call-site",
+            local.SourceFinding);
+        Assert.Equal(
+            PerformanceTriageProvenance.Exact,
+            local.Provenance);
+        Assert.Equal("call", local.Operation);
+        Assert.NotNull(local.OperandToken);
+        Assert.Equal(
+            local.Method.MetadataToken,
+            local.EvidenceMethodToken);
+
+        var framework = Assert.Single(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsFileReadLinesFromAsync));
+        Assert.Contains(
+            "System.IO.File::ReadLinesAsync(string, System.Threading.CancellationToken)",
+            framework.Evidence,
+            StringComparison.Ordinal);
+
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsSyncSiblingFromNonAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsSyncWithoutCompatibleAsyncSibling));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsSyncWithMismatchedAsyncReturn));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .ExecuteOwnCoreAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsBothLifecycleSiblingsAsync));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture)
+            .Assembly.Location;
+        var index = LibraryBodyIndex.Open(path);
+
+        var opportunity = Assert.Single(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync));
+        int evidenceMethodToken =
+            Assert.IsType<int>(opportunity.EvidenceMethodToken);
+
+        Assert.NotEqual(
+            opportunity.Method.MetadataToken,
+            evidenceMethodToken);
+        Assert.Equal(
+            "MoveNext",
+            Assert.Single(
+                index.Methods,
+                method => method.MetadataToken
+                    == evidenceMethodToken).Name);
+        Assert.Equal(
+            "analysis.call-site",
+            opportunity.SourceFinding);
+        Assert.Equal(
+            PerformanceTriageProvenance.Exact,
+            opportunity.Provenance);
+    }
+
     [Fact]
     public void OptimizationOpportunities_AttachOnlyDirectCallerLoopInvocations()
     {
@@ -385,13 +493,18 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void Open_WithResolverDoesNotChangeIndexShape()
+    public void Open_MethodEvidenceWithResolverDoesNotChangeIndexShape()
     {
         string targetPath = typeof(CallSiteFixtures).Assembly.Location;
         var resolver = new CountingResolver();
 
-        var oneArg = LibraryBodyIndex.Open(targetPath);
-        var withResolver = LibraryBodyIndex.Open(targetPath, resolver);
+        var oneArg = LibraryBodyIndex.Open(
+            targetPath,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        var withResolver = LibraryBodyIndex.Open(
+            targetPath,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            resolver);
 
         Assert.Equal(oneArg.Methods.Length, withResolver.Methods.Length);
         Assert.Equal(oneArg.DirectCalls.Length, withResolver.DirectCalls.Length);
@@ -4622,6 +4735,87 @@ public class OptimizationOpportunityFixtures
     {
         await Task.Yield();
         return value + 1;
+    }
+
+    public static IEnumerable<int> ReadValues(int value)
+    {
+        yield return value;
+    }
+
+    public static async IAsyncEnumerable<int> ReadValuesAsync(
+        int value,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return value;
+    }
+
+    public static async Task<int> CallsSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadValues(value).Count();
+    }
+
+    public static int CallsSyncSiblingFromNonAsync(int value)
+        => ReadValues(value).Count();
+
+    public static int ReadWithoutCompatibleAsyncSibling(int value)
+        => value;
+
+    public static Task<int> ReadWithoutCompatibleAsyncSiblingAsync(
+        string value)
+        => Task.FromResult(value.Length);
+
+    public static async Task<int>
+        CallsSyncWithoutCompatibleAsyncSibling(int value)
+    {
+        await Task.Yield();
+        return ReadWithoutCompatibleAsyncSibling(value);
+    }
+
+    public static int ReadWithMismatchedAsyncReturn(int value)
+        => value;
+
+    public static Task<string> ReadWithMismatchedAsyncReturnAsync(
+        int value)
+        => Task.FromResult(value.ToString());
+
+    public static async Task<int>
+        CallsSyncWithMismatchedAsyncReturn(int value)
+    {
+        await Task.Yield();
+        return ReadWithMismatchedAsyncReturn(value);
+    }
+
+    public static int ExecuteOwnCore(int value)
+        => value;
+
+    public static async Task<int> ExecuteOwnCoreAsync(
+        int value)
+    {
+        await Task.Yield();
+        return ExecuteOwnCore(value);
+    }
+
+    public static void OnLifecycle()
+    {
+    }
+
+    public static Task OnLifecycleAsync()
+        => Task.CompletedTask;
+
+    public static async Task CallsBothLifecycleSiblingsAsync()
+    {
+        OnLifecycle();
+        await OnLifecycleAsync();
+    }
+
+    public static async Task<int> CallsFileReadLinesFromAsync(
+        string path)
+    {
+        await Task.Yield();
+        return File.ReadLines(path).Count();
     }
 
     public static int MaterializesInvariantSourceInLoop(IEnumerable<int> source, int count)
