@@ -7,4 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Shared block-edge/dominance/dataflow kernels used below Analysis and the
+       Decompiler: no project references by design. -->
+
 </Project>
