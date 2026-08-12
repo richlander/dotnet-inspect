@@ -339,9 +339,9 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
             }
 
-            // Cross-assembly Callers: expand --bin/--directory, --project, and --caller-package
-            // into the assemblies to scan for inbound callers, in addition to the selected
-            // member's own assembly. Works for a specific overload or all overloads of a member.
+            // Expand --bin/--directory, --project, and --caller-package into assemblies
+            // for cross-assembly callers and Call Graph traversal, in addition to the
+            // selected member's own assembly.
             if (effectiveOptions.HasCallerScope)
             {
                 var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
