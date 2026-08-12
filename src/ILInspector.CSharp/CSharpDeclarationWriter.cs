@@ -432,11 +432,30 @@ internal static class CSharpDeclarationWriter
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
+        // Dotted signature text does not distinguish namespaces from enclosing types.
+        // Newly planned delegate and primary-constructor surfaces need independent
+        // namespace evidence before they can introduce a using.
+        var existingSurfaceTypeFullNames = scopeList
+            .SelectMany(scope =>
+                scope.Type.Kind == "delegate"
+                    ? []
+                    : CollectTypeReferences(scope.Type)
+                        .Concat(scope.Members.SelectMany(member =>
+                            CollectMemberTypeReferences(
+                                member,
+                                includeParameterAttributes: true))))
+            .Select(TypeRef.TryCreate)
+            .Where(reference => reference is not null)
+            .Select(reference => reference!.FullName)
+            .ToHashSet(StringComparer.Ordinal);
         var exclusiveImportTypeFullNames = scopeList
             .SelectMany(scope =>
                 (scope.Type.Kind == "delegate"
-                    ? scope.Members.SelectMany(member =>
-                        CollectMemberTypeReferences(member, includeParameterAttributes: false))
+                    ? CollectTypeReferences(scope.Type)
+                        .Concat(scope.Members.SelectMany(member =>
+                            CollectMemberTypeReferences(
+                                member,
+                                includeParameterAttributes: false)))
                     : [])
                 .Concat(scope.AdditionalParameters.SelectMany(parameter =>
                     ExtractTypeNames(parameter.Type))))
@@ -444,6 +463,7 @@ internal static class CSharpDeclarationWriter
             .Where(reference => reference is not null)
             .Select(reference => reference!.FullName)
             .ToHashSet(StringComparer.Ordinal);
+        exclusiveImportTypeFullNames.ExceptWith(existingSurfaceTypeFullNames);
 
         var knownNamespaces = typeRefs
             .Select(typeRef => typeRef.Namespace)
@@ -547,6 +567,16 @@ internal static class CSharpDeclarationWriter
             uniquelyImportableDeclaredTypeFullNames,
             typeRefs.Concat(attributeTypeRefs).ToList());
         unsafeNamespaces.UnionWith(unsafePrimaryAttributeNamespaces);
+        var establishedNamespaces = contextualNamespaceList
+            .Concat(scopeList
+                .Select(scope => scope.Type.Namespace)
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .Select(ns => ns!))
+            .Concat(typeRefs
+                .Where(typeRef =>
+                    !exclusiveImportTypeFullNames.Contains(typeRef.FullName))
+                .Select(typeRef => typeRef.Namespace))
+            .ToHashSet(StringComparer.Ordinal);
 
         var exclusiveImportNamespaces = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
@@ -564,9 +594,16 @@ internal static class CSharpDeclarationWriter
                 continue;
             if (unsafeNamespaces.Contains(ns))
                 continue;
+            bool requiresEstablishedNamespace =
+                exclusiveImportTypeFullNames.Contains(group.First().FullName);
+            if (requiresEstablishedNamespace
+                && !establishedNamespaces.Contains(ns))
+            {
+                continue;
+            }
             usings.Add(ns);
             if (importsDeclaredType
-                || exclusiveImportTypeFullNames.Contains(group.First().FullName))
+                || requiresEstablishedNamespace)
             {
                 exclusiveImportNamespaces.Add(ns);
             }

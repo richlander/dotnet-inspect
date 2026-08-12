@@ -970,7 +970,25 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void DerivationIncludesPrimaryConstructorParameters()
+    public void ConfiguredNamespaceShortensPrimaryConstructorParameter()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                primaryConstructorParameters:
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" }
+                ]),
+            new CSharpTypePrintOptions { Usings = ["System.IO"] });
+
+        Assert.Equal(["System.IO"], result.Usings);
+        Assert.Contains("public class Worker(TextWriter writer)", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PrimaryConstructorNestedTypeDoesNotInventNamespace()
     {
         var type = CreateEmptyType("Samples", "Worker");
 
@@ -978,11 +996,18 @@ public sealed class CSharpTypePrinterTests
             type,
             primaryConstructorParameters:
             [
-                new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" }
+                new ApiParameter
+                {
+                    Type = "System.Environment.SpecialFolder",
+                    Name = "folder"
+                }
             ]));
 
-        Assert.Equal(["System.IO"], result.Usings);
-        Assert.Contains("public class Worker(TextWriter writer)", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
+        Assert.Contains(
+            "public class Worker(System.Environment.SpecialFolder folder)",
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3740,7 +3765,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("    public enum Choice\n    {\n        One = 1\n    }", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains(
-            "    internal delegate int Converter<in @event>(string value) where @event : IEquatable<@event>;",
+            "    internal delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
@@ -3770,7 +3795,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void DelegateSignatureTypesRespectShorteningPolicy()
+    public void ConfiguredNamespaceShortensDelegateSignatureTypes()
     {
         var invoke = CreateMethod("Invoke");
         invoke.SignatureModel!.ReturnType = "External.Result";
@@ -3783,11 +3808,40 @@ public sealed class CSharpTypePrinterTests
         delegateType.Kind = "delegate";
         delegateType.Members.Add(invoke);
 
-        var result = _printer.Print(new CSharpTypePrintRequest(delegateType));
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(delegateType),
+            new CSharpTypePrintOptions { Usings = ["External"] });
 
         Assert.Contains("using External;", result.Source, StringComparison.Ordinal);
         Assert.Contains(
             "public delegate Result Handler(Input value);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateConstraintStaysQualifiedWithDistinctConfiguredUsing()
+    {
+        var invoke = CreateMethod("Invoke");
+        var delegateType = CreateEmptyType("Samples", "Handler`1");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+        delegateType.TypeParameters =
+        [
+            new TypeParameter
+            {
+                Name = "T",
+                Constraints = ["Lib.Exception"]
+            }
+        ];
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(delegateType),
+            new CSharpTypePrintOptions { Usings = ["System"] });
+
+        Assert.Equal(["System"], result.Usings);
+        Assert.Contains(
+            "public delegate void Handler<T>() where T : Lib.Exception;",
             result.Source,
             StringComparison.Ordinal);
     }
@@ -3852,9 +3906,9 @@ public sealed class CSharpTypePrinterTests
 
         var result = _printer.Print(new CSharpTypePrintRequest(delegateType));
 
-        Assert.Contains("using Contracts;", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
         Assert.Contains(
-            "public delegate Marker Handler([Attributes.Marker] string value);",
+            "public delegate Contracts.Marker Handler([Attributes.Marker] string value);",
             result.Source,
             StringComparison.Ordinal);
     }
