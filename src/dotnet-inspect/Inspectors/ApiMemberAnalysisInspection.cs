@@ -33,6 +33,8 @@ internal sealed class ApiMemberAnalysisInspection
     bool _callerScopesResolved;
     List<MethodBodyInspectionSession>? _graphScopes;
     bool _graphScopesResolved;
+    List<MethodBodyInspectionSession>? _callGraphScopes;
+    bool _callGraphScopesResolved;
     Analysis.CatalogCallGraphDiagnostics _callGraphDiagnostics =
         Analysis.CatalogCallGraphDiagnostics.Empty;
 
@@ -98,6 +100,18 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal Analysis.CallTreeNode BuildCallTree(int methodToken) =>
         BodyIndex.BuildCallTree(methodToken);
+
+    internal ILInspector.CallGraph.CallGraphProjection BuildCallGraph(
+        int methodToken)
+    {
+        ILInspector.CallGraph.CallGraphProjection projection =
+            Session.CallGraph(
+                methodToken,
+                CallGraphScopes(),
+                out Analysis.CatalogCallGraphDiagnostics diagnostics);
+        _callGraphDiagnostics = diagnostics;
+        return projection;
+    }
 
     internal Analysis.CallTreeNode BuildCallerTree(int methodToken)
     {
@@ -230,6 +244,24 @@ internal sealed class ApiMemberAnalysisInspection
 
         cached = opened;
         return cached;
+    }
+
+    IReadOnlyList<MethodBodyInspectionSession>? CallGraphScopes()
+    {
+        if (_callGraphScopesResolved)
+            return _callGraphScopes;
+
+        _callGraphScopesResolved = true;
+        if (_callerScopeAssemblies is not { Count: > 0 })
+            return null;
+
+        List<MethodBodyInspectionSession> opened =
+            OpenScopes(ScopeCandidates, _includeAllocations);
+        if (opened.Count == 0)
+            return null;
+
+        _callGraphScopes = opened;
+        return _callGraphScopes;
     }
 
     internal IReadOnlyList<MethodBodyInspectionSession>? DirectCallerScopes(

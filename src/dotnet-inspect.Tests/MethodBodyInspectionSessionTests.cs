@@ -153,6 +153,42 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    public void CallGraph_SessionScopes_TraversesCalleesAcrossAssemblies()
+    {
+        string callerPath =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(
+                callerPath,
+                ApiAnalysisInspection.CreateReferenceResolver(callerPath));
+        string targetPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(
+                targetPath,
+                ApiAnalysisInspection.CreateReferenceResolver(targetPath));
+        Analysis.MethodIdentity root =
+            caller.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Name == "Entry"
+                && method.Name == "RunAcrossBoundary");
+
+        CallGraphProjection projection = caller.CallGraph(
+            root.MetadataToken,
+            [target],
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
+
+        Assert.False(diagnostics.IsIncomplete);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Forward"
+                && node.Kind == CallGraphNodeKind.Normal);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Leaf"
+                && node.Kind == CallGraphNodeKind.Normal);
+    }
+
+    [Fact]
     public void CallerTree_VersionSkewedScopeRetainsIncompleteEvidence()
     {
         string targetV1 =

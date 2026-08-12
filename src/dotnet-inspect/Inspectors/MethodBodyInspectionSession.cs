@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using DotnetInspector.Services;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -195,6 +196,34 @@ public sealed class MethodBodyInspectionSession
         int methodToken,
         Analysis.CatalogCallGraphScope scope) =>
         BodyIndex.BuildCallerTree(methodToken, scope);
+
+    /// <summary>
+    /// Builds one bidirectional projection over the target and every supplied
+    /// assembly session. Both traversal directions share one catalog graph.
+    /// </summary>
+    public CallGraphProjection CallGraph(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        if (scopes is null)
+        {
+            diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
+            return CallGraphProjection.Create(
+                BodyIndex.BuildCallerTree(methodToken),
+                BodyIndex.BuildCallTree(methodToken));
+        }
+
+        using Analysis.CatalogCallGraphScope scope =
+            CreateCallGraphScope([this, .. scopes]);
+        CallGraphProjection projection = CallGraphProjection.Create(
+            WithoutGraphEvidence(
+                BodyIndex.BuildCallerTree(methodToken, scope)),
+            WithoutGraphEvidence(
+                BodyIndex.BuildCallTree(methodToken, scope)));
+        diagnostics = scope.Diagnostics;
+        return projection;
+    }
 
     static Analysis.CallTreeNode WithoutGraphEvidence(
         Analysis.CallTreeNode node) =>

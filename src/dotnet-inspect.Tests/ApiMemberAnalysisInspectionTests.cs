@@ -208,6 +208,35 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Empty(scopes);
     }
 
+    [Fact]
+    public void CallGraph_UsesDependencyOnlyScopeForOutboundTraversal()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var inspection = Create(caller, [target]);
+        int root = TokenOf(caller, "Entry", "RunAcrossBoundary");
+
+        IReadOnlyList<MethodBodyInspectionSession>? callerScopes =
+            inspection.CallerScopes(includeAllocations: true);
+        ILInspector.CallGraph.CallGraphProjection projection =
+            inspection.BuildCallGraph(root);
+
+        Assert.NotNull(callerScopes);
+        Assert.Empty(callerScopes);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Forward"
+                && node.Kind
+                    == ILInspector.CallGraph.CallGraphNodeKind.Normal);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Leaf"
+                && node.Kind
+                    == ILInspector.CallGraph.CallGraphNodeKind.Normal);
+    }
+
     // Round-5 review: a zero-byte or malformed *.dll beside real ones was classified as
     // undecidable, which selects the whole scope and disables the prefilter entirely — the 960 MB
     // behavior this change exists to remove, reintroduced by one junk file in a --bin directory.
