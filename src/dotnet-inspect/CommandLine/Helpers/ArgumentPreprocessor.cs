@@ -433,12 +433,21 @@ public static class ArgumentPreprocessor
 
         var result = new List<string>(args.Length);
         var values = new List<string>();
+        bool hasExplicitValue = false;
         int valueSlot = -1;
         for (int i = 0; i < args.Length; i++)
         {
             if (IsListOptionAlias(args[i], aliases, out var inlineValue))
             {
-                var value = inlineValue ?? (i + 1 < args.Length ? args[++i] : null);
+                var value = inlineValue;
+                if (value is null
+                    && i + 1 < args.Length
+                    && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                {
+                    value = args[++i];
+                }
+
+                hasExplicitValue |= value is not null;
                 if (!string.IsNullOrEmpty(value))
                     values.Add(value);
 
@@ -453,7 +462,10 @@ public static class ArgumentPreprocessor
             result.Add(args[i]);
         }
 
-        result[valueSlot] = string.Join(';', values);
+        if (hasExplicitValue)
+            result[valueSlot] = string.Join(';', values);
+        else
+            result.RemoveAt(valueSlot);
         return [.. result];
     }
 

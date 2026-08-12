@@ -6598,6 +6598,23 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--columns=", "--columns")]
+    [InlineData("--columns", "--columns=")]
+    [InlineData("--fields=", "--fields")]
+    public async Task Find_MixedInlineEmptyAndBareProjectionUnderJson_IsRejected(
+        string first,
+        string second)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            first, second, "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{first.Split('=')[0]} requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("--columns")]
     [InlineData("--fields")]
     public async Task Find_BareProjectionUnderJson_PreservesTypedJson(string option)
