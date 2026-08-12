@@ -466,6 +466,7 @@ static class Program
             }
             catch (Exception ex) when (ex is ArgumentException
                 or IOException
+                or InvalidOperationException
                 or UnauthorizedAccessException
                 or JsonException)
             {

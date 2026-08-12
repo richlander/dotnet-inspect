@@ -270,11 +270,57 @@ public class AuthoredCorpusHarnessProcessTests
                     Assert.Contains(line.Text, run.Output, StringComparison.Ordinal);
                 }
             }
+
         }
         finally
         {
             File.Delete(beforePath);
             File.Delete(afterPath);
+        }
+    }
+
+    [Fact]
+    public void Harness_ReportsMalformedAnnotatedSourceProjection()
+    {
+        const string text = "return;\nIL_0000: ret and unclassified text";
+        var document = new AnnotatedSourceDocument(
+            text,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "ReturnStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, "return;".Length)]),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNode.InstructionKind,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan("return;\n".Length, "IL_0000: ret".Length)],
+                    IlOffset: 0),
+            ],
+            [],
+            [],
+            []);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"annotated-malformed-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                path,
+                JsonSerializer.Serialize(
+                    document,
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+
+            var run = RunHarness("--annotated-source-diff", path, path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unclassified", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unhandled exception", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 

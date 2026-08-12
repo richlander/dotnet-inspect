@@ -336,18 +336,57 @@ public static class AnnotatedSourceComparer
 
         string[] oldIdentities = [.. before.Select(Base)];
         string[] newIdentities = [.. after.Select(Base)];
-        (oldIdentities, newIdentities) = EnrichSafely(
-            oldIdentities,
-            newIdentities,
-            before,
-            after,
-            node => node.RegionFingerprint);
-        (oldIdentities, newIdentities) = EnrichSafely(
-            oldIdentities,
-            newIdentities,
-            before,
-            after,
-            node => node.RegionOrdinalPath);
+        var oldTokens = new string?[oldIdentities.Length];
+        var newTokens = new string?[newIdentities.Length];
+        foreach (string identity in oldIdentities
+            .Concat(newIdentities)
+            .Distinct(StringComparer.Ordinal))
+        {
+            int[] oldIndices = Enumerable.Range(0, oldIdentities.Length)
+                .Where(index => oldIdentities[index] == identity)
+                .ToArray();
+            int[] newIndices = Enumerable.Range(0, newIdentities.Length)
+                .Where(index => newIdentities[index] == identity)
+                .ToArray();
+
+            PairByContext(
+                identity,
+                "fingerprint",
+                oldIndices,
+                newIndices,
+                before,
+                after,
+                oldTokens,
+                newTokens,
+                node => node.RegionFingerprint);
+            PairByContext(
+                identity,
+                "ordinal",
+                oldIndices,
+                newIndices,
+                before,
+                after,
+                oldTokens,
+                newTokens,
+                node => node.RegionOrdinalPath);
+
+            if (oldIndices.All(index => before[index].RegionPath.Length == 0)
+                && newIndices.All(index => after[index].RegionPath.Length == 0))
+            {
+                PairInOrder(
+                    identity,
+                    "unscoped",
+                    oldIndices,
+                    newIndices,
+                    oldTokens,
+                    newTokens);
+            }
+        }
+
+        for (int index = 0; index < oldTokens.Length; index++)
+            oldTokens[index] ??= oldIdentities[index] + Part($"before:{index}");
+        for (int index = 0; index < newTokens.Length; index++)
+            newTokens[index] ??= newIdentities[index] + Part($"after:{index}");
 
         FindingKey Key(AnnotatedSourceNodeSnapshot node, string identity)
             => new(
@@ -355,53 +394,70 @@ public static class AnnotatedSourceComparer
                 node.RegionPath.Length == 0 ? null : node.RegionPath);
 
         return (
-            [.. before.Select((node, index) => Key(node, oldIdentities[index]))],
-            [.. after.Select((node, index) => Key(node, newIdentities[index]))]);
+            [.. before.Select((node, index) => Key(node, oldTokens[index]!))],
+            [.. after.Select((node, index) => Key(node, newTokens[index]!))]);
     }
 
-    static (string[] Before, string[] After) EnrichSafely(
-        string[] beforeIdentities,
-        string[] afterIdentities,
+    static void PairByContext(
+        string identity,
+        string tier,
+        int[] oldIndices,
+        int[] newIndices,
         ImmutableArray<AnnotatedSourceNodeSnapshot> before,
         ImmutableArray<AnnotatedSourceNodeSnapshot> after,
-        Func<AnnotatedSourceNodeSnapshot, string> discriminator)
+        string?[] oldTokens,
+        string?[] newTokens,
+        Func<AnnotatedSourceNodeSnapshot, string> context)
     {
-        var identities = beforeIdentities
-            .Concat(afterIdentities)
-            .Distinct(StringComparer.Ordinal);
-        var enrichable = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string identity in identities)
+        foreach (string value in oldIndices
+            .Where(index => oldTokens[index] is null)
+            .Select(index => context(before[index]))
+            .Concat(newIndices
+                .Where(index => newTokens[index] is null)
+                .Select(index => context(after[index])))
+            .Where(value => value.Length > 0)
+            .Distinct(StringComparer.Ordinal))
         {
-            int[] oldIndices = Enumerable.Range(0, beforeIdentities.Length)
-                .Where(index => beforeIdentities[index] == identity)
+            int[] oldMatches = oldIndices
+                .Where(index => oldTokens[index] is null
+                    && context(before[index]) == value)
                 .ToArray();
-            int[] newIndices = Enumerable.Range(0, afterIdentities.Length)
-                .Where(index => afterIdentities[index] == identity)
+            int[] newMatches = newIndices
+                .Where(index => newTokens[index] is null
+                    && context(after[index]) == value)
                 .ToArray();
-            if (oldIndices.Length <= 1 && newIndices.Length <= 1)
-                continue;
-
-            int pairCapacity = oldIndices
-                .Select(index => discriminator(before[index]))
-                .Concat(newIndices.Select(index => discriminator(after[index])))
-                .Distinct(StringComparer.Ordinal)
-                .Sum(value => Math.Min(
-                    oldIndices.Count(index => discriminator(before[index]) == value),
-                    newIndices.Count(index => discriminator(after[index]) == value)));
-            if (pairCapacity == Math.Min(oldIndices.Length, newIndices.Length))
-                enrichable.Add(identity);
+            int paired = Math.Min(oldMatches.Length, newMatches.Length);
+            for (int index = 0; index < paired; index++)
+            {
+                string token = identity
+                    + Part(tier)
+                    + Part(value)
+                    + Part(index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                oldTokens[oldMatches[index]] = token;
+                newTokens[newMatches[index]] = token;
+            }
         }
+    }
 
-        string Enrich(
-            string identity,
-            AnnotatedSourceNodeSnapshot node)
-            => enrichable.Contains(identity)
-                ? identity + Part(discriminator(node))
-                : identity;
-
-        return (
-            [.. before.Select((node, index) => Enrich(beforeIdentities[index], node))],
-            [.. after.Select((node, index) => Enrich(afterIdentities[index], node))]);
+    static void PairInOrder(
+        string identity,
+        string tier,
+        int[] oldIndices,
+        int[] newIndices,
+        string?[] oldTokens,
+        string?[] newTokens)
+    {
+        int[] oldResidual = oldIndices.Where(index => oldTokens[index] is null).ToArray();
+        int[] newResidual = newIndices.Where(index => newTokens[index] is null).ToArray();
+        int paired = Math.Min(oldResidual.Length, newResidual.Length);
+        for (int index = 0; index < paired; index++)
+        {
+            string token = identity
+                + Part(tier)
+                + Part(index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            oldTokens[oldResidual[index]] = token;
+            newTokens[newResidual[index]] = token;
+        }
     }
 
     static string Part(string value) => $"{value.Length}:{value}";

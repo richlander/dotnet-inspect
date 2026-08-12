@@ -329,6 +329,71 @@ public class AnnotatedSourceComparisonTests
     }
 
     [Fact]
+    public void CompareReportsMovementBetweenRepeatedRoleRegions()
+    {
+        const string beforeText = "case 0:\n    return;\ncase 1:\n";
+        const string afterText = "case 0:\ncase 1:\n    return;";
+        int beforeReturn = beforeText.IndexOf("return;", StringComparison.Ordinal);
+        int afterReturn = afterText.IndexOf("return;", StringComparison.Ordinal);
+        int beforeCase1 = beforeText.IndexOf("case 1:", StringComparison.Ordinal);
+        int afterCase1 = afterText.IndexOf("case 1:", StringComparison.Ordinal);
+        var before = Document(
+            beforeText,
+            [NodeAt(0, "ReturnStatement", beforeReturn, "return;".Length)],
+            [
+                Region(PrintedRegionRole.Case, 0, beforeReturn + "return;".Length),
+                Region(PrintedRegionRole.Case, beforeCase1, "case 1:\n".Length),
+            ]);
+        var after = Document(
+            afterText,
+            [NodeAt(0, "ReturnStatement", afterReturn, "return;".Length)],
+            [
+                Region(PrintedRegionRole.Case, 0, "case 0:\n".Length),
+                Region(
+                    PrintedRegionRole.Case,
+                    afterCase1,
+                    afterText.Length - afterCase1),
+            ]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Changed, change.Kind);
+        Assert.Equal("Case", change.Before!.RegionPath);
+        Assert.Equal("Case", change.After!.RegionPath);
+    }
+
+    [Fact]
+    public void RepeatedRoleDeletionStaysCorrectWhenSiblingRegionChanges()
+    {
+        const string beforeText = """
+            case 0:
+                return;
+            case 1:
+                return;
+            case 2:
+                return;
+            """;
+        const string afterText = """
+            case 0:
+                Log();
+                return;
+            case 2:
+                return;
+            """;
+        var before = Cases(beforeText, includeLog: false, 0, 1, 2);
+        var after = Cases(afterText, includeLog: true, 0, 2);
+        int deleted = NthIndexOf(beforeText, "return;", 1);
+
+        var changes = AnnotatedSourceComparer.Compare(before, after).Changes;
+
+        Assert.Equal(2, changes.Length);
+        var added = Assert.Single(changes, change => change.Kind == AnnotatedSourceChangeKind.Added);
+        Assert.Equal("ExpressionStatement", added.After!.Kind);
+        var removed = Assert.Single(changes, change => change.Kind == AnnotatedSourceChangeKind.Removed);
+        Assert.Equal(deleted, removed.Before!.Spans[0].Start);
+    }
+
+    [Fact]
     public void CompareProjectsInterleavedDocumentsToCSharp()
     {
         var before = InterleavedDocument("return;", "IL_0000: ret", "ReturnStatement");
@@ -438,6 +503,48 @@ public class AnnotatedSourceComparisonTests
                 new AnnotatedSourceTarget(0, 1),
                 new AnnotatedSourceTarget(1, 1),
             ]);
+    }
+
+    static AnnotatedSourceDocument Cases(
+        string text,
+        bool includeLog,
+        params int[] labels)
+    {
+        var nodes = new List<AnnotatedSourceNode>();
+        if (includeLog)
+        {
+            int log = text.IndexOf("Log();", StringComparison.Ordinal);
+            nodes.Add(NodeAt(nodes.Count, "ExpressionStatement", log, "Log();".Length));
+        }
+        for (int index = 0; index < labels.Length; index++)
+        {
+            int statement = NthIndexOf(text, "return;", index);
+            nodes.Add(NodeAt(nodes.Count, "ReturnStatement", statement, "return;".Length));
+        }
+
+        var regions = new List<AnnotatedSourceRegion>();
+        for (int index = 0; index < labels.Length; index++)
+        {
+            int start = text.IndexOf($"case {labels[index]}:", StringComparison.Ordinal);
+            int end = index + 1 < labels.Length
+                ? text.IndexOf($"case {labels[index + 1]}:", StringComparison.Ordinal)
+                : text.Length;
+            regions.Add(Region(PrintedRegionRole.Case, start, end - start));
+        }
+        return Document(text, nodes, regions);
+    }
+
+    static int NthIndexOf(string text, string value, int occurrence)
+    {
+        int start = 0;
+        for (int index = 0; index <= occurrence; index++)
+        {
+            start = text.IndexOf(value, start, StringComparison.Ordinal);
+            Assert.True(start >= 0, $"Occurrence {occurrence} of '{value}' was not found.");
+            if (index < occurrence)
+                start += value.Length;
+        }
+        return start;
     }
 
     static AnnotatedSourceRegion CaseRegion(
