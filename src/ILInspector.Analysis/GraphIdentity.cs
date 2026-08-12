@@ -96,11 +96,11 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
 /// <summary>The identity domain used to collapse graph occurrences.</summary>
 public enum GraphNodeIdentityKind
 {
-    Storage,
-    CatalogCorrespondence,
-    ArtifactMember,
-    DetachedCatalog,
-    Structural,
+    Storage = 0,
+    CatalogCorrespondence = 1,
+    Structural = 2,
+    ArtifactMember = 3,
+    DetachedCatalog = 4,
 }
 
 /// <summary>
