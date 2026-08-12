@@ -204,12 +204,12 @@ public static class AssemblyContextApiSurfaceQuery
 
         ApiSurface all = session.ApiSurface(includeAll: true);
         var projected = surface.Types
-            .Select(static type => type.FullName)
+            .Select(MetadataTypeIdentity)
             .ToHashSet(StringComparer.Ordinal);
         foreach (ApiType type in all.Types)
         {
             if (ApiAccessibility.Classify(type.Accessibility).Id != "public"
-                && projected.Add(type.FullName))
+                && projected.Add(MetadataTypeIdentity(type)))
             {
                 surface.Types.Add(type);
             }
@@ -224,5 +224,14 @@ public static class AssemblyContextApiSurfaceQuery
                 .Distinct(),
         ];
         return new AssemblyApiSurface(surface, [.. surface.InspectionFailures]);
+    }
+
+    internal static string MetadataTypeIdentity(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        string name = type.MetadataName ?? type.Name;
+        return string.IsNullOrEmpty(type.Namespace)
+            ? name
+            : $"{type.Namespace}.{name}";
     }
 }

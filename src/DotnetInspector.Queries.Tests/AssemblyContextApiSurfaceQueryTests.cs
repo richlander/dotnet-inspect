@@ -16,6 +16,30 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextApiSurfaceQueryTests
 {
     [Fact]
+    public void MetadataTypeIdentity_DistinguishesNestedAndNamespaceQualifiedTypes()
+    {
+        var nested = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Outer.Inner",
+            MetadataName = "Outer+Inner",
+        };
+        var topLevel = new ApiType
+        {
+            Namespace = "Sample.Outer",
+            Name = "Inner",
+            MetadataName = "Inner",
+        };
+
+        Assert.Equal(
+            "Sample.Outer+Inner",
+            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(nested));
+        Assert.Equal(
+            "Sample.Outer.Inner",
+            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(topLevel));
+    }
+
+    [Fact]
     public void PublicScope_ProjectsPublicTypesAndOnlyTheDefaultBucket()
     {
         using var workspace = new InspectionWorkspace();

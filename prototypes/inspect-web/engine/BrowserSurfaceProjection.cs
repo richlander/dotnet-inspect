@@ -39,10 +39,11 @@ internal static class BrowserSurfaceProjection
         modifiers.Add(displayName);
 
         BrowserMemberSurface[] members = [.. type.Members.Select(member => Member(type, member))];
+        string metadataId = MetadataId(type);
         return new BrowserTypeSurface(
-            type.FullName,
-            type.FullName,
-            MetadataId(type),
+            metadataId,
+            metadataId,
+            metadataId,
             type.Name,
             displayName,
             type.Namespace ?? "",

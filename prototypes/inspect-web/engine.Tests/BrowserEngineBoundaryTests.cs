@@ -219,6 +219,23 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageVersionIndex_RejectsSuccessShapedMalformedEntries()
+    {
+        Assert.Equal(
+            ["1.0.0", "2.0.0-preview.1"],
+            BrowserPackageWorkspace.ParseVersions(
+                """{"versions":["1.0.0","2.0.0-preview.1"]}"""u8.ToArray(),
+                "example"));
+
+        InvalidDataException failure = Assert.Throws<InvalidDataException>(
+            () => BrowserPackageWorkspace.ParseVersions(
+                """{"versions":["1.0.0",null]}"""u8.ToArray(),
+                "example"));
+
+        Assert.Contains("invalid version", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WorkspaceBinding_RejectsPackageParticipantsForPlatformScope()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -238,15 +255,68 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void ImplementationPairing_RequiresEquivalentAssemblyIdentity()
+    {
+        byte[] surfaceImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] differentImage =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        BrowserPackageCoordinate mismatched = Coordinate(
+            "Identity.Mismatch",
+            PackagePair(surfaceImage, differentImage, "Identity.Pair.dll"));
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageWorkspace.OpenScope([mismatched]));
+
+        Assert.Contains(
+            "different assembly identities",
+            failure.Message,
+            StringComparison.Ordinal);
+
+        BrowserPackageCoordinate equivalent = Coordinate(
+            "Identity.Equivalent",
+            PackagePair(surfaceImage, surfaceImage, "Identity.Pair.dll"));
+        using BrowserInspectionScope equivalentScope =
+            BrowserPackageWorkspace.OpenScope([equivalent]);
+        BrowserWorkspaceParticipant equivalentSurface =
+            Assert.Single(equivalentScope.SurfaceParticipants);
+
+        Assert.NotNull(
+            equivalentScope.ImplementationParticipant(equivalentSurface));
+    }
+
+    [Fact]
     public void CallGraphDiagnostics_PreserveIncompleteProductEvidence()
     {
         BrowserCallGraphDiagnostics diagnostics = BrowserInspectionEngine.Diagnostics(
-            new CatalogCallGraphDiagnostics(2, 3, 4));
+            new CatalogCallGraphDiagnostics(2, 3, 4),
+            hasUnexploredTraversalBoundary: true,
+            hasAnalysisFailureBoundary: true);
 
         Assert.True(diagnostics.IsIncomplete);
         Assert.Equal(2, diagnostics.IncompleteNodes);
         Assert.Equal(3, diagnostics.IncompleteEdges);
         Assert.Equal(4, diagnostics.BindingIdentityConflicts);
+        Assert.True(diagnostics.HasUnexploredTraversalBoundary);
+        Assert.True(diagnostics.HasAnalysisFailureBoundary);
+    }
+
+    [Fact]
+    public void SurfaceProjection_UsesExactMetadataTypeIdentityForBrowserKeys()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Outer.Inner",
+            MetadataName = "Outer+Inner",
+            Kind = "class",
+        };
+
+        BrowserTypeSurface projected = BrowserSurfaceProjection.Type(type, "Sample.dll");
+
+        Assert.Equal("Sample.Outer+Inner", projected.Id);
+        Assert.Equal(projected.Id, projected.QueryId);
+        Assert.Equal(projected.Id, projected.MetadataId);
     }
 
     static string NestedDocumentation(int depth)
@@ -362,6 +432,36 @@ public sealed class BrowserEngineBoundaryTests
                     padding.Write(block, 0, count);
                     remaining -= count;
                 }
+            }
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] PackagePair(
+        byte[] surfaceAssembly,
+        byte[] implementationAssembly,
+        string assemblyFileName)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(content, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (Stream entry = archive
+                .CreateEntry(
+                    $"ref/net11.0/{assemblyFileName}",
+                    CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(surfaceAssembly);
+            }
+
+            using (Stream entry = archive
+                .CreateEntry(
+                    $"lib/net11.0/{assemblyFileName}",
+                    CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(implementationAssembly);
             }
         }
 

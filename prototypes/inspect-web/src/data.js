@@ -178,7 +178,25 @@ export function graphTargetNavigationDisposition(candidate, target) {
 
 export function callGraphDiagnosticsMessage(diagnostics) {
   if (!diagnostics?.isIncomplete) return "";
-  return `Partial call graph: ${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}, ${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}, and ${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}.`;
+  const boundaries = [];
+  if (diagnostics.hasUnexploredTraversalBoundary)
+    boundaries.push("unexplored traversal");
+  if (diagnostics.hasAnalysisFailureBoundary)
+    boundaries.push("analysis failure");
+  const boundaryText = boundaries.length
+    ? ` Boundaries: ${boundaries.join(" and ")}.`
+    : "";
+  return `Partial call graph: ${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}, ${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}, and ${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}.${boundaryText}`;
+}
+
+export function parameterTitleHtml(parameters) {
+  if (!parameters.length) return "()";
+  const escape = value => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+  return `(${parameters.map(parameter => escape(parameter.type || "")).join(", ")})`;
 }
 
 export const MARKDOWN_SANITIZE_OPTIONS = Object.freeze({
@@ -222,6 +240,10 @@ export function scopedRequestState(activeKey, requestKey, loading, error) {
   return activeKey === requestKey
     ? { loading, error }
     : { loading: false, error: "" };
+}
+
+export function memberRequestKey(parts, taste = []) {
+  return [...parts, ...taste].join("\u0000");
 }
 
 export function mermaidLabel(value) {

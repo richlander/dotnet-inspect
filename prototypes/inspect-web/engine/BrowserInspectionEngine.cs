@@ -585,7 +585,10 @@ public static partial class BrowserInspectionEngine
                     callerAssemblies,
                     view.Tier.ToString()),
                 Targets(projection.Nodes),
-                Diagnostics(view.Diagnostics),
+                Diagnostics(
+                    view.Diagnostics,
+                    projection.HasUnexploredTraversalBoundary,
+                    projection.HasAnalysisFailureBoundary),
                 NoBody: view.CalleeRoot is null && view.CallerRoot is null),
             BrowserJsonContext.Default.BrowserCallGraph);
     }
@@ -714,6 +717,16 @@ public static partial class BrowserInspectionEngine
         BrowserPackageWorkspace.Stats(),
         BrowserJsonContext.Default.BrowserPackageCacheStats);
 
+    /// <summary>
+    /// Published package versions from the browser acquisition owner's bounded version-index
+    /// reader. The JavaScript host does not fetch or parse the untrusted index independently.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageVersions(string packageId) =>
+        JsonSerializer.Serialize(
+            await BrowserPackageWorkspace.GetVersionsAsync(packageId),
+            BrowserJsonContext.Default.StringArray);
+
     // The library-owned StyleOptionCatalog is the single source of truth for the decompiler style
     // taxonomy. These records carry its data across the Wasm boundary; the host retains no labels,
     // summaries, or ordering of its own. Neither listing inspects an artifact.
@@ -833,9 +846,11 @@ public static partial class BrowserInspectionEngine
             int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        BrowserWorkspaceParticipant participant = scope.ImplementationParticipant(
-            coordinate,
-            coordinate.ImplementationAsset(assemblyName));
+        PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
+        BrowserWorkspaceParticipant surfaceParticipant =
+            scope.SurfaceParticipant(coordinate, surfaceAsset);
+        BrowserWorkspaceParticipant participant =
+            scope.ImplementationParticipant(surfaceParticipant);
         AssemblyApiSurface implementation = BrowserSurfaceProjection.Require(
             scope.UseImplementationParticipant(
                 participant,
@@ -978,11 +993,15 @@ public static partial class BrowserInspectionEngine
     }
 
     internal static BrowserCallGraphDiagnostics Diagnostics(
-        Analysis.CatalogCallGraphDiagnostics diagnostics) =>
+        Analysis.CatalogCallGraphDiagnostics diagnostics,
+        bool hasUnexploredTraversalBoundary = false,
+        bool hasAnalysisFailureBoundary = false) =>
         new(
             diagnostics.IncompleteNodeCount,
             diagnostics.IncompleteEdgeCount,
-            diagnostics.BindingIdentityConflictCount);
+            diagnostics.BindingIdentityConflictCount,
+            hasUnexploredTraversalBoundary,
+            hasAnalysisFailureBoundary);
 
     static BrowserCallGraphNode Tree(Analysis.CallTreeNode? node) => node is null
         ? new BrowserCallGraphNode("", "None", false, null, [], "", "", "")

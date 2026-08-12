@@ -6,12 +6,14 @@ import {
   lenses,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
+  memberRequestKey,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
   packageLenses,
+  parameterTitleHtml,
   retainWorkspacePackage,
   rootCommands,
   resolveLoadedGraphTargetCandidate,
@@ -22,7 +24,7 @@ import {
 } from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPackageVersions, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -1036,11 +1038,6 @@ function drillOut() {
 }
 
 
-function parameterTitle(parameters) {
-  if (!parameters.length) return "()";
-  return `(${parameters.map(parameter => parameter.type.split(".").at(-1)).join(", ")})`;
-}
-
 // The C#-spelled type name for display (List<T>, Dictionary<TKey, TValue>). Identity —
 // item.id / item.name — stays the metadata form for selection, search, and deep-links.
 function typeDisplayName(item) {
@@ -1140,6 +1137,12 @@ function render() {
     return;
   }
   const current = selectedType();
+  if (!current) {
+    state.atPackageRoot = true;
+    state.selectedTypeId = "";
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+  }
   const visible = filteredTypes();
   // Keep the package lens on something the active package actually supports, so a restored
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
@@ -1183,6 +1186,13 @@ function render() {
             <span class="query-notice-glyph">⚠</span>
             <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+          </div>`
+        : ""}
+      ${state.package.inspectionError
+        ? `<div class="query-notice" role="alert">
+            <span class="query-notice-glyph">⚠</span>
+            <span class="query-notice-text">${escapeHtml(`${state.package.id}@${state.package.version}: ${state.package.inspectionError}`)}</span>
+            <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
 
@@ -1243,7 +1253,7 @@ function render() {
             ${state.packageCacheStats && state.packageCacheStats.packages > 0 ? `
             <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache (${(state.packageCacheStats.residentBytes / 1048576).toFixed(1)} MB, including archives retained by open workspaces)${state.packageCacheStats.packages > state.packageCacheStats.resident ? `; ${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the aggregate LRU limit of 12 packages / 128 MB` : ""}; ${state.packageCacheStats.workspaces} open workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"} (LRU limit 4)">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache · ${state.packageCacheStats.workspaces} workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"}</span>` : ""}
           <span class="status-spacer"></span>
-          <span>${escapeHtml(current.assembly)}</span>
+          <span>${escapeHtml(current?.assembly ?? state.package.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
           <span>public API surface</span>
           </footer>
@@ -3102,7 +3112,7 @@ function renderMember(type, member) {
       <article class="learn-overview">
         <header class="learn-title">
           <p>${escapeHtml(type.namespace)}</p>
-          <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitle(parameters)} ${escapeHtml(pageKind)}</h1>
+          <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitleHtml(parameters)} ${escapeHtml(pageKind)}</h1>
           <span>${escapeHtml(state.package.id)} · ${escapeHtml(state.package.activeFramework)}</span>
         </header>
         <section class="learn-section definition-section">
@@ -3594,7 +3604,7 @@ function bindEvents() {
     activatePackage(
       state.packages.find(item => packageIdentityKey(item) === button.dataset.packageKey),
       { resetAccessibility: true });
-    state.selectedTypeId = state.package.types[0].id;
+    state.selectedTypeId = state.package.types[0]?.id || "";
     state.selectedMemberKey = "";
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -3997,6 +4007,10 @@ function bindEvents() {
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
+    render();
+  });
+  document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
+    state.package.inspectionError = "";
     render();
   });
   document.querySelector("#nav-back")?.addEventListener("click", navBack);
@@ -4808,19 +4822,17 @@ async function switchPlatformVersion(tfm) {
   loadSelectionData();
 }
 
-// Lazily fetch the full published-version list for a package straight from the NuGet
-// flatcontainer index (CORS-enabled), cache it, and repaint the version selector in place.
+// Lazily fetch the full published-version list through the engine's bounded acquisition owner,
+// cache it, and repaint the version selector in place.
 async function ensurePackageVersions(pkg) {
   if (!pkg || pkg.isRuntimePack) return;
   const idLower = pkg.id.toLowerCase();
   if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
   state.packageVersionsLoading[idLower] = true;
   try {
-    const url = `https://api.nuget.org/v3-flatcontainer/${encodeURIComponent(idLower)}/index.json`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const versions = (payload.versions || []).slice().sort(compareVersionsDesc);
+    const versions = (await inspectPackageVersions(idLower))
+      .slice()
+      .sort(compareVersionsDesc);
     if (state.packages.some(item => item.id.toLowerCase() === idLower)) {
       state.packageVersions[idLower] = versions;
       updateVersionSelect(idLower);
@@ -5757,7 +5769,7 @@ async function loadSelectedMemberSource() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const signature = memberRequestSignature(type, overload, false, true);
   if (state.memberSourceKey === signature
     && (state.memberSource || state.memberSourceError)) {
     render();
@@ -5780,12 +5792,12 @@ async function loadSelectedMemberSource() {
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (memberRequestIsCurrent(signature)
+    if (memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
       state.memberSource = result;
     }
   } catch (error) {
-    if (memberRequestIsCurrent(signature)
+    if (memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
       state.memberSourceError = String(error?.message || error);
     }
@@ -5805,7 +5817,7 @@ async function loadSelectedMemberAnnotatedSource() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const signature = memberRequestSignature(type, overload, false, true);
   if (state.memberAnnotatedKey === signature
     && (state.memberAnnotated || state.memberAnnotatedError)) {
     render();
@@ -5835,12 +5847,12 @@ async function loadSelectedMemberAnnotatedSource() {
       metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (memberRequestIsCurrent(signature)
+    if (memberRequestIsCurrent(signature, false, true)
       && state.memberAnnotatedKey === signature) {
       state.memberAnnotated = result;
     }
   } catch (error) {
-    if (memberRequestIsCurrent(signature)
+    if (memberRequestIsCurrent(signature, false, true)
       && state.memberAnnotatedKey === signature) {
       state.memberAnnotatedError = String(error?.message || error);
     }
@@ -5851,7 +5863,11 @@ async function loadSelectedMemberAnnotatedSource() {
   }
 }
 
-function memberRequestSignature(type, overload, includeBody = false) {
+function memberRequestSignature(
+  type,
+  overload,
+  includeBody = false,
+  includeTaste = false) {
   const pkg = state.package;
   const parts = [
     pkg?.id,
@@ -5866,15 +5882,18 @@ function memberRequestSignature(type, overload, includeBody = false) {
       state.selectedBodyTarget?.metadataToken ?? "",
       state.selectedBodyTarget?.selectorKey ?? "");
   }
-  return parts.join("\u0000");
+  return memberRequestKey(parts, includeTaste ? state.taste : []);
 }
 
-function memberRequestIsCurrent(signature, includeBody = false) {
+function memberRequestIsCurrent(
+  signature,
+  includeBody = false,
+  includeTaste = false) {
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
   return Boolean(type && overload)
-    && memberRequestSignature(type, overload, includeBody) === signature;
+    && memberRequestSignature(type, overload, includeBody, includeTaste) === signature;
 }
 
 async function loadSelectedTypeSource() {
@@ -7125,10 +7144,16 @@ function renderTastePopover() {
 
 function invalidateSourceCaches() {
   state.memberSource = null;
+  state.memberSourceKey = "";
   state.memberSourceError = "";
   state.typeSource = null;
   state.typeSourceKey = "";
   state.typeSourceError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedKey = "";
+  state.memberAnnotatedError = "";
+  state.memberAnnotatedFactId = null;
+  state.memberAnnotatedNodeIds = [];
 }
 
 function reloadVisibleSource() {
@@ -7137,6 +7162,9 @@ function reloadVisibleSource() {
   }
   if (state.lens === "source") loadSelectedTypeSource();
   else if (state.selectedMemberKey && state.memberSection === "source") loadSelectedMemberSource();
+  else if (state.selectedMemberKey && state.memberSection === "annotated") {
+    loadSelectedMemberAnnotatedSource();
+  }
 }
 
 function toggleTaste(id) {
@@ -7382,18 +7410,10 @@ async function loadPackage(packageId, version, framework, options = {}) {
       totalTypes: (result.assemblies ?? [])
         .reduce((count, assembly) => count + (assembly.publicTypes ?? 0), 0),
       totalMembers: result.totalMembers,
-      documents: result.documents ?? []
+      documents: result.documents ?? [],
+      inspectionError: result.inspectionError || ""
     };
     retainPackageModel(packageModel, options.replacePackage);
-    // A partial surface says so. The engine names every participant the workspace could not
-    // project rather than returning a shorter type list that reads as complete.
-    if (result.inspectionError) {
-      const partial =
-        `${packageModel.id}@${packageModel.version}: ${result.inspectionError}`;
-      state.queryNotice = state.queryNotice
-        ? `${state.queryNotice} ${partial}`
-        : partial;
-    }
     recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
     if (background) return packageModel;
     activatePackage(packageModel, { resetAccessibility: true });

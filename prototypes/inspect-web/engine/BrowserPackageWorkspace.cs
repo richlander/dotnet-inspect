@@ -222,6 +222,18 @@ internal static class BrowserPackageWorkspace
             return requestedVersion;
         }
 
+        return (await GetVersionsAsync(normalizedId))
+            .LastOrDefault(candidate => !candidate.Contains('-'))
+            ?? throw new InvalidOperationException(
+                $"Package '{normalizedId}' has no stable published version. "
+                + "Specify a prerelease version explicitly.");
+    }
+
+    internal static async Task<string[]> GetVersionsAsync(string packageId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        string normalizedId = packageId.ToLowerInvariant();
+
         // The product's listed-version owners resolve NuGet.config and the on-disk content cache
         // before they answer, neither of which exists in a browser. Read the flat-container index
         // for the product-owned nuget.org base address instead.
@@ -230,15 +242,35 @@ internal static class BrowserPackageWorkspace
             index,
             MaxVersionIndexBytes,
             $"The version index for package '{normalizedId}'");
+        return ParseVersions(bytes, normalizedId);
+    }
+
+    internal static string[] ParseVersions(byte[] bytes, string packageId)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         using var document = System.Text.Json.JsonDocument.Parse(bytes);
-        return document.RootElement.GetProperty("versions")
-            .EnumerateArray()
-            .Select(element => element.GetString())
-            .OfType<string>()
-            .LastOrDefault(candidate => !candidate.Contains('-'))
-            ?? throw new InvalidOperationException(
-                $"Package '{normalizedId}' has no stable published version. "
-                + "Specify a prerelease version explicitly.");
+        if (!document.RootElement.TryGetProperty("versions", out var versions)
+            || versions.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            throw new InvalidDataException(
+                $"The version index for package '{packageId}' has no versions array.");
+        }
+
+        var result = new List<string>();
+        foreach (System.Text.Json.JsonElement element in versions.EnumerateArray())
+        {
+            if (element.ValueKind != System.Text.Json.JsonValueKind.String
+                || string.IsNullOrWhiteSpace(element.GetString()))
+            {
+                throw new InvalidDataException(
+                    $"The version index for package '{packageId}' contains an invalid version.");
+            }
+
+            result.Add(element.GetString()!);
+        }
+
+        return [.. result];
     }
 
     static string FlatContainer() =>

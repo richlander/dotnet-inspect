@@ -285,10 +285,16 @@ public sealed record BrowserCallGraph(
 public sealed record BrowserCallGraphDiagnostics(
     int IncompleteNodes,
     int IncompleteEdges,
-    int BindingIdentityConflicts)
+    int BindingIdentityConflicts,
+    bool HasUnexploredTraversalBoundary,
+    bool HasAnalysisFailureBoundary)
 {
     public bool IsIncomplete =>
-        IncompleteNodes > 0 || IncompleteEdges > 0 || BindingIdentityConflicts > 0;
+        IncompleteNodes > 0
+        || IncompleteEdges > 0
+        || BindingIdentityConflicts > 0
+        || HasUnexploredTraversalBoundary
+        || HasAnalysisFailureBoundary;
 }
 
 public sealed record BrowserCallGraphTarget(

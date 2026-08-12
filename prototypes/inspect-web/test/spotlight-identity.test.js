@@ -9,11 +9,13 @@ import {
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
+  memberRequestKey,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
+  parameterTitleHtml,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
@@ -63,6 +65,17 @@ test("member cache signatures use the same complete coordinates", () => {
   assert.notEqual(
     spotlightCandidateSignature(oldPackage, [oldPackage]),
     spotlightCandidateSignature(newVersion, [newVersion]));
+});
+
+test("member source request identity includes decompiler taste", () => {
+  const request = ["Example.Package", "1.0.0", "net8.0", "Example.dll", "Example.Widget", "M:Run"];
+
+  assert.notEqual(
+    memberRequestKey(request),
+    memberRequestKey(request, ["prefer-var"]));
+  assert.notEqual(
+    memberRequestKey(request, ["prefer-var"]),
+    memberRequestKey(request, ["prefer-explicit-types"]));
 });
 
 test("history never applies a selection to another coordinate", () => {
@@ -165,7 +178,24 @@ test("incomplete call graphs produce a visible diagnostic", () => {
     incompleteEdges: 1,
     bindingIdentityConflicts: 3
   }), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
+  assert.equal(callGraphDiagnosticsMessage({
+    isIncomplete: true,
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    hasUnexploredTraversalBoundary: true,
+    hasAnalysisFailureBoundary: true
+  }), "Partial call graph: 0 incomplete nodes, 0 incomplete edges, and 0 binding identity conflicts. Boundaries: unexplored traversal and analysis failure.");
   assert.equal(callGraphDiagnosticsMessage({ isIncomplete: false }), "");
+});
+
+test("parameter titles preserve generic identities and contain metadata text", () => {
+  assert.equal(
+    parameterTitleHtml([
+      { type: "System.Collections.Generic.Dictionary<System.String, Example.Widget>" },
+      { type: '<img src=x onerror="alert(1)">' }
+    ]),
+    "(System.Collections.Generic.Dictionary&lt;System.String, Example.Widget&gt;, &lt;img src=x onerror=&quot;alert(1)&quot;&gt;)");
 });
 
 test("package Markdown has no styling or resource-loading authority", () => {

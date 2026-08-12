@@ -92,6 +92,18 @@ internal sealed class BrowserInspectionScope : IDisposable
                     _workspace,
                     implementationAssets,
                     groupBudget);
+        try
+        {
+            ValidateImplementationPairs();
+        }
+        catch
+        {
+            if (!ReferenceEquals(_implementation, _surface))
+                _implementation?.Dispose();
+            _surface.Dispose();
+            _workspace.Dispose();
+            throw;
+        }
     }
 
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
@@ -167,12 +179,70 @@ internal sealed class BrowserInspectionScope : IDisposable
         PackageCompileAsset asset)
         => Implementation.FindParticipant(coordinate, asset);
 
+    public BrowserWorkspaceParticipant ImplementationParticipant(
+        BrowserWorkspaceParticipant surfaceParticipant)
+    {
+        ArgumentNullException.ThrowIfNull(surfaceParticipant);
+        if (!SurfaceParticipants.Contains(surfaceParticipant))
+        {
+            throw new ArgumentException(
+                "The participant does not belong to the surface workspace role.",
+                nameof(surfaceParticipant));
+        }
+
+        PackageCompileAsset implementationAsset =
+            surfaceParticipant.Coordinate.Selection.FindImplementationAsset(
+                surfaceParticipant.Asset)
+            ?? throw new InvalidOperationException(
+                $"{surfaceParticipant.Coordinate.PackageId} "
+                + $"{surfaceParticipant.Coordinate.Version} ships "
+                + $"{surfaceParticipant.Asset.AssemblyName} for "
+                + $"{surfaceParticipant.Coordinate.Framework} as a reference assembly only.");
+        BrowserWorkspaceParticipant implementation =
+            Implementation.FindParticipant(
+                surfaceParticipant.Coordinate,
+                implementationAsset);
+        if (!implementation.Assembly.Identity.IsEquivalentTo(
+                surfaceParticipant.Assembly.Identity))
+        {
+            throw new InvalidOperationException(
+                $"The selected reference and implementation assets for "
+                + $"{surfaceParticipant.Asset.AssemblyName} have different assembly identities.");
+        }
+
+        return implementation;
+    }
+
     public void Dispose()
     {
         if (!ReferenceEquals(_implementation, _surface))
             _implementation?.Dispose();
         _surface.Dispose();
         _workspace.Dispose();
+    }
+
+    void ValidateImplementationPairs()
+    {
+        foreach (BrowserWorkspaceParticipant surfaceParticipant in SurfaceParticipants)
+        {
+            PackageCompileAsset? implementationAsset =
+                surfaceParticipant.Coordinate.Selection.FindImplementationAsset(
+                    surfaceParticipant.Asset);
+            if (implementationAsset is null)
+                continue;
+
+            BrowserWorkspaceParticipant implementation =
+                Implementation.FindParticipant(
+                    surfaceParticipant.Coordinate,
+                    implementationAsset);
+            if (!implementation.Assembly.Identity.IsEquivalentTo(
+                surfaceParticipant.Assembly.Identity))
+            {
+                throw new InvalidOperationException(
+                    $"The selected reference and implementation assets for "
+                    + $"{surfaceParticipant.Asset.AssemblyName} have different assembly identities.");
+            }
+        }
     }
 
     BrowserWorkspaceGroup Implementation => _implementation
