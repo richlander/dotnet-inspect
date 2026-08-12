@@ -21,23 +21,50 @@ including project output assemblies.
 
 ## Preconditions
 
-Create a temp project with interesting dependencies.
+Create a deterministic `net10.0` project with pinned dependencies. The local
+MSBuild files keep this standalone fixture independent of repository-wide build
+and central-package settings.
 
 ```bash
-mkdir -p /tmp/find-project-workflow
-cd /tmp/find-project-workflow && dotnet new console --force -n FindDemo -o FindDemo
-```
+export PROJECT_WORKFLOW="$PWD/artifacts/workflows/find-project"
+rm -rf "$PROJECT_WORKFLOW"
+mkdir -p "$PROJECT_WORKFLOW/FindDemo"
 
-```bash
-cd /tmp/find-project-workflow/FindDemo
-dotnet add package Microsoft.Extensions.Logging
-dotnet add package System.CommandLine --version 2.0.3
-dotnet add package Markout
-dotnet add package System.Security.Cryptography.Pkcs
-```
+cat > "$PROJECT_WORKFLOW/Directory.Build.props" <<'EOF'
+<Project />
+EOF
+cat > "$PROJECT_WORKFLOW/Directory.Build.targets" <<'EOF'
+<Project />
+EOF
+cat > "$PROJECT_WORKFLOW/Directory.Packages.props" <<'EOF'
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>
+EOF
+cat > "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" <<'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.3" />
+    <PackageReference Include="Markout" Version="0.33.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.0" />
+  </ItemGroup>
+</Project>
+EOF
+cat > "$PROJECT_WORKFLOW/FindDemo/Program.cs" <<'EOF'
+Console.WriteLine("workflow fixture");
+EOF
 
-```bash
-cd /tmp/find-project-workflow/FindDemo && dotnet build -c Release
+dotnet build "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
+  -c Release --nologo --verbosity quiet
 ```
 
 ## 1. Search project dependencies
@@ -51,7 +78,8 @@ What Command types are in my project's dependencies?
 ```
 
 ```bash
-dotnet-inspect find 'Command*' --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+dotnet-inspect find 'Command*' \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
 ```
 
 ```expect
@@ -67,7 +95,8 @@ What logger interfaces do my dependencies expose?
 ```
 
 ```bash
-dotnet-inspect find 'ILogger*' --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+dotnet-inspect find 'ILogger*' \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
 ```
 
 ```expect
@@ -86,17 +115,22 @@ Microsoft.Extensions.Logging
 ### 2a. Inspect a type
 
 ```bash
-dotnet-inspect type Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+dotnet-inspect type Command \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" --markdown -v:q
 ```
 
 ```expect
-System.CommandLine.Command
+# System.CommandLine.Command (System.CommandLine 2.0.3)
+Kind: class
+Source: Project
 ```
 
 ### 2b. Inspect members
 
 ```bash
-dotnet-inspect member Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -S "Member Index" -n 12
+dotnet-inspect member Command \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
+  -S "Member Index" -n 12
 ```
 
 ```expect
@@ -105,12 +139,22 @@ Member Index
 
 ### 2c. Missing assets are an error
 
-```bash
-dotnet-inspect type Command --project /tmp/find-project-workflow/FindDemo/Missing.csproj
+Create an existing project without restoring it:
+
+```setup
+rm -rf "$PROJECT_WORKFLOW/Missing"
+dotnet new console --no-restore -f net10.0 -n Missing \
+  -o "$PROJECT_WORKFLOW/Missing" > /dev/null
 ```
 
-```expect
-Error: project.assets.json not found
+```bash
+dotnet-inspect type Command \
+  --project "$PROJECT_WORKFLOW/Missing/Missing.csproj"
+```
+
+```expect-error
+project.assets.json not found
+Run 'dotnet restore'.
 ```
 
 ## 3. Map relationships in project dependencies
@@ -121,7 +165,8 @@ Error: project.assets.json not found
 ### 3a. Find types by implemented interface
 
 ```bash
-dotnet-inspect implements IEquatable --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+dotnet-inspect implements IEquatable \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
 ```
 
 ```expect
@@ -131,7 +176,8 @@ Markout
 ### 3b. Find extension methods from referenced packages
 
 ```bash
-dotnet-inspect extensions string --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:n
+dotnet-inspect extensions string \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:n
 ```
 
 ```expect
@@ -142,7 +188,8 @@ System.Security.Cryptography.Pkcs
 ### 3c. Walk dependencies from a project-resolved type
 
 ```bash
-dotnet-inspect depends Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+dotnet-inspect depends Command \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
 ```
 
 ```expect
@@ -156,7 +203,10 @@ System.CommandLine.Command
 ### 4a. Find types by pattern
 
 ```bash
-dotnet-inspect find 'Command*' --bin /tmp/find-project-workflow/FindDemo/bin/Release/net10.0/ -v:q
+BIN=$(find "$PROJECT_WORKFLOW/FindDemo/bin/Release" -name FindDemo.dll \
+  -exec dirname {} \; | head -1)
+test -n "$BIN"
+dotnet-inspect find 'Command*' --bin "$BIN" -v:q
 ```
 
 ```expect
@@ -168,7 +218,10 @@ System.CommandLine
 ### 4b. Find across all dependencies
 
 ```bash
-dotnet-inspect find '*Logger*' --bin /tmp/find-project-workflow/FindDemo/bin/Release/net10.0/ -v:q
+BIN=$(find "$PROJECT_WORKFLOW/FindDemo/bin/Release" -name FindDemo.dll \
+  -exec dirname {} \; | head -1)
+test -n "$BIN"
+dotnet-inspect find '*Logger*' --bin "$BIN" -v:q
 ```
 
 ```expect
@@ -178,10 +231,6 @@ LoggerFactory
 Microsoft.Extensions.Logging
 ```
 
-```query
-grep -oE 'Matches: [0-9]+'
-```
-
 ## 5. Compare project vs bin results
 
 > Goal: Both `--project` and `--bin` search the same dependency set, but `--project` shows source attribution (package@version) while `--bin` shows local file context.
@@ -189,7 +238,8 @@ grep -oE 'Matches: [0-9]+'
 ### 5a. Project shows source
 
 ```bash
-dotnet-inspect find 'Command' --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+dotnet-inspect find 'Command' \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
 ```
 
 ```expect
@@ -199,7 +249,10 @@ System.CommandLine@2.0.3
 ### 5b. Bin shows local context
 
 ```bash
-dotnet-inspect find 'Command' --bin /tmp/find-project-workflow/FindDemo/bin/Release/net10.0/ -v:q
+BIN=$(find "$PROJECT_WORKFLOW/FindDemo/bin/Release" -name FindDemo.dll \
+  -exec dirname {} \; | head -1)
+test -n "$BIN"
+dotnet-inspect find 'Command' --bin "$BIN" -v:q
 ```
 
 ```expect

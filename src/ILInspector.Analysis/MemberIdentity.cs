@@ -92,6 +92,7 @@ public sealed record MethodIdentity(
 
     internal byte SignatureHeader { get; init; }
     internal int RequiredParameterCount { get; init; } = -1;
+    internal bool IsVirtualDispatchOpen { get; init; }
 
     public bool Equals(MethodIdentity? other)
         => other is not null
