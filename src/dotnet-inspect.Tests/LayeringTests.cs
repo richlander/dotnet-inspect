@@ -108,6 +108,8 @@ public sealed class LayeringTests
             "Commands",
             commandFile);
         string source = File.ReadAllText(path);
+        string commandTypeName =
+            Path.GetFileNameWithoutExtension(commandFile);
         string projectSource = string.Join(
             Environment.NewLine,
             Directory.EnumerateFiles(
@@ -132,6 +134,12 @@ public sealed class LayeringTests
         string sessionOpen =
             $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
             + $@"{nameof(MethodBodyInspectionSession.Open)}\w*\b";
+        string partialCommandDeclaration =
+            $@"(?m)^[ \t]*"
+            + $@"(?:(?:public|internal|protected|private|abstract|sealed|static|unsafe|new|file)\s+)*"
+            + $@"partial\s+"
+            + $@"(?:(?:public|internal|protected|private|abstract|sealed|static|unsafe|new|file)\s+)*"
+            + $@"class\s+{commandTypeName}\b";
 
         Assert.Matches(
             directIndexAccess,
@@ -176,9 +184,13 @@ public sealed class LayeringTests
             obscuredGlobalIndexImport,
             $"global using static ILInspector.Analysis."
                 + $"@{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            partialCommandDeclaration,
+            $"public partial class {commandTypeName}");
         Assert.DoesNotMatch(directIndexAccess, source);
         Assert.DoesNotMatch(obscuredIndexImport, source);
         Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
+        Assert.DoesNotMatch(partialCommandDeclaration, source);
         Assert.Matches(sessionOpen, source);
     }
 }
