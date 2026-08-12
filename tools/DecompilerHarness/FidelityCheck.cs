@@ -3885,7 +3885,15 @@ static class FidelityCheck
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
         string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
-        string instanceModifier = isAbstractStub ? "virtual " : slotModifier;
+        // A same-type call to a source-declarable new-slot virtual method binds as
+        // callvirt only when the reconstructed sibling keeps that declaration.
+        // Override-shaped methods need an override declaration to preserve their
+        // symbolic target, so exclude them rather than inventing a new slot.
+        bool emitClassVirtual = ShapeOf(reader, typeDef) == TypeKind.Class
+            && IsSourceDeclarableClassVirtual(method);
+        string instanceModifier = slotModifier.Length != 0
+            ? slotModifier
+            : (isAbstractStub || emitClassVirtual ? "virtual " : "");
         if (!IsStaticClass(typeDef)
             && name.StartsWith("op_", StringComparison.Ordinal)
             && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
@@ -3894,6 +3902,23 @@ static class FidelityCheck
             return;
         }
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
+    }
+
+    static bool IsSourceDeclarableClassVirtual(MethodDefinition method)
+    {
+        var attributes = method.Attributes;
+        var access = attributes & MethodAttributes.MemberAccessMask;
+        bool sourceDeclarableAccess = access is
+            MethodAttributes.Public
+            or MethodAttributes.Family
+            or MethodAttributes.Assembly
+            or MethodAttributes.FamANDAssem
+            or MethodAttributes.FamORAssem;
+        return sourceDeclarableAccess
+            && attributes.HasFlag(MethodAttributes.Virtual)
+            && !attributes.HasFlag(MethodAttributes.Abstract)
+            && !attributes.HasFlag(MethodAttributes.Final)
+            && attributes.HasFlag(MethodAttributes.NewSlot);
     }
 
     static string StructObjectOverrideModifier(
