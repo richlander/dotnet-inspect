@@ -2,7 +2,7 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Synthesizes a readable identifier for a local that has no usable PDB source
-/// name, used only by the opt-in readable-names mode (see
+/// name when readable-name rendering is enabled (see
 /// <c>docs/design/readable-local-names.md</c>). It names from evidence the IR
 /// already carries — the local's type and whether it is a loop counter — and
 /// resolves collisions against the names already taken (parameters, source-named
@@ -10,8 +10,9 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// It never invents a name with no evidence: when the type carries no readable
 /// name it returns <c>null</c> and the caller keeps the <c>V_index</c> fallback,
-/// preserving the pipeline's honest-degradation contract. The mode is opt-in and
-/// off by default, so this never changes shipped output.
+/// preserving the pipeline's honest-degradation contract. The CLI enables the
+/// mode for user-facing source, while the library default remains off for
+/// fidelity, corpus, and slot-aligned consumers.
 /// </summary>
 static class LocalNameSynthesizer
 {

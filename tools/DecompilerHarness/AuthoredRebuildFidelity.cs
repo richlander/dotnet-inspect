@@ -59,8 +59,8 @@ static class AuthoredRebuildFidelity
         int cap,
         int maxExamples)
     {
-        HttpClientFactory.Initialize();
-        using var httpClient = HttpClientFactory.CreateNew();
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
         List<AuthoredRebuildFidelityResult> results = [];
 
@@ -89,6 +89,11 @@ static class AuthoredRebuildFidelity
 
             using var source = SourceLinkService.Open(assemblyPath);
             await AcquirePdbAsync(source, httpClient);
+            IReadOnlyList<MetadataReference> compilationReferences =
+                decompilerResults.FirstOrDefault()?.FinalRequest?
+                    .CompilationClosure?.References
+                ?? ReturnToSender.CompilationReferences(
+                    assemblyPath).ToArray();
             var buildContext = AssessBuildContext(
                 SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
                 MetadataFindings.InspectCompilationOptions(
@@ -97,18 +102,28 @@ static class AuthoredRebuildFidelity
                 MetadataFindings.InspectCompilationReferences(
                     source.Context,
                     new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                ReturnToSender.CompilationReferences(assemblyPath));
+                compilationReferences);
 
             foreach (var decompilerResult in decompilerResults)
             {
                 if (results.Count >= cap)
                     break;
 
-                results.Add(await EvaluateAsync(
+                AuthoredRebuildFidelityResult evaluated =
+                    await EvaluateAsync(
                     source,
                     fetcher,
                     decompilerResult,
-                    buildContext));
+                    buildContext);
+                results.Add(
+                    evaluated with
+                    {
+                        DecompilerLane =
+                            evaluated.DecompilerLane with
+                            {
+                                FinalRequest = null,
+                            },
+                    });
             }
         }
 
@@ -576,8 +591,18 @@ static class AuthoredRebuildFidelity
             var artifact = CompileBackSourceComposer.Compose(authoredRequest);
             var parseOptions = ParseOptions(buildContext.RecordedOptions);
             var compileOptions = CompilationOptions(buildContext.RecordedOptions);
-            var references = ReturnToSender.CompilationReferences(
-                request.AssemblyPath).ToArray();
+            if (request.CompilationClosure is not { } compilationClosure)
+            {
+                return new AuthoredRebuildFidelityResult(
+                    decompilerResult,
+                    AuthoredRebuildOutcome.ContextFailed,
+                    checksumVerification,
+                    buildContext,
+                    "RTS did not retain its frozen compilation closure.",
+                    ImplementationDiff: null);
+            }
+            MetadataReference[] references =
+                compilationClosure.References;
             var compilation = CSharpCompilation.Create(
                 "return-to-sender",
                 [CSharpSyntaxTree.ParseText(artifact.Source, parseOptions)],

@@ -97,8 +97,9 @@ identity is required. The round-trip design calls that pairing
 The Metadata delivery slices implement the single-image declaration,
 acquisition, binding, cross-assembly resolution, definition-correspondence, and
 definition-join currencies. Analysis retains decoder provenance and consumes
-Metadata-owned correspondence for direct callers. Member-level graph
-correspondence remains the unfinished Slice 6 boundary.
+Metadata-owned correspondence for direct callers. Analysis now composes the
+member-level currency into catalog-scoped graph storage without turning it
+into a display string or a durable identifier.
 
 #### Current `ILInspector.Analysis` forwarding provenance
 
@@ -107,6 +108,15 @@ correspondence remains the unfinished Slice 6 boundary.
 | `ResolvableTypeReference` | Decoder-produced provenance plus lookup name | Whether a reference came from an assembly, current assembly, intrinsic core library, or module | Resolution without the source candidate, or structural `TypeRef` equality |
 | `CallerScopeReachabilityPlan` | One direct-caller scope | Which candidates may reach the target definition through frozen structured bindings | Final call-site correspondence or transitive graph traversal |
 | `CallerResolutionPlan` | One direct-caller projection | Whether a decoded call-site type is the same definition, different, unavailable, ambiguous, rejected, stale, or duplicate-indeterminate | Hashable member correspondence or graph storage identity |
+| `CatalogMemberCorrespondencePlan` | One source member's open signature | Which distinct type-resolution requests and recursive shapes are required to project member correspondence without traversing the signature again | A frozen answer, graph storage identity, or rendering |
+| `CatalogMemberJoinKey` and `CatalogTypeShape` | One frozen catalog generation | Hashable member correspondence across the open declaring type, member kind, canonical signature header, vararg required-parameter prefix, method generic arity, instance/static shape, parameters, return, modifiers, and function pointers | Physical graph storage, persistence, display, or use after its catalog generation |
+| `CatalogMemberJoinProjection` | One plan projected through one frozen context | Exact or indeterminate join currency, duplicate/unresolved evidence, or typed incomplete reasons including expansion and stale generation | Permission to drop an incomplete graph node or edge |
+| `GraphNodeStorageKey` | One physical graph occurrence | Total definition or call-site storage identity from acquisition registration, MVID, metadata token, and call-site coordinates | Logical member correspondence, display, or persistence |
+| `GraphNodeIdentity` | One graph projection domain | A closed choice of physical storage, catalog correspondence, stable artifact member, scope-local detached catalog, or typed structural fallback identity | A string key or permission to mix domains |
+| `GraphNodeEvidence` and `GraphEdgeEvidence` | One retained graph generation, or a detached tree after generation correspondence is removed | Which physical occurrences support a logical node/edge and, while attached, whether correspondence was exact, indeterminate, or incomplete | A reason to discard unavailable evidence or count call sites as logical nodes |
+| `CatalogCallGraphDiagnostics` | One catalog graph snapshot | Stable incomplete-node, incomplete-edge, and primary-assembly identity-conflict counts that may outlive a temporary graph generation | Catalog currency, failure fabrication, or a replacement for retained physical evidence |
+| `GraphBindingIdentityConflictEvidence` | One retained graph generation | Which physical call site bound exactly to a different identity of the graph's primary assembly | Permission to join the selected identity to the primary assembly |
+| `CatalogCallGraphScope` | One fixed assembly group and catalog generation | One unioned correspondence acquisition and one physical graph shared by caller, callee, and format-neutral projection queries | Assembly discovery, presentation, or reuse after release/disposal |
 
 #### Current `ILInspector.Metadata` single-image declaration
 
@@ -136,6 +146,7 @@ correspondence remains the unfinished Slice 6 boundary.
 | `TypeResolutionContext` | One frozen catalog generation | Which manifested bindings and type requests may execute without policy or source work | Requests absent from the manifest or answers after catalog disposal |
 | `AssemblyBindingRequest`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which structured target policy selected and whether it resolved, missed, was unavailable, ambiguous, rejected, or requires expansion | Type lookup or hidden fallback probing |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
+| `TypeResolutionRequestComparer` | One request manifest | Whether separately constructed requests occupy the same frozen manifest entry | Type correspondence, outcome equality, or cross-generation reuse |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
 | `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
 | `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |
@@ -179,6 +190,8 @@ Conversions are operations with an owner, not implicit casts:
 | Metadata relationship chain | `MetadataTypeDefinitionName` | Metadata preserves namespace, nested segments, and arity; malformed names return typed failure |
 | Decoded Analysis type reference | `ResolvableTypeReference` | Analysis retains `TypeReferenceOrigin` beside the exact lookup name; origin is not inferred from `TypeRef.Assembly` |
 | Source candidate plus `ResolvableTypeReference` | `TypeResolutionRequest` | Analysis's `CallerResolutionPlan` adapts decoder provenance through Metadata's native request factories; Metadata validates and executes the request |
+| Source member plus decoded open signature | `CatalogMemberCorrespondencePlan` | Analysis traverses the signature once, retains unsupported-shape evidence, and exposes requests compared by Metadata's manifest comparer |
+| `CatalogMemberCorrespondencePlan` plus frozen context | `CatalogMemberJoinProjection` | Analysis resolves each distinct request through the context and constructs shapes only from catalog-issued definition or unresolved-binding currency |
 | `TypeResolutionOutcome.Resolved` | `ResolvedTypeDefinition` parts | Metadata returns the opaque key for correspondence and address for durable re-location; consumers do not reconstruct either |
 | `ResolvedTypeDefinitionKey` pair | `DefinitionCorrespondence` | Only the issuing catalog compares keys |
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
@@ -397,7 +410,7 @@ which is precisely the work a cheap pre-filter exists to avoid.
 
 ### `MemberCanonicalSignature` — the DocId-shaped grammar
 
-`src/ILInspector.Metadata/MemberCanonicalSignature.cs` is "the single
+`src/CSharpText/MemberCanonicalSignature.cs` is "the single
 authoritative full-name member canonical-signature grammar," emitting
 `{kind}:{typeFullName}.{memberName}(…)` with DocId kind codes `"M"`, `"P"`,
 `"F"`, `"E"`.
@@ -511,8 +524,9 @@ Known instances, kept here as a live list:
 - `EcosystemIntegrationScanner` — `signature.ReturnType == "…IServiceCollection"`.
 - `OpenTelemetryScanner` — `ReturnType == "bool"`.
 - `MethodClassificationScanner` — pointer return via `ReturnType.Contains('*')`.
-- `NormalizeXmlDocParameterType` — a mini type-parser reconstructing structure
-  from display text; reused by the CLI `XmlDocFileParser`.
+- `XmlDocumentationNotation.NormalizeParameterType` — a mini type-parser
+  reconstructing structure from display text; reused by the CLI
+  `XmlDocFileParser`.
 - `FidelityCheck.Evaluate`'s `Func<string, bool> typeFilter`
   ([#3495](https://github.com/richlander/dotnet-inspect/pull/3495)) — defensible
   as *selection* rather than identity; [#3504](https://github.com/richlander/dotnet-inspect/issues/3504)

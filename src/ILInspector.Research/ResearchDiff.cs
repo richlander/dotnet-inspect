@@ -2,12 +2,14 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using MetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace ILInspector.Research;
 
@@ -27,6 +29,8 @@ public sealed record ResearchDiffInput(
     ApiSurface? ApiSurface = null,
     IReadOnlyList<LibraryBodyIndex>? BodyIndexes = null)
 {
+    internal IReadOnlyList<ResearchAssemblyContent>? AssemblyContents { get; init; }
+
     public static ResearchDiffInput FromAssembly(string assemblyPath, ApiSurface? apiSurface = null, LibraryBodyIndex? bodyIndex = null)
         => new([assemblyPath], apiSurface, bodyIndex is null ? null : [bodyIndex]);
 
@@ -36,6 +40,10 @@ public sealed record ResearchDiffInput(
     public static ResearchDiffInput FromApiSurface(ApiSurface apiSurface)
         => new([], apiSurface);
 }
+
+internal sealed record ResearchAssemblyContent(
+    MetadataSource Source,
+    LibraryBodyIndex BodyIndex);
 
 public static class ResearchDiff
 {
@@ -819,8 +827,8 @@ public static class ResearchDiff
             var oldMethods = MethodLookup(pair.Old.Index);
             var newMethods = MethodLookup(pair.New.Index);
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-            using var oldBodies = new MethodBodyLookup(pair.Old.Path);
-            using var newBodies = new MethodBodyLookup(pair.New.Path);
+            using var oldBodies = new MethodBodyLookup(pair.Old);
+            using var newBodies = new MethodBodyLookup(pair.New);
 
             foreach (var key in keys)
             {
@@ -943,10 +951,10 @@ public static class ResearchDiff
                 : IlRetentionMethodLookup(pair.New);
             using var oldBodies = pair.Old is null
                 ? null
-                : new MethodBodyLookup(pair.Old.Path);
+                : new MethodBodyLookup(pair.Old);
             using var newBodies = pair.New is null
                 ? null
-                : new MethodBodyLookup(pair.New.Path);
+                : new MethodBodyLookup(pair.New);
 
             foreach (string key in oldMethods.Keys
                 .Union(newMethods.Keys, StringComparer.Ordinal)
@@ -1078,14 +1086,28 @@ public static class ResearchDiff
         IReadOnlySet<string>? memberTargetIdentities,
         IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
-        if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
+        var oldContents = oldInput.AssemblyContents;
+        var newContents = newInput.AssemblyContents;
+        bool hasContent = oldContents is { Count: > 0 }
+            && newContents is { Count: > 0 };
+        if (!hasContent
+            && (oldInput.AssemblyPaths.Count == 0
+                || newInput.AssemblyPaths.Count == 0))
+        {
             return;
+        }
 
-        var diff = CSharpBodyDiff.CompareAssemblies(
-            oldInput.AssemblyPaths,
-            newInput.AssemblyPaths,
-            typeFilters: typeFilters,
-            memberTargetIdentities: memberTargetIdentities);
+        var diff = hasContent
+            ? CSharpBodyDiff.CompareAssemblies(
+                oldContents!.Select(content => content.Source).ToArray(),
+                newContents!.Select(content => content.Source).ToArray(),
+                typeFilters: typeFilters,
+                memberTargetIdentities: memberTargetIdentities)
+            : CSharpBodyDiff.CompareAssemblies(
+                oldInput.AssemblyPaths,
+                newInput.AssemblyPaths,
+                typeFilters: typeFilters,
+                memberTargetIdentities: memberTargetIdentities);
         foreach (var failure in diff.IdentityFailures.IsDefault
             ? []
             : diff.IdentityFailures)
@@ -1150,11 +1172,17 @@ public static class ResearchDiff
         if (!retainedComparisonDescriptorIds.Contains(CSharpFindings.LineDescriptor.Id))
             return;
 
-        var findingComparisons = CSharpFindings.CompareAssemblies(
-            oldInput.AssemblyPaths,
-            newInput.AssemblyPaths,
-            typeFilters: typeFilters,
-            memberTargetIdentities: memberTargetIdentities);
+        var findingComparisons = hasContent
+            ? CSharpFindings.CompareAssemblies(
+                oldContents!.Select(content => content.Source).ToArray(),
+                newContents!.Select(content => content.Source).ToArray(),
+                typeFilters: typeFilters,
+                memberTargetIdentities: memberTargetIdentities)
+            : CSharpFindings.CompareAssemblies(
+                oldInput.AssemblyPaths,
+                newInput.AssemblyPaths,
+                typeFilters: typeFilters,
+                memberTargetIdentities: memberTargetIdentities);
         foreach (var failure in findingComparisons.IdentityFailures)
         {
             string token = $"0x{failure.SubjectToken:X8}";
@@ -1330,6 +1358,19 @@ public static class ResearchDiff
 
     static IEnumerable<BodyIndexEntry> BodyIndexEntries(ResearchDiffInput input)
     {
+        if (input.AssemblyContents is { Count: > 0 } contents)
+        {
+            foreach (var content in contents)
+            {
+                yield return new BodyIndexEntry(
+                    AssemblyKey(content.BodyIndex),
+                    content.Source.Path,
+                    content.BodyIndex,
+                    content.Source);
+            }
+            yield break;
+        }
+
         if (input.BodyIndexes is { Count: > 0 } bodyIndexes)
         {
             foreach (var index in bodyIndexes)
@@ -1541,7 +1582,7 @@ public static class ResearchDiff
         if (filter.Contains('*') || filter.Contains('?'))
             return false;
 
-        var normalizedFilter = TypeMatcher.Normalize(filter);
+        var normalizedFilter = FqnParser.NormalizeTypeName(filter);
         return typeFullName.StartsWith(normalizedFilter + ".", StringComparison.OrdinalIgnoreCase)
                || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
     }
@@ -1598,7 +1639,11 @@ public static class ResearchDiff
             _ => ToKebabCase(kind.ToString()),
         };
 
-    sealed record BodyIndexEntry(string Key, string Path, LibraryBodyIndex Index);
+    sealed record BodyIndexEntry(
+        string Key,
+        string Path,
+        LibraryBodyIndex Index,
+        MetadataSource? Source = null);
     sealed record UnionBodyIndexEntry(
         string Key,
         BodyIndexEntry? Old,
@@ -1656,15 +1701,34 @@ public static class ResearchDiff
 
     sealed class MethodBodyLookup : IDisposable
     {
-        readonly FileStream _stream;
+        readonly Stream? _stream;
         readonly PEReader _peReader;
         readonly MetadataReader _metadataReader;
+        readonly bool _ownsReaders;
 
         public MethodBodyLookup(string path)
         {
             _stream = File.OpenRead(path);
             _peReader = new PEReader(_stream, PEStreamOptions.PrefetchEntireImage);
             _metadataReader = _peReader.GetMetadataReader();
+            _ownsReaders = true;
+        }
+
+        public MethodBodyLookup(BodyIndexEntry entry)
+        {
+            if (entry.Source is null)
+            {
+                _stream = File.OpenRead(entry.Path);
+                _peReader = new PEReader(
+                    _stream,
+                    PEStreamOptions.PrefetchEntireImage);
+                _metadataReader = _peReader.GetMetadataReader();
+                _ownsReaders = true;
+                return;
+            }
+
+            _peReader = entry.Source.Pe;
+            _metadataReader = entry.Source.Reader;
         }
 
         public MetadataReader MetadataReader => _metadataReader;
@@ -1694,8 +1758,11 @@ public static class ResearchDiff
 
         public void Dispose()
         {
+            if (!_ownsReaders)
+                return;
+
             _peReader.Dispose();
-            _stream.Dispose();
+            _stream!.Dispose();
         }
     }
 }

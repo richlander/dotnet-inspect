@@ -30,6 +30,7 @@ public enum FixtureBoundary
     TargetFramework,
     UntrustedText,
     VersionPair,
+    SourceLinkMap,
 }
 
 public sealed record FixtureAsset(string Name, string ProjectName, string RelativePath);
@@ -61,6 +62,7 @@ public static class FixtureIds
     public const string AnalysisCallerGraphIndirectCaller = "analysis.caller-graph.indirect-caller";
     public const string AnalysisCallerGraphLookalikeCaller = "analysis.caller-graph.lookalike-caller";
     public const string AnalysisCallerGraphTarget = "analysis.caller-graph.target";
+    public const string AnalysisCallerGraphTargetV2 = "analysis.caller-graph.target-v2";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
     public const string AnalysisCrossAsmCollision = "analysis.cross-asm-collision";
     public const string AnalysisCrossAsmShape = "analysis.cross-asm-shape";
@@ -92,6 +94,8 @@ public static class FixtureIds
     public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
     public const string HostileLiterals = "hostile.literals";
+    public const string SourceLinkMalformed = "sourcelink.malformed";
+    public const string SourceLinkNormalized = "sourcelink.normalized";
 
     public const string RunFasterAllocation = "runfaster.allocation";
 }
@@ -120,6 +124,20 @@ public static class FixtureCatalog
         "DotnetInspector.HostileNameFixtures.dll",
         Boundaries(FixtureBoundary.UntrustedText),
         "presentation", "untrusted-input");
+
+    public static readonly FixtureDefinition SourceLinkMalformed = Fixture(
+        FixtureIds.SourceLinkMalformed,
+        "DotnetInspector.SourceLinkMalformedFixtures",
+        "DotnetInspector.SourceLinkMalformedFixtures.dll",
+        Boundaries(FixtureBoundary.SourceLinkMap),
+        "sourcelink", "malformed-map");
+
+    public static readonly FixtureDefinition SourceLinkNormalized = Fixture(
+        FixtureIds.SourceLinkNormalized,
+        "DotnetInspector.SourceLinkNormalizedFixtures",
+        "DotnetInspector.SourceLinkNormalizedFixtures.dll",
+        Boundaries(FixtureBoundary.SourceLinkMap),
+        "sourcelink", "normalized-map");
 
     public static readonly FixtureDefinition DiffV1 = Fixture(
         FixtureIds.DiffV1,
@@ -197,6 +215,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.CallerGraphTarget.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "target");
+
+    public static readonly FixtureDefinition AnalysisCallerGraphTargetV2 = Fixture(
+        FixtureIds.AnalysisCallerGraphTargetV2,
+        "ILInspector.Analysis.CallerGraphTargetV2",
+        "ILInspector.Analysis.CallerGraphTarget.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
+        "analysis", "caller-graph", "target", "version-skew");
 
     public static readonly FixtureDefinition AnalysisCallerLoop = Fixture(
         FixtureIds.AnalysisCallerLoop,
@@ -395,6 +420,8 @@ public static class FixtureCatalog
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
         HostileLiterals,
+        SourceLinkMalformed,
+        SourceLinkNormalized,
         DiffV1,
         DiffV2,
         DiffAsmCaller,
@@ -406,6 +433,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphIndirectCaller,
         AnalysisCallerGraphLookalikeCaller,
         AnalysisCallerGraphTarget,
+        AnalysisCallerGraphTargetV2,
         AnalysisCallerLoop,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
@@ -447,6 +475,7 @@ public static class FixtureCatalog
         "analysis",
         [
             AnalysisCallerGraphTarget,
+            AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisCallerGraphCallerTwin,
             AnalysisCallerGraphIndirectCaller,

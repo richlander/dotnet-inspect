@@ -11,6 +11,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using Markout;
+using Markout.Formatting;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -45,7 +46,8 @@ public class ApiCommand
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
+            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
+            MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
@@ -247,18 +249,20 @@ public class ApiCommand
         // same shape for a 250-member class and an 8-member enum, where the member sections it used
         // to render varied from one section to eight.
         //
-        // Two neighbours are deliberately left alone. `member` shares this preamble but is a
-        // different command with its own overview (decompiled source, signature, learn order), so it
-        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
-        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
-        // convert. See #3547.
+        // Selected member details join the fixed overview here: Signature is bounded, while the
+        // former info preset also included Decompiled Source and therefore grew with the method
+        // body. Broad member lists and member-name overload inventories retain their own compact
+        // summary presets; they need separate bounded overview designs. The deprecated `api` shim
+        // reaches this preamble too but renders nothing at all -- it prints a migration notice and
+        // returns -- so it has no bare -S to convert. See #3547.
         //
         // Type listing joins here as of this slice. It previously had no Fixed section to offer --
         // every section it published was a per-kind member table that grows with the assembly -- so
         // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
         // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
         // mean the same thing here that it means everywhere else.
-        var usesFixedOverview = options is TypeOptions;
+        var usesFixedOverview = options is TypeOptions
+            || ApiMemberSectionPipelines.UsesDetailPipeline(options);
         var bareSelectSections = usesFixedOverview
             ? singleTypeMode
                 ? memberPipeline.FixedOverviewSectionNames
@@ -372,6 +376,15 @@ public class ApiCommand
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
+        if (options is MemberOptions memberFormat
+            && options.Discover is null)
+        {
+            memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
+            options = memberFormat;
+            if (!ValidateMemberGraphFormat(memberFormat, selectionSections))
+                return (null!, 1);
+        }
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -411,9 +424,10 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
-        // --readable-names is orthogonal to the style axes the config/--taste cover
-        // (it names V_index locals, not a byte-divergent lens), so it applies on top
-        // of whatever those resolved and never has to be re-checked against them.
+        // Readable local names are the user-facing CLI default. Library, harness,
+        // fidelity, and corpus paths keep PrinterOptions.Default (V_index), while
+        // an explicit config value of false restores slot names for CLI rendering.
+        // --readable-names is the one-run override for that configuration.
         if (options.RequestReadableLocalNames)
             renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with
@@ -425,6 +439,79 @@ public class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static bool ValidateMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree)
+        {
+            if (options.FormatFlagExplicitlySet)
+            {
+                CommandError.Write(
+                    "--tree is a standalone output format and cannot combine with another output format.");
+                return false;
+            }
+
+            if (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "--tree requires exactly one selected tree shape.",
+                    "Use -S \"Call Graph\" --tree.");
+                return false;
+            }
+        }
+
+        if (options.MermaidOutput
+            && (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--mermaid requires exactly one selected graph.",
+                "Use -S \"Call Graph\" --mermaid.");
+            return false;
+        }
+
+        if (options.EmbeddedMermaid
+            && (sections is null
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--markdown --mermaid requires the Call Graph section.",
+                "Select it with -S \"Call Graph\"; other Markdown sections may be selected with it.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static MemberOptions NormalizeMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree && !options.FormatFlagExplicitlySet)
+        {
+            return options with
+            {
+                JsonOutput = false,
+                Tabular = false,
+                Tsv = false,
+                Jsonl = false,
+                TabularExplicitlySet = false,
+                PlainText = false,
+                MermaidOutput = false,
+            };
+        }
+
+        bool onlyCallGraph =
+            sections is { Count: 1 }
+            && sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase);
+        if (options.MermaidOutput && !options.FormatFlagExplicitlySet && !onlyCallGraph)
+            return options with { MermaidOutput = false };
+
+        return options;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -660,8 +747,13 @@ public class ApiCommand
     /// null when no PDB can be obtained (offline, Windows PDB, no symbols).
     /// </summary>
     internal static async Task<string?> TryAcquirePdbPathAsync(
-        string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+        string dllPath,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var service = SourceLinkService.Open(dllPath, logger.Log);
@@ -672,9 +764,15 @@ public class ApiCommand
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
                 await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    cancellationToken: cancellationToken);
             }
             return context.PortablePdbPath;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -738,10 +836,10 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
             if (!TryReportEmptyProjection(markdown, options))
                 return 1;
-            markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
         else if (options.Tabular)
@@ -792,10 +890,14 @@ public class ApiCommand
             }
             else
             {
-                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+                var markdownWriter = new StringWriter { NewLine = "\n" };
+                MarkoutSerializer.Serialize(
+                    view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
+                var markdown = markdownWriter.ToString().TrimEnd();
                 if (!TryReportEmptyProjection(markdown, options))
                     return 1;
-                OutputFormatter.WriteLimitedMarkdown(Console.Out, markdown, options.Rows);
+                OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
 
@@ -935,7 +1037,8 @@ public class ApiCommand
 
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,
                     pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
 
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local
@@ -1051,13 +1154,29 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (options is TypeOptions { ShapeOutput: true } && !options.Count)
+        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
+            CommandError.Write(
+                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+            return 1;
+        }
+
+        if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
+        {
+            ApiOutputFormatter.WriteShapeOutput(
+                type,
+                foundIn,
+                packageName,
+                packageVersion,
+                options.MemberFilter,
+                options.KindFilter,
+                options.Verbosity,
+                typeOptions.MemberLimit);
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
+        bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
@@ -1235,6 +1354,22 @@ public class ApiCommand
 
         }
 
+        if (sourceDocumentJson)
+        {
+            if (view.MemberCode?.AnnotatedSourceDocument is not { } sourceDocument)
+            {
+                CommandError.Write(AnnotatedSourceDocumentError(view.MemberCode));
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                sourceDocument,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                options.CompactJson);
+            return 0;
+        }
+
         // Whole-type decompilation (type command; member flows populate per
         // member above). Explicit-only: requires -S "Decompiled Source".
         // Sits OUTSIDE the member-sections region so enum types (which
@@ -1262,21 +1397,72 @@ public class ApiCommand
         }
 
         if (options.Print)
-            return await PrintApiProjectionAsync(view, options);
+        {
+            int result = await PrintApiProjectionAsync(view, options);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
 
         if (options.Value || options.Urls || options.Paths)
-            return WriteApiShapeProjection(view, options);
+        {
+            int result = WriteApiShapeProjection(view, options);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
 
         if (options.Count)
         {
+            // A call graph declares edge rows in its projection. Count those rows directly
+            // rather than scanning any rendered lowering, whose syntax cannot answer the
+            // row question.
+            if (options.IncludeSections is { Count: 1 } sections
+                && sections.Contains(SectionNames.CallGraph)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                CountOutput.WriteCount(graphRows);
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
+            }
+
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
-            CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
+            CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+        }
+
+        if (options is MemberOptions { Tree: true } or { MermaidOutput: true })
+        {
+            var graph = view.MemberCode?.CallGraph;
+            if (graph is null)
+            {
+                CommandError.Write(
+                    "Call Graph output requires exactly one selected method overload.",
+                    "Select an overload by Name:N, Name~digest, or --index N.");
+                return 1;
+            }
+
+            if (graph.IsEmpty)
+            {
+                sink.WriteLine("No inbound callers or outbound calls found for this method.");
+            }
+            else
+            {
+                IMarkoutFormatter formatter = options.Tree
+                    ? new PlainTextFormatter()
+                    : new MermaidFormatter();
+                var graphWriter = new MarkoutWriter(sink, formatter);
+                graphWriter.WriteGraph(graph);
+                graphWriter.Flush();
+            }
+
+            ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
 
@@ -1291,6 +1477,7 @@ public class ApiCommand
             // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
             // it with LF too so --bare stays byte-stable for machine consumers.
             OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
 
@@ -1333,27 +1520,30 @@ public class ApiCommand
             }
             else
             {
+                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
+                }
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    writerOptions.SectionOrder = pipeline.InfoSectionNames;
+                }
+
+                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
-                }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
-                }
-                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, markdown);
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
+        ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
     }
 
@@ -2086,6 +2276,7 @@ public class ApiCommand
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
+
         else if (members != type.Members)
         {
             outputType = new ApiType
@@ -2125,11 +2316,45 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
 
+    private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+
+    private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && (sections.Count != 1
+               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+
+    private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
+        => options.Select is { Length: > 0 } selectors
+           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
+        => selector.Equals(
+            SectionNames.AnnotatedSourceDocument,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    internal static string AnnotatedSourceDocumentError(MemberCodeView? memberCode)
+        => memberCode?.AnnotatedSourceDocumentFailure is { } failure
+            ? string.Join(
+                "; ",
+                failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
+            : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

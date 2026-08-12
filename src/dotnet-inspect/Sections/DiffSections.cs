@@ -1,19 +1,95 @@
+using DotnetInspector.Queries;
+using ILInspector.Metadata;
 using Markout;
 
 namespace DotnetInspector.Sections;
 
 public sealed record DiffDiscoveryModel;
 
+public sealed class DiffQueryContext
+{
+    readonly Func<BodySignalComparisonInput>? _createBodySignalComparisonInput;
+    readonly Func<ImplementationComparisonInput>?
+        _createImplementationComparisonInput;
+    BodySignalComparisonInput? _bodySignalComparisonInput;
+    ImplementationComparisonInput? _implementationComparisonInput;
+
+    public DiffQueryContext(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        Func<BodySignalComparisonInput>? createBodySignalComparisonInput = null,
+        Func<ImplementationComparisonInput>?
+            createImplementationComparisonInput = null)
+    {
+        FromSurface = fromSurface ?? throw new ArgumentNullException(nameof(fromSurface));
+        ToSurface = toSurface ?? throw new ArgumentNullException(nameof(toSurface));
+        _createBodySignalComparisonInput = createBodySignalComparisonInput;
+        _createImplementationComparisonInput =
+            createImplementationComparisonInput;
+    }
+
+    public ApiSurface FromSurface { get; }
+    public ApiSurface ToSurface { get; }
+
+    public BodySignalComparisonInput GetBodySignalComparisonInput()
+        => _bodySignalComparisonInput ??=
+            (_createBodySignalComparisonInput
+                ?? throw new InspectionQueryException(
+                    "Body signal comparison input was not provided."))();
+
+    public ImplementationComparisonInput GetImplementationComparisonInput()
+        => _implementationComparisonInput ??=
+            (_createImplementationComparisonInput
+                ?? throw new InspectionQueryException(
+                    "Implementation comparison input was not provided."))();
+}
+
+public sealed record DiffSectionCatalog(
+    SectionPipeline<DiffDiscoveryModel> Pipeline,
+    InspectionQueryRegistry<DiffQueryContext> QueryRegistry);
+
 public static class DiffSections
 {
+    public static DiffSectionCatalog CreateCatalog()
+    {
+        var queryRegistry = CreateQueryRegistry();
+        return new DiffSectionCatalog(
+            CreatePipeline(queryRegistry.CostOf),
+            queryRegistry);
+    }
+
     public static SectionPipeline<DiffDiscoveryModel> CreatePipeline()
     {
+        var queryRegistry = CreateQueryRegistry();
+        return CreatePipeline(queryRegistry.CostOf);
+    }
+
+    private static SectionPipeline<DiffDiscoveryModel> CreatePipeline(
+        Func<InspectionQueryDefinition, InspectionCost> queryCost)
+    {
         return new SectionPipeline<DiffDiscoveryModel>()
-            .Add<Changes>()
-            .Add<AnalysisDiff>()
-            .Add<ImplementationDiff>()
+            .UseQueryCosts(queryCost)
+            .Add<Changes>(ApiComparisonQuery.Definition)
+            .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
+            .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
             .Add<FindingTransitions>();
     }
+
+    public static InspectionQueryRegistry<DiffQueryContext> CreateQueryRegistry()
+        => new InspectionQueryRegistry<DiffQueryContext>()
+            .Add(
+                ApiComparisonQuery.Definition,
+                static context => ApiComparisonQuery.Execute(
+                    context.FromSurface,
+                    context.ToSurface))
+            .Add(
+                BodySignalComparisonQuery.Definition,
+                static context => BodySignalComparisonQuery.Execute(
+                    context.GetBodySignalComparisonInput()))
+            .Add(
+                ImplementationComparisonQuery.Definition,
+                static context => ImplementationComparisonQuery.Execute(
+                    context.GetImplementationComparisonInput()));
 
     public static DocumentSchema CreateSchema()
     {

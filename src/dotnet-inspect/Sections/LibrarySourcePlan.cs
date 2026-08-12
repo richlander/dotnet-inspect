@@ -14,8 +14,6 @@ internal enum LibrarySourcePlanModes
 
 internal readonly record struct LibrarySourcePlan(
     bool AllowPdbDownload,
-    bool RunHeadAudit,
-    bool RunIntegrity,
     bool CollectSourceFiles,
     bool ReadCachedPdb);
 
@@ -23,9 +21,8 @@ internal readonly record struct LibrarySourceSectionPlan(
     string Name,
     LibrarySourcePlanModes Modes,
     bool DownloadPdb,
-    bool AuditSources,
-    bool VerifyIntegrity,
-    bool CollectSourceFiles);
+    bool CollectSourceFiles,
+    bool ReadCachedPdb);
 
 internal static class LibrarySourcePlans
 {
@@ -33,22 +30,22 @@ internal static class LibrarySourcePlans
     [
         Section<LibrarySections.ILOffset>(downloadPdb: true),
         Section<LibrarySections.SourceFiles>(downloadPdb: true, collectSourceFiles: true),
+        Section<LibrarySections.SourceLinkDiagnostics>(readCachedPdb: true),
         Section<LibrarySections.Symbols>(downloadPdb: true),
         Section<LibrarySections.Signals>(downloadPdb: true),
-        Section<LibrarySections.SourceLinkAudit>(downloadPdb: true, auditSources: true),
-        Section<LibrarySections.MissingSourceFiles>(downloadPdb: true, auditSources: true),
-        Section<LibrarySections.SourceIntegrity>(downloadPdb: true, verifyIntegrity: true),
+        Section<LibrarySections.NonNormalizedPaths>(readCachedPdb: true),
     ];
 
     internal static ReadOnlySpan<LibrarySourceSectionPlan> Sections => s_sections;
+
+    internal static LibrarySourcePlan For(LibraryOptions options)
+        => For(options.UserVerbosity, options.UserIncludeSections);
 
     internal static LibrarySourcePlan For(
         Verbosity userVerbosity,
         HashSet<string>? include)
     {
         bool downloadPdb = false;
-        bool auditSources = false;
-        bool verifyIntegrity = false;
         bool collectSourceFiles = false;
         bool hasExplicitSelection = include is { Count: > 0 };
         var mode = hasExplicitSelection
@@ -65,7 +62,7 @@ internal static class LibrarySourcePlans
         bool readCachedPdb = !hasExplicitSelection && userVerbosity >= Verbosity.Normal;
 
         if (mode == LibrarySourcePlanModes.None)
-            return new LibrarySourcePlan(false, false, false, false, readCachedPdb);
+            return new LibrarySourcePlan(false, false, readCachedPdb);
 
         foreach (var section in s_sections)
         {
@@ -76,24 +73,20 @@ internal static class LibrarySourcePlans
                 continue;
 
             downloadPdb |= section.DownloadPdb;
-            auditSources |= section.AuditSources;
-            verifyIntegrity |= section.VerifyIntegrity;
             collectSourceFiles |= section.CollectSourceFiles;
+            readCachedPdb |= section.ReadCachedPdb;
         }
 
         return new LibrarySourcePlan(
             downloadPdb,
-            auditSources,
-            verifyIntegrity,
             collectSourceFiles,
             readCachedPdb);
     }
 
     private static LibrarySourceSectionPlan Section<TDescriptor>(
         bool downloadPdb = false,
-        bool auditSources = false,
-        bool verifyIntegrity = false,
-        bool collectSourceFiles = false)
+        bool collectSourceFiles = false,
+        bool readCachedPdb = false)
         where TDescriptor : ISectionDescriptor<LibraryInspection>
         => new(
             TDescriptor.Name,
@@ -101,7 +94,6 @@ internal static class LibrarySourcePlans
                 ? LibrarySourcePlanModes.Explicit
                 : LibrarySourcePlanModes.All,
             downloadPdb,
-            auditSources,
-            verifyIntegrity,
-            collectSourceFiles);
+            collectSourceFiles,
+            readCachedPdb);
 }

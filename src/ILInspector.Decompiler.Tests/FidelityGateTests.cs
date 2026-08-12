@@ -55,6 +55,15 @@ public class FidelityGateTests
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
         "GotoCommonExit",
+        // #3514: the compiler-backed reference-type switch witness proves the
+        // missing shared default is restored and the body compiles, but the
+        // valid nested-if form re-lowers with direct returns rather than csc's
+        // original result-temp convergence.
+        "GuardedTypeAfterSibling",
+        // #3840: retaining the externally entered shared return makes the
+        // compiler-backed coalesce witness valid, but the structured form
+        // materializes the non-null value in a local before returning it.
+        "ConditionalWithCoalescedFallback",
         // This hand-written await-enumerator loop recompiles through the same
         // runtime-async shape but schedules the receiver load after the
         // enumerator-local initialization rather than before it.
@@ -493,6 +502,9 @@ public class FidelityGateTests
         "StatementBodyLambdaInsideIf",
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
+        // #4008: the terminal bare return is preserved as the switch join, so
+        // recompilation restores csc's direct table-to-final-ret layout.
+        "TerminalSwitchBreakToReturn",
         "TwoLocalFunctionQuadrants",
     };
 

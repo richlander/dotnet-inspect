@@ -23,6 +23,16 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Opens a session from a resolved assembly reference (path or stream opener).</summary>
     public static AssemblyInspectionSession Open(ResolvedAssemblyReference reference) => new(AssemblyImage.Open(reference));
 
+    /// <summary>
+    /// Opens a session over an immutable image snapshot without reopening its acquisition source.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots</c>.
+    /// </remarks>
+    public static AssemblyInspectionSession Open(AssemblyImageSnapshot snapshot) =>
+        new(AssemblyImage.Open(snapshot));
+
     internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
 
@@ -69,6 +79,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public AssemblyInfo AssemblyInfo(bool includeReferences = false)
         => AssemblyInspector.ExtractAssemblyInfo(_image.PEReader, includeReferences);
 
+    /// <summary>Direct assembly references without decoding unrelated assembly facts.</summary>
+    public List<AssemblyReference> AssemblyReferences()
+        => AssemblyInspector.ExtractReferences(_image.PEReader);
+
     /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
@@ -84,7 +98,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
-        => ResourceScanner.Scan(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return ResourceScanner.Scan(_image.PEReader);
+    }
 
     /// <summary>
     /// Extracts embedded manifest resources beneath a directory without allowing
@@ -112,6 +129,14 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<EcosystemIntegrationSignalInfo> EcosystemIntegrations()
         => EcosystemIntegrationScanner.Scan(_image.PEReader);
 
+    /// <summary>Presence flags summarized from grouped integration evidence.</summary>
+    public EcosystemIntegrationPresence EcosystemIntegrationPresence(
+        IEnumerable<EcosystemIntegrationSignalInfo> ecosystemSignals)
+        => EcosystemIntegrationScanner.SummarizePresence(
+            _image.PEReader,
+            ecosystemSignals,
+            OpenTelemetryScanner.HasSupport(_image.PEReader));
+
     /// <summary>Integration opportunities, excluding already-present integrations.</summary>
     public List<IntegrationOpportunityInfo> IntegrationOpportunities(IReadOnlySet<string> existingIntegrations)
         => IntegrationOpportunityScanner.Scan(_image.PEReader, existingIntegrations);
@@ -123,6 +148,26 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Extension methods.</summary>
     public IEnumerable<ExtensionMethodInfo> ExtensionMethods(bool includeAll = false)
         => ExtensionMethodScanner.FindAllExtensions(_image.PEReader, includeAll);
+
+    /// <summary>Image-local type addresses for lazy extension reachability.</summary>
+    public IReadOnlyList<ExtensionReachabilityType> ExtensionReachabilityTypes()
+        => ExtensionMethodScanner.IndexReachableTypes(_image.PEReader);
+
+    /// <summary>Reachable public-member edges for one image-local type address.</summary>
+    public IReadOnlyList<ExtensionReachabilityEdge> ExtensionReachabilityEdges(
+        int metadataToken)
+        => ExtensionMethodScanner.FindReachableEdges(
+            _image.PEReader,
+            metadataToken);
+
+    /// <summary>Types that directly implement or extend the requested type.</summary>
+    public IEnumerable<TypeRelationship> Implementers(
+        string targetType,
+        bool includeHidden = false)
+        => TypeHierarchyScanner.FindImplementers(
+            _image.PEReader,
+            targetType,
+            includeHidden);
 
     /// <summary>Assembly-level custom attributes.</summary>
     public List<AssemblyAttributeInfo> CustomAttributes()

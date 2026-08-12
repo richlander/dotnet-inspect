@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -5,16 +6,30 @@ using System.Net.Sockets;
 namespace DotnetInspector.Core;
 
 /// <summary>
+/// Process-wide configuration captured by clients when they are constructed.
+/// </summary>
+public sealed record HttpClientFactoryOptions
+{
+    public static TimeSpan BaselineTimeout { get; } = TimeSpan.FromSeconds(30);
+
+    public bool Offline { get; init; }
+
+    public TimeSpan DefaultTimeout { get; init; } = BaselineTimeout;
+}
+
+/// <summary>
 /// Factory for creating HttpClient instances with consistent configuration.
-/// Call <see cref="Initialize"/> once at startup to configure offline mode.
+/// Call <see cref="Initialize"/> once at startup to configure new clients.
 /// </summary>
 public static class HttpClientFactory
 {
     private const string UserAgent = "dotnet-inspect";
-    private static bool _offline;
+    private static HttpClientFactoryOptions _options = new();
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
     private static HttpClient? _untrustedFetchOverride;
+    private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
+        _packageSourceClients = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
     private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
 
@@ -22,12 +37,25 @@ public static class HttpClientFactory
     /// Configure the factory before first use. Safe to call multiple times;
     /// the shared instance is created lazily on first access.
     /// </summary>
-    public static void Initialize(bool offline = false)
+    /// <param name="options">Configuration captured by clients constructed after this call.</param>
+    /// <remarks>
+    /// "Before first use" is a real precondition, not advice, and it covers both settings.
+    /// Each is consumed when a client is constructed rather than per request:
+    /// <see cref="HttpClientFactoryOptions.DefaultTimeout"/> becomes <see cref="HttpClient.Timeout"/>,
+    /// and <see cref="HttpClientFactoryOptions.Offline"/> decides whether an offline handler joins
+    /// the chain. A call made once <see cref="Shared"/> exists therefore governs later <see cref="CreateClient"/>
+    /// calls and leaves that instance alone. <see cref="ResetSharedForTesting"/> is how the
+    /// tests reconfigure; the CLI is unaffected because <c>Program.cs</c> calls this in
+    /// top-level code before any command runs. Pinned by
+    /// <c>HttpClientFactoryTests.Initialize_OnceSharedExists_GovernsOnlyLaterClients</c>.
+    /// </remarks>
+    public static void Initialize(HttpClientFactoryOptions options)
     {
-        _offline = offline;
+        ArgumentNullException.ThrowIfNull(options);
+        _options = options;
     }
 
-    public static bool IsOffline => _offline;
+    public static bool IsOffline => _options.Offline;
 
     /// <summary>
     /// Installs a decorator around the outermost handler of shared clients, so that a source
@@ -89,6 +117,12 @@ public static class HttpClientFactory
         _shared = null;
         _sharedUntrustedFetch = null;
         _untrustedFetchOverride = null;
+        foreach (Lazy<HttpClient> client in _packageSourceClients.Values)
+        {
+            if (client.IsValueCreated)
+                client.Value.Dispose();
+        }
+        _packageSourceClients.Clear();
         _networkTrafficLoggingSubscription?.Dispose();
         _networkTrafficLoggingSubscription = null;
     }
@@ -97,7 +131,7 @@ public static class HttpClientFactory
     /// Gets the shared HttpClient instance for the application.
     /// This instance should be used throughout the app lifetime and not disposed.
     /// </summary>
-    public static HttpClient Shared => _shared ??= CreateNew();
+    public static HttpClient Shared => _shared ??= CreateClient();
 
     /// <summary>
     /// Shared, process-lifetime SSRF-hardened client for fetching content from URLs that originate
@@ -128,14 +162,15 @@ public static class HttpClientFactory
     /// In offline mode, all requests will throw <see cref="OfflineException"/>.
     /// When traffic logging is enabled (DEBUG startup), requests log their traffic kind and URL to stderr.
     /// </summary>
-    public static HttpClient CreateNew(TimeSpan? timeout = null)
+    public static HttpClient CreateClient()
     {
+        HttpClientFactoryOptions options = _options;
         HttpMessageHandler handler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.All
         };
 
-        if (_offline)
+        if (options.Offline)
             handler = new OfflineHandler(handler);
 
         if (InfoTracker.Enabled)
@@ -152,7 +187,7 @@ public static class HttpClientFactory
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
+        client.Timeout = options.DefaultTimeout;
         return client;
     }
 
@@ -162,17 +197,17 @@ public static class HttpClientFactory
     /// including redirect hops — is validated to resolve to a public IP address, and automatic
     /// redirects are capped. Offline mode and DEBUG traffic logging are still honored.
     /// </summary>
-    public static HttpClient CreateUntrustedFetchClient(TimeSpan? timeout = null)
+    /// <remarks>
+    /// The 30 second default here is fixed on purpose. It does not follow
+    /// <see cref="HttpClientFactoryOptions.DefaultTimeout"/>, because the URLs this client visits
+    /// come from untrusted artifacts rather than from a feed the operator chose. Pinned by
+    /// <c>HttpClientFactoryTests.CreateUntrustedFetchClient_DoesNotFollowTheConfiguredDefaultTimeout</c>.
+    /// </remarks>
+    public static HttpClient CreateUntrustedFetchClient()
     {
-        HttpMessageHandler handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.All,
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 5,
-            ConnectCallback = SsrfGuardedConnectAsync,
-        };
+        HttpMessageHandler handler = CreateUntrustedSocketsHandler();
 
-        if (_offline)
+        if (_options.Offline)
             handler = new OfflineHandler(handler);
 
         if (InfoTracker.Enabled)
@@ -182,23 +217,131 @@ public static class HttpClientFactory
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
+        client.Timeout = HttpClientFactoryOptions.BaselineTimeout;
         return client;
+    }
+
+    internal static SocketsHttpHandler CreateUntrustedSocketsHandler() =>
+        new()
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            UseProxy = false,
+            ConnectCallback = SsrfGuardedConnectAsync,
+        };
+
+    /// <summary>
+    /// Gets the process-lifetime credential-capable client for one explicitly configured
+    /// package-source origin.
+    /// </summary>
+    /// <remarks>
+    /// Clients are shared by scheme, host, and port so package audits reuse DNS, TCP, and TLS
+    /// state without extending the private-address exception to another origin. Do not dispose
+    /// the returned client.
+    /// </remarks>
+    public static HttpClient GetPackageSourceClient(string sourceUrl)
+    {
+        Uri source = ParsePackageSource(sourceUrl);
+        string originKey =
+            $"{source.Scheme.ToLowerInvariant()}\n"
+            + $"{source.IdnHost.ToLowerInvariant()}\n"
+            + source.Port;
+        var candidate = new Lazy<HttpClient>(
+            () => CreatePackageSourceClient(source.AbsoluteUri),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        return _packageSourceClients.GetOrAdd(originKey, candidate).Value;
+    }
+
+    /// <summary>
+    /// Creates a credential-capable client for one explicitly configured package-source origin.
+    /// Connections to that exact host and port may use private addresses; redirect and cross-origin
+    /// connections must resolve entirely to public addresses.
+    /// </summary>
+    /// <remarks>The caller owns and must dispose the returned client.</remarks>
+    public static HttpClient CreatePackageSourceClient(string sourceUrl)
+    {
+        Uri source = ParsePackageSource(sourceUrl);
+
+        string trustedHost = source.IdnHost;
+        int trustedPort = source.Port;
+        HttpMessageHandler handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            UseProxy = false,
+            ConnectCallback = (context, cancellationToken) =>
+                ConnectWithTrustedOriginAsync(
+                    context,
+                    trustedHost,
+                    trustedPort,
+                    cancellationToken),
+        };
+
+        if (_options.Offline)
+            handler = new OfflineHandler(handler);
+
+        if (InfoTracker.Enabled)
+            handler = new CountingHandler(handler);
+
+        handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
+
+        if (_authenticationDecorator is not null)
+            handler = _authenticationDecorator(handler);
+
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.Timeout = _options.DefaultTimeout;
+        return client;
+    }
+
+    private static Uri ParsePackageSource(string sourceUrl)
+    {
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            || source.Scheme is not ("http" or "https"))
+        {
+            throw new ArgumentException(
+                "Package source must be an absolute HTTP or HTTPS URL.",
+                nameof(sourceUrl));
+        }
+
+        return source;
     }
 
     private static async ValueTask<Stream> SsrfGuardedConnectAsync(
         SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+        => await ConnectWithTrustedOriginAsync(
+            context,
+            trustedHost: null,
+            trustedPort: null,
+            cancellationToken).ConfigureAwait(false);
+
+    private static async ValueTask<Stream> ConnectWithTrustedOriginAsync(
+        SocketsHttpConnectionContext context,
+        string? trustedHost,
+        int? trustedPort,
+        CancellationToken cancellationToken)
     {
         var endpoint = context.DnsEndPoint;
         var addresses = await Dns.GetHostAddressesAsync(endpoint.Host, cancellationToken).ConfigureAwait(false);
         if (addresses.Length == 0)
             throw new HttpRequestException($"Could not resolve host: {endpoint.Host}");
 
-        foreach (var address in addresses)
+        bool isTrustedOrigin = trustedHost is not null
+            && endpoint.Port == trustedPort
+            && string.Equals(
+                endpoint.Host,
+                trustedHost,
+                StringComparison.OrdinalIgnoreCase);
+        if (!isTrustedOrigin)
         {
-            if (IsNonPublic(address))
-                throw new HttpRequestException(
-                    $"Blocked request to non-public address: {endpoint.Host} resolves to {address}");
+            foreach (var address in addresses)
+            {
+                if (IsNonPublic(address))
+                    throw new HttpRequestException(
+                        $"Blocked request to non-public address: {endpoint.Host} resolves to {address}");
+            }
         }
 
         var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };

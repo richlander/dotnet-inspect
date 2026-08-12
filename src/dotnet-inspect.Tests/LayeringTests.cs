@@ -3,7 +3,9 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 
 namespace DotnetInspector.Tests;
 
@@ -21,18 +23,53 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void CoreQueries_DoNotAcquireResearchOrDecompilerProjects()
+    {
+        string project = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "DotnetInspector.Queries",
+            "DotnetInspector.Queries.csproj");
+        string[] closure = CommandErrorOwnershipTests.ProjectClosure(project)
+            .Select(path => Path.GetFileNameWithoutExtension(path)!)
+            .ToArray();
+
+        Assert.DoesNotContain("ILInspector.Research", closure);
+        Assert.DoesNotContain("ILInspector.Decompiler", closure);
+        Assert.Equal(
+            "DotnetInspector.Queries",
+            typeof(ApiComparisonQuery).Assembly.GetName().Name);
+    }
+
+    [Fact]
+    public void ImplementationQuery_ReturnsResearchOwnedPresentationNeutralResult()
+    {
+        Assert.Equal(
+            "ILInspector.Research",
+            typeof(ImplementationDiffResult).Assembly.GetName().Name);
+        Assert.DoesNotContain(
+            typeof(ImplementationDiffResult).Assembly
+                .GetReferencedAssemblies(),
+            reference => reference.Name == "Markout");
+    }
+
+    [Fact]
     public void Metadata_FriendsOnlyTestAssemblies()
     {
-        var friends = typeof(AssemblyInspectionSession).Assembly
+        string[] friends = typeof(AssemblyInspectionSession).Assembly
             .GetCustomAttributes(typeof(InternalsVisibleToAttribute), inherit: false)
             .Cast<InternalsVisibleToAttribute>()
             .Select(attribute => attribute.AssemblyName.Split(',')[0])
-            .ToList();
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] expected =
+        [
+            "DotnetInspector.MetadataRendering.Tests",
+            "ILInspector.Metadata.Tests",
+            "dotnet-inspect.Tests",
+        ];
 
-        Assert.DoesNotContain("dotnet-inspect", friends);
-        Assert.DoesNotContain("ILInspector.Research", friends);
-        Assert.Contains("dotnet-inspect.Tests", friends);
-        Assert.Contains("ILInspector.Metadata.Tests", friends);
+        Assert.Equal(expected, friends);
     }
 
     [Fact]

@@ -5,6 +5,24 @@ using NuGet.Versioning;
 namespace DotnetInspector.Packages;
 
 /// <summary>
+/// Indicates that no configured package source supplied version metadata for a package.
+/// </summary>
+public sealed class PackageVersionsUnavailableException(
+    string packageId,
+    bool hasIncompleteMetadata)
+    : InvalidOperationException(
+        $"Could not retrieve versions for package '{packageId}'.")
+{
+    /// <summary>The package whose version metadata was unavailable.</summary>
+    public string PackageId { get; } = packageId;
+
+    /// <summary>
+    /// Whether a source returned a version list whose listing metadata was incomplete.
+    /// </summary>
+    public bool HasIncompleteMetadata { get; } = hasIncompleteMetadata;
+}
+
+/// <summary>
 /// An inclusive package-version range supplied in the familiar <c>Package@A..B</c> form.
 /// </summary>
 public sealed record PackageVersionRange
@@ -76,16 +94,21 @@ public sealed record PackageVersionRange
 /// </summary>
 public sealed record PackageVersionAddress
 {
-    internal PackageVersionAddress(int position, NuGetVersion version)
+    internal PackageVersionAddress(
+        int position,
+        NuGetVersion version,
+        IReadOnlyList<string>? reportingSourceUrls = null)
     {
         Position = position;
         Version = version;
+        ReportingSourceUrls = reportingSourceUrls ?? [];
     }
 
     public int Position { get; }
     public int Ordinal => Position + 1;
     public string Selector => $"#{Ordinal}";
     public NuGetVersion Version { get; }
+    public IReadOnlyList<string> ReportingSourceUrls { get; }
 }
 
 /// <summary>
@@ -125,18 +148,47 @@ public sealed class PackageVersionVector
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(range);
 
-        var versions = await PackageExtractor.GetVersionsAsync(
+        var (candidates, hasIncompleteMetadata) =
+            await PackageExtractor.GetVersionCandidatesAsync(
             client,
             range.PackageId,
             range.IncludesPrerelease || includePrerelease,
-            int.MaxValue,
             log,
             sourceOptions);
 
-        if (versions is null)
-            throw new InvalidOperationException($"Could not retrieve versions for package '{range.PackageId}'.");
+        if (candidates is null)
+            throw new PackageVersionsUnavailableException(
+                range.PackageId,
+                hasIncompleteMetadata);
 
-        return Create(range, versions, includePrerelease);
+        PackageVersionVector vector = Create(
+            range,
+            candidates.Select(candidate => candidate.Version),
+            includePrerelease);
+        var addresses = vector.Addresses
+            .Select(address =>
+            {
+                PackageVersionResolution candidate = candidates.Single(
+                    item => NuGetVersion.TryParse(
+                            item.Version,
+                            out var parsed)
+                        && VersionComparer.Equals(
+                            parsed,
+                            address.Version));
+                return new PackageVersionAddress(
+                    address.Position,
+                    address.Version,
+                    [
+                        .. candidate.ReportingSources.Select(
+                            source => source.Url),
+                    ]);
+            })
+            .ToImmutableArray();
+        return new PackageVersionVector(
+            vector.PackageId,
+            vector.Start,
+            vector.End,
+            addresses);
     }
 
     public static PackageVersionVector Create(

@@ -103,10 +103,6 @@ public static class MemberOptionsParser
             return new ShowHelp();
         }
 
-        IReadOnlyList<string> sourceKeys = projectSourcePath is not null
-            ? []
-            : NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
-
         // Extract positional members
         List<string> positionalMembers = [];
         if (projectSourcePath is not null && sourceInputs.Args.Length >= 2)
@@ -139,7 +135,10 @@ public static class MemberOptionsParser
         else
         {
             sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-                sourceInputs, sourceKeys, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+                sourceInputs,
+                sourceOptions,
+                parseResult.GetValue(opts.Verbose),
+                tryQualifiedTypeName: false);
             source = sourceSelection.Source;
         }
 
@@ -164,7 +163,7 @@ public static class MemberOptionsParser
             string? platformLookupFailure = null;
             var split = SharedParsers.TrySplitQualifiedTypeMember(
                 source.PackagePath,
-                sourceKeys,
+                sourceOptions,
                 allowPlatformPrefixFallback: true,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)
@@ -192,7 +191,7 @@ public static class MemberOptionsParser
             string? platformLookupFailure = null;
             var probe = SourceResolver.TryResolveQualifiedTypeName(
                 source.PackagePath,
-                sourceKeys,
+                sourceOptions,
                 allowPlatformPrefixFallback: true,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)
@@ -276,6 +275,21 @@ public static class MemberOptionsParser
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
 
+        var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
+        if (parseResult.GetValue(opts.Mermaid)
+            && (parseResult.GetValue(opts.Json)
+                || parseResult.GetValue(opts.PlainText)
+                || parseResult.GetValue(opts.Bare)
+                || parseResult.GetValue(opts.Table)
+                || parseResult.GetValue(opts.Tsv)
+                || parseResult.GetValue(opts.Jsonl)
+                || (!embeddedMermaid && parseResult.GetResult(opts.Verbosity) is { Implicit: false })))
+        {
+            return new VersionError(
+                "--mermaid is standalone unless paired with --markdown; it cannot combine with another output format.");
+        }
+
+        var outputFormat = opts.ResolveFormat(parseResult);
         var options = new MemberOptions
         {
             TypeName = typeName,
@@ -294,14 +308,17 @@ public static class MemberOptionsParser
             DocsExplicitlySet = false,
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                 && !parseResult.GetValue(opts.RawUrls),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = outputFormat == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
+            Tabular = outputFormat is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,
+            Tsv = outputFormat == OutputFormat.Tsv,
+            Jsonl = outputFormat == OutputFormat.Jsonl,
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
+            MermaidOutput = outputFormat == OutputFormat.Mermaid,
+            EmbeddedMermaid = embeddedMermaid,
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),

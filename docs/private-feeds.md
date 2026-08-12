@@ -48,8 +48,9 @@ Then use `dotnet-inspect` normally:
 dotnet-inspect package MyCompany.Widgets
 ```
 
-On a desktop machine the first run signs you in interactively and caches the token; later runs
-reuse it. On a headless machine, supply a token through the environment as shown under
+dotnet-inspect requests credentials noninteractively, matching `dotnet restore` without
+`--interactive`: it can reuse a warm provider cache or an environment-supplied token, but it never
+opens a sign-in prompt. Authenticate the provider separately or supply a token as shown under
 [Unattended and CI](#unattended-and-ci).
 
 ## Unattended and CI
@@ -113,6 +114,26 @@ Both `Username` and `ClearTextPassword` are required, even for feeds that ignore
 The source name inside `<packageSourceCredentials>` must match the `key` of the entry in
 `<packageSources>`.
 
+### Restrict package ids to feeds
+
+dotnet-inspect honors NuGet package source mapping from the selected configuration:
+
+```xml
+<packageSourceMapping>
+  <packageSource key="contoso">
+    <package pattern="Contoso.*" />
+  </packageSource>
+  <packageSource key="nuget.org">
+    <package pattern="*" />
+  </packageSource>
+</packageSourceMapping>
+```
+
+Exact package ids take priority over prefixes, and the longest matching prefix wins. Mapping
+is applied independently to top-level packages, dependencies, RID companions, platform packs,
+tool redirects, search results, and routing probes. If mapping is present, an unmatched package
+id or a mapping whose named source is not active is an error.
+
 Four forms look like they should work here and do not:
 
 | Form | What happens |
@@ -162,16 +183,19 @@ Two practical consequences:
 - `--source` and `--add-source` take part in this. A run that replaces your sources will not read
   content cached under the sources it replaced.
 
-The NuGet global folder (`~/.nuget/packages`) is the exception, and it is read eagerly: a package
-found there is used whatever your sources say. That folder is not a feed dotnet-inspect fetched
-from — it is a local store you populated, mostly by `dotnet restore`. Its content is treated as
-yours, and reading it is what makes inspecting a package you have already restored both fast and
-faithful to the bytes your build actually used.
+The NuGet global folder (`~/.nuget/packages`) is also a payload cache, but its directory layout
+does not include a source. dotnet-inspect therefore reads the `source` recorded in the package's
+`.nupkg.metadata` file and uses the payload only when that producer is authorized for the exact
+coordinate. A package restored from a removed or different feed, or one with missing or malformed
+source metadata, is ignored.
 
-The consequence is worth stating plainly: if a private package is in your global folder, a run
-configured only for nuget.org will still inspect it. `--source` chooses which feeds are consulted
-for a download; it does not hide content already in the global folder. To inspect strictly what
-your configured sources serve, add `--no-nuget-cache`:
+For a concrete `Package@Version`, any active eligible feed can authorize a matching global-folder
+payload. For a discovered version, such as bare `Package`, `Package@latest`, or a wildcard, the
+recorded producer must be one of the feeds that reported the selected version. Installed payloads
+never introduce version candidates by themselves.
+
+Use `--no-nuget-cache` to disable the global folder entirely. This is useful when testing a cold
+feed path; it is not required for strict source fidelity, which is always enforced:
 
 ```bash
 dotnet-inspect package MyCompany.Widgets --source https://example.com/index.json --no-nuget-cache
@@ -210,6 +234,40 @@ cached token exists.
 
 Set the token in the environment instead, as under [Unattended and CI](#unattended-and-ci). The
 environment-driven paths do not use MSAL and are unaffected.
+
+## When a feed is slow
+
+Requests default to a 30 second timeout. A large feed can take longer than that to answer a
+search, which surfaces as a cancelled request rather than as an error from the feed. NativeAOT
+packages use the runtime resource key:
+
+```text
+Error: No configured NuGet source could be searched.
+  myfeed: net_http_request_timedout, 30
+```
+
+The CoreCLR fallback package may instead spell out the equivalent timeout message.
+
+Give it more time with `--http-timeout`:
+
+```bash
+dotnet inspect package search widgets --source myfeed --http-timeout 120
+```
+
+Or set `DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS`, which is the more convenient form in CI where
+the same value applies to every command:
+
+```bash
+DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS=120 dotnet inspect package search widgets --source myfeed
+```
+
+Whole seconds only, from 1 to 3600. The flag wins over the variable, so an export left in a shell
+profile cannot override what you typed. A value outside the range, or one that is not a whole
+number, fails the command when given as a flag and is ignored when given as the variable: you
+typed the flag just now, but a stale variable should not make every command fail.
+
+Fetching source content through SourceLink keeps the fixed 30 second timeout. Those URLs come
+from the package rather than from a feed you configured, so they are not covered by this setting.
 
 ## See also
 

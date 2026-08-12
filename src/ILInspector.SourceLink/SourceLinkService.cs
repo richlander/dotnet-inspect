@@ -24,6 +24,8 @@ public record SourceDocument(
 /// </summary>
 public sealed class SourceLinkService : IDisposable
 {
+    static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     static readonly Guid SourceLinkKind =
         new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
     static readonly Guid EmbeddedSourceKind =
@@ -65,6 +67,19 @@ public sealed class SourceLinkService : IDisposable
         ISourceLinkIndexCache? cache)
         => new(PdbContext.Open(assemblyPath, log), cache ?? DefaultCache, log);
 
+    /// <summary>
+    /// Opens only the PE metadata and debug directory. Embedded and adjacent PDBs are not loaded.
+    /// </summary>
+    public static SourceLinkService OpenMetadataOnly(
+        string assemblyPath,
+        Action<string>? log = null)
+        => new(PdbContext.OpenMetadataOnly(assemblyPath, log), DefaultCache, log);
+
+    public static SourceLinkService OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+        => new(PdbContext.OpenMetadataOnly(assembly, log), DefaultCache, log);
+
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null,
@@ -75,6 +90,15 @@ public sealed class SourceLinkService : IDisposable
         string assemblyPath,
         Action<string>? log = null)
         => new(PdbContext.OpenPrefetched(assemblyPath, log), DefaultCache, log);
+
+    public static SourceLinkService OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+        => new(
+            PdbContext.OpenPrefetched(assembly, log),
+            cache ?? DefaultCache,
+            log);
 
     public PdbContext Context => _context;
     public bool HasPdb => _context.HasPdb;
@@ -93,6 +117,51 @@ public sealed class SourceLinkService : IDisposable
         {
             EnsureCurrentPdbState();
             return _sourceLinkJson;
+        }
+    }
+    public SourceLinkMapInspection SourceLinkMap
+    {
+        get
+        {
+            EnsureCurrentPdbState();
+
+            if (!_sourceLinkPresent)
+                return SourceLinkMapInspection.Absent;
+
+            if (_map is null)
+            {
+                return new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    _sourceLinkError ?? "the SourceLink map could not be read",
+                    [],
+                    []);
+            }
+
+            if (_map.ParseError is not null)
+            {
+                return new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    _map.ParseError,
+                    _map.DocumentKeys,
+                    _map.RejectedKeys);
+            }
+
+            if (_map.IsEmpty)
+            {
+                return new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    "the SourceLink map contains no usable document mappings",
+                    _map.DocumentKeys,
+                    _map.RejectedKeys);
+            }
+
+            return new SourceLinkMapInspection(
+                _map.RejectedKeys.Count > 0
+                    ? SourceLinkMapStatus.PartiallyUsable
+                    : SourceLinkMapStatus.Usable,
+                null,
+                _map.DocumentKeys,
+                _map.RejectedKeys);
         }
     }
     public string? RepositoryUrl => Provenance().Origin?.RepositoryUrl;
@@ -232,9 +301,17 @@ public sealed class SourceLinkService : IDisposable
             }
 
             if (sourceLink.Value is null)
+            {
+                if (sourceLink.Error is not null)
+                {
+                    _sourceLinkError =
+                        $"the SourceLink custom debug information could not be read: {sourceLink.Error}";
+                    _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
+                }
                 return;
+            }
 
-            _sourceLinkJson = Encoding.UTF8.GetString(sourceLink.Value);
+            _sourceLinkJson = StrictUtf8.GetString(sourceLink.Value);
             _map = SLF.SourceLinkResolver.Parse(_sourceLinkJson);
             _pathResolver = SourceDocumentPathResolver.Create(_map);
             _resolver = new SourceLinkResolver(_context, _map);
@@ -347,7 +424,8 @@ public sealed class SourceLinkService : IDisposable
     static bool IsPdbInspectionFailure(Exception exception)
         => exception is BadImageFormatException
             or InvalidOperationException
-            or ArgumentOutOfRangeException;
+            or ArgumentOutOfRangeException
+            or DecoderFallbackException;
 
     public void Dispose() => _context.Dispose();
 }

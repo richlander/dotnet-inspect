@@ -1,4 +1,9 @@
+using System.Collections.Immutable;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Fixtures;
+using ILInspector.CallGraph;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
@@ -12,6 +17,15 @@ public class MethodBodyInspectionSessionTests
 {
     static string ProductPath => typeof(MethodBodyInspectionSession).Assembly.Location;
     static string TestPath => typeof(MethodBodyInspectionSessionTests).Assembly.Location;
+    static readonly ImmutableArray<MetadataReference> PlatformReferences =
+    [
+        .. ((string)AppContext.GetData(
+                "TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator)
+            .Select(path =>
+                (MetadataReference)MetadataReference.CreateFromFile(
+                    path)),
+    ];
 
     static int CalledToken(Analysis.LibraryBodyIndex index)
     {
@@ -82,25 +96,21 @@ public class MethodBodyInspectionSessionTests
     [Fact]
     public void CallerEdges_IncludeAndAttributeCallerScopeAssemblies()
     {
-        var target = MethodBodyInspectionSession.Open(ProductPath);
+        var target = MethodBodyInspectionSession.Open(
+            ProductPath,
+            ApiAnalysisInspection.CreateReferenceResolver(ProductPath));
         var openMethod = target.BodyIndex.Methods.Single(method =>
             method.DeclaringType.Name == nameof(MethodBodyInspectionSession)
             && method.Name == nameof(MethodBodyInspectionSession.Open)
             && method.ParameterTypes.Length > 0
             && method.ParameterTypes[0].Name == "String");
-        var scope = MethodBodyInspectionSession.Open(TestPath);
-        var plan = Analysis.CallerScopeReachabilityPlan.Create(
-            new ILInspector.Metadata.AssemblyReferenceBindingPolicy(
-                ApiAnalysisInspection.CreateReferenceResolver(ProductPath)),
-            target.Assembly,
-            Analysis.GenericMemberIdentity.OpenDeclaringType(
-                openMethod.DeclaringType),
-            [scope.Assembly]);
+        var scope = MethodBodyInspectionSession.Open(
+            TestPath,
+            ApiAnalysisInspection.CreateReferenceResolver(TestPath));
 
         var actual = target.CallerEdges(
             openMethod.MetadataToken,
-            [scope],
-            plan.Resolution);
+            [scope]);
 
         Assert.Contains(actual, edge => edge.Source == scope.SourceName);
     }
@@ -115,10 +125,385 @@ public class MethodBodyInspectionSessionTests
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
         var token = CalledToken(index);
 
-        var expected = index.BuildCallerTree(token, [Analysis.LibraryBodyIndex.Open(TestPath)]);
-        var actual = MethodBodyInspectionSession.Open(ProductPath)
-            .CallerTree(token, [MethodBodyInspectionSession.Open(TestPath)]);
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(ProductPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        using Analysis.CatalogCallGraphScope scope =
+            MethodBodyInspectionSession.CreateCallGraphScope(
+                [target, caller]);
+        var expected = target.BodyIndex.BuildCallerTree(token, scope);
+        var actual = target.CallerTree(token, [caller]);
 
         Assert.Equal(expected.Children.Count(), actual.Children.Count());
     }
+
+    [Fact]
+    public void CallerTree_SessionScopes_ProjectsWithUnscopedInstanceCallees()
+    {
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(ProductPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        Analysis.MethodIdentity method =
+            target.BodyIndex.DeclaredMethods.Single(candidate =>
+                candidate.DeclaringType.Name
+                    == nameof(MethodBodyInspectionSession)
+                && candidate.Name
+                    == nameof(MethodBodyInspectionSession.CallerEdges)
+                && candidate.ParameterTypes.Length == 3);
+
+        Analysis.CallTreeNode callerRoot =
+            target.CallerTree(method.MetadataToken, [caller]);
+        Analysis.CallTreeNode calleeRoot =
+            target.BodyIndex.BuildCallTree(method.MetadataToken);
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+
+        Assert.Equal(method.Name, projection.Focus.Member.Name);
+        Assert.True(projection.Focus.Member.HasThis);
+    }
+
+    [Fact]
+    public void CallGraph_SessionScopes_TraversesCalleesAcrossAssemblies()
+    {
+        string callerPath =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(
+                callerPath,
+                ApiAnalysisInspection.CreateReferenceResolver(callerPath));
+        string targetPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(
+                targetPath,
+                ApiAnalysisInspection.CreateReferenceResolver(targetPath));
+        Analysis.MethodIdentity root =
+            caller.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Name == "Entry"
+                && method.Name == "RunAcrossBoundary");
+
+        CallGraphProjection projection = caller.CallGraph(
+            root.MetadataToken,
+            callerScopes: [],
+            calleeScopes: [target],
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
+
+        Assert.False(diagnostics.IsIncomplete);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Forward"
+                && node.Kind == CallGraphNodeKind.Normal);
+        Assert.Contains(
+            projection.Nodes,
+            node => node.Member.Name == "Leaf"
+                && node.Kind == CallGraphNodeKind.Normal);
+    }
+
+    [Fact]
+    public void CallGraph_KeepsReachableVersionSkewedDefinitionDistinct()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "callgraph-version-skew-").FullName;
+
+        try
+        {
+            byte[] v1Image = CompileFixture(
+                "VersionedA",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+
+                namespace Versioned;
+
+                public static class Api
+                {
+                    public static void Root() { }
+                }
+                """);
+            byte[] bridgeImage = CompileFixture(
+                "Bridge",
+                """
+                namespace BridgeNs;
+
+                public static class HopApi
+                {
+                    public static void Hop() =>
+                        Versioned.Api.Root();
+                }
+                """,
+                v1Image);
+            byte[] v2Image = CompileFixture(
+                "VersionedA",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("2.0.0.0")]
+
+                namespace Versioned;
+
+                public static class Api
+                {
+                    public static void Root() =>
+                        BridgeNs.HopApi.Hop();
+                }
+                """,
+                bridgeImage);
+
+            string v1Path = WriteFixture(
+                directory,
+                "v1",
+                "VersionedA.dll",
+                v1Image);
+            string bridgePath = WriteFixture(
+                directory,
+                "bridge",
+                "Bridge.dll",
+                bridgeImage);
+            string v2Path = WriteFixture(
+                directory,
+                "v2",
+                "VersionedA.dll",
+                v2Image);
+
+            MethodBodyInspectionSession v2 = OpenFixture(v2Path);
+            MethodBodyInspectionSession bridge =
+                OpenFixture(bridgePath);
+            MethodBodyInspectionSession v1 = OpenFixture(v1Path);
+            Analysis.MethodIdentity root =
+                v2.BodyIndex.DeclaredMethods.Single(method =>
+                    method.DeclaringType.Name == "Api"
+                    && method.Name == "Root");
+
+            CallGraphProjection projection = v2.CallGraph(
+                root.MetadataToken,
+                callerScopes: [],
+                calleeScopes: [bridge, v1],
+                out Analysis.CatalogCallGraphDiagnostics diagnostics);
+
+            CallGraphNode[] roots =
+            [
+                .. projection.Nodes.Where(node =>
+                    node.Member.DeclaringType.Name == "Api"
+                    && node.Member.Name == "Root"),
+            ];
+            CallGraphNode bridgeNode = Assert.Single(
+                projection.Nodes,
+                node => node.Member.Name == "Hop");
+            Assert.Equal(2, roots.Length);
+            CallGraphNode v1Node = Assert.Single(
+                roots,
+                node => node.Id != projection.Focus.Id);
+            Assert.Contains(
+                projection.Edges,
+                edge => edge.From == projection.Focus.Id
+                    && edge.To == bridgeNode.Id);
+            Assert.Contains(
+                projection.Edges,
+                edge => edge.From == bridgeNode.Id
+                    && edge.To == v1Node.Id);
+            Assert.DoesNotContain(
+                projection.Edges,
+                edge => edge.From == bridgeNode.Id
+                    && edge.To == projection.Focus.Id);
+            Assert.Equal(
+                1,
+                diagnostics.BindingIdentityConflictCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "callgraph-caller-version-skew-").FullName;
+
+        try
+        {
+            byte[] targetImage = CompileFixture(
+                "TargetLib",
+                """
+                namespace Target;
+
+                public static class Api
+                {
+                    public static void Root() { }
+                }
+                """);
+            byte[] callerV1Image = CompileFixture(
+                "CallerLib",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+
+                namespace Shared;
+
+                public static class Entry
+                {
+                    public static void Run() =>
+                        Target.Api.Root();
+                }
+                """,
+                targetImage);
+            byte[] callerV2Image = CompileFixture(
+                "CallerLib",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("2.0.0.0")]
+
+                namespace Shared;
+
+                public static class Entry
+                {
+                    public static void Run() =>
+                        Target.Api.Root();
+                }
+                """,
+                targetImage);
+
+            string targetPath = WriteFixture(
+                directory,
+                "target",
+                "TargetLib.dll",
+                targetImage);
+            string callerV1Path = WriteFixture(
+                directory,
+                "caller-v1",
+                "CallerLib.dll",
+                callerV1Image);
+            string callerV2Path = WriteFixture(
+                directory,
+                "caller-v2",
+                "CallerLib.dll",
+                callerV2Image);
+
+            MethodBodyInspectionSession target =
+                OpenFixture(targetPath);
+            MethodBodyInspectionSession callerV1 =
+                OpenFixture(callerV1Path);
+            MethodBodyInspectionSession callerV2 =
+                OpenFixture(callerV2Path);
+            Analysis.MethodIdentity root =
+                target.BodyIndex.DeclaredMethods.Single(method =>
+                    method.DeclaringType.Name == "Api"
+                    && method.Name == "Root");
+
+            CallGraphProjection projection = target.CallGraph(
+                root.MetadataToken,
+                callerScopes: [callerV1, callerV2],
+                calleeScopes: null,
+                out _);
+
+            CallGraphNode[] callers =
+            [
+                .. projection.Nodes.Where(node =>
+                    node.Member.DeclaringType.Name == "Entry"
+                    && node.Member.Name == "Run"),
+            ];
+            Assert.Equal(2, callers.Length);
+            Assert.All(
+                callers,
+                caller => Assert.Contains(
+                    projection.Edges,
+                    edge => edge.From == caller.Id
+                        && edge.To == projection.Focus.Id));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CallerTree_VersionSkewedScopeRetainsIncompleteEvidence()
+    {
+        string targetV1 =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                new DotnetInspector.Services.AssemblyDependencyResolver(
+                    new(
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath())));
+        MethodBodyInspectionSession targetV1Session =
+            MethodBodyInspectionSession.Open(targetV1);
+        Analysis.MethodIdentity ping =
+            target.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Name == "Api"
+                && method.Name == "Ping"
+                && method.ParameterTypes.Length == 0);
+
+        Analysis.CallTreeNode tree = target.CallerTree(
+            ping.MetadataToken,
+            [caller, targetV1Session],
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
+
+        Assert.Empty(tree.Children);
+        Assert.True(diagnostics.IsIncomplete);
+        Assert.True(diagnostics.BindingIdentityConflictCount > 0);
+    }
+
+    static byte[] CompileFixture(
+        string assemblyName,
+        string source,
+        params byte[][] additionalReferences)
+    {
+        ImmutableArray<MetadataReference> references =
+        [
+            .. PlatformReferences,
+            .. additionalReferences.Select(image =>
+                MetadataReference.CreateFromImage(
+                    ImmutableArray.CreateRange(image))),
+        ];
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            assemblyName,
+            [
+                CSharpSyntaxTree.ParseText(
+                    source,
+                    new CSharpParseOptions(LanguageVersion.Preview)),
+            ],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                deterministic: true));
+
+        using var output = new MemoryStream();
+        var result = compilation.Emit(output);
+        Assert.True(
+            result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics));
+        return output.ToArray();
+    }
+
+    static string WriteFixture(
+        string root,
+        string directory,
+        string fileName,
+        byte[] image)
+    {
+        string path = Path.Combine(
+            Directory.CreateDirectory(
+                Path.Combine(root, directory)).FullName,
+            fileName);
+        File.WriteAllBytes(path, image);
+        return path;
+    }
+
+    static MethodBodyInspectionSession OpenFixture(string path) =>
+        MethodBodyInspectionSession.Open(
+            path,
+            new DotnetInspector.Services.AssemblyDependencyResolver(
+                new(
+                    path)),
+            includeAllocations: false,
+            includeOpportunities: false);
 }

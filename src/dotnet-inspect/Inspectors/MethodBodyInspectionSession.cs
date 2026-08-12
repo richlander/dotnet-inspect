@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using DotnetInspector.Services;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -22,11 +24,13 @@ public sealed class MethodBodyInspectionSession
     MethodBodyInspectionSession(
         Analysis.LibraryBodyIndex index,
         ResolvedAssemblyReference assembly,
-        string sourceName)
+        string sourceName,
+        IAssemblyBindingPolicy bindingPolicy)
     {
         BodyIndex = index;
         Assembly = assembly;
         SourceName = sourceName;
+        BindingPolicy = bindingPolicy;
     }
 
     /// <summary>
@@ -36,6 +40,8 @@ public sealed class MethodBodyInspectionSession
     public Analysis.LibraryBodyIndex BodyIndex { get; }
 
     public ResolvedAssemblyReference Assembly { get; }
+
+    internal IAssemblyBindingPolicy BindingPolicy { get; }
 
     /// <summary>
     /// Short assembly name (file name without extension) this session was opened from. Used to
@@ -126,14 +132,16 @@ public sealed class MethodBodyInspectionSession
                 bodyScope,
                 bodyTypeScope),
             assembly,
-            Path.GetFileNameWithoutExtension(assemblyPath));
+            Path.GetFileNameWithoutExtension(assemblyPath),
+            BindingPolicyFor(resolver));
     }
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
         string assemblyPath,
         PdbContext context,
         Analysis.LibraryBodyAnalysisFeatures features,
-        IAssemblyReferenceResolver? resolver = null)
+        IAssemblyReferenceResolver? resolver = null,
+        ResolvedAssemblyReference? assembly = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
@@ -142,27 +150,134 @@ public sealed class MethodBodyInspectionSession
                 context.GetPrefetchedImage(),
                 features,
                 resolver),
-            ResolvedAssemblyReference.CreateFromPath(
-                assemblyPath,
-                AssemblyResolutionProvenance.Local(
-                    "prefetched method body inspection")),
-            Path.GetFileNameWithoutExtension(assemblyPath));
+            assembly
+                ?? ResolvedAssemblyReference.CreateFromPath(
+                    assemblyPath,
+                    AssemblyResolutionProvenance.Local(
+                        "prefetched method body inspection")),
+            Path.GetFileNameWithoutExtension(assemblyPath),
+            BindingPolicyFor(resolver));
     }
 
     /// <summary>
     /// Inbound caller graph rooted at one method, extended across sibling caller-scope
     /// <paramref name="scopes"/> (opened as their own sessions).
     ///
-    /// A <see langword="null"/> <paramref name="scopes"/> means no cross-assembly scope was
-    /// requested and selects the same-assembly-only reverse graph. A non-null but empty list means
-    /// a scope was requested and contributed no assemblies; that still takes the cross-assembly
-    /// builder, because the two builders key the reverse graph differently and the result must not
-    /// depend on how many scope assemblies happened to survive filtering.
+    /// A <see langword="null"/> <paramref name="scopes"/> selects the same-assembly-only reverse
+    /// graph. A non-null list creates one catalog scope over the target and supplied sessions;
+    /// an empty list therefore preserves the requested catalog identity and ordering domain
+    /// without adding another assembly.
     /// </summary>
-    public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<MethodBodyInspectionSession>? scopes)
-        => scopes is null
-            ? BodyIndex.BuildCallerTree(methodToken)
-            : BodyIndex.BuildCallerTree(methodToken, scopes.Select(s => s.BodyIndex).ToArray());
+    public Analysis.CallTreeNode CallerTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes) =>
+        CallerTree(methodToken, scopes, out _);
+
+    public Analysis.CallTreeNode CallerTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        if (scopes is null)
+        {
+            diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
+            return BodyIndex.BuildCallerTree(methodToken);
+        }
+
+        using Analysis.CatalogCallGraphScope scope =
+            CreateCallGraphScope([this, .. scopes]);
+        Analysis.CallTreeNode tree =
+            BodyIndex.BuildCallerTree(methodToken, scope);
+        diagnostics = scope.Diagnostics;
+        return scope.Detach(tree);
+    }
+
+    internal Analysis.CallTreeNode CallerTree(
+        int methodToken,
+        Analysis.CatalogCallGraphScope scope) =>
+        BodyIndex.BuildCallerTree(methodToken, scope);
+
+    /// <summary>
+    /// Builds one bidirectional projection over direction-specific assembly
+    /// scopes.
+    /// </summary>
+    public CallGraphProjection CallGraph(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? callerScopes,
+        IReadOnlyList<MethodBodyInspectionSession>? calleeScopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        if (callerScopes is not null || calleeScopes is not null)
+        {
+            callerScopes ??= [];
+            calleeScopes ??= [];
+        }
+
+        Analysis.CallTreeNode callerRoot = CallerTree(
+            methodToken,
+            callerScopes,
+            out Analysis.CatalogCallGraphDiagnostics callerDiagnostics);
+        Analysis.CallTreeNode calleeRoot = CalleeTree(
+            methodToken,
+            calleeScopes,
+            out Analysis.CatalogCallGraphDiagnostics calleeDiagnostics);
+        diagnostics = new Analysis.CatalogCallGraphDiagnostics(
+            callerDiagnostics.IncompleteNodeCount
+                + calleeDiagnostics.IncompleteNodeCount,
+            callerDiagnostics.IncompleteEdgeCount
+                + calleeDiagnostics.IncompleteEdgeCount,
+            callerDiagnostics.BindingIdentityConflictCount
+                + calleeDiagnostics.BindingIdentityConflictCount);
+        return CallGraphProjection.Create(callerRoot, calleeRoot);
+    }
+
+    Analysis.CallTreeNode CalleeTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
+    {
+        if (scopes is null)
+        {
+            diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
+            return BodyIndex.BuildCallTree(methodToken);
+        }
+
+        using Analysis.CatalogCallGraphScope scope =
+            CreateCallGraphScope([this, .. scopes]);
+        Analysis.CallTreeNode tree =
+            BodyIndex.BuildCallTree(methodToken, scope);
+        diagnostics = scope.Diagnostics;
+        return scope.Detach(tree);
+    }
+
+    internal static Analysis.CatalogCallGraphScope CreateCallGraphScope(
+        IReadOnlyList<MethodBodyInspectionSession> sessions)
+    {
+        MethodBodyInspectionSession[] participants =
+            CanonicalParticipants(sessions);
+        var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+            participants.Select(
+                session => (
+                    session.Assembly,
+                    session.BindingPolicy)));
+        return new Analysis.CatalogCallGraphScope(
+            policy,
+            participants.Select(
+                session =>
+                    new Analysis.CatalogCallGraphParticipant(
+                        session.BodyIndex,
+                        session.Assembly)));
+    }
+
+    static MethodBodyInspectionSession[] CanonicalParticipants(
+        IReadOnlyList<MethodBodyInspectionSession> sessions) =>
+        sessions
+            .GroupBy(session => (
+                session.Assembly.Identity,
+                session.BodyIndex.DeclaredMethods.FirstOrDefault()
+                    ?.ModuleVersionId ?? Guid.Empty))
+            .Select(group => group.First())
+            .ToArray();
 
     /// <summary>
     /// Inbound call edges targeting one method (<paramref name="targetToken"/>), each tagged with the
@@ -172,13 +287,14 @@ public sealed class MethodBodyInspectionSession
     /// built from the target's identity (the pattern adds MemberRef-form references, including
     /// abstract/interface members that have no body). When <paramref name="scopes"/> is non-empty and
     /// a pattern is available, each scope session is scanned for cross-assembly callers using
-    /// generic-normalized matching (operand tokens are assembly-local, so only the pattern applies).
+    /// complete catalog member correspondence (operand tokens are assembly-local, so only
+    /// generation-scoped definition currency can establish a cross-assembly match).
     /// Results are unsorted and undeduplicated; the caller owns presentation ordering.
     /// </summary>
     public ImmutableArray<CallerEdge> CallerEdges(
         int targetToken,
         IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
-        Analysis.CallerResolutionPlan? resolutionPlan = null)
+        Analysis.CallerResolutionPlan? declaringTypeResolution = null)
     {
         var selected = BodyIndex.DeclaredMethods.FirstOrDefault(
             method => method.MetadataToken == targetToken);
@@ -194,30 +310,77 @@ public sealed class MethodBodyInspectionSession
                 edges.Add(new CallerEdge(SourceName, call));
         }
 
-        if (pattern is not null
-            && resolutionPlan is not null
-            && scopes is { Count: > 0 })
+        if (pattern is not null && scopes is { Count: > 0 })
         {
-            foreach (var scope in scopes)
+            MethodBodyInspectionSession[] participants =
+                CanonicalParticipants([this, .. scopes]);
+            var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+                participants.Select(
+                    participant => (
+                        participant.Assembly,
+                        participant.BindingPolicy)));
+            var target = new Analysis.CatalogCallGraphParticipant(
+                participants[0].BodyIndex,
+                participants[0].Assembly);
+            var sources = participants
+                .Skip(1)
+                .Select(
+                    participant =>
+                        new Analysis.CatalogCallGraphParticipant(
+                            participant.BodyIndex,
+                            participant.Assembly))
+                .ToArray();
+            var sourceNames =
+                new Dictionary<Analysis.LibraryBodyIndex, string>(
+                    ReferenceEqualityComparer.Instance);
+            foreach (MethodBodyInspectionSession participant
+                in participants.Skip(1))
             {
-                foreach (var call in scope.BodyIndex.DirectCalls)
-                {
-                    Analysis.TypeRef declaringType =
-                        Analysis.GenericMemberIdentity.OpenDeclaringType(
-                            call.Callee.DeclaringType);
-                    if (resolutionPlan.GetRelation(
-                            scope.Assembly,
-                            declaringType)
-                            is Analysis.CandidateTypeRelation.SameDefinition
-                        && pattern.MatchesResolvedCrossAssembly(call.Callee))
-                    {
-                        edges.Add(new CallerEdge(scope.SourceName, call));
-                    }
-                }
+                sourceNames.Add(
+                    participant.BodyIndex,
+                    participant.SourceName);
+            }
+            foreach (Analysis.CatalogDirectCaller match
+                in Analysis.CatalogDirectCallerQuery.Find(
+                    policy,
+                    target,
+                    targetToken,
+                    sources,
+                    declaringTypeResolution))
+            {
+                edges.Add(
+                    new CallerEdge(
+                        sourceNames[match.Participant.Index],
+                        match.Call));
             }
         }
 
         return edges.ToImmutable();
+    }
+
+    static IAssemblyBindingPolicy BindingPolicyFor(
+        IAssemblyReferenceResolver? resolver) =>
+        resolver switch
+        {
+            IAssemblyBindingPolicy policy => policy,
+            not null => new AssemblyReferenceBindingPolicy(resolver),
+            null => MissingAssemblyBindingPolicy.Instance,
+        };
+
+    sealed class MissingAssemblyBindingPolicy : IAssemblyBindingPolicy
+    {
+        internal static MissingAssemblyBindingPolicy Instance { get; } =
+            new();
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+                ? AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.UnsupportedScope))
+                : AssemblyBindingSelection.NotFound();
     }
 }
 

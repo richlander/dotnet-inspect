@@ -65,21 +65,50 @@ try
         cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
     }
 
+    // Resolve the CLI-owned timeout before any library client can be constructed.
+    var timeoutArguments = HttpTimeoutConfiguration.Extract(args);
+    if (timeoutArguments.HasDuplicate)
+    {
+        CommandError.Write($"{HttpTimeoutConfiguration.Flag} may only be specified once.");
+        return 1;
+    }
+
+    args = timeoutArguments.RemainingArgs;
+    TimeSpan httpTimeout;
+    if (timeoutArguments.ExplicitValue is not null)
+    {
+        // Rejected rather than clamped, and fatal rather than ignored: the operator typed this
+        // one, so silently running with the 30 second default is the wrong kind of surprise.
+        if (!HttpTimeoutConfiguration.TryParseSeconds(timeoutArguments.ExplicitValue, out httpTimeout))
+        {
+            CommandError.Write(
+                $"{HttpTimeoutConfiguration.Flag} expects a whole number of seconds between 1 and 3600.",
+                $"Got: '{timeoutArguments.ExplicitValue}'");
+            return 1;
+        }
+    }
+    else
+    {
+        httpTimeout = HttpTimeoutConfiguration.ResolveEnvironmentDefault(
+            Environment.GetEnvironmentVariable(HttpTimeoutConfiguration.EnvironmentVariable));
+    }
+
     // Initialize library configuration
-    DotnetInspector.Core.HttpClientFactory.Initialize(offline);
+    DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+    {
+        Offline = offline,
+        DefaultTimeout = httpTimeout,
+    });
 
     // Credential plugins are how a private feed is read without a password stored in nuget.config,
-    // and NuGet ranks them as the most secure of the credential mechanisms. Discovery is only a
-    // PATH and directory scan; no plugin process starts unless a source actually answers 401.
+    // and NuGet ranks them as the most secure of the credential mechanisms. The provider defers
+    // both discovery and process launch until a source actually answers 401.
     if (!offline)
     {
         var credentialProvider = new NuGetFetch.Plugins.PluginCredentialProvider();
 
-        if (credentialProvider.HasPlugins)
-        {
-            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
-                inner => new NuGetFetch.Plugins.PluginAuthenticationHandler(credentialProvider, inner));
-        }
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            inner => new NuGetFetch.Plugins.PluginAuthenticationHandler(credentialProvider, inner));
     }
     NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
     // The IR invariant check is armed by default so any host that runs the
@@ -96,8 +125,6 @@ try
     if (showInfo)
     {
         InfoTracker.Start();
-        // Suppress tips when --info is active (show info instead)
-        args = [.. args, "-T:q"];
     }
 
     #if DEBUG
@@ -286,14 +313,14 @@ try
         #pragma warning restore RS0030
     }
 
-    var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
-    if (cacheMaintenance.BytesFreed > 0)
-    {
-        CommandError.WriteBlankLine();
-        CommandError.WriteLine($"Removed {CacheOutputFormatter.FormatSize(cacheMaintenance.BytesFreed)} from obsolete cache entries.");
-    }
+    _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 
     return exitCode;
+}
+catch (PackageSourceMappingException ex)
+{
+    CommandError.Write(ex.Message);
+    return 1;
 }
 catch (NuGetFetch.UnsupportedSourceException ex)
 {

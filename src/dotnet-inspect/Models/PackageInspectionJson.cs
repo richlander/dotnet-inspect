@@ -78,6 +78,14 @@ internal sealed class PackageInspectionJson
     public List<PackageSourceFileJson>? SourceFiles => _text.SourceFiles?
         .Select(value => new PackageSourceFileJson(value))
         .ToList();
+    public PackageSourceAvailabilityJson? SourceAvailability =>
+        _text.SourceAvailability is { } value
+            ? new(value)
+            : null;
+    public PackageSourceIntegrityJson? SourceIntegrity =>
+        _text.SourceIntegrity is { } value
+            ? new(value)
+            : null;
     public PackageSignatureJson? SignatureResult => _text.SignatureResult is { } value
         ? new(value)
         : null;
@@ -144,6 +152,55 @@ internal sealed class PackageSourceFileJson(PackageSourceFileText text)
     public string Library => text.Library.ToString();
     public string Type => text.Type.ToString();
     public string? Url => text.Url?.ToString();
+}
+
+internal sealed class PackageSourceLinkIssueJson(PackageSourceLinkIssueText text)
+{
+    public string Library => text.Library.ToString();
+    public string Reason => text.Reason.ToString();
+}
+
+internal sealed class PackageSourceLinkFileJson(PackageSourceLinkFileText text)
+{
+    public string Library => text.Library.ToString();
+    public string Path => text.Path.ToString();
+}
+
+internal sealed class PackageSourceAvailabilityJson(PackageSourceAvailabilityText text)
+{
+    public int TotalLibraries => text.TotalLibraries;
+    public int AuditedLibraries => text.AuditedLibraries;
+    public int TotalSourceFiles => text.TotalSourceFiles;
+    public int AccessibleSourceFiles => text.AccessibleSourceFiles;
+    public int EmbeddedSourceFiles => text.EmbeddedSourceFiles;
+    public List<PackageSourceLinkFileJson>? MissingFiles => text.MissingFiles?
+        .Select(value => new PackageSourceLinkFileJson(value))
+        .ToList();
+    public List<PackageSourceLinkIssueJson>? UnavailableLibraries => text.UnavailableLibraries?
+        .Select(value => new PackageSourceLinkIssueJson(value))
+        .ToList();
+    public List<PackageSourceLinkIssueJson>? FailedLibraries => text.FailedLibraries?
+        .Select(value => new PackageSourceLinkIssueJson(value))
+        .ToList();
+}
+
+internal sealed class PackageSourceIntegrityJson(PackageSourceIntegrityText text)
+{
+    public int TotalLibraries => text.TotalLibraries;
+    public int CheckedLibraries => text.CheckedLibraries;
+    public int Verified => text.Verified;
+    public int Mismatched => text.Mismatched;
+    public int LineEndingNormalized => text.LineEndingNormalized;
+    public int Unverifiable => text.Unverifiable;
+    public List<PackageSourceLinkFileJson>? MismatchedFiles => text.MismatchedFiles?
+        .Select(value => new PackageSourceLinkFileJson(value))
+        .ToList();
+    public List<PackageSourceLinkIssueJson>? UnavailableLibraries => text.UnavailableLibraries?
+        .Select(value => new PackageSourceLinkIssueJson(value))
+        .ToList();
+    public List<PackageSourceLinkIssueJson>? FailedLibraries => text.FailedLibraries?
+        .Select(value => new PackageSourceLinkIssueJson(value))
+        .ToList();
 }
 
 internal sealed class PackageSignatureJson(PackageSignatureText text)

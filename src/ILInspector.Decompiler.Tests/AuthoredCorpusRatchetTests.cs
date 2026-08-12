@@ -54,6 +54,8 @@ public class AuthoredCorpusRatchetTests
         int poolMatched = 26,
         int poolTotal = 26,
         int? methodology = 2,
+        int frontierIlDiff = 0,
+        int? frontierProductBodyDefect = null,
         string? sha = "0a7eded85c3e1410",
         string? corpusSha = "c0117050c0117050")
         => new(
@@ -64,7 +66,21 @@ public class AuthoredCorpusRatchetTests
             Evaluated: evaluated,
             ValidPct: 0,
             Correct: correct,
-            ValidDifferent: new HistoryRunValidDifferent(validDifferent, validDifferent, 0, 0, 0, 0),
+            ValidDifferent: new HistoryRunValidDifferent(
+                validDifferent,
+                validDifferent - frontierIlDiff,
+                frontierIlDiff,
+                0,
+                0,
+                0,
+                methodology >= 3
+                    ? new HistoryRunFrontierIlDiffAttribution(
+                        frontierIlDiff,
+                        frontierProductBodyDefect ?? 0,
+                        frontierIlDiff - (frontierProductBodyDefect ?? 0),
+                        0,
+                        0)
+                    : null),
             Invalid: invalid,
             InvalidBreakdown: productBodyDefect is { } defects
                 ? new HistoryRunInvalidBreakdown(defects, invalid - defects, 0)
@@ -86,7 +102,14 @@ public class AuthoredCorpusRatchetTests
         int? productBodyDefect = 326,
         int methodology = 2,
         bool identified = true)
-        => new(valid, correct, invalid, productBodyDefect, methodology, MethodologyStated: true, Identified: identified);
+        => new(
+            valid,
+            correct,
+            invalid,
+            productBodyDefect,
+            methodology,
+            MethodologyStated: true,
+            Identified: identified);
 
     /// <summary>
     /// The contract an ordinary caller gets: whatever the presence of a baseline
@@ -143,6 +166,106 @@ public class AuthoredCorpusRatchetTests
             [Row()]);
 
         Assert.Equal([expected], comparison.Regressions.Select(metric => metric.Name));
+    }
+
+    [Fact]
+    public void Ratchet_V3RowWithoutFrontierAttributionIsNotTrustworthy()
+    {
+        var row = Row(methodology: 3, frontierIlDiff: 100, frontierProductBodyDefect: 10);
+        row = row with
+        {
+            ValidDifferent = row.ValidDifferent! with { FrontierIlDiffAttribution = null },
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(row));
+    }
+
+    [Fact]
+    public void Ratchet_V3FrontierAttributionMustCloseAndMatchTheIlDiffPopulation()
+    {
+        var row = Row(methodology: 3, frontierIlDiff: 100, frontierProductBodyDefect: 10);
+        var attribution = row.ValidDifferent!.FrontierIlDiffAttribution!;
+
+        var shortPartition = row with
+        {
+            ValidDifferent = row.ValidDifferent with
+            {
+                FrontierIlDiffAttribution = attribution with { Unclassified = 1 },
+            },
+        };
+        var wrongPopulation = row with
+        {
+            ValidDifferent = row.ValidDifferent with
+            {
+                FrontierIlDiffAttribution = attribution with { Total = 99 },
+            },
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(shortPartition));
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(wrongPopulation));
+        Assert.True(AuthoredCorpusRatchet.IsTrustworthy(row));
+    }
+
+    [Fact]
+    public void Ratchet_V3FrontierAttributionSumCannotCloseByIntegerOverflow()
+    {
+        var row = Row(methodology: 3, frontierIlDiff: 100) with
+        {
+            ValidDifferent = new HistoryRunValidDifferent(
+                Total: 100,
+                FrontierIlExact: 0,
+                FrontierIlDiff: 100,
+                Lowering: 0,
+                KnownTaste: 0,
+                FrontierIlNoVerdict: 0,
+                FrontierIlDiffAttribution: new HistoryRunFrontierIlDiffAttribution(
+                    Total: 100,
+                    ProductBodyDefect: int.MaxValue,
+                    HarnessShellReconstruction: int.MaxValue,
+                    CompileBackFloor: 102,
+                    Unclassified: 0)),
+        };
+
+        Assert.Equal(100, unchecked(int.MaxValue + int.MaxValue + 102));
+        Assert.NotEqual(100, row.ValidDifferent!.FrontierIlDiffAttribution!.Sum);
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(row));
+    }
+
+    [Fact]
+    public void Ratchet_V2ToV3RetiresTheChangedInvalidMetric()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(
+                productBodyDefect: 327,
+                methodology: 3),
+            [Row(methodology: 2, productBodyDefect: 326)]);
+
+        Assert.DoesNotContain(
+            comparison.Metrics,
+            metric => metric.Name == "productBodyDefect");
+        Assert.DoesNotContain(
+            comparison.Metrics,
+            metric => metric.Name == "frontierProductBodyDefect");
+    }
+
+    /// <summary>
+    /// The v3 frontier partition is a census, not a raw-count quality metric. A row
+    /// can move between product, shell, floor, and unclassified attribution without
+    /// product quality changing, so lower-is-better on one sub-bucket would let
+    /// coverage loss masquerade as improvement.
+    /// </summary>
+    [Fact]
+    public void Ratchet_V3DoesNotTreatARawFrontierAttributionCountAsMonotonic()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 3),
+            [Row(methodology: 3, frontierIlDiff: 100, frontierProductBodyDefect: 10)]);
+
+        Assert.DoesNotContain(
+            comparison.Metrics,
+            metric => metric.Name.StartsWith("frontier", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -707,14 +830,13 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_IdentifiesThePoolItMeasured_NotThePoolItWasHanded()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         byte[] bytes = File.ReadAllBytes(original);
 
         string first = pool.Write("first", "Copy.dll", bytes);
         string second = pool.Write("second", "Copy.dll", [.. bytes, 0, 0, 0, 0]);
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
+            AuthoredCorpusTestData.CorrelatedRow(original)));
 
         string firstOrder = PoolIdentityOf([first, second], corpus);
         string secondOrder = PoolIdentityOf([second, first], corpus);
@@ -739,18 +861,12 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_CountsAnErasedCorpusRowAsMalformed()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
-        // The second row differs by metadata token. This control was two copies of one
-        // row until the reader began rejecting a repeated identity, at which point the
-        // "sound" corpus reported a malformed row -- correctly, because one method
-        // counted twice is not a sound corpus.
-        string second = row.Replace("\"metadataToken\":1", "\"metadataToken\":2", StringComparison.Ordinal);
-        Assert.NotEqual(row, second);
-        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{second}\n"));
+        string correlatedRows = AuthoredCorpusTestData.CorrelatedRows(original);
+        string row = correlatedRows.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
+        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes(correlatedRows));
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n   \n"));
 
         using var sound = JsonDocument.Parse(RunForJson([assembly], intact));
@@ -772,11 +888,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_FailsIntegrityOnAnErasedCorpusRow()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
+        string row = AuthoredCorpusTestData.CorrelatedRow(original);
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n\n"));
 
         int exit = AuthoredCorpusBenchmark.Run(
@@ -1177,17 +1292,14 @@ public class AuthoredCorpusRatchetTests
         // regression by bumping methodologyVersion. A methodology change is the one
         // legitimate reason for the drop (the metric's meaning changed), so pin that
         // reason: any other cause fails here.
-        string[] expected = newest.Methodology == baseline.Methodology
-            ? ["valid", "correct", "invalid", "productBodyDefect"]
-            : ["valid", "correct", "invalid"];
-
-        // That gap is now closed. The store's newest pair is the first two rows
-        // measured over the identified pool, both stamped v2, so this takes the first
-        // branch and productBodyDefect ratchets. Nothing can re-open it: an unstamped
-        // newest row is refused by
-        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces, and a newest row
-        // that dropped its identity would land in the branch above as a skip, which
-        // this test fails on.
+        var expected = new List<string> { "valid", "correct", "invalid" };
+        var newestMetrics = AuthoredCorpusRatchet.RunMetrics.From(newest);
+        var baselineMetrics = AuthoredCorpusRatchet.RunMetrics.From(baseline);
+        if (newestMetrics.InvalidAttributionLineage == baselineMetrics.InvalidAttributionLineage)
+            expected.Add("productBodyDefect");
+        // The frontier partition is recorded and charted, but is not a raw-count
+        // ratchet. A newest row that drops its identity lands as a skip, which this
+        // test fails on.
         Assert.Equal(expected, comparison.Metrics.Select(metric => metric.Name));
     }
 
@@ -1477,11 +1589,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_WritesTheContractVerdictToTheCallersWriter()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
+            AuthoredCorpusTestData.CorrelatedRow(original)));
 
         var captured = new StringWriter();
         AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
@@ -1639,44 +1750,94 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The tracked store's rows are copied verbatim from a run, and a run stamps the
-    /// methodology constant the code was built with (<c>AuthoredCorpusBenchmark</c>'s
-    /// constant is an alias for <see cref="SpanAttribution.MethodologyVersion"/>, which
-    /// owns the rule) — so a row may not claim a methodology the code never produced,
-    /// and may not go unstamped.
-    ///
-    /// <para>Without this, the ratchet's one legitimate reason to drop a metric becomes
-    /// an escape hatch: a reviewer regressed <c>productBodyDefect</c> by 1,000 and hid
-    /// it simply by writing a higher <c>methodologyVersion</c> into the appended row.
-    /// The comparison then read that as a methodology bump, shed the metric, and
-    /// reported no regressions.</para>
+    /// Trend rows must name commits on <c>main</c>, so a methodology-bump PR cannot
+    /// append its own row. The store may trail the code by one version until the
+    /// post-merge evidence follow-up, but it may never claim an unknown/newer version
+    /// or fall multiple revisions behind.
     /// </summary>
     [Fact]
-    public void TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces()
+    public void TrackedHistory_NewestRowIsCurrentOrAwaitingOneMainFollowUp()
     {
         var newest = AuthoredCorpusHistoryCardTests.TrackedHistory()[^1];
 
-        Assert.Equal(SpanAttribution.MethodologyVersion, newest.Methodology);
+        Assert.InRange(
+            newest.Methodology,
+            AuthoredCorpusMethodology.Version - 1,
+            AuthoredCorpusMethodology.Version);
+    }
+
+    [Fact]
+    public void TrackedHistory_MethodologyNeverMovesBackwardOrAheadOfTheCode()
+    {
+        var runs = AuthoredCorpusHistoryCardTests.TrackedHistory();
+
+        Assert.All(
+            runs,
+            run => Assert.InRange(run.Methodology, 1, AuthoredCorpusMethodology.Version));
+        for (int i = 1; i < runs.Count; i++)
+            Assert.True(runs[i - 1].Methodology <= runs[i].Methodology);
+    }
+
+    [Fact]
+    public void CurrentMethodology_HasAnExplicitInvalidAttributionLineage()
+    {
+        Assert.NotNull(
+            AuthoredCorpusMethodology.InvalidAttributionLineage(AuthoredCorpusMethodology.Version));
+        Assert.Null(AuthoredCorpusMethodology.InvalidAttributionLineage(999));
+    }
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(3, 3)]
+    public void InvalidAttributionLineages_AreExplicit(int methodology, int expectedLineage)
+    {
+        Assert.Equal(
+            expectedLineage,
+            AuthoredCorpusMethodology.InvalidAttributionLineage(methodology));
+    }
+
+    [Fact]
+    public void Ratchet_CompleteUnknownMethodologyBaselineIsRefused()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 3),
+            [Row(methodology: 999)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("methodologyVersion 999 is not defined", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ratchet_UnknownCurrentMethodologyIsRefused()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 999),
+            [Row(methodology: 3)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("current methodologyVersion 999 is not defined", comparison.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// The same escape hatch, closed from the product side for live runs. A row that
-    /// states any <c>methodologyVersion</c> came from a run that measured
+    /// states any known <c>methodologyVersion</c> came from a run that measured
     /// <c>productBodyDefect</c>, so omitting the metric makes it malformed rather than
     /// historical — whichever version it claims, above, at, or below the run's.
     ///
     /// <para>Two reviewers reached this from opposite directions: one shed the metric
     /// by claiming a <em>newer</em> methodology, the other by claiming an arbitrary
-    /// 999. Both worked because the rule compared methodology <em>values</em>. Only
-    /// rows recorded before the metric existed may omit it, and those state no version
-    /// at all, so the rule is now structural.</para>
+    /// 999. Unknown versions are now refused before comparison. Among known versions,
+    /// only rows recorded before the metric existed may omit it, and those state no
+    /// version at all, so the rule is structural.</para>
     /// </summary>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    [InlineData(999)]
-    public void Ratchet_BaselineCannotShedAMetricByClaimingAnyMethodology(int claimed)
+    public void Ratchet_BaselineCannotShedAMetricByClaimingAKnownMethodology(int claimed)
     {
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: claimed)]);
@@ -1709,6 +1870,24 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// Run identity proves a row postdates the legacy unstamped era. Deleting only the
+    /// methodology stamp must not make a v3 product-defect regression disappear behind
+    /// the v1 fallback while the three methodology-independent metrics still pass.
+    /// </summary>
+    [Fact]
+    public void Ratchet_AnIdentifiedNewestRowCannotFallBackToLegacyMethodology()
+    {
+        var comparison = AuthoredCorpusRatchet.CompareNewestRow(
+        [
+            Row(date: "2026-08-09", productBodyDefect: 5, methodology: 3),
+            Row(date: "2026-08-10", productBodyDefect: 5197, methodology: null),
+        ]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("must state methodologyVersion", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The trend store's <c>validDifferent</c> member carries the sub-buckets *and*
     /// their total, and the total is the number the ratchet's <c>valid</c> metric is
     /// built from. The run emitted the parts without the sum, so an author assembling a
@@ -1724,11 +1903,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_EmitsAValidBreakdownARowCanBeBuiltFrom()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
+            AuthoredCorpusTestData.CorrelatedRow(original)));
 
         using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
         var breakdown = report.RootElement.GetProperty("validBreakdown");
@@ -1736,6 +1914,9 @@ public class AuthoredCorpusRatchetTests
         Assert.Equal(
             report.RootElement.GetProperty("validDifferent").GetInt32(),
             breakdown.GetProperty("total").GetInt32());
+        Assert.Equal(
+            breakdown.GetProperty("frontierIlDiff").GetInt32(),
+            breakdown.GetProperty("frontierIlDiffAttribution").GetProperty("total").GetInt32());
 
         // Round-trips into the row member it is copied into, total included.
         var member = JsonSerializer.Deserialize<HistoryRunValidDifferent>(
@@ -1743,6 +1924,7 @@ public class AuthoredCorpusRatchetTests
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
 
         Assert.Equal(report.RootElement.GetProperty("validDifferent").GetInt32(), member.Total);
+        Assert.NotNull(member.FrontierIlDiffAttribution);
     }
 
     /// <summary>
@@ -1773,7 +1955,7 @@ public class AuthoredCorpusRatchetTests
             Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: null)]);
 
         Assert.True(fabricated.Skipped);
-        Assert.Contains("invalidBreakdown", fabricated.SkipReason!, StringComparison.Ordinal);
+        Assert.Contains("must state methodologyVersion", fabricated.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1876,6 +2058,30 @@ public class AuthoredCorpusRatchetTests
             .ToArray();
 
         Assert.Equal(["2026-07-20"], unconfirmable);
+    }
+
+    [Fact]
+    public void PreV3Row_CannotInventFrontierAttribution()
+    {
+        var row = Row(methodology: 2, frontierIlDiff: 1);
+        var forged = row with
+        {
+            ValidDifferent = row.ValidDifferent! with
+            {
+                FrontierIlDiffAttribution = new HistoryRunFrontierIlDiffAttribution(
+                    Total: 1,
+                    ProductBodyDefect: 1,
+                    HarnessShellReconstruction: 0,
+                    CompileBackFloor: 0,
+                    Unclassified: 0),
+            },
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(forged));
+        Assert.Contains(
+            "frontierIlDiffAttribution was not produced before methodology v3",
+            AuthoredCorpusRatchet.RefuseFrontierAttributionMethodologyMismatch([forged]),
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -2069,11 +2275,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_ReportsASchemaMalformedCorpusRowRatherThanCrashing()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
+        string row = AuthoredCorpusTestData.CorrelatedRow(original);
         string wrongShape = """{"date":"2026-07-26","validPct":56.7,"correct":1576}""";
         string corpus = pool.Write("mixed", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{wrongShape}\n"));
 

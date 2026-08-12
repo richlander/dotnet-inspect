@@ -6,15 +6,15 @@
 
 ## Status
 
-Design and staged implementation plan for replacing the former collection of
-type-forwarder helpers and spelling-based caller matching with one structured
+Implemented architecture replacing the former collection of type-forwarder
+helpers and spelling-based caller matching with one structured
 reference-to-definition system.
 
-Slices 1 through 4 are implemented: declaration, acquisition, resolution,
-definition consumers, source/API consumers, platform lookup, and facade
-classification now use structured contracts. Direct caller correspondence and
-graph cleanup remain. The delivery continues to follow the primitive-first
-approach used by `InertString` in
+Slices 1 through 6 are delivered. Declaration, acquisition, resolution,
+definition consumers, source/API consumers, platform lookup, facade
+classification, direct caller correspondence, and call graphs use the
+structured contracts. The delivery followed the primitive-first approach used
+by `InertString` in
 [#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
@@ -32,23 +32,24 @@ TypeRef
                       -> TypeDef
 ```
 
-The product currently represents different parts of that relationship as
-assembly-name strings, canonicalized strings, file paths, and nullable returns.
-Each consumer then reconstructs the relationship it needs:
+Before this migration, the product represented different parts of that
+relationship as assembly-name strings, canonicalized strings, file paths, and
+nullable returns. Each consumer then reconstructed the relationship it needed:
 
-- `TypeForwardResolver` follows forwarders and returns `TypeLocation`.
-- `LibraryBodyIndex` repeats the traversal because it needs readers with a
+- `TypeForwardResolver` followed forwarders and returned `TypeLocation`.
+- `LibraryBodyIndex` repeated the traversal because it needed readers with a
   different lifetime.
 - `PdbContext`, `SourceLinkService`, `SourceEnricher`, and `ApiServices`
-  recover a target assembly name and construct a sibling path.
-- `PlatformResolver.FindLibraryContainingType` sweeps framework files and
-  returns the first defining or forwarding assembly name, while
-  `IsFacadeOnlyAssembly` separately interprets forwarder rows.
+  recovered a target assembly name and constructed a sibling path.
+- `PlatformResolver.FindLibraryContainingType` swept framework files and
+  returned the first defining or forwarding assembly name, while
+  `IsFacadeOnlyAssembly` separately interpreted forwarder rows.
 - `CallerScopeFilter`, `CallerScopeTypeFilter`, and
-  `MemberPattern.MatchesCrossAssembly` compare different projections of a
+  `MemberPattern.MatchesCrossAssembly` compared different projections of a
   type's assembly spelling.
-- `TypeRef.CanonicalAssembly` deliberately erases which core-library facade a
-  reference named.
+- `TypeRef.CanonicalAssembly` erased which core-library facade a reference
+  named. It remains a local decompiler normalization, not a resolution or
+  correspondence identity.
 
 Recent PRs expose the cost of that representation:
 
@@ -1564,9 +1565,9 @@ from one module with declarations from another.
 This preserves the single PE-lifetime owner established by
 `AssemblyInspectionSession`; it does not lend a reader to a consumer or dispose
 a session that a consumer cache expects to retain. The catalog outlives every
-`TypeResolutionContext` and graph cache containing its keys. This removes the
-reason `LibraryBodyIndex` currently repeats traversal beside
-`TypeForwardResolver`.
+`TypeResolutionContext` and graph cache containing its keys. `LibraryBodyIndex`,
+the decompiler, and the compile-back harness now consume that owner; the former
+per-call `TypeForwardResolver` compatibility path has been removed.
 
 Candidate discovery and correspondence are separate phases.
 `TypeResolutionCatalog` is the inspection-lifetime owner. Its internal
@@ -2158,12 +2159,12 @@ permissiveness rule to keep synchronized with the matcher.
 - a catalog-issued `DefinitionJoinToken` projects an opaque definition key into
   either `Exact` or `IndeterminateDuplicateArtifact`. Tokens are stable only for
   that catalog and are the only hashable definition correspondence values;
-- an optional `CatalogMemberJoinKey` exists when the declaring type
-  and every identity-bearing named type in the open parameter and return
-  signature have a catalog-issued join token;
-- a `DegradedMemberCorrespondenceKey` substitutes a
-  catalog-owned `UnresolvedBindingKey` plus structured type name only for an
-  unavailable named type. The binding key represents the exact cached
+- an optional `CatalogMemberJoinKey` exists when the declaring type and every
+  identity-bearing named type in the open parameter and return signature have
+  either a catalog-issued definition token or an eligible degraded component;
+- a degraded `CatalogTypeShape` leaf substitutes a catalog-owned
+  `UnresolvedBindingKey` plus structured type name only for an unavailable
+  named type. The binding key represents the exact cached
   `(AssemblyBindingDomainKey, AssemblyBindingTarget,
   AssemblyResolutionScope)` request, preserving the complete
   assembly/module/current origin instead of collapsing failures into one
@@ -2297,29 +2298,76 @@ same recursive correspondence projection. Replacing only the declaring
 assembly fragment would leave forwarded parameter and return types stringly and
 is not a migration.
 
+Analysis materializes that recursive work once as a
+`CatalogMemberCorrespondencePlan`. The plan stores the open declaring type,
+method name, member kind, canonical signature header, method generic arity,
+instance/static shape, ordered open parameter shapes, and open return shape. The
+source descriptor supplied to the plan is the descriptor for the image that
+produced the decoded member; a simple-name
+mismatch is rejected as a sanity check, while correct source/member pairing
+remains the caller's acquisition invariant. The plan exposes the distinct
+`TypeResolutionRequest` values needed by those shapes so a graph builder can
+union many plans into one frozen context before projecting any key.
+`TypeResolutionRequestComparer` uses the same structural manifest key as
+`TypeResolutionContext`; plan deduplication and frozen-manifest lookup therefore
+cannot drift.
+
+For a vararg signature, the plan also retains the decoded required-parameter
+count and treats only that open parameter prefix as member identity. Optional
+arguments encoded after the call-site sentinel are invocation data, not part of
+the target member signature. A missing or out-of-range required count produces
+typed incomplete evidence rather than a join key.
+
+An embedded vararg function-pointer shape is different: it is itself a type, so
+its complete parameter list and sentinel position remain identity-bearing. The
+plan retains every embedded parameter as a named leaf or resolution request and
+makes the whole member incomplete when the required-parameter count is out of
+range.
+
+`CatalogMemberCorrespondencePlan.Project` accepts the frozen context, not a
+separately supplied catalog. Resolved named leaves become
+`DefinitionJoinToken` values. `UnboundBinding` and genuine policy
+`Unavailable` leaves become `UnresolvedBindingKey` plus their exact
+`MetadataTypeDefinitionName`. Other resolution outcomes, absent open generic
+signatures, missing decoder provenance, unsupported shapes, malformed or
+over-depth shapes, stale generations, and plan expansion remain closed typed
+failures. A plan-expansion failure carries its `ResolutionPlanRequest` so the
+coordinator can advance the catalog rather than treating the member as absent.
+
+The resulting `CatalogMemberJoinKey` exposes its catalog, generation, and
+`Exact` or `Indeterminate` kind. Its recursive `CatalogTypeShape` can be
+constructed only by Analysis from catalog-issued definition or unresolved
+binding currency. Custom-modifier and function-pointer payloads are retained by
+the decoder for this projection without changing the existing structural
+equality or display of Analysis's `Unsupported` `TypeRef` arm. An ordinary
+unsupported shape still produces typed incomplete evidence.
+
 Graph joins hash only catalog-issued join tokens, never
 `ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
 `Exact` yields an exact edge. Matching keys containing any token whose kind is
 `IndeterminateDuplicateArtifact` yield an
-`IndeterminateCorrespondence` edge carrying the catalog's duplicate evidence.
+indeterminate logical node; `GraphNodeEvidence.Correspondence` retains the
+catalog's duplicate evidence on every physical definition or call site that
+supports it.
 
 When both sides have the same degraded key under one catalog and binding scope,
-the graph likewise retains an `IndeterminateCorrespondence` edge and emits
-incomplete-graph evidence; it does not report exact definition correspondence.
+the graph likewise joins them only as indeterminate correspondence; it does not
+report exact definition correspondence.
 Both `UnboundBinding` and `Unavailable` are eligible because each preserves the
 complete terminal binding request. `NotFound`, ambiguous, rejected, or
-cross-catalog uses do not degraded-join. Every non-success remains attached to
-its storage node, never enters a shared unresolved bucket, and never becomes an
-ordinary "no edge."
+cross-catalog uses do not degraded-join. Those projections retain unique
+`GraphNodeStorageKey` identities and appear through
+`CatalogCallGraphScope.IncompleteNodes` / `IncompleteEdges`; every non-success
+remains attached to its physical evidence and never becomes an ordinary
+"no edge."
 
-Today's graph joins on canonical simple assembly names and therefore merges
-version, culture, token, and several core-library facade spellings. The
-degraded projection is intentionally narrower: it preserves an unavailable join
-only when the complete binding request agrees. Version-skewed or differently
-identified references remain separate storage nodes with incomplete evidence.
-Trusted platform policy resolves supported core-library facade differences
-before this fallback. This compatibility narrowing is explicit and gated; it is
-not described as preservation of the old graph.
+The catalog graph no longer joins on canonical simple assembly-name strings.
+Version, culture, token, and core-library facade differences are resolved
+through source-relative binding policy before member correspondence. The
+degraded projection is intentionally narrower: it preserves an unavailable
+join only when the complete binding request agrees. Version-skewed or
+differently identified references remain separate storage nodes with
+incomplete evidence.
 
 Every metadata-driven degraded component carries the source candidate through
 `AssemblyBindingDomainKey`. `CurrentAssembly` and `ModuleReference` additionally
@@ -2330,12 +2378,13 @@ complete identity and scope also agree. Cross-source fragmentation is the
 intentional soundness boundary: without resolved correspondence, the catalog
 has no proof that two private binding domains denote one type.
 
-This is a separate migration slice because it changes graph-key construction
-and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
-catalog that minted its keys; cache reuse checks both `AssemblyCatalogId` and
-`AssemblyCatalogGenerationId`, reporting a typed mismatch rather than returning
-misses from a dead key space. It neither serializes keys nor mixes keys from
-another catalog or generation. It is not a separate forwarding model.
+`CatalogCallGraphScope` owns the catalog and frozen context that minted its
+keys. It plans each distinct source signature once, unions requests before
+freezing, projects each plan once, and stores physical definitions, call sites,
+and edges once for both traversal directions. `ReleaseGraph` disposes that
+generation; a later query creates a new generation without reopening the
+already-owned body indexes. The scope neither serializes keys nor mixes keys
+from another catalog or generation. It is not a separate forwarding model.
 
 ### Source and API consumers
 
@@ -2518,9 +2567,9 @@ explicit resource budgets.
 - Implement the iterative cross-assembly engine.
 - Make catalog and resolution caches safe for concurrent Analysis with
   single-flight opens and probes.
-- Port the current `TypeForwardResolver` behavioral coverage to engine tests,
-  but leave that compatibility resolver's scope and per-call behavior unchanged
-  until its consumers migrate with caller-owned catalogs in Slice 3.
+- Port the former `TypeForwardResolver` behavioral coverage to engine tests.
+  Delete that compatibility resolver after its consumers migrate with
+  caller-owned catalogs.
 
 Claim: one typed request resolves to one typed definition or one explicit
 non-success outcome, with one lifetime owner.
@@ -2579,6 +2628,34 @@ paths.
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.
 
+Direct `Callers` applies target-specific correspondence to scope selection,
+then projects the target and same-name call sites through the catalog member
+model. Declaring, parameter, and return types therefore use the same
+generation-scoped definition currency as graph correspondence. Only
+catalog-issued complete projections can join; incomplete projections do not
+fabricate callers. Indeterminate duplicate-artifact projections remain valid
+catalog-scoped currency and join only when their complete keys agree, matching
+the graph contract. If either side cannot bind a signature type, direct caller
+correspondence preserves the exact metadata contract for that component:
+assembly-reference identity or intrinsic-core-library scope plus structured
+type name. This retains callers when dependencies are unavailable without
+collapsing different references or names; resolved definitions still require
+catalog correspondence. When the reachability plan has already established
+that a candidate's declaring reference resolves to the target definition, that
+typed request pair also vouches for exact repeated occurrences of the same type
+in the return or parameter signature. This covers a platform facade whose
+forwarder was proven during scope selection but cannot be replayed by the
+source-relative member policy. The focused gates in
+`CatalogDirectCallerQueryTests` include a deterministic facade/caller image
+whose member replay is forced unavailable; the gate fails without the
+reachability request pair. Those tests cover forwarded non-core-library
+parameters, close overloads, constructed generic calls, matching unresolved
+contracts, reachability-proven facades, and unavailable declaring-type
+correspondence. The real framework gates in `ForwardedCallerEdgeTests` cover
+the corresponding `System.Xml` caller behavior without claiming which
+correspondence branch the installed runtime exercises. Together they close
+[#3513](https://github.com/richlander/dotnet-inspect/issues/3513).
+
 ### Slice 6: graph correspondence and cleanup
 
 - Split total graph storage identity from optional resolved member
@@ -2589,13 +2666,55 @@ definition keys, with no spelling alias model.
 - Add architecture gates that prevent direct resolution logic from returning
   to Analysis or the CLI.
 
-Slice 6 is in progress under
+Slice 6 is delivered by
+[#3782](https://github.com/richlander/dotnet-inspect/pull/3782),
+[#3856](https://github.com/richlander/dotnet-inspect/pull/3856), and
+[#3876](https://github.com/richlander/dotnet-inspect/pull/3876), closing
 [#3780](https://github.com/richlander/dotnet-inspect/issues/3780). Metadata
-currently issues generation-scoped `DefinitionJoinToken` values for exact and
-duplicate-indeterminate TypeDef correspondence classes and
-`UnresolvedBindingKey` values for complete unbound or unavailable binding
-requests. Member-level correspondence, graph migration, and cache-lifetime
-binding remain to be delivered.
+issues generation-scoped `DefinitionJoinToken` and `UnresolvedBindingKey`
+values. Analysis projects complete open signatures into
+`CatalogMemberJoinKey`, retains total physical storage and typed incomplete
+evidence in `CatalogCallGraphScope`, and serves both graph directions from one
+frozen generation. `CatalogMemberCorrespondencePlanTests`,
+`CatalogCallGraphScopeTests`, and `MemberCallGraphSessionTests` gate
+forwarded declaring/parameter/return types, duplicate and unavailable evidence,
+physical participant deduplication, generation release, and product reuse.
+`CatalogCallGraphScopeTests.FunctionPointerPayloadKeepsOverloadsAndTheirCallersSeparate`
+and `PlanCacheIdentityPreservesRecursiveFunctionPointerPayload` gate the
+catalog plan cache against collapsing function-pointer calling conventions,
+return and parameter types, or custom modifiers (#3911).
+`TypeResolutionContextTests.NestedForwarder_ResolvesFullDeclarationChain`
+gates the nested-forwarder composition from declaration chain through final
+definition.
+`ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod`
+gates the compile-back harness's structured forwarder wiring.
+`ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling`,
+`ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and
+`ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
+gate candidate consistency when resolution tightens a signed forwarder hop.
+`ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure`
+gates the simple-name closure model's version unification for contracts older
+than the running inspector, while
+`ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform`
+gates that the replay never escapes the frozen reference slot to a different
+platform image.
+`CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling` and
+`CompileBackTargets_DeclinesDirectSignedInterfaceSpoof` apply the same check to
+the target assembly's initial platform-signed `AssemblyRef`; unsigned
+hand-authored references retain the prior closure scan. The structured engine
+replays the complete initial binding and forwarding walk through Roslyn's
+simple-name-deduplicated closure, selecting the frozen reference occupying each
+requested name even when its metadata identity differs. It requires the same
+assembly identity, matching defining-image SHA-256 digest, and durable TypeDef
+address.
+`CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage` gates
+that Roslyn references and structured inspection share one frozen acquisition
+generation even when a dependency path is replaced afterward.
+`CompileBackPropertyGetters_SharesOneCompilationClosure` and the cluster/all
+scope gate keep that generation assembly-scoped rather than target-scoped.
+`AssemblyDependencyResolverTests.Acquire_SnapshotBudgetExhaustionIsTyped`
+gates the cumulative retained-image budget, while
+`AuthoredBody_ReusesFrozenRtsCompilationClosure` gates reuse by authored replay.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 
@@ -2624,6 +2743,26 @@ Claim: direct callers and transitive call graphs share one definition identity.
   only `UnboundBinding` and genuine policy `Unavailable` outcomes expose its
   opaque projection input, and cross-catalog or stale references never receive
   an `Issued` result.
+- `TypeResolutionRequestComparer` equates exactly the assembly, reference,
+  intrinsic-core-library, and module starts that occupy one frozen manifest
+  entry; requesting registrations and scopes remain identity-bearing.
+- Reusing one `CatalogMemberCorrespondencePlan` does not repeat signature
+  traversal, and repeated named leaves produce one manifest request.
+- `CatalogMemberJoinKey` includes member kind, canonical signature header,
+  vararg required-parameter count, method generic arity, and every named leaf in
+  the open declaring, required parameter, return, modifier, and function-pointer
+  shapes; optional vararg arguments do not enter member identity, and instance
+  and static members remain distinct.
+- A compiler-produced cross-assembly vararg call with optional arguments joins
+  its required-parameter definition and not a lookalike definition whose
+  required parameter list happens to match the expanded call-site list.
+- Embedded vararg function pointers preserve their complete type identity,
+  including post-sentinel parameters, and reject out-of-range required counts.
+- A generic `MemberRef` without a retained open signature cannot fall back to
+  its instantiated signature and receive an exact key; partially retained open
+  signatures are likewise incomplete.
+- `CatalogMemberJoinKey`, `CatalogTypeShape`, correspondence evidence,
+  failures, and projection arms cannot be externally forged or extended.
 - Independently constructed equal reference and intrinsic-core-library
   `AssemblyBindingTarget` values compare and hash equally and hit one binding
   cache entry per source domain.

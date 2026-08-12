@@ -102,6 +102,40 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void BodyShapeCommand_AcceptsKnownExactKind()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(
+                ["body-shape", "ObjectCreationExpression", "--library", "sample.dll"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void BodyShapeCommand_RejectsUnknownOrCaseVariantKind()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(
+                ["body-shape", "objectcreationexpression", "--library", "sample.dll"]));
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("not recognized", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("99999999999")]
+    public void BodyShapeCommand_InvalidLimitReportsParseError(string limit)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(
+                ["body-shape", "LiteralExpression", "--library", "sample.dll", "--limit", limit]));
+
+        Assert.Contains(result.Errors, error =>
+            error.Message.Contains("Cannot parse", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "5"]);
@@ -145,6 +179,33 @@ public class CommandLineTests
             () => Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect")));
 
         Assert.Contains("Tips:", error);
+    }
+
+    [Fact]
+    public async Task WriteTips_WhenInfoIsActive_WritesNothing()
+    {
+        // --info shows the info block instead of tips. Suppression used to be
+        // arranged by appending "-T:q" to the argument array, which every
+        // subcommand that does not declare --tips rejected as an unrecognized
+        // argument. Reading the tracker keeps the suppression and drops the token.
+        // The mutation this catches: delete "InfoTracker.Enabled" from the guard
+        // in Hints.WriteTips and this reddens while the two cases above stay green.
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            try
+            {
+                DotnetInspector.Core.InfoTracker.Start();
+                Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
+            }
+            finally
+            {
+                // Process-global, so it is reset inside the action that owns the
+                // console lock rather than after it, per ConsoleCapture's contract.
+                DotnetInspector.Core.InfoTracker.ResetForTests();
+            }
+        });
+
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -458,6 +519,15 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
         Assert.Equal("library", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void LibraryCommand_WithReferenceTreeDepth_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["library", "MyLib.dll", "-S", "References", "--tree", "--depth", "2"]);
+
+        Assert.Empty(result.Errors);
     }
 
     [Fact]

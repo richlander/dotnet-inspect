@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text;
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.Text;
 
@@ -44,7 +46,7 @@ internal sealed record CSharpDeclarationOptions
 
 internal sealed record CSharpRenderedDeclaration(
     string Source,
-    IReadOnlyList<string> Usings,
+    ImmutableSortedSet<string> Usings,
     IReadOnlyList<string> Diagnostics);
 
 /// <summary>
@@ -2070,7 +2072,7 @@ internal static class CSharpDeclarationWriter
 
     sealed record TypeNamePlan(
         IReadOnlyDictionary<string, string> Replacements,
-        IReadOnlyList<string> GeneratedUsings,
+        ImmutableSortedSet<string> GeneratedUsings,
         IReadOnlyList<string> Diagnostics)
     {
         public string Apply(string text)
@@ -2083,7 +2085,10 @@ internal static class CSharpDeclarationWriter
         public static TypeNamePlan Create(IEnumerable<string> references, CSharpDeclarationOptions options)
         {
             if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
-                return new TypeNamePlan(new Dictionary<string, string>(), [], []);
+                return new TypeNamePlan(
+                    new Dictionary<string, string>(),
+                    ImmutableSortedSet.Create<string>(StringComparer.Ordinal),
+                    []);
 
             var typeRefs = references
                 .Select(TypeRef.TryCreate)
@@ -2122,7 +2127,10 @@ internal static class CSharpDeclarationWriter
                     generatedUsings.Add(typeRef.Namespace);
             }
 
-            return new TypeNamePlan(replacements, generatedUsings.ToList(), diagnostics);
+            return new TypeNamePlan(
+                replacements,
+                generatedUsings.ToImmutableSortedSet(StringComparer.Ordinal),
+                diagnostics);
         }
 
         static string ReplaceIdentifierToken(string text, string token, string replacement)

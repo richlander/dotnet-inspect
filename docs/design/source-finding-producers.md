@@ -9,7 +9,9 @@ document rows, sequence-point relationships and ranges, type/member/token
 correspondence, and generic custom-debug-information blobs by GUID.
 ILInspector.SourceLink owns SourceLink interpretation and source decoration.
 Network acquisition, checksum verdicts, decompiler correspondence, and
-old/new product interpretation remain separate consumers.
+old/new product interpretation remain separate consumers. Typed SourceLink
+queries compose the document Finding producer with shared acquisition and audit
+services; they do not move network behavior into the Finding producer.
 
 ## Producer inventory
 
@@ -92,9 +94,12 @@ dependency.
 
 ## Consumer boundaries
 
-`SourceAuditService` and `SourceIntegrityService` consume the source-document
-census. Their reachability and checksum statuses are operation results and
-presentation folds, not additional Findings.
+`SourceAvailabilityService` and `SourceIntegrityService` consume the
+source-document census. `SourceLinkDocumentsQuery`,
+`SourceAvailabilityQuery`, and `SourceIntegrityQuery` expose their composition
+as host-neutral typed results with explicit absent and failed outcomes. Their
+reachability and checksum statuses are operation results and presentation
+folds, not additional Findings.
 
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
 token. `AuthoredSourceAcquisition` consumes the same token-scoped mapping and

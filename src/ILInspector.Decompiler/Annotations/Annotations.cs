@@ -43,6 +43,9 @@ public enum AnnotationCategory
 
     /// <summary>Behavioral semantics and safety facts — exception paths and unsafe callee contracts.</summary>
     Semantics,
+
+    /// <summary>Relationships to other members, such as one physical call-site occurrence.</summary>
+    Relationship,
 }
 
 /// <summary>

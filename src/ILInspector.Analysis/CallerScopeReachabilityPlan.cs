@@ -112,7 +112,9 @@ public sealed class CallerScopeReachabilityPlan
                 in snapshot.MatchingReferences)
             {
                 TypeResolutionRequest request =
-                    CreateRequest(snapshot.Assembly, reference);
+                    TypeResolutionRequestFactory.Create(
+                        snapshot.Assembly,
+                        reference);
                 requests.Add(request);
                 requestReferences.TryAdd(
                     request,
@@ -127,7 +129,7 @@ public sealed class CallerScopeReachabilityPlan
                 var binding = new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(reference),
                     AssemblyBindingOrigin.FromAssembly(snapshot.Assembly),
-                    Scope(reference));
+                    TypeResolutionRequestFactory.Scope(reference));
                 bindings.Add(binding);
                 bindingOwners.Add(
                     binding,
@@ -331,42 +333,6 @@ public sealed class CallerScopeReachabilityPlan
                 "Unknown definition correspondence result."),
         };
     }
-
-    static TypeResolutionRequest CreateRequest(
-        ResolvedAssemblyReference source,
-        ResolvableTypeReference reference) =>
-        reference.Origin switch
-        {
-            TypeReferenceOrigin.AssemblyReference assembly =>
-                TypeResolutionRequest.FromReference(
-                    assembly.Assembly,
-                    AssemblyBindingOrigin.FromAssembly(source),
-                    Scope(assembly.Assembly),
-                    reference.Type),
-            TypeReferenceOrigin.CurrentAssembly =>
-                TypeResolutionRequest.FromAssembly(
-                    source,
-                    AssemblyResolutionScope.Any,
-                    reference.Type),
-            TypeReferenceOrigin.IntrinsicCoreLibrary =>
-                TypeResolutionRequest.FromCoreLibrary(
-                    source,
-                    AssemblyResolutionScope.Platform,
-                    reference.Type),
-            TypeReferenceOrigin.ModuleReference module =>
-                TypeResolutionRequest.FromModule(
-                    source,
-                    module.ModuleName,
-                    reference.Type),
-            _ => throw new InvalidOperationException(
-                "Unknown type-reference origin."),
-        };
-
-    static AssemblyResolutionScope Scope(
-        AssemblyReferenceIdentity reference) =>
-        PlatformKeys.IsPlatform(reference.PublicKeyToken)
-            ? AssemblyResolutionScope.Platform
-            : AssemblyResolutionScope.Any;
 
     static void AddForwarderEdges(
         TypeResolutionContext context,
@@ -611,6 +577,27 @@ public sealed class CallerScopeReachabilityPlan
 
             if (_target.Identity == reference.Identity)
                 return AssemblyBindingSelection.Found(_target);
+
+            if (string.Equals(
+                _target.Identity.Name,
+                reference.Identity.Name,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                // Keep a skewed caller as indeterminate unless the supplied
+                // policy explicitly rolls its reference to the selected target.
+                AssemblyBindingSelection fallback =
+                    _fallback.Select(request);
+                if (fallback
+                        is AssemblyBindingSelection.Selected selected
+                    && selected.Assembly.Identity == _target.Identity)
+                {
+                    return fallback;
+                }
+
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.IdentityPolicyRequired));
+            }
 
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
                 .Where(root => root.Identity == reference.Identity)

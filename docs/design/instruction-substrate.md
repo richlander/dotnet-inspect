@@ -56,6 +56,9 @@ and never loads inspected assemblies.
   consumers do not share the abstract interpretation: `dotnet/runtime` runs three
   separate typed stacks (ILVerify's `StackValue`, RyuJIT's `GenTree*`+`typeInfo`,
   `ILStackHelper`'s bare heights) over one shared `ILReader`/`FlowGraph`.
+  Analysis may share one of its interpretations, such as loop regions, among
+  its own topic producers without promoting that interpretation into the
+  cross-consumer `MethodInstructions` contract.
 
 The typed evaluation stack is opt-in via `MethodInstructions.InterpretStack(...)`,
 so broad scans and the offset join never pay for it.
@@ -283,10 +286,14 @@ not attempted in that PR.
   Metadata's project dependency on Instructions removed through
   the shared `IOperandNameResolver` contract and Metadata-owned
   `MetadataOperandNameResolver` implementation (done, validated; see "The Metadata
-  cutover" above). Remaining: `LibraryBodyIndex`
-  (the allocation/triage producer — convert its decode loop with the full corpus
-  baseline as guard), the decompiler importer (with the minimal-CFG refactor),
-  and consolidating the three metadata-token-to-string traversals
+  cutover" above). `LibraryBodyAnalysisBuilder` also uses the throwing Layer-0
+  primitives and wraps their result in `MethodInstructions`; this preserves its
+  per-method malformed-body diagnostic behavior while giving topic producers
+  one shared façade. The allocation-specific path, confidence, and
+  post-dominance indexes over those blocks are Analysis-owned Layer 1, private
+  to `MethodAllocationAnalysis`. Remaining: the
+  decompiler importer (with the minimal-CFG refactor), and consolidating the
+  three metadata-token-to-string traversals
   (`ILTokenResolver`/`CanonicalIL`/`IlBodyDiff.MetadataOperandResolver`) if their
   output policies are ever found to overlap enough to share code safely.
 - Typed stack: gated; no measured trigger; re-probe under memory-safety lifetime.

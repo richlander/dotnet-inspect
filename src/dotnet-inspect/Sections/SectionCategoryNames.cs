@@ -5,7 +5,29 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class SectionCategoryNames
 {
+    /// <summary>
+    /// The library command's ordinary identity, relationship, diagnostic, and dense-signal
+    /// sections. Together with <see cref="Surface"/>, this forms the library base scope.
+    /// </summary>
+    public const string Library = "@Library";
+
+    /// <summary>
+    /// The package command's ordinary identity, relationship, registry, diagnostic, and
+    /// whole-package evidence. Together with <see cref="Files"/>, this forms the package base
+    /// scope.
+    /// </summary>
+    public const string Package = "@Package";
+
+    /// <summary>
+    /// Safety, provenance, integrity, and vulnerability evidence at package or library scope.
+    /// Members that are also ordinary command evidence remain cross-listed in their base category.
+    /// </summary>
     public const string Audit = "@Audit";
+
+    /// <summary>
+    /// Direct package dependencies and runtime-specific package dependencies.
+    /// </summary>
+    public const string Dependencies = "@Dependencies";
 
     /// <summary>
     /// Actual source content: decompiled, original, and annotated source views plus source diffs
@@ -20,14 +42,18 @@ public static class SectionCategoryNames
     /// </summary>
     public const string SourceLink = "@SourceLink";
 
-    /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
+    /// <summary>
+    /// The command's ordinary API and metadata surface sections. At library scope this is a base
+    /// category alongside <see cref="Library"/>.
+    /// </summary>
     public const string Surface = "@Surface";
 
-    // No @Escape category: the escape/exception-safety family has exactly one member today
-    // (Array Pool Escapes), and a door with a single room behind it is pure indirection.
-    // The member is unprefixed for the same reason -- a Group: Leaf prefix advertises a
-    // category door, so a prefix with no door behind it makes a promise the catalog does not
-    // keep. Reintroduce the category, and the prefix, together when a second member lands.
+    /// <summary>
+    /// Coordinate-scoped evidence produced for an IL offset. The members use the
+    /// <c>Context: &lt;Leaf&gt;</c> family name and become effective only when the coordinate
+    /// carrier is present.
+    /// </summary>
+    public const string Context = "@Context";
 
     /// <summary>
     /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members
@@ -39,7 +65,8 @@ public static class SectionCategoryNames
     public const string Integrations = "@Integrations";
 
     /// <summary>
-    /// Package file listings scoped to a layout root or document kind: the
+    /// Package file listings scoped to a layout root or document kind. This is a package base
+    /// category alongside <see cref="Package"/>. Its members are the
     /// <c>Package &lt;X&gt; file(s)</c> members. The plain <c>Package files</c> section is the
     /// whole-package listing rather than a subset, so it is deliberately not a member;
     /// including it would render most rows twice.

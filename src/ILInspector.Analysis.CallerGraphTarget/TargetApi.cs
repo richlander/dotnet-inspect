@@ -10,12 +10,18 @@ namespace Target
 
         // Overloads sharing the simple name Ping. A cross-assembly caller graph rooted at one
         // overload must not pull in callers of the other; that requires the param-bearing
-        // CallerGraphKey, which is only exercised across assemblies (#1623 rung 1).
+        // catalog member correspondence, which is exercised across assemblies.
         public static void Ping(int value)
         {
         }
 
         public static void Ping(string value)
+        {
+        }
+
+        public static void Forward() => Leaf();
+
+        public static void Leaf()
         {
         }
     }
@@ -57,8 +63,70 @@ namespace Target
         public static T Echo<T>(T value) => value;
     }
 
+    // #3340: method overloads that differ only by generic arity.
+    public static class ArityApi
+    {
+        public static void Store(int value)
+        {
+        }
+
+        public static void Store<T>(int value)
+        {
+        }
+    }
+
+    public static unsafe class FunctionPointerApi
+    {
+        public static void Store(
+            delegate* unmanaged[Cdecl]<int, int> value)
+        {
+        }
+
+        public static void Store(
+            delegate* unmanaged[Stdcall]<int, int> value)
+        {
+        }
+    }
+
+    public sealed class InstanceRecursionApi
+    {
+        public bool Recurse(int depth) =>
+            depth > 0 && Recurse(depth - 1);
+
+        public int RecurseTwice(int depth) =>
+            depth <= 0
+                ? 0
+                : RecurseTwice(depth - 1)
+                    + RecurseTwice(depth - 2);
+
+        public bool IsEven(int value) =>
+            value == 0 || IsOdd(value - 1);
+
+        bool IsOdd(int value) =>
+            value != 0 && IsEven(value - 1);
+    }
+
     public interface IBodilessApi
     {
         void Invoke();
+    }
+
+    public sealed class VarargArg
+    {
+    }
+
+    public static class VarargApi
+    {
+        public static VarargArg Sink(
+            VarargArg required,
+            __arglist) =>
+            required;
+
+        public static VarargArg Sink(
+            VarargArg required,
+            VarargArg second,
+            VarargArg third,
+            __arglist) =>
+            required;
     }
 }

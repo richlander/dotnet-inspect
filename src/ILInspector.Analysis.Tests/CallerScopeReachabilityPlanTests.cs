@@ -106,6 +106,33 @@ public class CallerScopeReachabilityPlanTests
                 targetType));
     }
 
+    [Fact]
+    public void ExplicitTargetRollForward_RemainsSameDefinition()
+    {
+        byte[] targetV1Image = BuildTarget(
+            new Version(1, 0, 0, 0));
+        byte[] targetV2Image = BuildTarget(
+            new Version(2, 0, 0, 0));
+        byte[] callerImage = BuildCaller(
+            ReadIdentity(targetV1Image));
+        ResolvedAssemblyReference targetV2 =
+            Descriptor(targetV2Image);
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        TypeRef callerType = ReadCallerReference(callerImage);
+        var policy = new SelectedPolicy(targetV2);
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                policy,
+                targetV2,
+                ReadTargetDefinition(targetV2Image),
+                [caller]);
+
+        Assert.Contains(caller, plan.GraphCandidates);
+        Assert.IsType<CandidateTypeRelation.SameDefinition>(
+            plan.Resolution.GetRelation(caller, callerType));
+    }
+
     static TypeRef ReadTargetDefinition(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -131,11 +158,14 @@ public class CallerScopeReachabilityPlanTests
             0);
     }
 
-    static byte[] BuildTarget()
+    static byte[] BuildTarget() =>
+        BuildTarget(new Version(1, 0, 0, 0));
+
+    static byte[] BuildTarget(Version version)
     {
         var metadata = AssemblyMetadata(
             "Target",
-            new Version(1, 0, 0, 0));
+            version);
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
@@ -276,5 +306,16 @@ public class CallerScopeReachabilityPlanTests
                     out ResolvedAssemblyReference? assembly)
                     ? AssemblyBindingSelection.Found(assembly)
                     : AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class SelectedPolicy(
+        ResolvedAssemblyReference selected)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.Found(selected);
     }
 }

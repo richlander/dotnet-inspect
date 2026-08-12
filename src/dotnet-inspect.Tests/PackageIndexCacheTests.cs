@@ -7,8 +7,11 @@ using InertText;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class PackageIndexCacheTests
 {
+    private const string ProducerKey = "producer-a";
+
     public PackageIndexCacheTests()
         => CoreCache.Initialize("dotnet-inspect-test");
 
@@ -28,8 +31,9 @@ public sealed class PackageIndexCacheTests
             Authors = "real author"
         };
 
-        PackageIndexCache.Set(packageName, Version, result);
-        InspectionResult cached = PackageIndexCache.TryGet(packageName, Version)!;
+        PackageIndexCache.Set(packageName, Version, ProducerKey, result);
+        InspectionResult cached =
+            PackageIndexCache.TryGet(packageName, Version, ProducerKey)!;
 
         Assert.Equal(description, cached.Description);
         Assert.Equal(
@@ -75,7 +79,11 @@ public sealed class PackageIndexCacheTests
         };
 
         Assert.Throws<InvalidOperationException>(
-            () => PackageIndexCache.Set(packageName, "1.0.0", result));
+            () => PackageIndexCache.Set(
+                packageName,
+                "1.0.0",
+                ProducerKey,
+                result));
     }
 
     [Fact]
@@ -88,6 +96,7 @@ public sealed class PackageIndexCacheTests
         PackageIndexCache.Set(
             nullPackage,
             Version,
+            ProducerKey,
             new InspectionResult
             {
                 PackageName = nullPackage,
@@ -97,6 +106,7 @@ public sealed class PackageIndexCacheTests
         PackageIndexCache.Set(
             emptyPackage,
             Version,
+            ProducerKey,
             new InspectionResult
             {
                 PackageName = emptyPackage,
@@ -104,10 +114,46 @@ public sealed class PackageIndexCacheTests
                 Description = InertString.Empty
             });
 
-        Assert.Null(PackageIndexCache.TryGet(nullPackage, Version)?.Description);
-        InertString? empty = PackageIndexCache.TryGet(emptyPackage, Version)?.Description;
+        Assert.Null(
+            PackageIndexCache.TryGet(
+                nullPackage,
+                Version,
+                ProducerKey)?.Description);
+        InertString? empty = PackageIndexCache.TryGet(
+            emptyPackage,
+            Version,
+            ProducerKey)?.Description;
         Assert.NotNull(empty);
         Assert.True(empty.Value.IsEmpty);
+    }
+
+    [Fact]
+    public void EqualCoordinatesFromDifferentProducersDoNotShareInspectionResults()
+    {
+        string packageName = $"Source.Scoped.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        PackageIndexCache.Set(
+            packageName,
+            Version,
+            "producer-a",
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = Version,
+                Authors = "producer-a",
+            });
+
+        Assert.Null(
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                "producer-b"));
+        Assert.Equal(
+            "producer-a",
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                "producer-a")!.Authors);
     }
 
     [Theory]
@@ -142,9 +188,16 @@ public sealed class PackageIndexCacheTests
     {
         string packageName = $"Description.Malformed.{suffix}.{Guid.NewGuid():N}";
         const string Version = "1.0.0";
-        string key = $"{packageName.ToLowerInvariant()}@{Version}";
+        string key = PackageIndexCache.CacheKey(
+            packageName,
+            Version,
+            ProducerKey);
         CoreCache.SetBytes(PackageIndexCache.Category, key, bytes, extension: "md");
 
-        Assert.Null(PackageIndexCache.TryGet(packageName, Version));
+        Assert.Null(
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                ProducerKey));
     }
 }

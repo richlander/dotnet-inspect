@@ -19,7 +19,7 @@ public class ObjectInitializerPassTests
     static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
 
     // Raises a method on any top-level fixture type in this assembly (not just
-    // CfgSampleClass), for fixtures declared as their own types at end of file.
+    // CfgSampleClass), for fixtures declared as their own types.
     static IrFunction RaisedFrom(string typeFullName, string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeResolver);

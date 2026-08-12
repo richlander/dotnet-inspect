@@ -63,6 +63,9 @@ public class InspectionAcquisitionPlanTests
 
         Assert.Equal(ReadIdentity(SelfBytes()), descriptor.Identity);
         Assert.Equal(Path.GetFullPath(SelfPath), descriptor.Path);
+        Assert.Equal(
+            File.GetLastWriteTimeUtc(SelfPath),
+            descriptor.LastWriteTimeUtc);
     }
 
     [Fact]
@@ -82,6 +85,76 @@ public class InspectionAcquisitionPlanTests
                 invalid,
                 AssemblyResolutionProvenance.Local("test"),
                 out _));
+        }
+        finally
+        {
+            File.Delete(invalid);
+        }
+    }
+
+    [Fact]
+    public void PathFactories_BlankAssemblyName_ReturnNoDescriptor()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("BlankName.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString(" "),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var pe = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            pe.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+            Assert.False(ResolvedAssemblyReference.TryCreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("test"),
+                out _));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void CreateFromPathIfManaged_NonPeImage_ReturnsNull()
+    {
+        string invalid = Path.GetTempFileName();
+        try
+        {
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    invalid,
+                    AssemblyResolutionProvenance.Local("test")));
         }
         finally
         {
@@ -511,6 +584,30 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Session_WhenUnexpectedOpenThrows_ReleasesImage()
+    {
+        byte[] image = SelfBytes();
+        int opens = 0;
+        using var plan = new InspectionAcquisitionPlan();
+        var descriptor = ResolvedAssemblyReference.Create(
+            ReadIdentity(image),
+            path: null,
+            openRead: () =>
+                Interlocked.Increment(ref opens) == 1
+                    ? new MemoryStream(image, writable: false)
+                    : new ThrowingDisposeMemoryStream(image),
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        var registration =
+            Assert.IsType<CandidateRegistrationResult.Ready>(
+                plan.Register(descriptor));
+
+        Assert.Throws<InvalidOperationException>(
+            () => plan.OpenSession(registration.Candidate));
+
+        Assert.Equal(0, plan.RetainedImageBytes);
+    }
+
+    [Fact]
     public async Task Session_ConcurrentRequestsShareOneOpen()
     {
         byte[] image = SelfBytes();
@@ -847,6 +944,20 @@ public class InspectionAcquisitionPlanTests
                 disposed();
             }
             base.Dispose(disposing);
+        }
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
         }
     }
 

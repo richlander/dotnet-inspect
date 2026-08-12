@@ -5,10 +5,10 @@ derived platform packs. [Version resolution](version-resolution.md) owns which
 package coordinate is selected and when network lookup occurs; this document
 owns how content for an exact coordinate becomes visible safely.
 
-The publication and filesystem sections describe the current implementation.
-The source-authorization and provenance sections describe the target contract
-from the [package source model](package-source-model.md) and identify current
-deviations explicitly.
+The publication, filesystem, candidate, source-authorization, and provenance
+sections describe the current implementation. Package source mapping remains
+target behavior tracked by the
+[package source model](package-source-model.md).
 
 ## Source conformance
 
@@ -56,12 +56,6 @@ A source inherited from `nuget.config`, added after `<clear/>`, or selected by
 authorizations, so their cached payloads become unavailable until the
 corresponding source is added back.
 
-The current implementation is more permissive: it reads global-folder content
-without checking provenance and some cache-first paths scan installed versions
-as candidates. Separating candidate discovery from provenance-matched payload
-fulfillment is tracked by
-[#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
-
 ### Selection between two eligible sources
 
 Source declaration order is not feed precedence. When two sources are eligible
@@ -71,10 +65,9 @@ eligible source that appears earlier in configuration. This preserves
 cache-first and offline operation and matches NuGet's contract: package source
 mapping, not declaration order, limits which feed may serve an id.
 
-"Authorized" currently means the source appears in the caller's active sources.
-After `<packageSourceMapping>` and candidate provenance are implemented, the
-payload producer must also be selected by the winning mapping pattern and, for
-a discovered coordinate, have reported that version. See the
+"Authorized" means the source appears in the caller's active sources, is selected
+by the package id's winning package-source-mapping pattern when mapping is
+enabled, and, for a discovered coordinate, reported the selected version. See the
 [package source model](package-source-model.md) for the end-to-end contract.
 
 A source is identified by a digest of its canonical URL, and canonicalization is
@@ -82,10 +75,8 @@ shared with the credential scope's `IsSameEndpoint` rather than reimplemented, s
 one URL cannot mean two things in one tool. Scheme, host, default port,
 percent-escape casing, and an empty root path versus `/` fold because the URI
 grammar defines them as equivalent. Path and query case do not fold:
-`/FeedA` and `/feeda` can name different resources. A non-root trailing slash
-must likewise remain distinct, but the current cache identity incorrectly folds
-`/feed` and `/feed/`. Correcting it requires a cache namespace migration and is
-tracked by [#3737](https://github.com/richlander/dotnet-inspect/issues/3737).
+`/FeedA` and `/feeda` can name different resources. Exactly one optional trailing
+path slash folds, while repeated trailing slashes and fragments remain distinct.
 The digest keeps source URLs out of cache paths and makes every identity a
 valid path segment. It is a path-safe identifier, not a security boundary;
 source authorization comes from the source policy, not from hiding cache keys.
@@ -113,7 +104,7 @@ implement any of those architectures exactly.
 
 | Precedent | Pattern adopted by dotnet-inspect | Important difference |
 | --- | --- | --- |
-| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. NuGet's global folder is also source-blind, whereas dotnet-inspect's own cache is scoped by source. |
+| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. NuGet accepts an exact global-folder hit without source authorization; dotnet-inspect requires its recorded producer to be authorized. |
 | Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
 | Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the cache root, normalized package id, version, and source rather than by a content hash. |
 | Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |
@@ -166,7 +157,7 @@ Package content publication follows this sequence:
 4. Write `.dotnet-inspect.complete` inside the staging directory.
 5. Close all files opened by dotnet-inspect.
 6. Move the staging directory atomically to its final
-   `package-content-v4/{id}/{version}/{source}` path.
+   `package-content-v5/{id}/{version}/{source}` path.
 7. If another publisher won, validate and use its committed directory.
 
 Readers accept only final directories with the expected structure and marker;
@@ -174,9 +165,25 @@ they never inspect staging paths. Platform-pack projection applies the same
 transaction separately under `packs-v2` with its own completion marker. It
 copies from committed package content and never mutates that package directory.
 
-The versioned `package-content-v4` and `packs-v2` namespaces fence these
-transactions from older direct-copy writers, and from earlier layouts that did
-not scope entries by source.
+The versioned `package-content-v5` and `packs-v2` namespaces fence these
+transactions from older direct-copy writers, earlier layouts that did not
+scope entries by source, and payloads previously misattributed by a
+noncanonical NuGet.org URL shortcut.
+
+## Versioned cache retirement
+
+Each versioned cache family registers its prefix and current numeric contract.
+Registration starts best-effort background cleanup, and cache initialization
+rechecks every known family. Cleanup deletes only lower numeric contracts.
+Current, future, and malformed directory suffixes are preserved, so running an
+older dotnet-inspect cannot destroy a cache written by a newer one.
+
+Cleanup scans on every initialization rather than trusting a persisted
+high-water mark. An older executable can still be running and can recreate an
+old contract after a newer process removes it; the next initialization must
+therefore check again. Routine cleanup is silent. An explicit `cache clear`
+waits for in-flight maintenance and includes its reclaimed bytes in the
+reported total.
 
 ## Filesystem coordination
 

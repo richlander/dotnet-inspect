@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.ExceptionServices;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -36,7 +37,8 @@ public enum PdbCustomDebugInformationStatus
 /// </summary>
 public sealed record PdbCustomDebugInformationResult(
     PdbCustomDebugInformationStatus Status,
-    byte[]? Value);
+    byte[]? Value,
+    string? Error = null);
 
 /// <summary>
 /// A method-to-document relationship extracted from portable-PDB sequence points.
@@ -185,7 +187,8 @@ public class PdbContext : IDisposable
     public long FileSize { get; }
 
     /// <summary>
-    /// Last write time captured at open time (avoids repeated lstat syscalls).
+    /// Last write time retained from the authoritative acquisition or captured
+    /// from the open file handle.
     /// </summary>
     public DateTime LastWriteTimeUtc { get; }
 
@@ -219,7 +222,8 @@ public class PdbContext : IDisposable
         string? assemblyPath,
         string assemblyDisplayName,
         Action<string>? log,
-        bool entireImagePrefetched)
+        bool entireImagePrefetched,
+        DateTime? lastWriteTimeUtc)
     {
         _peStream = peStream;
         _peReader = peReader;
@@ -230,7 +234,7 @@ public class PdbContext : IDisposable
         FileSize = peStream.Length;
         LastWriteTimeUtc = peStream is FileStream fileStream
             ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
-            : default;
+            : lastWriteTimeUtc ?? default;
     }
 
     /// <summary>
@@ -241,8 +245,34 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
+    /// Opens the PE image and reads its debug directory without loading an embedded or adjacent
+    /// PDB. Used by latency-bounded metadata discovery that does not need source documents.
+    /// </summary>
+    public static PdbContext OpenMetadataOnly(string assemblyPath, Action<string>? log = null)
+        => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
+
+    /// <summary>
+    /// Opens descriptor-owned PE metadata without loading an embedded or
+    /// adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false);
+    }
+
+    /// <summary>
     /// Opens an acquisition descriptor through its authoritative stream factory.
-    /// The optional path is used only for adjacent PDB discovery and file metadata.
+    /// The optional path is used only for adjacent PDB discovery.
     /// </summary>
     public static PdbContext Open(
         ResolvedAssemblyReference assembly,
@@ -254,7 +284,8 @@ public class PdbContext : IDisposable
             assembly.Path,
             assembly.Identity.Name,
             log,
-            PEStreamOptions.Default);
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc);
     }
 
     /// <summary>
@@ -289,25 +320,49 @@ public class PdbContext : IDisposable
         => Open(
             assemblyPath,
             log,
-            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+            loadLocalPdb: true);
+
+    /// <summary>
+    /// Opens an acquisition descriptor with its complete authoritative image prefetched.
+    /// </summary>
+    public static PdbContext OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: true);
+    }
 
     static PdbContext Open(
         string assemblyPath,
         Action<string>? log,
-        PEStreamOptions streamOptions)
+        PEStreamOptions streamOptions,
+        bool loadLocalPdb = true)
         => Open(
             File.OpenRead(assemblyPath),
             assemblyPath,
             Path.GetFileName(assemblyPath),
             log,
-            streamOptions);
+            streamOptions,
+            lastWriteTimeUtc: null,
+            loadLocalPdb);
 
     static PdbContext Open(
         Stream stream,
         string? assemblyPath,
         string assemblyDisplayName,
         Action<string>? log,
-        PEStreamOptions streamOptions)
+        PEStreamOptions streamOptions,
+        DateTime? lastWriteTimeUtc,
+        bool loadLocalPdb = true)
     {
         PEReader peReader;
         try
@@ -326,13 +381,15 @@ public class PdbContext : IDisposable
             assemblyPath,
             assemblyDisplayName,
             log,
-            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0);
+            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
+            lastWriteTimeUtc);
 
         if (!peReader.HasMetadata)
             return context;
 
         context.ReadDebugDirectory();
-        context.TryLoadLocalPdb();
+        if (loadLocalPdb)
+            context.TryLoadLocalPdb();
 
         return context;
     }
@@ -1081,25 +1138,71 @@ public class PdbContext : IDisposable
 
         BlobHandle value = default;
         bool found = false;
-        foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
+        Exception? scanError = null;
+        try
         {
-            var info = _pdbReader.GetCustomDebugInformation(handle);
-            if (_pdbReader.GetGuid(info.Kind) != kind)
-                continue;
+            foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
+            {
+                CustomDebugInformation info;
+                try
+                {
+                    info = _pdbReader.GetCustomDebugInformation(handle);
+                    if (_pdbReader.GetGuid(info.Kind) != kind)
+                        continue;
+                }
+                catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
+                {
+                    scanError ??= ex;
+                    continue;
+                }
 
-            if (found)
-                return new(PdbCustomDebugInformationStatus.Duplicate, null);
+                if (found)
+                    return new(PdbCustomDebugInformationStatus.Duplicate, null);
 
-            found = true;
-            value = info.Value;
+                found = true;
+                value = info.Value;
+            }
+        }
+        catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
+        {
+            scanError ??= ex;
         }
 
-        return found
-            ? new(
+        if (scanError is not null)
+        {
+            if (found)
+            {
+                return new(
+                    PdbCustomDebugInformationStatus.Present,
+                    null,
+                    scanError.Message);
+            }
+
+            ExceptionDispatchInfo.Capture(scanError).Throw();
+        }
+
+        if (!found)
+            return new(PdbCustomDebugInformationStatus.Absent, null);
+
+        try
+        {
+            return new(
                 PdbCustomDebugInformationStatus.Present,
-                _pdbReader.GetBlobBytes(value))
-            : new(PdbCustomDebugInformationStatus.Absent, null);
+                _pdbReader.GetBlobBytes(value));
+        }
+        catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
+        {
+            return new(
+                PdbCustomDebugInformationStatus.Present,
+                null,
+                ex.Message);
+        }
     }
+
+    static bool IsCustomDebugInformationReadFailure(Exception exception)
+        => exception is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException;
 
     private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(
         MetadataReader metadata,
@@ -1212,6 +1315,16 @@ public class PdbContext : IDisposable
     /// </summary>
     public PresenceFlags ScanPresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_peReader);
+
+    public PresenceFlags ScanPresenceFlags(
+        EcosystemIntegrationPresence integrationPresence)
+        => AssemblyDetailScanner.ScanPresenceFlags(
+            _peReader,
+            integrationPresence);
+
+    public PresenceFlags ScanPresenceFlagsWithoutIntegrations()
+        => AssemblyDetailScanner.ScanPresenceFlagsWithoutIntegrations(
+            _peReader);
 
     public void Dispose()
     {

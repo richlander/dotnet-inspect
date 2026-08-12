@@ -795,6 +795,77 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void BuildShapeView_MemberLimitCountsCollapsedOverloadGroups()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "method", Name = "Alpha", Signature = "void Alpha()" },
+                new() { Kind = "method", Name = "Alpha", Signature = "void Alpha(int value)" },
+                new() { Kind = "method", Name = "Beta", Signature = "void Beta()" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            memberLimit: 1);
+
+        var methods = Assert.Single(view.Members);
+        Assert.Equal("Methods (1 logical, 2 overloads)", methods.Text);
+        var child = Assert.Single(methods.Children!);
+        Assert.Equal("Alpha (2 overloads)", child.Text);
+
+        var expanded = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            verbosity: Verbosity.Normal,
+            memberLimit: 1);
+
+        var expandedMethods = Assert.Single(expanded.Members);
+        Assert.Equal("Methods (1)", expandedMethods.Text);
+        var expandedChild = Assert.Single(expandedMethods.Children!);
+        Assert.Equal("void Alpha()", expandedChild.Text);
+    }
+
+    [Fact]
+    public void BuildShapeView_ExpandedOperatorLimitUsesDisplayOrder()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "operator", Name = "op_Addition", Signature = "Widget op_Addition(Widget left, Widget right)" },
+                new() { Kind = "operator", Name = "op_Explicit", Signature = "Widget op_Explicit(int value)" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            verbosity: Verbosity.Normal,
+            memberLimit: 1);
+
+        var operators = Assert.Single(view.Members);
+        var child = Assert.Single(operators.Children!);
+        Assert.Equal("Widget op_Explicit(int value)", child.Text);
+    }
+
+    [Fact]
     public void GetMemberSignatureSortKey_StripsMethodGenericListOnly()
     {
         var member = new ApiMember
@@ -1706,15 +1777,6 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void MultiAssemblyReport_HasSingleH1()
-    {
-        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
-        var output = Serialize(report);
-
-        Assert.Single(output.Split('\n'), l => l.StartsWith("# "));
-    }
-
-    [Fact]
     public void SingleAssemblyAudit_HasSingleH1()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
@@ -1724,50 +1786,186 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void MultiAssemblyReport_HasH2AssembliesSection()
+    public async Task MultiAssemblyReport_SelectedChildSectionsRenderPerAssembly()
     {
-        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
-        var output = Serialize(report);
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var pipeline = LibrarySections.CreatePipeline();
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Library Info", "Signals"],
+            Format = OutputFormat.Markdown
+        };
 
-        Assert.Contains("## Libraries", output);
+        var (markdown, markdownError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, options, pipeline));
+
+        Assert.Empty(markdownError);
+        Assert.StartsWith("# Test\n\n## Libraries\n", markdown);
+        Assert.Single(
+            markdown.ReplaceLineEndings("\n").Split('\n'),
+            line => line.StartsWith("# ", StringComparison.Ordinal));
+        Assert.Contains("### Test.dll (net9.0)", markdown);
+        Assert.Contains("### Test.dll (net8.0)", markdown);
+        Assert.Equal(2, markdown.Split("#### Library Info", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, markdown.Split("#### Signals", StringSplitOptions.None).Length - 1);
+
+        var quietOptions = options with
+        {
+            Verbosity = Verbosity.Quiet,
+            IncludeSections = null
+        };
+        var (quiet, quietError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, quietOptions, pipeline));
+
+        Assert.Empty(quietError);
+        Assert.Contains("Name: Test", quiet);
+
+        var plainOptions = options with
+        {
+            Format = OutputFormat.PlainText,
+            PlainText = true
+        };
+        var (plain, plainError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, plainOptions, pipeline));
+
+        Assert.Empty(plainError);
+        Assert.StartsWith("Test\n\nLibraries\n", plain);
+        Assert.DoesNotContain("#", plain);
+        Assert.Equal(
+            2,
+            plain.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line == "Signals"));
     }
 
     [Fact]
-    public void MultiAssemblyReport_HasH3PerTfm()
+    public async Task MultiAssemblyReport_ProjectionPreservesAssemblyHeadings()
     {
-        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
-        var output = Serialize(report);
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var pipeline = LibrarySections.CreatePipeline();
+        var columnOptions = new LibraryOptions
+        {
+            IncludeSections = ["Signals"],
+            Columns = ["Area"],
+            Format = OutputFormat.Markdown
+        };
 
-        Assert.Contains("### Test.dll (net9.0)", output);
-        Assert.Contains("### Test.dll (net8.0)", output);
+        var (columns, columnsError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, columnOptions, pipeline));
+
+        Assert.Empty(columnsError);
+        Assert.Equal(
+            2,
+            columns.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
+        Assert.Equal(2, columns.Split("#### Signals", StringSplitOptions.None).Length - 1);
+
+        var fieldOptions = columnOptions with
+        {
+            IncludeSections = ["Library Info"],
+            Columns = null,
+            Fields = ["Name"],
+            Verbosity = Verbosity.Quiet
+        };
+        var (fields, fieldsError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, fieldOptions, pipeline));
+
+        Assert.Empty(fieldsError);
+        Assert.Equal(
+            2,
+            fields.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
+
+        var plainOptions = columnOptions with
+        {
+            Format = OutputFormat.PlainText,
+            PlainText = true,
+            Verbosity = Verbosity.Quiet
+        };
+        var (plain, plainError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, plainOptions, pipeline));
+
+        Assert.Empty(plainError);
+        Assert.Equal(
+            2,
+            plain.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("Test.dll (net", StringComparison.Ordinal)));
+        Assert.Equal(
+            2,
+            plain.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("Test.dll", StringComparison.Ordinal)));
     }
 
     [Fact]
-    public void MultiAssemblyReport_HasH4SectionsPerItem()
+    public async Task MultiAssemblyReport_CountAggregatesChildSections()
     {
-        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
-        var output = Serialize(report);
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Contains("#### Library Info", output);
+        var scalarOptions = new LibraryOptions
+        {
+            Count = true,
+            IncludeSections = ["Signals"]
+        };
+        var (scalar, scalarError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, scalarOptions, pipeline));
+
+        Assert.Empty(scalarError);
+        Assert.Equal("2", scalar.Trim());
+
+        var mapOptions = scalarOptions with
+        {
+            IncludeSections = ["Library Info", "Signals"]
+        };
+        var (map, mapError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, mapOptions, pipeline));
+
+        Assert.Empty(mapError);
+        Assert.Contains("| Library Info |", map);
+        Assert.DoesNotContain("| Library Info | 0 |", map);
+        Assert.Contains("| Signals | 2 |", map);
     }
 
     [Fact]
-    public void MultiAssemblyReport_HasCompactLine()
+    public void ShiftMarkdownHeadingLevels_LeavesFencedPayloadHeadings()
     {
-        var report = CreateTestReport("Test.dll", true, "net9.0", "net8.0");
-        var output = Serialize(report);
+        const string markdown = """
+            # Document
 
-        // AutoFieldsCount = 7 renders the first 7 scalar properties as a compact hero line
-        Assert.Contains("Name: Test", output);
+            ## Section
+
+            ```text
+            # Payload heading
+            ```
+            """;
+
+        var shifted = OutputFormatter.ShiftMarkdownHeadingLevels(markdown, 2);
+
+        Assert.StartsWith("### Document\n\n#### Section", shifted);
+        Assert.Contains("```text\n# Payload heading\n```", shifted);
     }
 
     [Fact]
-    public void MultiAssemblyReport_TitleFromPackageName()
+    public async Task MultiAssemblyReport_ContainsTheManualOuterTitle()
     {
-        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
-        var output = Serialize(report);
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        inspections[0].FileName = "Test<tag>&\n## FORGED.dll";
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Signals"],
+            Format = OutputFormat.Markdown
+        };
 
-        Assert.StartsWith("# Test", output.TrimStart());
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections, options, LibrarySections.CreatePipeline()));
+
+        Assert.Empty(error);
+        Assert.DoesNotContain("\n## FORGED", output);
+        Assert.StartsWith("# Test&lt;tag&gt;&amp; ## FORGED\n", output);
+        Assert.Contains("### Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)", output);
+        Assert.Single(
+            output.ReplaceLineEndings("\n").Split('\n'),
+            line => line.StartsWith("# ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2073,6 +2271,51 @@ public class OutputFormatterTests
         Assert.Contains("no SourceLink data", sourceLink.Evidence);
     }
 
+    [Fact]
+    public void SingleAudit_Signals_UnusableSourceLink_ReportsTheParseError()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasSourceLink = true;
+        inspection.PdbLocation = "standalone";
+        inspection.SourceLinkMap = new SourceLinkMapInspection(
+            SourceLinkMapStatus.Unusable,
+            "invalid JSON",
+            [],
+            []);
+
+        AuditSignalBuilder.PopulateLibraryAudit(
+            typeof(OutputFormatterTests).Assembly.Location,
+            inspection,
+            new VerboseLogger(false));
+
+        var sourceLink = Assert.Single(
+            inspection.AuditSignals!,
+            signal => signal.Signal == "SourceLink");
+        Assert.Equal("Present (unusable)", sourceLink.Value);
+        Assert.Contains("invalid JSON", sourceLink.Evidence);
+        Assert.DoesNotContain("SourceLink data found", sourceLink.Evidence);
+    }
+
+    [Fact]
+    public void SingleAudit_SourceLinkDiagnostics_RendersParseAndEntryFailures()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasSourceLink = true;
+        inspection.SourceLinkMap = new SourceLinkMapInspection(
+            SourceLinkMapStatus.Unusable,
+            "invalid JSON",
+            ["/_/*"],
+            ["/_/*"]);
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("## SourceLink: Diagnostics", output);
+        Assert.Contains("| Map error |  | invalid JSON |", output);
+        Assert.Contains(
+            "| Rejected mapping | /_/* | entry does not conform to the SourceLink document-map schema |",
+            output);
+    }
+
     private static LibraryInspection CreateTestAudit(string fileName, string? tfm)
     {
         return new LibraryInspection
@@ -2088,6 +2331,19 @@ public class OutputFormatterTests
                 Architecture = "AnyCPU"
             }
         };
+    }
+
+    private static List<LibraryInspection> CreateTestAudits(params string[] tfms)
+    {
+        return tfms.Select(tfm =>
+        {
+            var inspection = CreateTestAudit("Test.dll", tfm);
+            inspection.AuditSignals =
+            [
+                new AuditSignal("Package", "Assemblies", "1", "test")
+            ];
+            return inspection;
+        }).ToList();
     }
 
     private static void AssertMarkdownTablesHaveUniformColumnCounts(string markdown)
@@ -2140,21 +2396,6 @@ public class OutputFormatterTests
 
         static int CountCells(string line)
             => line.Trim().Trim('|').Split('|').Length;
-    }
-
-    private static LibraryInspectionReport CreateTestReport(string fileName, bool topFieldsOnly, params string[] tfms)
-    {
-        var inspections = tfms.Select(tfm => CreateTestAudit(fileName, tfm)).ToList();
-        return new LibraryInspectionReport
-        {
-            Title = Path.GetFileNameWithoutExtension(fileName),
-            Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
-        };
-    }
-
-    private static string Serialize(LibraryInspectionReport report)
-    {
-        return MarkoutSerializer.Serialize(report, InspectionContext.Default).TrimEnd();
     }
 
     private static string Serialize(LibraryInspection inspection, bool topFieldsOnly = false)
@@ -2377,7 +2618,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void LibrarySelectedSection_IncludesCompactContext()
+    public void LibrarySelectedSection_OmitsCompactContext()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
         inspection.Source = "NuGet";
@@ -2389,18 +2630,17 @@ public class OutputFormatterTests
         var output = SerializeWithInclude(
             inspection,
             includeSections: ["Signals"],
-            topFieldsOnly: true);
+            topFieldsOnly: false);
 
-        Assert.StartsWith("# Test.dll", output.TrimStart());
-        Assert.DoesNotContain("# Test.dll (net9.0)", output);
-        Assert.Contains("Name: Test", output);
-        Assert.Contains("Version: 1.2.3", output);
-        Assert.Contains("Source: NuGet", output);
+        Assert.StartsWith("# Test.dll (net9.0)", output.TrimStart());
+        Assert.DoesNotContain("Name: Test", output);
+        Assert.DoesNotContain("Version: 1.2.3", output);
+        Assert.DoesNotContain("Source: NuGet", output);
         Assert.Contains("## Signals", output);
     }
 
     [Fact]
-    public void LibrarySelectedSection_FormatterUsesCompactContext()
+    public void LibrarySelectedSection_FormatterOmitsCompactContext()
     {
         var options = new LibraryOptions
         {
@@ -2409,7 +2649,7 @@ public class OutputFormatterTests
             Format = OutputFormat.Markdown
         };
 
-        Assert.True(OutputFormatter.ShouldRenderLibraryContext(options));
+        Assert.False(OutputFormatter.ShouldRenderLibraryContext(options));
     }
 
     [Fact]
@@ -2445,7 +2685,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void PackageSelectedSection_IncludesCompactContextWithoutDescriptionOrTitleVersion()
+    public void PackageSelectedSection_OmitsCompactContextAndDescription()
     {
         var result = CreateTestPackageResult();
         result.Description = new InertText.InertString(
@@ -2466,22 +2706,10 @@ public class OutputFormatterTests
 
         Assert.StartsWith("# TestPackage", output.TrimStart());
         Assert.DoesNotContain("# TestPackage (1.0.0)", output);
-        Assert.Contains("Version: 1.0.0", output);
-        Assert.Contains("Source: NuGet", output);
+        Assert.DoesNotContain("Version: 1.0.0", output);
+        Assert.DoesNotContain("Source: NuGet", output);
         Assert.DoesNotContain(result.Description.Value.ToString(), output);
         Assert.Contains("## Signals", output);
-    }
-
-    [Fact]
-    public void PackageSelectedSection_FormatterUsesCompactContext()
-    {
-        var options = new InspectionOptions
-        {
-            Verbosity = Verbosity.Minimal,
-            IncludeSections = [PackageSections.Signals]
-        };
-
-        Assert.True(OutputFormatter.ShouldRenderPackageContext(options));
     }
 
     [Fact]
@@ -2618,5 +2846,73 @@ public class OutputFormatterTests
     {
         var (_, error) = await ConsoleCapture.RunAsync(action);
         return error;
+    }
+
+    /// <summary>
+    /// The aggregate <c>--all-libraries</c> sections declare a <see cref="MarkoutTable"/> rather
+    /// than appending Markdown, so their rows reach the writer and <c>--rows</c> applies at the
+    /// writer seam. This is the gate for that routing: a window set on the writer options must
+    /// drop rows from a runtime-column table it never saw at compile time.
+    /// </summary>
+    [Fact]
+    public void AggregatedSection_RowWindow_AppliesAtTheWriterSeam()
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections =
+            [
+                new AggregatedSectionView
+                {
+                    Name = "Switches",
+                    Body = new MarkoutTable(
+                        ["Kind", "Switch"],
+                        [["AppContext", "A"], ["AppContext", "B"], ["Feature Switch", "C"]])
+                }
+            ]
+        };
+
+        var all = MarkoutSerializer.Serialize(document, InspectionContext.Default);
+        var windowed = MarkoutSerializer.Serialize(
+            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(RowWindow.Head(2)));
+
+        Assert.Contains("## Switches", all, StringComparison.Ordinal);
+        Assert.Contains("| Feature Switch | C |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Feature Switch | C |", windowed, StringComparison.Ordinal);
+        Assert.Contains("| AppContext | B |", windowed, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Routing aggregate cells through markout's semantic code tag rather than literal backticks
+    /// corrects two escapes that a hand-written code span gets wrong, neither of which the
+    /// differential corpus exercises. This is the gate that keeps them fixed.
+    ///
+    /// A pipe must not become <c>&amp;#124;</c> inside a code span, where it would render as that
+    /// literal text; GFM unescapes <c>\|</c> while splitting table rows, before code spans are
+    /// parsed. A backtick must not be backslash-escaped, because backslash escapes do not apply
+    /// inside a code span; the delimiter has to be doubled instead.
+    /// </summary>
+    [Theory]
+    [InlineData("Foo.Bar(a|b)", "\\|")]
+    [InlineData("IEnumerable`1", "``")]
+    public void AggregatedSection_CodeCell_EscapesForACodeSpanRatherThanForPlainText(
+        string value, string expectedSpelling)
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections =
+            [
+                new AggregatedSectionView
+                {
+                    Name = "Switches",
+                    Body = new MarkoutTable(["API"], [[MarkoutInline.Code(value)]])
+                }
+            ]
+        };
+
+        var rendered = MarkoutSerializer.Serialize(document, InspectionContext.Default);
+
+        Assert.Contains(expectedSpelling, rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("&#124;", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\`", rendered, StringComparison.Ordinal);
     }
 }

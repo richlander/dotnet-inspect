@@ -7,12 +7,14 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using InertText;
+using ILInspector.Findings;
 using Markout;
 using System.Globalization;
 using System.Text;
@@ -29,7 +31,9 @@ public class PackageCommand
     {
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
-        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        var queryRegistry = catalog.QueryRegistry;
         var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
 
@@ -37,9 +41,6 @@ public class PackageCommand
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
         // can never fan out to unbounded @Hidden members as a group.
-        if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
-            return 1;
-
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
@@ -117,7 +118,8 @@ public class PackageCommand
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+            if (!rendersOwnPayload && options.Count
+                && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -206,11 +208,17 @@ public class PackageCommand
         var logger = context.Logger;
 
         if (packageArgs.Length > 1)
-            return await ExecuteMultiPackageAsync(packageArgs, options, context, pipeline);
+            return await ExecuteMultiPackageAsync(
+                packageArgs,
+                options,
+                context,
+                pipeline,
+                queryRegistry);
 
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            using var failureScope = FeedFailureTelemetry.Scope();
             PackageVersionRange? range = null;
             string? rangeError = null;
             bool isRange = !File.Exists(packageArgs[0])
@@ -239,7 +247,9 @@ public class PackageCommand
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
-                            CommandError.Write($"Package '{range.PackageId}' not found on nuget.org");
+                            WriteVersionLookupFailure(
+                                range.PackageId,
+                                $"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -274,7 +284,12 @@ public class PackageCommand
                     or InvalidOperationException
                     or ArgumentException)
                 {
-                    CommandError.Write(ex);
+                    WriteVersionLookupFailure(
+                        range!.PackageId,
+                        ex is PackageVersionsUnavailableException
+                            { HasIncompleteMetadata: false }
+                            ? $"Package '{range.PackageId}' not found."
+                            : ex.Message);
                     return 1;
                 }
             }
@@ -296,11 +311,13 @@ public class PackageCommand
                     && NuGetCache.TryGetCachedPackage(
                         normalizedName,
                         versionQueryPinned,
-                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            normalizedName)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
-                    Console.WriteLine(versionQueryPinned);
+                    WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -328,39 +345,31 @@ public class PackageCommand
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
                     else
-                        Console.WriteLine(versionQueryPinned);
+                        WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
-                if (knownVersions == null || knownVersions.Count == 0)
-                    CommandError.Write($"Package '{normalizedName}' not found.");
+                if (FeedFailureTelemetry.Current?.Failures.Any(
+                        failure => failure.Phase is
+                            NetworkTrafficKind.PackageSourceDiscovery
+                            or NetworkTrafficKind.PackageVersionList) == true)
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Version '{versionQueryPinned}' of package '{normalizedName}' not found.");
+                else if (knownVersions == null || knownVersions.Count == 0)
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{normalizedName}' not found.");
                 else
                     CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
             }
 
-            // Cache-first for bare --version (Limit==1 && !ForceLatest):
-            // check local caches before hitting NuGet, matching router behavior.
-            // Skipped under --include-unlisted: that flag requires the listing-aware path below
-            // (a locally-cached single version carries no listed/unlisted status column).
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
-                && !options.IncludeUnlisted)
-            {
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
-                    normalizedName,
-                    NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
-                if (cachedVersion != null)
-                {
-                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
-                        return cachedLatestExit;
-                    Console.WriteLine(cachedVersion);
-                    return 0;
-                }
-            }
-
             if (options.Limit == 1 && options.ForceLatest)
             {
-                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+                    options.SourceOptions,
+                    normalizedName);
                 var latest = await PackageExtractor.GetLatestVersionAsync(
                     context.HttpClient,
                     normalizedName,
@@ -370,7 +379,9 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -387,7 +398,46 @@ public class PackageCommand
                     return 0;
                 }
 
-                Console.WriteLine(latest);
+                WriteSingleVersion(latest, options);
+                return 0;
+            }
+
+            if (versionQueryPinned is null
+                && options.Limit == 1
+                && !options.IncludeUnlisted
+                && !options.ListVersionsWithFeed)
+            {
+                List<string>? singleVersions =
+                    await PackageExtractor.GetSingleVersionListingAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    options.IncludePrerelease,
+                    logger.Log,
+                    options.SourceOptions);
+                if (singleVersions is null)
+                {
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    return 1;
+                }
+
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        singleVersions.Count,
+                        out var cachedLatestExit))
+                {
+                    return cachedLatestExit;
+                }
+
+                OutputFormatter.WriteStringList(
+                    singleVersions,
+                    "Version",
+                    "Version",
+                    options.Tsv,
+                    options.Jsonl,
+                    Console.Out);
                 return 0;
             }
 
@@ -398,7 +448,9 @@ public class PackageCommand
                     options.IncludeUnlisted, options.Limit, logger.Log, options.SourceOptions);
                 if (versionFeeds == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found.");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found.");
                     return 1;
                 }
 
@@ -415,7 +467,9 @@ public class PackageCommand
                     includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -428,7 +482,9 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                WriteVersionLookupFailure(
+                    normalizedName,
+                    $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -510,6 +566,7 @@ public class PackageCommand
             resolution = outcome.Result!;
 
             extractPath = resolution.ExtractPath;
+            packageName = resolution.PackageName ?? packageName;
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
@@ -552,6 +609,14 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
+                    target.IsLocalFile
+                        ? PackageIntegrationAcquisition.Local(
+                            nuspec?.PackageName,
+                            nuspec?.Version)
+                        : PackageIntegrationAcquisition.Remote(
+                            resolution,
+                            packageName,
+                            version),
                     options);
             }
 
@@ -579,10 +644,10 @@ public class PackageCommand
                 : null;
 
             var result = await PackageInspector.InspectAsync(
-                extractPath, packageName, version, target.IsLocalFile,
+                resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
-                nuspec, client, logger, options.ForceLatest, options.Verbosity,
-                resolution.NupkgPath,
+                nuspec, client, logger,
+                options.ForceLatest, options.Verbosity,
                 fetchMetadata: wantsSignals,
                 sourceOptions: options.SourceOptions);
 
@@ -600,44 +665,77 @@ public class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
-            if (ShouldPopulatePackageSourceFiles(options))
-                await PopulatePackageSourceFilesAsync(result, extractPath, packageName, version, options, context, logger);
+            HashSet<InspectionQueryDefinition> sourceQueries =
+                pipeline.GetRequiredQueries(
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview,
+                    excludeUnbounded: effectiveDiscovery);
+            if (ShouldPopulatePackageSourceFiles(options) || sourceQueries.Count > 0)
+            {
+                await PopulatePackageSourceLinkAsync(
+                    result,
+                    extractPath,
+                    packageName,
+                    version,
+                    options,
+                    context,
+                    logger,
+                    queryRegistry,
+                    sourceQueries);
+            }
 
             // Filter output based on options
             FilterResultForOutput(result, options);
+
+            if (wantsSignals && options.Count && !effectiveDiscovery)
+            {
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
 
             // Effective discovery renders the discovered rows below and answers the projection
             // against them. Counting here would count the package document instead, which is a
             // different payload than the one -D displays.
             if (options.Count && !effectiveDiscovery)
             {
-                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-                Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
-                return 0;
+                CountOutput.WriteCountResult(
+                    OutputFormatter.FormatResult(result, options, pipeline),
+                    options.OutputPath);
+                return PackageIntegrityExitCode(result);
             }
 
             if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
-                return WritePackageShapeProjection(result, options);
+                return PackageIntegrityExitCode(
+                    WritePackageShapeProjection(result, options),
+                    result);
 
             // --print joins the other payload projections rather than short-circuiting earlier:
             // it projects the rows the selected section renders, from the same view those rows
             // come from. Discovery is excluded because it renders its own payload below and
             // refuses --print with an accurate reason.
             if (options.Print && !effectiveDiscovery)
-                return WritePackagePrintProjection(result, extractPath, options);
+                return PackageIntegrityExitCode(
+                    WritePackagePrintProjection(result, extractPath, options),
+                    result);
 
             if (options.Bare)
-                return PrintPackageBareSelection(result, extractPath, packageName, version, options);
-
-            if (wantsSignals)
             {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger, acquirePdb: true);
+                return PackageIntegrityExitCode(
+                    PrintPackageBareSelection(
+                        result,
+                        extractPath,
+                        packageName,
+                        version,
+                        options),
+                    result);
             }
 
             if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, client, logger, options.SourceOptions);
+            {
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
 
             // Output results
             if (effectiveDiscovery)
@@ -693,7 +791,7 @@ public class PackageCommand
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
                     WritePackageFilesJsonl(result, fileSection);
-                    return 0;
+                    return PackageIntegrityExitCode(result);
                 }
 
                 // Multi-section check: narrow to main section or error if user explicitly selected multiple sections
@@ -739,17 +837,24 @@ public class PackageCommand
                 }
             }
 
-            return 0;
+            return PackageIntegrityExitCode(result);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            CommandError.Write($"Package '{packageName}' version '{version}' not found on nuget.org.");
+            CommandError.Write($"Package '{packageName}' version '{version}' not found on eligible configured sources.");
             CommandError.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
             return 1;
         }
         catch (HttpRequestException ex)
         {
             CommandError.WriteLine($"Failed to download package: {ex.Message}");
+            return 1;
+        }
+        catch (InvalidOperationException ex) when (
+            options.Columns is { Length: > 0 }
+            && ex.Message.StartsWith("No columns matched projection:", StringComparison.Ordinal))
+        {
+            CommandError.Write(ex.Message);
             return 1;
         }
         finally
@@ -769,11 +874,32 @@ public class PackageCommand
         }
     }
 
+    private static void WriteSingleVersion(
+        string version,
+        InspectionOptions options)
+        => OutputFormatter.WriteStringList(
+            [version],
+            "Version",
+            "Version",
+            options.Tsv,
+            options.Jsonl,
+            Console.Out);
+
+    private static void WriteVersionLookupFailure(
+        string packageName,
+        string notFoundMessage)
+    {
+        var sourceFailure =
+            FeedFailureTelemetry.Current?.DescribeFailure(packageName);
+        CommandError.Write(sourceFailure?.ToString() ?? notFoundMessage);
+    }
+
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
         InspectionOptions options,
         CommandContext context,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline,
+        InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
     {
         if (!ValidateMultiPackageMode(options))
             return 1;
@@ -808,29 +934,65 @@ public class PackageCommand
             using var packageRequestScope = RequestTelemetry.Scope(
                 target.Version.Length > 0 ? $"package {target.PackageName}@{target.Version}" : $"package {target.PackageName}",
                 "package inspect");
-            var result = await InspectPackageAsync(target, options, context, wantsFilesSection);
+            var result = await InspectPackageAsync(
+                target,
+                options,
+                context,
+                wantsFilesSection,
+                pipeline,
+                queryRegistry);
             if (result == null)
                 return 1;
-            FilterResultForOutput(result, options);
             results.Add(result);
         }
 
         if (options.Count)
-        {
-            CountOutput.WriteCount(CountMultiPackageRows(results, rowSection, options));
-            return 0;
-        }
+            return WriteMultiPackageCount(results, rowSection, options, pipeline);
 
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(
                 results.Select(PackageInspectionJson.Create).ToArray(),
                 PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
-            return 0;
+            return PackageIntegrityExitCode([.. results]);
         }
 
         WriteMultiPackageTable(results, rowSection!, options);
-        return 0;
+        return PackageIntegrityExitCode([.. results]);
+    }
+
+    internal static int PackageIntegrityExitCode(params InspectionResult[] results)
+        => PackageIntegrityExitCode(0, results);
+
+    internal static int PackageIntegrityExitCode(
+        int currentExitCode,
+        params InspectionResult[] results)
+        => currentExitCode != 0
+            ? currentExitCode
+            : results.Any(
+                static result => result.SourceIntegrity?.Mismatched is > 0)
+                ? 1
+                : 0;
+
+    internal static int WriteMultiPackageCount(
+        IReadOnlyList<InspectionResult> results,
+        string? rowSection,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (rowSection == null
+            && options.IncludeSections is { Count: 1 } selectedSections
+            && selectedSections.Contains(PackageSections.Signals))
+        {
+            OutputFormatter.WritePackageResultsCount(results, options, pipeline);
+        }
+        else
+        {
+            CountOutput.WriteCount(
+                CountMultiPackageRows(results, rowSection, options),
+                options.OutputPath);
+        }
+        return PackageIntegrityExitCode([.. results]);
     }
 
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
@@ -1390,7 +1552,10 @@ public class PackageCommand
 
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
-            var packageId = nuspec?.PackageName ?? target.PackageName;
+            var packageId =
+                nuspec?.PackageName
+                ?? resolution.PackageName
+                ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
             var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
             return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options);
@@ -1415,7 +1580,9 @@ public class PackageCommand
         PackageReferenceTarget target,
         InspectionOptions options,
         CommandContext context,
-        bool wantsFilesSection)
+        bool wantsFilesSection,
+        SectionPipeline<InspectionResult> pipeline,
+        InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
     {
         var logger = context.Logger;
         string? extractPath = null;
@@ -1442,6 +1609,8 @@ public class PackageCommand
             resolution = outcome.Result!;
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
+            string resolvedPackageName =
+                resolution.PackageName ?? target.PackageName;
 
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
@@ -1455,8 +1624,8 @@ public class PackageCommand
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
             var result = await PackageInspector.InspectAsync(
-                extractPath,
-                target.PackageName,
+                resolution,
+                resolvedPackageName,
                 version,
                 target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
@@ -1465,7 +1634,6 @@ public class PackageCommand
                 logger,
                 options.ForceLatest,
                 options.Verbosity,
-                resolution.NupkgPath,
                 fetchMetadata: wantsSignals,
                 sourceOptions: options.SourceOptions);
 
@@ -1477,10 +1645,33 @@ public class PackageCommand
             if (wantsFilesSection)
                 PopulatePackageFileSections(result, extractPath, options);
 
+            HashSet<InspectionQueryDefinition> sourceQueries =
+                pipeline.GetRequiredQueries(
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview,
+                    excludeUnbounded: options.Discover != null && !options.Schema);
+            if (ShouldPopulatePackageSourceFiles(options) || sourceQueries.Count > 0)
+            {
+                await PopulatePackageSourceLinkAsync(
+                    result,
+                    extractPath,
+                    resolvedPackageName,
+                    version,
+                    options,
+                    context,
+                    logger,
+                    queryRegistry,
+                    sourceQueries);
+            }
+
+            FilterResultForOutput(result, options);
+
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
+                    extractPath, resolvedPackageName, version, context.HttpClient, logger,
+                    acquirePdb: true, options.SourceOptions);
                 await AuditSignalBuilder.PopulatePackageAuditAsync(
                     result, context.HttpClient, logger, options.SourceOptions);
             }
@@ -1501,6 +1692,22 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task PopulatePackageSignalsAsync(
+        InspectionResult result,
+        string extractPath,
+        string? packageName,
+        string? version,
+        HttpClient client,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
+    {
+        result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+            extractPath, packageName, version, client, logger,
+            acquirePdb: true, sourceOptions);
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, client, logger, sourceOptions);
     }
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
@@ -1562,36 +1769,212 @@ public class PackageCommand
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
         => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true;
 
-    private static async Task PopulatePackageSourceFilesAsync(
+    private static async Task PopulatePackageSourceLinkAsync(
         InspectionResult result,
         string extractPath,
         string packageName,
         string version,
         InspectionOptions options,
         CommandContext context,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry,
+        HashSet<InspectionQueryDefinition> requestedQueries)
     {
-        result.SourceFiles = [];
+        bool collectSourceFiles = ShouldPopulatePackageSourceFiles(options);
+        bool auditAvailability =
+            requestedQueries.Contains(SourceAvailabilityQuery.Definition);
+        bool auditIntegrity =
+            requestedQueries.Contains(SourceIntegrityQuery.Definition);
+        if (collectSourceFiles)
+            result.SourceFiles = [];
+
+        int auditedLibraries = 0;
+        int totalSourceFiles = 0;
+        int accessibleSourceFiles = 0;
+        int embeddedSourceFiles = 0;
+        List<PackageSourceLinkFile> missingFiles = [];
+        List<PackageSourceLinkIssue> availabilityUnavailable = [];
+        List<PackageSourceLinkIssue> availabilityFailed = [];
+
+        int checkedLibraries = 0;
+        int verified = 0;
+        int mismatched = 0;
+        int lineEndingNormalized = 0;
+        int unverifiable = 0;
+        List<PackageSourceLinkFile> mismatchedFiles = [];
+        List<PackageSourceLinkIssue> integrityUnavailable = [];
+        List<PackageSourceLinkIssue> integrityFailed = [];
 
         var libraries = SelectPackageLibrariesForSourceFiles(extractPath, options);
         foreach (var libraryPath in libraries)
         {
             var relativePath = Path.GetRelativePath(extractPath, libraryPath).Replace('\\', '/');
-            var rows = await SourceFileCollector.CollectFromAssemblyAsync(
-                libraryPath,
-                packageName,
-                version,
-                isPlatformAssembly: false,
-                logger,
-                context.HttpClient,
-                browsableUrls: options.BrowsableUrls,
-                typeFilter: options.TypeFilter);
-            result.SourceFiles.AddRange(rows.Select(row => new PackageSourceFileInfo(
-                relativePath,
-                row.Type,
-                row.Url)));
+            try
+            {
+                using var source = SourceLinkService.Open(libraryPath, logger.Log);
+                var queryContext = new SourceLinkQueryContext(
+                    source,
+                    new FindingSubject(
+                        $"package:{packageName}@{version}:{relativePath}",
+                        relativePath),
+                    context.HttpClient,
+                    DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
+                    packageName,
+                    version,
+                    isPlatformAssembly: false,
+                    CoreSourceLinkQueryCache.Instance,
+                    logger.Log,
+                    options.SourceOptions);
+
+                InspectionQueryResults? queryResults = null;
+                if (requestedQueries.Count > 0)
+                {
+                    queryResults = await queryRegistry.RunAsync(
+                        requestedQueries,
+                        queryContext).ConfigureAwait(false);
+                }
+                else if (collectSourceFiles)
+                {
+                    await PdbAcquisitionService.AcquireAsync(
+                        source.Context,
+                        context.HttpClient,
+                        packageName,
+                        version,
+                        isPlatformAssembly: false,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions).ConfigureAwait(false);
+                }
+
+                if (collectSourceFiles)
+                {
+                    List<SourceFileInfo> rows = await SourceFileCollector.CollectAsync(
+                        source,
+                        libraryPath,
+                        browsableUrls: options.BrowsableUrls,
+                        typeFilter: options.TypeFilter).ConfigureAwait(false);
+                    result.SourceFiles!.AddRange(rows.Select(row => new PackageSourceFileInfo(
+                        relativePath,
+                        row.Type,
+                        row.Url)));
+                }
+
+                if (auditAvailability
+                    && queryResults!.TryGet(
+                        SourceAvailabilityQuery.Definition,
+                        out SourceAvailabilityResult? availability))
+                {
+                    switch (availability)
+                    {
+                        case SourceAvailabilityResult.Available available:
+                            auditedLibraries++;
+                            totalSourceFiles += available.Summary.TotalSourceFiles;
+                            accessibleSourceFiles += available.Summary.AccessibleSourceFiles;
+                            embeddedSourceFiles += available.Summary.EmbeddedSourceFiles;
+                            missingFiles.AddRange(
+                                available.Summary.MissingSourceFiles.Select(
+                                    path => new PackageSourceLinkFile(relativePath, path)));
+                            break;
+                        case SourceAvailabilityResult.Absent absent:
+                            availabilityUnavailable.Add(
+                                new PackageSourceLinkIssue(
+                                    relativePath,
+                                    absent.Detail ?? "SourceLink input is unavailable."));
+                            break;
+                        case SourceAvailabilityResult.Failed failed:
+                            availabilityFailed.Add(
+                                new PackageSourceLinkIssue(relativePath, failed.Reason));
+                            break;
+                    }
+                }
+
+                if (auditIntegrity
+                    && queryResults!.TryGet(
+                        SourceIntegrityQuery.Definition,
+                        out SourceIntegrityResult? integrity))
+                {
+                    switch (integrity)
+                    {
+                        case SourceIntegrityResult.Available available:
+                            checkedLibraries++;
+                            verified += available.Summary.Verified;
+                            mismatched += available.Summary.Mismatched;
+                            lineEndingNormalized += available.Summary.LineEndingNormalized;
+                            unverifiable += available.Summary.Unverifiable;
+                            mismatchedFiles.AddRange(
+                                available.Summary.MismatchedFiles.Select(
+                                    path => new PackageSourceLinkFile(relativePath, path)));
+                            break;
+                        case SourceIntegrityResult.Absent absent:
+                            integrityUnavailable.Add(
+                                new PackageSourceLinkIssue(
+                                    relativePath,
+                                    absent.Detail ?? "SourceLink input is unavailable."));
+                            break;
+                        case SourceIntegrityResult.Failed failed:
+                            integrityFailed.Add(
+                                new PackageSourceLinkIssue(relativePath, failed.Reason));
+                            break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (InspectionQueryException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (collectSourceFiles || (!auditAvailability && !auditIntegrity))
+                    throw;
+
+                logger.LogWarning(
+                    $"Could not inspect SourceLink for {relativePath}: {ex.Message}");
+                if (auditAvailability)
+                {
+                    availabilityFailed.Add(
+                        new PackageSourceLinkIssue(relativePath, ex.Message));
+                }
+                if (auditIntegrity)
+                {
+                    integrityFailed.Add(
+                        new PackageSourceLinkIssue(relativePath, ex.Message));
+                }
+            }
+        }
+
+        if (auditAvailability)
+        {
+            result.SourceAvailability = new PackageSourceAvailability(
+                libraries.Count,
+                auditedLibraries,
+                totalSourceFiles,
+                accessibleSourceFiles,
+                embeddedSourceFiles,
+                NullIfEmpty(missingFiles),
+                NullIfEmpty(availabilityUnavailable),
+                NullIfEmpty(availabilityFailed));
+        }
+
+        if (auditIntegrity)
+        {
+            result.SourceIntegrity = new PackageSourceIntegrity(
+                libraries.Count,
+                checkedLibraries,
+                verified,
+                mismatched,
+                lineEndingNormalized,
+                unverifiable,
+                NullIfEmpty(mismatchedFiles),
+                NullIfEmpty(integrityUnavailable),
+                NullIfEmpty(integrityFailed));
         }
     }
+
+    private static List<T>? NullIfEmpty<T>(List<T> values)
+        => values.Count == 0 ? null : values;
 
     private static List<string> SelectPackageLibrariesForSourceFiles(string extractPath, InspectionOptions options)
     {
@@ -2226,6 +2609,7 @@ public class PackageCommand
         string packageArg,
         string packageName,
         string version,
+        PackageIntegrationAcquisition acquisition,
         InspectionOptions options)
     {
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
@@ -2238,8 +2622,10 @@ public class PackageCommand
                 ? $"{packageName}@{version}"
                 : packageName;
 
-        var pipeline = LibrarySections.CreatePipeline();
-        var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var catalog = LibrarySections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        var scannerRegistry = catalog.ScannerRegistry;
+        var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2257,32 +2643,96 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (libraryOptions.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+        var queries = pipeline.GetRequiredQueries(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
+        bool requiresGroupedIntegrations =
+            RequiresGroupedIntegrations(
+                queries,
+                out bool includeIntegrationOpportunities);
+        using PackageIntegrationsWorkspace? integrationsWorkspace =
+            requiresGroupedIntegrations
+                ? PackageIntegrationsWorkspace.Create(
+                    selected.Select(selection =>
+                    {
+                        string relativePath = Path.GetRelativePath(
+                                extractPath,
+                                selection.Path)
+                            .Replace('\\', '/');
+                        return CreatePackageIntegrationAssembly(
+                            selection.Path,
+                            relativePath);
+                    }),
+                    acquisition,
+                    includeIntegrationOpportunities:
+                        includeIntegrationOpportunities)
+                : null;
         List<LibraryInspection> inspections = [];
+        List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         foreach (var selection in selected)
         {
-            var inspection = await LibraryMetadataService.InspectAsync(
-                selection.Path,
-                libraryOptions,
-                logger,
-                packageName,
-                version,
-                context.HttpClient,
-                scanners: scanners,
-                scannerRegistry: scannerRegistry);
+            string relativePath = Path.GetRelativePath(
+                    extractPath,
+                    selection.Path)
+                .Replace('\\', '/');
+
+            Task<LibraryInspection?> InspectAsync(
+                ResolvedAssemblyReference? assemblyReference,
+                AssemblyIntegrationsEntry? integrations,
+                AssemblyIntegrationOpportunitiesEntry? opportunities)
+            {
+                return LibraryMetadataService.InspectAsync(
+                    selection.Path,
+                    libraryOptions,
+                    logger,
+                    packageName,
+                    version,
+                    context.HttpClient,
+                    scanners: scanners,
+                    scannerRegistry: scannerRegistry,
+                    queries: queries,
+                    queryRegistry: queryRegistry,
+                    assemblyReference: assemblyReference,
+                    integrationsEntry: integrations,
+                    integrationOpportunitiesEntry: opportunities);
+            }
+
+            LibraryInspection? inspection =
+                integrationsWorkspace is null
+                    ? await InspectAsync(null, null, null)
+                    : await InspectGroupedAssemblyAsync(
+                        integrationsWorkspace,
+                        selection.Path,
+                        relativePath,
+                        groupedIntegrationsFailures,
+                        InspectAsync);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
                 continue;
             }
 
-            var relativePath = Path.GetRelativePath(extractPath, selection.Path).Replace('\\', '/');
             inspection.FileName = relativePath;
-            inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            inspection.Tfm =
+                TfmResolver.ExtractFrameworkFolderFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
             inspections.Add(inspection);
         }
+
+        bool integrationsIncomplete =
+            integrationsWorkspace is not null
+            && WriteGroupedIntegrationsFailures(
+                groupedIntegrationsFailures);
+        int completionExitCode =
+            AllLibrariesCompletionExitCode(integrationsIncomplete);
 
         if (inspections.Count == 0)
         {
@@ -2293,7 +2743,7 @@ public class PackageCommand
         if (libraryOptions.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
-            return 0;
+            return completionExitCode;
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
@@ -2303,24 +2753,132 @@ public class PackageCommand
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
-                CountOutput.WriteCount(0);
-            return 0;
+                CountOutput.WriteCount(0, options.OutputPath);
+            return completionExitCode;
         }
 
         if (libraryOptions.TabularExplicitlySet)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
-            return 0;
+            return completionExitCode;
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         if (libraryOptions.Count)
-            CountOutput.WriteCountFromMarkdown(markdown);
+            CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
-            Console.WriteLine(markdown);
-        return 0;
+            OutputFormatter.WriteLfLine(Console.Out, markdown);
+        return completionExitCode;
     }
+
+    internal static Task<LibraryInspection?>
+        InspectGroupedAssemblyAsync(
+            PackageIntegrationsWorkspace workspace,
+            string path,
+            string relativePath,
+            ICollection<(string FileName, string Reason)> failures,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry?,
+                AssemblyIntegrationOpportunitiesEntry?,
+                Task<LibraryInspection?>> inspectAsync)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        ArgumentNullException.ThrowIfNull(failures);
+        ArgumentNullException.ThrowIfNull(inspectAsync);
+
+        if (workspace.TryGetPreflightFailure(
+                path,
+                out string preflightFailure))
+        {
+            failures.Add((relativePath, preflightFailure));
+            return Task.FromResult<LibraryInspection?>(null);
+        }
+
+        return workspace.UseAssemblyAsync(
+            path,
+            (retainedAssembly, integrations, opportunities) =>
+            {
+                switch (integrations)
+                {
+                    case AssemblyIntegrationsEntry.Rejected rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        return Task.FromResult<LibraryInspection?>(null);
+                    case AssemblyIntegrationsEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                switch (opportunities)
+                {
+                    case AssemblyIntegrationOpportunitiesEntry.Rejected
+                        rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        break;
+                    case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return inspectAsync(
+                    retainedAssembly,
+                    integrations,
+                    opportunities);
+            });
+    }
+
+    internal static bool RequiresGroupedIntegrations(
+        HashSet<InspectionQueryDefinition> queries,
+        out bool includeIntegrationOpportunities)
+    {
+        includeIntegrationOpportunities = queries.Remove(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition);
+        return queries.Remove(
+                AssemblyContextIntegrationsQuery.Definition)
+            || includeIntegrationOpportunities;
+    }
+
+    internal static PackageIntegrationAssembly
+        CreatePackageIntegrationAssembly(
+            string path,
+            string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        return new PackageIntegrationAssembly(
+            path,
+            TfmResolver.ExtractFrameworkFolderFromPath(relativePath),
+            TfmResolver.ExtractAssetDirectoryFromPath(relativePath));
+    }
+
+    internal static bool WriteGroupedIntegrationsFailures(
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
+    {
+        ArgumentNullException.ThrowIfNull(groupedFailures);
+
+        var failures = groupedFailures
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Integrations inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    internal static int AllLibrariesCompletionExitCode(
+        bool integrationsIncomplete) =>
+        integrationsIncomplete ? 1 : 0;
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()
@@ -2354,6 +2912,12 @@ public class PackageCommand
             Fields = options.Fields,
             Schema = options.Schema,
             Count = options.Count,
+            OutputPath = options.OutputPath,
+            Value = options.Value,
+            Urls = options.Urls,
+            Paths = options.Paths,
+            JsonArray = options.JsonArray,
+            ProjectionRow = options.PrintRow,
             Rows = options.Rows,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
@@ -2419,11 +2983,17 @@ public class PackageCommand
 
     private sealed record PackageLibrarySelection(string Path);
 
-    private static List<string> GetAllLibrariesSections(
+    internal static List<string> GetAllLibrariesSections(
         List<LibraryInspection> inspections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        LibraryCommand.WarnEmptySections(
+            inspections,
+            options,
+            pipeline,
+            writeEmptyNote: false);
+
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         List<string> union = [];
         foreach (var inspection in inspections)
@@ -2650,19 +3220,60 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.AppendLine($"# {title}");
-        sb.AppendLine();
+        AppendBlock(sb, $"# {title}");
 
         foreach (var section in sections)
         {
             if (IsAggregatedAllLibrariesSection(section))
-                AppendAggregatedSection(sb, section, inspections);
+                AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
         }
 
-        var markdown = sb.ToString().TrimEnd();
-        return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Appends one rendered block, separated from whatever precedes it by exactly one blank line.
+    /// </summary>
+    /// <remarks>
+    /// Written once rather than at each of the three call sites, which restated it and so had to
+    /// keep three copies of the separator agreeing on a line ending. When a copy disagreed the
+    /// result was silent: #3963 read a CRLF tail as "no blank line yet" and doubled the blank
+    /// before every section on Windows.
+    /// <para>
+    /// Those call sites also guarded the trailing newlines with
+    /// <c>!sb.ToString().EndsWith("\n\n")</c> -- the two section sites did; the title site, which
+    /// runs first, never had it. That guard is unreachable and is not carried over.
+    /// Every append to the buffer goes through this method, and this method always leaves exactly
+    /// <c>"\n\n"</c> at the tail, so the guard was false for every block after the first and the
+    /// length test excluded the first. It was load-bearing only while the tail could be CRLF,
+    /// which is what #3981 removed. Keeping it would leave two mechanisms for one property and
+    /// gate neither; the separation is asserted from the rendered document instead, by
+    /// <c>PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine</c>.
+    /// </para>
+    /// </remarks>
+    private static void AppendBlock(StringBuilder sb, string rendered)
+        => sb.Append(rendered).Append('\n').Append('\n');
+
+    /// <summary>
+    /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
+    /// the writer, which is what applies <c>--rows</c>.
+    /// </summary>
+    private static void AppendAggregatedTable(StringBuilder sb, string section, MarkoutTable table, RowWindow? rows)
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections = [new AggregatedSectionView { Name = section, Body = table }]
+        };
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            document, output, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
+        var rendered = output.ToString().Trim();
+        if (rendered.Length == 0)
+            return;
+
+        AppendBlock(sb, rendered);
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -2670,7 +3281,7 @@ public class PackageCommand
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
            || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
-    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
+    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections, RowWindow? rows)
     {
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
@@ -2690,13 +3301,12 @@ public class PackageCommand
             if (opportunityRows.Count == 0)
                 return;
 
-            AppendHeading(sb, section);
             var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendTable(sb,
+            AppendAggregatedTable(sb, section, new MarkoutTable(
                 includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
                 opportunityRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
-                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]));
+                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()), rows);
             return;
         }
 
@@ -2717,13 +3327,12 @@ public class PackageCommand
             if (switchRows.Count == 0)
                 return;
 
-            AppendHeading(sb, section);
             var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendTable(sb,
+            AppendAggregatedTable(sb, section, new MarkoutTable(
                 includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
                 switchRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
-                    : [row.Kind, row.Switch, row.Api]));
+                    : [row.Kind, row.Switch, row.Api]).ToList()), rows);
             return;
         }
 
@@ -2749,7 +3358,6 @@ public class PackageCommand
         if (focusedRows.Count == 0)
             return;
 
-        AppendHeading(sb, section);
         var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
         var valueColumn = hasApis ? "API" : "Type";
@@ -2759,14 +3367,14 @@ public class PackageCommand
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
-        AppendTable(sb, headers, focusedRows.Select(row =>
+        AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
             List<string> values = [];
             if (includeLibraryColumn) values.Add(CodeCell(row.Library));
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();
-        }));
+        }).ToList()), rows);
     }
 
     private static void AppendPerLibrarySections(
@@ -2785,10 +3393,7 @@ public class PackageCommand
             if (rendered.Length == 0)
                 continue;
 
-            if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.AppendLine();
-            sb.AppendLine(rendered);
-            sb.AppendLine();
+            AppendBlock(sb, rendered);
         }
     }
 
@@ -2798,9 +3403,14 @@ public class PackageCommand
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = [section],
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            // Windowed here rather than over the assembled document: the heading rewrite below is
+            // the only text this path edits, and it does not touch rows.
+            RowWindow = RowWindow.ToMarkout(options.Rows)
         };
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(view, output, InspectionContext.Default, writerOptions);
+        var markdown = output.ToString().Trim();
         if (markdown.Length == 0)
             return "";
 
@@ -2824,31 +3434,25 @@ public class PackageCommand
         return string.Join('\n', lines).Trim();
     }
 
-    private static void AppendHeading(StringBuilder sb, string section)
-    {
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine($"## {section}");
-        sb.AppendLine();
-    }
-
-    private static void AppendTable(StringBuilder sb, IReadOnlyList<string> headers, IEnumerable<string[]> rows)
-    {
-        sb.AppendLine($"| {string.Join(" | ", headers.Select(EscapeMarkdownCell))} |");
-        sb.AppendLine($"| {string.Join(" | ", headers.Select(_ => "---"))} |");
-        foreach (var row in rows)
-            sb.AppendLine($"| {string.Join(" | ", row.Select(EscapeMarkdownCell))} |");
-        sb.AppendLine();
-    }
-
-    private static string EscapeMarkdownCell(string value)
-        => value
-            .Replace("\r", " ", StringComparison.Ordinal)
-            .Replace("\n", " ", StringComparison.Ordinal)
-            .Replace("|", "&#124;", StringComparison.Ordinal);
-
-    private static string CodeCell(string value)
-        => $"`{value.Replace("`", "\\`", StringComparison.Ordinal)}`";
+    /// <summary>
+    /// Marks a cell as code using markout's semantic inline tag rather than literal backticks, so
+    /// the formatter owns the spelling.
+    /// </summary>
+    /// <remarks>
+    /// This also changes two escapes that hand-written backticks got wrong. A pipe was written as
+    /// <c>&amp;#124;</c>, which renders literally inside a code span; markout emits <c>\|</c>,
+    /// which GFM unescapes while splitting rows, before code spans are parsed. A backtick was
+    /// written as <c>\`</c>, but backslash escapes do not apply inside a code span; markout uses
+    /// the doubled-delimiter form instead.
+    ///
+    /// Both corrections are unverified against real data: no package in the differential corpus
+    /// produced a pipe or a backtick in these cells. They are reachable in principle — the
+    /// integration scanner takes raw metadata names, which carry arity backticks such as
+    /// <c>IEnumerable`1</c>, without the display-name normalization other scanners apply — but
+    /// that path is not exercised by a test, so treat this as a latent fix rather than an
+    /// observed one.
+    /// </remarks>
+    private static string CodeCell(string value) => MarkoutInline.Code(value);
 
     private static void WritePackageLibraryCandidates(
         string extractPath,
@@ -3037,7 +3641,12 @@ public class PackageCommand
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client, group.Dependencies, tfm, globalSeen, logger.Log);
+            client,
+            group.Dependencies,
+            tfm,
+            globalSeen,
+            logger.Log,
+            options.SourceOptions);
 
         var view = new PackageDependenciesView
         {

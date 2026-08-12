@@ -220,13 +220,13 @@ public sealed class MetadataInventoryFindingsTests
 
     static ImmutableArray<Finding<T>> Findings<T>(FindingInspection<T> inspection)
         where T : notnull
-        => inspection is FindingInspection<T>.Complete complete
+        => inspection.Value is FindingInspection<T>.Complete complete
             ? complete.Findings
             : throw new Xunit.Sdk.XunitException("Expected a complete inventory inspection.");
 
     static ImmutableArray<PairFinding<T>> Pairs<T>(FindingComparison<T> comparison)
         where T : notnull
-        => comparison is FindingComparison<T>.Complete complete
+        => comparison.Value is FindingComparison<T>.Complete complete
             ? complete.Pairs
             : throw new Xunit.Sdk.XunitException($"Expected a complete comparison: {comparison.Failure}");
 }

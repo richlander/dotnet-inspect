@@ -884,9 +884,11 @@ public sealed class TryFinally : IrNode
 /// <summary>
 /// A raised <c>switch</c> statement, produced by the switch pass from an IL
 /// jump table. The value is the switch operand; each section carries its case
-/// labels (the zero-based jump-table indices) or is the default, and a body
-/// container the structuring pass raises. A section that leaves the switch
-/// does so through a <see cref="Break"/>.
+/// labels or is the default, and a body container the structuring pass raises.
+/// Labels are normally the zero-based jump-table indices; when the compiler
+/// normalized an enum by adding or subtracting its lowest case value, the pass
+/// restores the enum operand and translates the labels back to enum values. A
+/// section that leaves the switch does so through a <see cref="Break"/>.
 /// </summary>
 public sealed class Switch : IrNode
 {
@@ -905,8 +907,8 @@ public sealed class Switch : IrNode
 
 /// <summary>
 /// One section of a <see cref="Switch"/>: its case labels (empty for the
-/// default) and body. A label is a compile-time <see cref="Constant"/> — the
-/// zero-based jump-table index for an IL jump table, or the literal string for a
+/// default) and body. A label is a compile-time <see cref="Constant"/> — a
+/// jump-table index or restored enum value, or the literal string for a
 /// switch-on-string raised from the op_Equality chain.
 /// </summary>
 public sealed class SwitchSection : IrNode
@@ -930,9 +932,10 @@ public sealed class SwitchSection : IrNode
 /// produced by the switch pass from a value-producing IL jump table: every case
 /// target (and the default) assigns one local that a single downstream read
 /// consumes at the join, so the whole dispatch yields one value. Each arm carries
-/// its case labels (the zero-based jump-table indices) or is the default, and the
-/// expression it yields. Unlike <see cref="Switch"/> (a statement) this is an
-/// expression, so it appears as the value of a <see cref="Return"/> or a store.
+/// its case labels (jump-table indices or restored enum values) or is the default,
+/// and the expression it yields. Unlike <see cref="Switch"/> (a statement) this
+/// is an expression, so it appears as the value of a <see cref="Return"/> or a
+/// store.
 /// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundConvertedSwitchExpression,
@@ -1003,12 +1006,12 @@ public sealed class UnionSwitchExpression : IrExpression
         if (nullValue is not null)
         {
             _hasNullArm = true;
-            AddChild(nullValue);
+            AddChild(new SynthesizedSwitchExpressionArm(isNull: true, nullValue));
         }
         if (defaultValue is not null)
         {
             _hasDefault = true;
-            AddChild(defaultValue);
+            AddChild(new SynthesizedSwitchExpressionArm(isNull: false, defaultValue));
         }
     }
 
@@ -1017,8 +1020,12 @@ public sealed class UnionSwitchExpression : IrExpression
     public bool HasNullArm => _hasNullArm;
     public IReadOnlyList<UnionSwitchExpressionArm> Arms
         => Children.Skip(1).Take(Children.Count - 1 - (_hasNullArm ? 1 : 0) - (_hasDefault ? 1 : 0)).Cast<UnionSwitchExpressionArm>().ToList();
-    public IrExpression? NullValue => _hasNullArm ? (IrExpression)Children[Children.Count - 1 - (_hasDefault ? 1 : 0)] : null;
-    public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
+    internal SynthesizedSwitchExpressionArm? NullArm
+        => _hasNullArm ? (SynthesizedSwitchExpressionArm)Children[Children.Count - 1 - (_hasDefault ? 1 : 0)] : null;
+    internal SynthesizedSwitchExpressionArm? DefaultArm
+        => _hasDefault ? (SynthesizedSwitchExpressionArm)Children[^1] : null;
+    public IrExpression? NullValue => NullArm?.Value;
+    public IrExpression? DefaultValue => DefaultArm?.Value;
     public override TypeRef? ResultType
         => Arms.Select(a => a.Value.ResultType).Append(NullValue?.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
 
@@ -1052,6 +1059,29 @@ public sealed class UnionSwitchExpressionArm : IrNode
     public override string Describe() => LocalIndex is { } index
         ? $"arm {PatternType.ToDisplayString()} V_{index}"
         : $"arm {PatternType.ToDisplayString()}";
+}
+
+internal sealed class SynthesizedSwitchExpressionArm : IrNode
+{
+    public SynthesizedSwitchExpressionArm(bool isNull, IrExpression value)
+    {
+        IsNull = isNull;
+        AddChild(value);
+    }
+
+    public bool IsNull { get; }
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => IsNull ? "null arm" : "default arm";
+}
+
+internal sealed class SynthesizedRenderedExpression : IrNode
+{
+    public SynthesizedRenderedExpression(string kind) => Kind = kind;
+
+    public string Kind { get; }
+
+    public override string Describe() => $"rendered {Kind}";
 }
 
 /// <summary>
@@ -1155,7 +1185,7 @@ public sealed class PatternSwitchExpression : IrExpression
         if (defaultValue is not null)
         {
             _hasDefault = true;
-            AddChild(defaultValue);
+            AddChild(new SynthesizedSwitchExpressionArm(isNull: false, defaultValue));
         }
     }
 
@@ -1163,7 +1193,9 @@ public sealed class PatternSwitchExpression : IrExpression
     public bool HasDefault => _hasDefault;
     public IReadOnlyList<PatternSwitchExpressionArm> Arms
         => Children.Skip(1).Take(Children.Count - 1 - (_hasDefault ? 1 : 0)).Cast<PatternSwitchExpressionArm>().ToList();
-    public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
+    internal SynthesizedSwitchExpressionArm? DefaultArm
+        => _hasDefault ? (SynthesizedSwitchExpressionArm)Children[^1] : null;
+    public IrExpression? DefaultValue => DefaultArm?.Value;
     public override TypeRef? ResultType
         => Arms.Select(a => a.Value.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
 
@@ -2991,6 +3023,14 @@ public sealed class Lambda : IrExpression
     /// unaffected.
     /// </summary>
     public bool IsExpressionTree { get; init; }
+
+    /// <summary>
+    /// The synthesized method this lambda was recovered from returns
+    /// <c>System.Void</c>. This is explicit because custom delegate types do not
+    /// expose their Invoke signature through <see cref="DelegateType"/> alone.
+    /// </summary>
+    public bool ReturnsVoid { get; init; }
+
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
 
@@ -3001,12 +3041,19 @@ public sealed class Lambda : IrExpression
     }
 
     /// <summary>
-    /// The single returned expression when the body is one block ending in a
-    /// bare <c>return expr;</c> — the expression-bodied form <c>p =&gt; expr</c>.
-    /// Null when the body needs the block form <c>p =&gt; { ... }</c>.
+    /// The single returned expression, or the single side-effect expression of
+    /// a void body after its implicit trailing return has been removed — the
+    /// expression-bodied form <c>p =&gt; expr</c>. Null when the body needs the
+    /// block form <c>p =&gt; { ... }</c>.
     /// </summary>
     public IrExpression? ExpressionBody
-        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+        => Body.Blocks switch
+        {
+            [{ Children: [Return { Value: { } value }] }] => value,
+            [{ Children: [ExpressionStatement { Expression: var expression }] }]
+                when ReturnsVoid && expression.ResultType is { Namespace: "System", Name: "Void" } => expression,
+            _ => null,
+        };
 
     public override string Describe()
         => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";

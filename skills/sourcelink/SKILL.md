@@ -1,15 +1,18 @@
 ---
 name: dotnet-inspect-sourcelink
 version: 0.1.0
-description: Find and fetch the authoritative original source via SourceLink — type-to-URL maps, member file/line locations, and the original source body. Needs a SourceLink-enabled PDB and a network fetch, so it can be unavailable.
+description: Find SourceLink-mapped original source through PDB data — map files and member locations, fetch source, or resolve checksum-matched content locally.
 ---
 
 # dotnet-inspect: SourceLink and original source
 
-Use this skill to get the authoritative original source as written by the
-author. It resolves through SourceLink data in the PDB and fetches over the
-network, so it can be unavailable (no PDB, no SourceLink, private repo). When it
-is unavailable, the `decompiler` skill is the always-local fallback.
+Use this skill to get the original source mapped by the PDB. dotnet-inspect
+verifies local files and GitHub committed blobs read through `--repo` against
+the PDB checksum. A network `Original Source` fetch follows the SourceLink URL
+without performing that checksum check; use
+`library -S "SourceLink: Integrity"` for opt-in content verification of
+fetchable, non-embedded compiler-source documents. Without a usable PDB,
+SourceLink map, or matching source, use the always-local `decompiler` skill.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -17,13 +20,13 @@ dnx dotnet-inspect -y -- <command>
 
 ## Find where the source lives
 
-`-S "Source Files"` maps types to their SourceLink URLs (on `type`, `library`,
-or `package`); `-S "Source Locations"` gives per-member file and line URLs
-without fetching the bodies. Use `--urls` for a clean URL list and `--paths` for
-source path rows.
+`-S "Source Files"` maps types in `type` scope. Library and package scope use
+`SourceLink: Files`; `-S "Source Locations"` gives per-member file and line
+URLs without fetching bodies. Use `--urls` for a clean URL list and `--paths`
+for source path rows.
 
 ```bash
-dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files"
+dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
 dnx dotnet-inspect -y -- library System.Text.Json --il-offset 0x06000001+0x0
@@ -38,10 +41,16 @@ row; add `--row N` when the selected section has multiple printable rows.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
+  Serialize:1 -S "Original Source,Source Diff" --repo /path/to/runtime
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --json-array
 ```
+
+`--repo` requires a fully qualified clone path and applies only to
+`raw.githubusercontent.com` SourceLink URLs. It is consulted before fetching
+the source body remotely; package or PDB acquisition may still use the network.
 
 ## URL forms
 
@@ -54,8 +63,12 @@ escape hatch.
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
-dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --urls --blob
+dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files" --urls --blob
 ```
 
-To check *whether* SourceLink is present and valid (rather than fetch source),
-see the `signals` skill (`SourceLink Availability`/`Integrity`/`Missing Files`).
+To check *whether* SourceLink is present and usable (rather than fetch source),
+see the `signals` skill. Library `Signals` summarizes map usability and
+`SourceLink: Diagnostics` reports parse errors or rejected mappings;
+`SourceLink: Availability`, `SourceLink: Integrity`, and
+`SourceLink: Missing Files` check the mapped documents. The document checks
+also aggregate across selected package libraries.

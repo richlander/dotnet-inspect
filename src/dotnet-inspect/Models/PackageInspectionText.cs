@@ -104,6 +104,41 @@ internal sealed class PackageInspectionText
                 collector.Field(value.Type),
                 collector.OptionalField(value.Url)))
             .ToList();
+        SourceAvailability = data.SourceAvailability is { } availability
+            ? new PackageSourceAvailabilityText(
+                availability.TotalLibraries,
+                availability.AuditedLibraries,
+                availability.TotalSourceFiles,
+                availability.AccessibleSourceFiles,
+                availability.EmbeddedSourceFiles,
+                availability.MissingFiles?
+                    .Select(value => CreateSourceLinkFile(value, collector))
+                    .ToList(),
+                availability.UnavailableLibraries?
+                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .ToList(),
+                availability.FailedLibraries?
+                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .ToList())
+            : null;
+        SourceIntegrity = data.SourceIntegrity is { } integrity
+            ? new PackageSourceIntegrityText(
+                integrity.TotalLibraries,
+                integrity.CheckedLibraries,
+                integrity.Verified,
+                integrity.Mismatched,
+                integrity.LineEndingNormalized,
+                integrity.Unverifiable,
+                integrity.MismatchedFiles?
+                    .Select(value => CreateSourceLinkFile(value, collector))
+                    .ToList(),
+                integrity.UnavailableLibraries?
+                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .ToList(),
+                integrity.FailedLibraries?
+                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .ToList())
+            : null;
         SignatureResult = data.SignatureResult is { } signature
             ? new PackageSignatureText(
                 collector.OptionalField(signature.Publisher),
@@ -162,6 +197,8 @@ internal sealed class PackageInspectionText
             .Select(CreatePackageFileText)
             .ToList();
     public List<PackageSourceFileText>? SourceFiles { get; }
+    public PackageSourceAvailabilityText? SourceAvailability { get; }
+    public PackageSourceIntegrityText? SourceIntegrity { get; }
     public PackageSignatureText? SignatureResult { get; }
     public List<PackageAuditSignalText>? AuditSignals { get; }
     public bool RequiredContainment =>
@@ -229,6 +266,16 @@ internal sealed class PackageInspectionText
         PackageDependency value,
         Collector collector)
         => new(collector.Field(value.Id), collector.Field(value.Version));
+
+    private static PackageSourceLinkFileText CreateSourceLinkFile(
+        PackageSourceLinkFile value,
+        Collector collector)
+        => new(collector.Field(value.Library), collector.Field(value.Path));
+
+    private static PackageSourceLinkIssueText CreateSourceLinkIssue(
+        PackageSourceLinkIssue value,
+        Collector collector)
+        => new(collector.Field(value.Library), collector.Field(value.Reason));
 
     internal sealed class Collector
     {
@@ -303,6 +350,35 @@ internal readonly record struct PackageSourceFileText(
     InertString Library,
     InertString Type,
     InertString? Url);
+
+internal readonly record struct PackageSourceLinkIssueText(
+    InertString Library,
+    InertString Reason);
+
+internal readonly record struct PackageSourceLinkFileText(
+    InertString Library,
+    InertString Path);
+
+internal sealed record PackageSourceAvailabilityText(
+    int TotalLibraries,
+    int AuditedLibraries,
+    int TotalSourceFiles,
+    int AccessibleSourceFiles,
+    int EmbeddedSourceFiles,
+    List<PackageSourceLinkFileText>? MissingFiles,
+    List<PackageSourceLinkIssueText>? UnavailableLibraries,
+    List<PackageSourceLinkIssueText>? FailedLibraries);
+
+internal sealed record PackageSourceIntegrityText(
+    int TotalLibraries,
+    int CheckedLibraries,
+    int Verified,
+    int Mismatched,
+    int LineEndingNormalized,
+    int Unverifiable,
+    List<PackageSourceLinkFileText>? MismatchedFiles,
+    List<PackageSourceLinkIssueText>? UnavailableLibraries,
+    List<PackageSourceLinkIssueText>? FailedLibraries);
 
 internal readonly record struct PackageSignatureText(
     InertString? Publisher,

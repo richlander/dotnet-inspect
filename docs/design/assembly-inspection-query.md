@@ -136,6 +136,21 @@ public sealed record InspectionTarget(
     MemberSelector? Selector = null);   // optional: which member / IL coordinate inside it
 ```
 
+The current metadata canaries implement the inner, facet-level contract as
+`InspectionQuery<TResult>` plus an `InspectionQueryDefinition` identity. That
+generic definition says what one facet returns and costs. Assembly-context
+queries apply the same contract to ordered participant outcomes for extension
+members and reachability, implementation relationships, and type/member
+search. They are not the non-generic aggregate request above, which will carry
+the target, selected facets, and options when the acquisition seam migrates.
+
+Each facet executor receives a result view restricted to its declared
+transitive prerequisite closure. Reading an undeclared result throws even when
+another requested facet happened to run first, so execution order cannot hide a
+dependency from cost calculation. The metadata facet also executes against a
+borrowed native PE image and returns `NoMetadata`; native input does not turn a
+demanded query into an unexecuted trace entry.
+
 `MemberSelector` is the `MemberQuery` / `ILCoordinateQuery` union. A plain assembly inspection
 leaves `Selector` null; a member or coordinate inspection sets it.
 
@@ -304,7 +319,9 @@ Method-body consumers use the narrower `MethodBodySource` capability rather
 than borrowing the session's readers. It resolves method selectors, returns
 copied IL/EH snapshots, and supplies operand names while the session is alive.
 This keeps the CLI and Research off Metadata internals and allows Metadata to
-friend only its test assemblies.
+friend only its test assemblies. The current
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
+friend set rather than checking selected production assembly names.
 
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable

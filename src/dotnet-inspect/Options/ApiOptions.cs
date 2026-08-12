@@ -40,10 +40,10 @@ public partial record ApiOptions : IProjectionOptions
     /// <summary>
     /// Decompiler spelling options resolved from the tool-owned
     /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
-    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). Null means the
-    /// shipped defaults; the render path treats null and
-    /// <see cref="PrinterOptions.Default"/> identically, keeping output
-    /// byte-for-byte unchanged when no config is present.
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). The CLI edge
+    /// supplies registry-derived product defaults even when no config file is
+    /// present. Null is reserved for low-level callers and selects the stable
+    /// <see cref="PrinterOptions.Default"/> rendering.
     /// </summary>
     public PrinterOptions? RenderOptions { get; init; }
 
@@ -78,9 +78,10 @@ public partial record ApiOptions : IProjectionOptions
     public bool RequestAllTaste { get; init; }
 
     /// <summary>
-    /// The <c>--readable-names</c> gesture: for this run, synthesize a readable
-    /// identifier (from a local's type and role) for any local that has no usable
-    /// PDB source name, instead of the <c>V_index</c> fallback (see
+    /// The <c>--readable-names</c> gesture: for this run, retain the CLI's default
+    /// readable local-name synthesis even when configuration disables it. A
+    /// readable identifier is derived from a local's type and role when no usable
+    /// PDB source name exists, instead of the <c>V_index</c> fallback (see
     /// <see cref="ILInspector.Decompiler.Pipeline.LocalNameSynthesizer"/> and
     /// <c>docs/design/readable-local-names.md</c>). Byte-preserving — local names
     /// do not affect IL, so it is not a byte-divergent lens and leaves the
@@ -123,6 +124,16 @@ public partial record ApiOptions : IProjectionOptions
     public bool TabularExplicitlySet { get; init; }
     public bool PlainText { get; init; }
 
+    /// <summary>
+    /// Render the selected graph as standalone Mermaid.
+    /// </summary>
+    public bool MermaidOutput { get; init; }
+
+    /// <summary>
+    /// Render graph sections as fenced Mermaid within the Markdown document.
+    /// </summary>
+    public bool EmbeddedMermaid { get; init; }
+
     /// <summary>Print only the selected payload with no heading,
     /// fence, separator, or tips.</summary>
     public bool Bare { get; init; }
@@ -140,10 +151,16 @@ public partial record ApiOptions : IProjectionOptions
     public bool JsonArray { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user explicitly chose an output format via CLI flags or an environment default.
     /// When false, commands are free to apply their own default format (e.g., shape/tree).
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via a CLI flag.
+    /// Unlike <see cref="FormatExplicitlySet"/>, environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }
@@ -209,7 +226,10 @@ public partial record ApiOptions : IProjectionOptions
     /// Returns the appropriate Markout formatter for the current output format.
     /// </summary>
     public IMarkoutFormatter CreateFormatter() =>
-        PlainText ? new PlainTextFormatter() : new MarkdownFormatter();
+        PlainText
+            ? new PlainTextFormatter()
+            : new MarkdownFormatter(
+                EmbeddedMermaid ? MarkdownGraphMode.Mermaid : MarkdownGraphMode.EdgeTable);
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
@@ -235,6 +255,7 @@ public partial record ApiOptions
 public record TypeOptions : ApiOptions
 {
     public string? TypeFilter { get; init; }
+    internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
@@ -286,19 +307,21 @@ public record MemberOptions : ApiOptions
     public bool MemberHasNoAuthoredDeclaration { get; init; }
 
     /// <summary>
-    /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
-    /// selected member, in addition to the member's own assembly. Empty = own assembly only.
+    /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers
+    /// and bidirectional Call Graph traversal, in addition to the member's own assembly.
+    /// Empty = own assembly only.
     /// </summary>
     public string[] CallerScopeDirectories { get; init; } = [];
 
     /// <summary>
-    /// Projects (<c>--project</c>) whose restored dependency assemblies are scanned for inbound
-    /// callers of the selected member, resolved via <c>project.assets.json</c>.
+    /// Projects (<c>--project</c>) whose restored dependency assemblies are scanned for callers
+    /// and bidirectional Call Graph traversal, resolved via <c>project.assets.json</c>.
     /// </summary>
     public string[] CallerScopeProjects { get; init; } = [];
 
     /// <summary>
-    /// Packages (<c>--caller-package</c>) to download and scan for inbound callers.
+    /// Packages (<c>--caller-package</c>) to download and scan for cross-assembly callers and
+    /// bidirectional Call Graph traversal.
     /// </summary>
     public string[] CallerScopePackages { get; init; } = [];
 
@@ -314,6 +337,9 @@ public record MemberOptions : ApiOptions
     public bool HasCallerScope => CallerScopeDirectories.Length > 0 
         || CallerScopeProjects.Length > 0 
         || CallerScopePackages.Length > 0;
+
+    /// <inheritdoc/>
+    public override bool IsRawOutput => base.IsRawOutput || Tree || MermaidOutput;
 }
 
 /// <summary>

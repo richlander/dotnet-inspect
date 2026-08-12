@@ -18,8 +18,11 @@ internal sealed record RenderStyleResolution(
     string? Origin,
     IReadOnlyList<string> Warnings)
 {
-    /// <summary>No config file found: shipped defaults, no origin, no warnings.</summary>
-    public static RenderStyleResolution None { get; } = new(PrinterOptions.Default, null, []);
+    /// <summary>No config file found: CLI defaults, no origin, no warnings.</summary>
+    public static RenderStyleResolution None { get; } = new(
+        StyleOptionCatalog.DefaultOptions,
+        null,
+        []);
 }
 
 /// <summary>
@@ -72,6 +75,7 @@ internal static class RenderStyleConfig
     // aggregate with no editorconfig equivalent. Applied in file order like every
     // other key, so a later explicit per-knob line overrides it (last write wins).
     private const string FullTasteKey = "dotnet_inspect_style_full_taste";
+    private const string ReadableLocalNamesKey = "dotnet_inspect_style_readable_local_names";
 
     /// <summary>
     /// Walks up from <paramref name="startDirectory"/> to the filesystem root and
@@ -107,7 +111,9 @@ internal static class RenderStyleConfig
     /// <summary>
     /// Discovers the nearest style file from <paramref name="startDirectory"/>,
     /// reads it, and parses it. Returns <see cref="RenderStyleResolution.None"/>
-    /// when no file is found, so the caller renders with shipped defaults.
+    /// when no file is found, so the caller renders with the user-facing CLI
+    /// defaults. Library and harness callers continue to use
+    /// <see cref="PrinterOptions.Default"/> directly.
     /// </summary>
     public static RenderStyleResolution Resolve(string startDirectory)
     {
@@ -123,7 +129,7 @@ internal static class RenderStyleConfig
         catch (Exception ex)
         {
             return new RenderStyleResolution(
-                PrinterOptions.Default,
+                RenderStyleResolution.None.Options,
                 path,
                 [$"could not read '{path}': {ex.Message}"]);
         }
@@ -139,7 +145,7 @@ internal static class RenderStyleConfig
     /// </summary>
     public static RenderStyleResolution Parse(string text, string? origin)
     {
-        var options = PrinterOptions.Default;
+        var options = RenderStyleResolution.None.Options;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);
@@ -191,6 +197,14 @@ internal static class RenderStyleConfig
                     // subset shares no conflict group.
                     if (TryParseBool(value, out var fullTaste))
                         options = StyleOptionCatalog.ApplyFullTaste(options, fullTaste);
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case ReadableLocalNamesKey:
+                    // Compatibility spelling from the original opt-in option. The
+                    // registry now exposes the inverse, default-off slot-name knob.
+                    if (TryParseBool(value, out var readableLocalNames))
+                        options = options with { ReadableLocalNames = readableLocalNames };
                     else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;

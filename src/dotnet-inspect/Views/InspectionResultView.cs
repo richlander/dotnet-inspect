@@ -133,11 +133,65 @@ public class InspectionResultView
             signature.StatusMessage)
         : null;
 
+    [MarkoutSection(Name = PackageSections.SourceLinkAvailability)]
+    public PackageSourceAvailabilitySection? SourceAvailability =>
+        Text.SourceAvailability is { } availability
+            ? new PackageSourceAvailabilitySection(
+                new InertString(
+                    TextPolicy.Field,
+                    $"{availability.AuditedLibraries}/{availability.TotalLibraries} audited"),
+                availability.EmbeddedSourceFiles,
+                FormatIssues(availability.FailedLibraries),
+                availability.MissingFiles?.Count ?? 0,
+                new InertString(
+                    TextPolicy.Field,
+                    $"{availability.AccessibleSourceFiles}/{availability.TotalSourceFiles} available"),
+                new InertString(TextPolicy.Field, AvailabilityStatus(availability)),
+                FormatIssues(availability.UnavailableLibraries))
+            : null;
+
     [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutSection(Name = PackageSections.SourceLinkFiles, EmptyText = "No SourceLink source files found for this package.")]
     public List<PackageSourceFileRow>? SourceFiles => Text.SourceFiles?
         .Select(row => new PackageSourceFileRow(row.Library, row.Type, row.Url))
         .ToList();
+
+    [MarkoutSection(Name = PackageSections.SourceLinkIntegrity)]
+    public PackageSourceIntegritySection? SourceIntegrity =>
+        Text.SourceIntegrity is { } integrity
+            ? new PackageSourceIntegritySection(
+                new InertString(
+                    TextPolicy.Field,
+                    $"{integrity.CheckedLibraries}/{integrity.TotalLibraries} checked"),
+                integrity.LineEndingNormalized > 0
+                    ? new InertString(
+                        TextPolicy.Field,
+                        $"{integrity.LineEndingNormalized} normalized")
+                    : null,
+                FormatIssues(integrity.FailedLibraries),
+                integrity.Mismatched,
+                integrity.MismatchedFiles is { Count: > 0 } mismatches
+                    ? InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        mismatches.Select(
+                            static mismatch =>
+                                new InertString(
+                                    TextPolicy.Field,
+                                    MarkoutInline.Code(
+                                        $"{mismatch.Library}: {mismatch.Path}"))))
+                    : null,
+                new InertString(TextPolicy.Field, IntegrityStatus(integrity)),
+                FormatIssues(integrity.UnavailableLibraries),
+                integrity.Unverifiable,
+                integrity.Verified)
+            : null;
+
+    [MarkoutSection(Name = PackageSections.SourceLinkMissingFiles)]
+    public List<PackageSourceLinkFileRow>? MissingSourceFiles =>
+        Text.SourceAvailability is { } availability
+            ? MissingSourceRows(availability)
+            : null;
 
     [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutPropertyName("Published")]
@@ -325,6 +379,88 @@ public class InspectionResultView
 
     private static PackageDependencyRow ToDependencyRow(PackageDependencyText dependency)
         => new(dependency.Id, dependency.Version);
+
+    private static InertString? FormatIssues(List<PackageSourceLinkIssueText>? issues)
+        => issues is { Count: > 0 }
+            ? InertString.Join(
+                ", ",
+                TextPolicy.Field,
+                issues.Select(
+                    static issue =>
+                        InertString.Format(
+                            TextPolicy.Field,
+                            $"{MarkoutInline.Code(issue.Library.ToString())} ({issue.Reason})")))
+            : null;
+
+    private static List<PackageSourceLinkFileRow> MissingSourceRows(
+        PackageSourceAvailabilityText availability)
+    {
+        List<PackageSourceLinkFileRow> rows = [];
+        if (availability.MissingFiles is { } missing)
+        {
+            rows.AddRange(missing.Select(static file =>
+                new PackageSourceLinkFileRow(
+                    file.Library,
+                    file.Path,
+                    new InertString(TextPolicy.Field, "Missing"))));
+        }
+        if (availability.UnavailableLibraries is { } unavailable)
+        {
+            rows.AddRange(unavailable.Select(static issue =>
+                new PackageSourceLinkFileRow(
+                    issue.Library,
+                    new InertString(TextPolicy.Field, ""),
+                    InertString.Format(TextPolicy.Field, $"Unavailable: {issue.Reason}"))));
+        }
+        if (availability.FailedLibraries is { } failed)
+        {
+            rows.AddRange(failed.Select(static issue =>
+                new PackageSourceLinkFileRow(
+                    issue.Library,
+                    new InertString(TextPolicy.Field, ""),
+                    InertString.Format(TextPolicy.Field, $"Failed: {issue.Reason}"))));
+        }
+
+        return rows
+            .OrderBy(static row => row.LibraryText.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static row => row.FileText.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string AvailabilityStatus(PackageSourceAvailabilityText availability)
+    {
+        if (availability.TotalLibraries == 0)
+            return "Unavailable";
+        if (availability.TotalSourceFiles == 0)
+            return "Partial";
+        if (availability.AuditedLibraries == 0
+            && availability.FailedLibraries is { Count: > 0 })
+        {
+            return "Failed";
+        }
+
+        return availability.AuditedLibraries < availability.TotalLibraries
+               || availability.MissingFiles is { Count: > 0 }
+            ? "Partial"
+            : "Complete";
+    }
+
+    private static string IntegrityStatus(PackageSourceIntegrityText integrity)
+    {
+        if (integrity.TotalLibraries == 0)
+            return "Unavailable";
+        if (integrity.CheckedLibraries == 0
+            && integrity.FailedLibraries is { Count: > 0 })
+        {
+            return "Failed";
+        }
+        if (integrity.Mismatched > 0)
+            return "Mismatch";
+        return integrity.CheckedLibraries < integrity.TotalLibraries
+               || integrity.Unverifiable > 0
+            ? "Partial"
+            : "Verified";
+    }
 
     private List<MarkoutField> GetCompactFields()
     {
@@ -645,10 +781,65 @@ public sealed record PackageAuditSignalRow(
     public string Evidence => EvidenceText.ToString();
 }
 
+[MarkoutSerializable]
+public record PackageSourceLinkFileRow(
+    [property: MarkoutIgnore] InertString LibraryText,
+    [property: MarkoutIgnore] InertString FileText,
+    [property: MarkoutIgnore] InertString StatusText)
+{
+    public string Library => LibraryText.ToString();
+    public string File => FileText.ToString();
+    public string Status => StatusText.ToString();
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public sealed record PackageSourceAvailabilitySection(
+    [property: MarkoutIgnore] InertString AuditedLibrariesText = default,
+    int Embedded = 0,
+    [property: MarkoutIgnore] InertString? FailedLibrariesText = null,
+    int Missing = 0,
+    [property: MarkoutIgnore] InertString SourceFilesText = default,
+    [property: MarkoutIgnore] InertString StatusText = default,
+    [property: MarkoutIgnore] InertString? UnavailableLibrariesText = null)
+{
+    public string AuditedLibraries => AuditedLibrariesText.ToString();
+    public int Embedded { get; init; } = Embedded;
+    public string? FailedLibraries => PackageViewText.Render(FailedLibrariesText);
+    public int Missing { get; init; } = Missing;
+    public string SourceFiles => SourceFilesText.ToString();
+    public string Status => StatusText.ToString();
+    public string? UnavailableLibraries => PackageViewText.Render(UnavailableLibrariesText);
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public sealed record PackageSourceIntegritySection(
+    [property: MarkoutIgnore] InertString CheckedLibrariesText = default,
+    [property: MarkoutIgnore] InertString? CrlfMismatchText = null,
+    [property: MarkoutIgnore] InertString? FailedLibrariesText = null,
+    int Mismatched = 0,
+    [property: MarkoutIgnore] InertString? MismatchedFilesText = null,
+    [property: MarkoutIgnore] InertString StatusText = default,
+    [property: MarkoutIgnore] InertString? UnavailableLibrariesText = null,
+    int Unverifiable = 0,
+    int Verified = 0)
+{
+    public string CheckedLibraries => CheckedLibrariesText.ToString();
+    [MarkoutPropertyName("CR/LF Mismatch")]
+    public string? CrlfMismatch => PackageViewText.Render(CrlfMismatchText);
+    public string? FailedLibraries => PackageViewText.Render(FailedLibrariesText);
+    public int Mismatched { get; init; } = Mismatched;
+    public string? MismatchedFiles => PackageViewText.Render(MismatchedFilesText);
+    public string Status => StatusText.ToString();
+    public string? UnavailableLibraries => PackageViewText.Render(UnavailableLibrariesText);
+    public int Unverifiable { get; init; } = Unverifiable;
+    public int Verified { get; init; } = Verified;
+}
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
-[MarkoutContext(typeof(LibraryInspectionReport))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(ExtensionMethodRow))]
 [MarkoutContext(typeof(ClassifiedMethodRow))]
@@ -675,6 +866,9 @@ public sealed record PackageAuditSignalRow(
 [MarkoutContext(typeof(TargetFrameworkRow))]
 [MarkoutContext(typeof(PackageFileRow))]
 [MarkoutContext(typeof(PackageSourceFileRow))]
+[MarkoutContext(typeof(PackageSourceLinkFileRow))]
+[MarkoutContext(typeof(PackageSourceAvailabilitySection))]
+[MarkoutContext(typeof(PackageSourceIntegritySection))]
 [MarkoutContext(typeof(ILOffsetSection))]
 [MarkoutContext(typeof(ILOffsetMemberContextSection))]
 [MarkoutContext(typeof(ILOffsetInstructionContextSection))]
@@ -684,6 +878,7 @@ public sealed record PackageAuditSignalRow(
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]
+[MarkoutContext(typeof(AggregatedSectionDocument))]
 public partial class InspectionContext : MarkoutSerializerContext
 {
 }

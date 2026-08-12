@@ -24,6 +24,33 @@ for this session.** Otherwise they are inapplicable: follow this file, and do
 not adopt Nightshift roles, orders, gates, or tooling merely because you noticed
 those documents exist.
 
+### Markout changes use the co-development loop
+
+When a change needs new or altered Markout behavior, read
+[`docs/markout-co-development.md`](docs/markout-co-development.md) before
+changing either repository. Point dotnet-inspect at the exact Markout source
+branch and validate it as a real consumer before the Markout PR merges; that
+consumer proof is part of getting Markout to quality, not a post-release check.
+Keep the peer-checkout `ProjectReference` edits local and unpushed. After
+Markout lands and releases, restore `PackageReference` and only then raise the
+dotnet-inspect PR.
+
+## User-directed workflow adjustments
+
+The workflow gates in this file establish the default safe sequencing. A user
+may explicitly adjust a process gate for a specific task or PR in the interests
+of speed, including directing work that normally waits on another step to run
+in parallel. Follow that direction rather than refusing solely because the
+default is described as a gate, and preserve every requirement the user did not
+adjust.
+
+An adjustment changes sequencing, not evidence. Record the scope of the
+adjustment and any consequence for what the result proves. Work tied to an
+exact head remains valid only for that head; if parallel validation or a later
+change moves it, apply the fixed-head rules to the new head. A user-directed
+adjustment does not turn failed validation into success or make an unmergeable
+change ready to merge.
+
 ## Before changing files
 
 - `main` is protected. Keep the primary repository checkout attached to
@@ -82,6 +109,7 @@ those documents exist.
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Release and publishing | `docs/release-workflow.md` |
+| Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
 PR templates:
 
@@ -98,18 +126,20 @@ choosing one.
 
 When adding a focused skill, register it in `SkillCommand.Skills` **and** add an
 `EmbeddedResource` line for it in `src/dotnet-inspect/dotnet-inspect.csproj`;
-the embeds are enumerated per skill, and no test compares them against the
-`skills/` directory, so a skill missing from either list ships as nothing with a
-green suite. Its YAML frontmatter `description:` is the single source of truth
-for the generated skill listing.
+the embeds are enumerated per skill.
+`FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
+directories, runtime registry, and embedded resources equal. Its YAML
+frontmatter `description:` is the single source of truth for the generated
+skill listing.
 
 ## Repository-wide engineering constraints
 
 - Keep product paths SRM-only, NativeAOT-friendly, Roslyn-free, and free of
   inspected-assembly loading.
 - Preserve layer ownership. Metadata owns metadata facts, Analysis owns IL-body
-  evidence, CSharp owns C# spelling and type views, Research composes evidence,
-  and the CLI owns command and presentation concerns.
+  evidence, CSharpText owns model-free textual grammars and layout, CSharp owns
+  model-bound C# spelling and type views, Research composes evidence, and the CLI
+  owns command and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
@@ -194,6 +224,7 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
+| Inspection workspace | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
@@ -234,13 +265,13 @@ The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
 `ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
 directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
 Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Its install step is `continue-on-error` so that a feed
-outage does not cost every other result in the lane, but `Check
-ilasm/ildasm/mdv result` runs after the suites and fails the lane if
-acquisition failed: losing oracle coverage is red, not a quietly shorter skip
-list. `deep-inspect.yml` and `release.yml` still degrade to skips, so read
-their step logs before treating a green decompiler or IL-diff leg as
-oracle-backed.
+metadata oracle suite. Each install step is `continue-on-error` so that a feed
+outage does not cost every other result in the lane, but a terminal
+`Check ilasm/ildasm[/mdv] result` step fails the lane if acquisition failed:
+losing oracle coverage is red, not a quietly shorter skip list. In
+`release.yml`, that failed test lane blocks every package build and publish
+job. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
+gates the Deep Inspect and publish wiring.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
@@ -260,6 +291,41 @@ release, and `README.md` (packed as the package readme) and the shipped
 `SKILL.md` files (embedded in the binary) ship with it. Consult both before the
 version moves and update whatever the release changed; the checklist is in
 `docs/release-workflow.md`.
+
+### Package acquisition when nuget.org is disabled
+
+Some machine-level NuGet configurations disable nuget.org in favor of a
+company-imposed proxy feed. When that proxy does not mirror a pinned package
+version -- the co-developed `Markout` pins in `Directory.Packages.props` are
+the common case -- restore fails with `NU1603` ("was not found ... resolved
+instead") even though nuget.org serves the exact pin.
+
+Do not edit the machine-level NuGet config, and do not commit a repository
+`nuget.config` that starts with `<clear/>`: clearing the inherited sources on
+such a machine has previously left it with no usable feed at all. Instead,
+override the source list for a single restore. `--source`/`-s` replaces the
+configured feeds for that one invocation only and downloads the pinned
+versions into the global package cache (`~/.nuget/packages`):
+
+```bash
+dotnet restore dotnet-inspect.slnx -s https://api.nuget.org/v3/index.json
+```
+
+Subsequent restores resolve exact centrally-pinned versions from that cache
+without consulting any feed, so plain `dotnet build` works afterward. The fix
+is per-machine and must be repeated after `dotnet nuget locals all --clear` or
+when a pin moves to a version the proxy still lacks.
+
+Prefer `--source` over `--add-source` for this recovery: a restore given both
+nuget.org and the proxy has been observed to still fail with `NU1603` when the
+proxy answers with a different version of the same package.
+
+Acquiring the shipped tool accepts the same override, verified for both forms:
+
+```bash
+dotnet tool install -g dotnet-inspect --source https://api.nuget.org/v3/index.json
+dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
+```
 
 ### File-based apps
 
@@ -337,6 +403,12 @@ Test harnesses own orchestration, fixtures, independent oracles, comparison,
 and reporting. When behavior belongs to the product, a harness must exercise
 the product-owned capability rather than reconstructing or replacing it.
 
+Harnesses may parse source or diagnostics to observe and measure independent
+evidence. They must not use that parsed representation to construct, normalize,
+repair, or rewrite C# that the harness later compiles as product evidence. The
+product must own that artifact construction and expose typed identities, ranges,
+or replacement operations so the harness never becomes a second C# producer.
+
 Do not add harness-side adaptive mechanisms, fallback resolvers, special-case
 shape recognition, or normalization that compensates for missing, incomplete,
 or incorrect product behavior. Such compensation hides the product gap and
@@ -364,18 +436,32 @@ npx markdownlint-cli <file>
 
 ### Do not start a round until the branch is settled
 
-**A review round does not begin until the PR is stable, free of merge conflicts,
-and green on every check that runs for it — and for a stacked PR, until every
-layer is.** This is a gate, not a preference: hold the round until that state
-clears.
+**A review round does not begin until the PR is stable and free of merge
+conflicts. For changes other than documentation-only PRs, it must also be green
+on every check that runs for it — and for a stacked PR, every layer must meet
+the conditions that apply to it.** This is a gate, not a preference: hold the
+round until that state clears unless the user explicitly adjusts the sequencing
+under [User-directed workflow adjustments](#user-directed-workflow-adjustments).
+
+In particular, an explicit user direction to run adversarial review in parallel
+with CI overrides the wait-for-green sequencing requirement. Do not refuse that
+direction because this section calls the default a gate. The review still
+applies only to its exact head, and CI must still pass before the change is
+ready to merge.
+
+Documentation-only PRs covered by the Markdown-only validation rule above are
+the exception to the CI portion of this gate. Their only validation is
+Markdown linting, and waiting for that check to complete is orthogonal to
+adversarial review. Once the exact head is settled and conflict-free, its round
+may start while linting is pending; lint must still pass before merge.
 
 Adversarial review is the scarcest resource in this workflow — several models, a
 self-contained prompt, isolated worktrees, real runs. A branch whose head is
-unpushed or still moving, whose base is stale, whose CI is red, or whose PR
-reports a conflict has no single answer to "what am I reviewing?", so every
-finding it produces is provisional and every clean result is worthless. Reach
-this state before the first round, and reach it again before every subsequent
-round:
+unpushed or still moving, whose base is stale, whose required review-gating CI
+is red, or whose PR reports a conflict has no single answer to "what am I
+reviewing?", so every finding it produces is provisional and every clean result
+is worthless. Reach this state before the first round, and reach it again before
+every subsequent round:
 
 - **The head is pushed, named, and settled.** Reviewers get an exact base and
   head, not a branch that moves under them. Finish your own edits first.
@@ -386,38 +472,60 @@ round:
   where the resolution is itself unreviewed. Once the reviews *are* clean, this
   reverses: see [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
-- **The PR is mergeable and green** — two questions, two commands. For
-  conflicts, `gh pr view <n> --json mergeable`: `CONFLICTING` blocks, and
-  `UNKNOWN` means GitHub has not finished computing the merge, so re-query
-  rather than read it as clear. For the gating runs, `gh pr checks <n>
-  --required`, which on a PR targeting `main` resolves to `ci-required` — the
-  only check the ruleset requires. Exit `0` is green; exit `8` means checks are
-  still running, so wait with `--watch`. Exit `1` reporting *no* required
-  checks is inconclusive: the aggregate may not have registered yet, or the
-  ruleset may not cover the PR's base. Fall back to plain `gh pr checks <n>`
-  and inspect the base separately; a PR targeting `main` is not green until its
-  current-head `ci-required` has passed. Do not read
-  `mergeStateStatus` as check state: it is a composite, and it reports `CLEAN`
-  for a PR with no checks at all (#3706). `skipping` is terminal and does not
-  block, but it is also not evidence: never cite a skipped job as validation,
-  and if a change should have triggered a job that skipped, the path filter is
-  the bug. After a push, compare `headRefOid` from `gh pr view <n> --json
-  headRefName,headRefOid` with `headSha` from `gh run list --branch
-  <headRefName> --event pull_request --json databaseId,headSha,status,conclusion`,
-  then watch that run by id. `gh pr checks --watch` can otherwise return exit
-  `0` against the previous head's run before the new one registers.
-- **Every PR in a stack meets all of the above**, not only the slice under
-  review — a red or conflicted parent is a red or conflicted base for everything
-  above it. A slice rebases onto its parent, never onto `main`: only the stack's
-  bottom open slice takes `origin/main` as its base, and rebasing an upper slice
-  onto `main` pulls in work its parent has not landed and makes the slice's diff
-  report its parent's changes as its own. `ci.yml` applies no base-branch
-  filter, so every slice schedules the same CI wherever it targets; a slice
-  reporting *no* checks is therefore not green. Re-query after the registration
-  window and verify the current head; if no matching workflow run appears, that
-  is a scheduling bug to investigate, since a PR that triggers no workflow
-  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN
-  (#3706).
+- **For changes other than documentation-only PRs, the PR is mergeable and
+  green** — two questions, one consolidated status query. Use a single
+  `gh api graphql` request that returns the PR's
+  `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
+  contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
+  and reset time. Request enough contexts for the normal check matrix; if
+  `pageInfo.hasNextPage` is true and `ci-required` is absent, fetch the
+  remaining context pages before concluding that it is missing. Confirm that
+  `headRefOid` is the pushed head, `mergeable` is `MERGEABLE`, and the current
+  head's `ci-required` check run completed successfully. A `CONFLICTING`
+  mergeability result blocks, and `UNKNOWN` means GitHub has not finished
+  computing the merge. Do not read `mergeStateStatus` as check state: it is a
+  composite, and it reports `CLEAN` for a PR with no checks at all (#3706). A
+  missing `ci-required` is likewise inconclusive: the aggregate may not have
+  registered yet. Inspect all returned contexts; no PR is green until its
+  current-head `ci-required` has completed with a `SUCCESS` conclusion. A
+  subordinate check run with status `COMPLETED` and conclusion `SKIPPED` does
+  not block, but it is also not evidence: never cite a skipped job as
+  validation, and if a change should have triggered a job that skipped, the
+  path filter is the bug.
+
+  Status discovery must conserve the shared GitHub API budget. After a push,
+  wait at least 15 minutes before the first status query; use 20 minutes for
+  lanes known to run longer. After any inconclusive result — including pending
+  checks, `UNKNOWN` mergeability, or a missing `ci-required` — wait at least 10
+  minutes plus small random jitter before querying again. Yield the session or
+  schedule a delayed wake-up; do not hold a synchronous shell or agent turn
+  open with `sleep`. Do not use `gh run watch`, `gh pr checks --watch`, or a
+  polling loop for long-running PR checks.
+
+  Every status check must re-query the PR aggregate and compare its current
+  `headRefOid`; a run or check identifier is pinned to one commit and cannot
+  detect a later push. Retain the expected head SHA locally, and reuse returned
+  identifiers only for one-off detail or log queries after the aggregate has
+  confirmed that head. Separate discovery calls are prohibited; additional
+  calls are only for required context pagination or one-off details after the
+  aggregate has confirmed the head. If the query reports low remaining quota,
+  yield until its reported reset time rather than sleeping or continuing to
+  query. These intervals are minimums, not targets: wait longer when no
+  decision depends on an immediate result.
+- **Every PR in a stack meets the applicable conditions above**, not only the
+  slice under review — a conflicted parent, or a non-documentation parent with
+  red CI, is an unsettled base for everything above it. A slice rebases onto its
+  parent, never onto `main`: only the stack's bottom open slice takes
+  `origin/main` as its base, and rebasing an upper slice onto `main` pulls in
+  work its parent has not landed and makes the slice's diff report its parent's
+  changes as its own. `ci.yml` applies no base-branch filter, so every
+  non-documentation slice schedules the same CI wherever it targets; a
+  non-documentation slice reporting *no* checks is therefore not green.
+  Re-query after the registration window, following the status-discovery
+  cadence above, and verify the current head; if no matching workflow run
+  appears, that is a scheduling bug to investigate, since a PR that triggers no
+  workflow leaves `ci-required` nothing to block on and displays as MERGEABLE
+  and CLEAN (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
@@ -606,7 +714,8 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   slice above. Use `--force-with-lease`, restack only your own slices, and post
   a `range-diff` proving the restack changed the base and nothing else.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
-- **Green and mergeable is checked stack-wide, before any slice's round** — see
+- **Review readiness is checked stack-wide before any slice's round**, using
+  the documentation-only CI exception where applicable — see
   [Adversarial review](#adversarial-review).
 - **A moved head — including one moved by a restack — needs a clean round at
   the new head**, and a restack never retires an open finding.

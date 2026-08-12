@@ -133,14 +133,6 @@ public class LibraryInspectionView
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
-    public bool UseDependenciesView => _data.UseDependenciesView;
-
-    [MarkoutSection(Name = "Dependencies")]
-    public List<TreeNode>? DependenciesSection =>
-        !_data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
-        BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
-
-    [MarkoutIgnore]
     public bool HasExtensionMethods => _data.ExtensionMethods is { Count: > 0 };
 
     [MarkoutSection(Name = "Extension Methods", ShowWhenProperty = nameof(HasExtensionMethods))]
@@ -191,7 +183,6 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = "References")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
-        _data.AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
         _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
             .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
             .ToList() is { Count: > 0 } list ? list : null;
@@ -206,6 +197,40 @@ public class LibraryInspectionView
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .Select(p => LibraryViewText.Contain(p))
             .ToList();
+
+    [MarkoutIgnore]
+    public bool HasSourceLinkDiagnostics =>
+        _data.SourceLinkMap?.HasDiagnostics == true;
+
+    [MarkoutSection(
+        Name = SectionNames.SourceLinkDiagnostics,
+        ShowWhenProperty = nameof(HasSourceLinkDiagnostics))]
+    public List<SourceLinkDiagnosticRow>? SourceLinkDiagnosticsSection
+    {
+        get
+        {
+            if (!HasSourceLinkDiagnostics || _data.SourceLinkMap is not { } map)
+                return null;
+
+            List<SourceLinkDiagnosticRow> rows = [];
+            if (map.Error is { } error)
+            {
+                rows.Add(new SourceLinkDiagnosticRow(
+                    "Map error",
+                    null,
+                    error));
+            }
+
+            rows.AddRange(
+                (map.RejectedKeys ?? [])
+                    .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
+                    .Select(key => new SourceLinkDiagnosticRow(
+                        "Rejected mapping",
+                        key,
+                        "entry does not conform to the SourceLink document-map schema")));
+            return rows;
+        }
+    }
 
     [MarkoutIgnore]
     public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
@@ -975,7 +1000,7 @@ public class LibraryInspectionView
     public static bool AllocationContextChurnedTypeIsEmpty(List<ILOffsetAllocationContextRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.ChurnedType));
 
-    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
+    internal static List<TreeNode> BuildNestedReferenceTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
         int i = 0;
@@ -991,6 +1016,7 @@ public class LibraryInspectionView
             var label = !string.IsNullOrEmpty(node.Company)
                 ? $"{node.Name} {node.Version} [{node.Company}]"
                 : $"{node.Name} {node.Version}";
+            label = LibraryViewText.Contain(label);
             index++;
 
             List<TreeNode> children = [];
@@ -1018,6 +1044,19 @@ internal static class LibraryViewText
 {
     [return: NotNullIfNotNull(nameof(value))]
     public static string? Contain(string? value) => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+
+    public static string DocumentTitle(LibraryInspection inspection)
+    {
+        var fileName = Contain(inspection.FileName) ?? string.Empty;
+        return Contain(inspection.Tfm) is { Length: > 0 } tfm
+            ? $"{fileName} ({tfm})"
+            : fileName;
+    }
+
+    public static string DocumentTitle(LibraryInspectionView view) =>
+        view.Tfm is { Length: > 0 } tfm
+            ? $"{view.FileName} ({tfm})"
+            : view.FileName;
 }
 
 [MarkoutSerializable]
@@ -1630,6 +1669,21 @@ public record AuditSignalRow(
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+}
+
+[MarkoutSerializable]
+public record SourceLinkDiagnosticRow(
+    string Kind,
+    string? Document,
+    string Detail)
+{
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    [MarkoutSkipNull]
+    public string? Document { get; init; } = LibraryViewText.Contain(Document);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Detail { get; init; } = LibraryViewText.Contain(Detail);
 }
 
 [MarkoutSerializable]

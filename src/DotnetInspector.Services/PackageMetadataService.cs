@@ -1,6 +1,11 @@
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using NuGet.Versioning;
+using PackageSource = NuGetFetch.PackageSource;
+using ServiceResource = NuGetFetch.ServiceResource;
 
 namespace DotnetInspector.Services;
 
@@ -10,6 +15,43 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class PackageMetadataService
 {
+    private enum SourcePresence
+    {
+        Present,
+        Absent,
+        Indeterminate,
+    }
+
+    private readonly record struct SourceMetadataResult(
+        SourcePresence Presence,
+        PackageMetadata? Metadata = null,
+        bool Cacheable = true);
+
+    private readonly record struct TextFetchResult(
+        string? Content,
+        HttpStatusCode? StatusCode)
+    {
+        public bool IsSuccess => Content is not null;
+        public bool IsNotFound => StatusCode == HttpStatusCode.NotFound;
+    }
+
+    private readonly record struct PackageProbeResult(
+        SourcePresence Presence,
+        long? PackageSize = null);
+
+    private readonly record struct SearchPageResult(
+        bool Found,
+        int ResultCount,
+        long? TotalHits);
+
+    private readonly record struct SearchFetchResult(
+        bool Succeeded,
+        bool Found);
+
+    private readonly record struct VulnerabilityFetchResult(
+        bool Succeeded,
+        List<PackageVulnerability> Vulnerabilities);
+
     /// <summary>
     /// Gets the published date for a specific package version.
     /// </summary>
@@ -18,51 +60,19 @@ public static class PackageMetadataService
         string packageName,
         string version,
         Action<string>? log,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        HttpClient? untrustedClient = null)
     {
-        var normalizedName = packageName.ToLowerInvariant();
-        var cacheKey = $"{normalizedName}@{version}";
-        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
-            return null;
-        PackageMetadata? cached;
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
-        {
-            cached = MetadataFieldCache.TryGet(cacheKey);
-        }
-        if (cached != null)
-        {
-            log?.Invoke("Using cached publish date metadata");
-            return cached.Published;
-        }
-
-        try
-        {
-            string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
-            log?.Invoke($"Fetching package metadata from: {registrationUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-                client, registrationUrl,
-                trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
-            if (json == null)
-                return null;
-
-            using var doc = HardenedJson.Parse(json);
-            if (doc.RootElement.TryGetProperty("published", out var publishedElement))
-            {
-                if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
-                {
-                    log?.Invoke($"Package published: {published:yyyy-MM-dd}");
-                    MetadataFieldCache.Set(cacheKey, new PackageMetadata { Published = published });
-                    return published;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is not NetworkPolicyException)
-        {
-            log?.Invoke($"Error fetching publish date: {ex.Message}");
-        }
-
-        return null;
+        PackageMetadata metadata = await FetchMetadataAsync(
+            client,
+            packageName,
+            version,
+            log,
+            forceLatest: false,
+            sourceOptions,
+            registrationOnly: true,
+            untrustedClient ?? HttpClientFactory.SharedUntrustedFetch).ConfigureAwait(false);
+        return metadata.Published;
     }
 
     /// <summary>
@@ -75,116 +85,289 @@ public static class PackageMetadataService
         string version,
         Action<string>? log,
         bool forceLatest = false,
-        NuGetSourceOptions? sourceOptions = null)
-    {
-        var normalizedName = packageName.ToLowerInvariant();
-        string cacheKey = $"{normalizedName}@{version}";
-        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
-            return new PackageMetadata();
+        NuGetSourceOptions? sourceOptions = null,
+        HttpClient? untrustedClient = null)
+        => await FetchMetadataAsync(
+            client,
+            packageName,
+            version,
+            log,
+            forceLatest,
+            sourceOptions,
+            registrationOnly: false,
+            untrustedClient ?? HttpClientFactory.SharedUntrustedFetch).ConfigureAwait(false);
 
-        // Try cache first (unless @latest forces refresh)
-        if (!forceLatest)
-        {
-            PackageMetadata? fromCache;
-            using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
-            {
-                fromCache = MetadataFieldCache.TryGet(cacheKey);
-            }
-            if (fromCache != null)
-            {
-                log?.Invoke("Using cached metadata");
-                return fromCache;
-            }
-        }
-
-        var metadata = await FetchAllMetadataFromNetworkAsync(client, normalizedName, version, log).ConfigureAwait(false);
-
-        // Cache the result
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
-        {
-            MetadataFieldCache.Set(cacheKey, metadata);
-        }
-
-        return metadata;
-    }
-
-    internal static bool SupportsNuGetOrgMetadata(
+    private static async Task<PackageMetadata> FetchMetadataAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        Action<string>? log,
+        bool forceLatest,
         NuGetSourceOptions? sourceOptions,
-        Action<string>? log = null)
+        bool registrationOnly,
+        HttpClient untrustedClient)
     {
-        bool supported = NuGetSourceResolver.ResolveSources(sourceOptions).Any(source =>
-            Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
-            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase));
-        if (!supported)
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = NormalizeVersion(version);
+        IReadOnlyList<PackageSource> sources =
+            ResolveMetadataSources(sourceOptions, packageName, log);
+
+        foreach (PackageSource source in sources)
         {
-            log?.Invoke(
-                "NuGet.org aggregate metadata is unavailable because the configured package sources do not include api.nuget.org.");
+            string cacheKey = MetadataCacheKey(
+                source,
+                normalizedName,
+                normalizedVersion,
+                registrationOnly);
+            if (!forceLatest)
+            {
+                MetadataFieldCache.Entry? fromCache;
+                using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
+                {
+                    fromCache = MetadataFieldCache.TryGetEntry(cacheKey);
+                }
+                if (fromCache is { IsAbsent: true })
+                {
+                    continue;
+                }
+                if (fromCache is { } cached)
+                {
+                    log?.Invoke($"Using cached metadata from {source.Name}");
+                    return cached.Metadata;
+                }
+            }
+
+            if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? sourceUri)
+                || sourceUri.Scheme is not ("http" or "https"))
+            {
+                log?.Invoke(
+                    $"Skipping non-HTTP NuGet metadata source "
+                    + $"'{source.Name}': {source.Url}");
+                return new PackageMetadata();
+            }
+
+            HttpClient sourceClient =
+                ReferenceEquals(client, HttpClientFactory.Shared)
+                    ? HttpClientFactory.GetPackageSourceClient(source.Url)
+                    : client;
+            SourceMetadataResult result = await FetchAllMetadataFromSourceAsync(
+                sourceClient,
+                source,
+                normalizedName,
+                normalizedVersion,
+                log,
+                registrationOnly,
+                untrustedClient).ConfigureAwait(false);
+            if (result.Presence == SourcePresence.Indeterminate)
+            {
+                log?.Invoke(
+                    $"Metadata from higher-precedence source '{source.Name}' is unavailable; "
+                    + "lower sources were not consulted.");
+                return new PackageMetadata();
+            }
+            if (result.Presence == SourcePresence.Absent)
+            {
+                using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
+                {
+                    MetadataFieldCache.SetAbsent(cacheKey);
+                }
+                continue;
+            }
+
+            PackageMetadata metadata = result.Metadata ?? new PackageMetadata();
+            if (result.Cacheable)
+            {
+                using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
+                {
+                    MetadataFieldCache.Set(cacheKey, metadata);
+                }
+            }
+            return metadata;
         }
-        return supported;
+
+        return new PackageMetadata();
     }
 
-    private static async Task<PackageMetadata> FetchAllMetadataFromNetworkAsync(
-        HttpClient client, string normalizedName, string version, Action<string>? log)
+    private static IReadOnlyList<PackageSource> ResolveMetadataSources(
+        NuGetSourceOptions? sourceOptions,
+        string packageId,
+        Action<string>? log)
     {
-        var metadata = new PackageMetadata();
-
-        // Fetch from registration API (published date, catalog entry URL)
-        string? catalogEntryUrl = null;
         try
         {
-            string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
+            List<PackageSource> mapped =
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    sourceOptions,
+                    packageId);
+            return NuGetSourceResolver.ResolveAuthorizedSources(
+                sourceOptions,
+                mapped);
+        }
+        catch (PackageSourceMappingException ex)
+            when (ex.Failure is
+                PackageSourceMappingFailure.NoPattern
+                or PackageSourceMappingFailure.InactiveSource)
+        {
+            log?.Invoke(ex.Message);
+            return [];
+        }
+    }
+
+    private static string MetadataCacheKey(
+        PackageSource source,
+        string normalizedName,
+        string normalizedVersion,
+        bool registrationOnly) =>
+        $"v4-{(registrationOnly ? "published" : "full")}-"
+        + $"{NuGetCache.GetSourceKey(source.Url)}-"
+        + $"{normalizedName}@{normalizedVersion}";
+
+    private static string NormalizeVersion(string version) =>
+        NuGetVersion.TryParse(version, out NuGetVersion? parsed)
+            ? parsed.ToNormalizedString().ToLowerInvariant()
+            : version.ToLowerInvariant();
+
+    private static async Task<SourceMetadataResult> FetchAllMetadataFromSourceAsync(
+        HttpClient client,
+        PackageSource source,
+        string normalizedName,
+        string version,
+        Action<string>? log,
+        bool registrationOnly,
+        HttpClient untrustedClient)
+    {
+        IReadOnlyList<ServiceResource>? resources =
+            await PackageExtractor.GetServiceIndexResourcesAsync(
+                client,
+                source,
+                log).ConfigureAwait(false);
+        if (resources is null)
+        {
+            return new SourceMetadataResult(SourcePresence.Indeterminate);
+        }
+
+        var metadata = new PackageMetadata();
+
+        List<ServiceResource> registrationResources =
+            CompatibleResources(resources, "RegistrationsBaseUrl");
+        List<ServiceResource> packageBaseAddresses =
+            CompatibleResources(resources, "PackageBaseAddress");
+        List<ServiceResource> searchQueryServices =
+            CompatibleResources(resources, "SearchQueryService");
+        List<ServiceResource> vulnerabilityInfos =
+            CompatibleResources(resources, "VulnerabilityInfo");
+
+        bool found = false;
+        bool sawExistenceEndpoint = false;
+        bool sawIndeterminate = false;
+        string? catalogEntryUrl = null;
+
+        foreach (ServiceResource registration in registrationResources)
+        {
+            sawExistenceEndpoint = true;
+            string registrationUrl = AppendPath(
+                registration.Id,
+                normalizedName,
+                $"{version}.json");
             log?.Invoke($"Fetching registration metadata: {registrationUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-                client, registrationUrl,
-                trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
-            if (json != null)
+            TextFetchResult registrationResult = await FetchTextAsync(
+                client,
+                untrustedClient,
+                source,
+                registrationUrl,
+                NetworkTrafficKind.PackageMetadata,
+                log).ConfigureAwait(false);
+            if (registrationResult.IsSuccess)
             {
-                using var doc = HardenedJson.Parse(json);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("published", out var publishedElement))
+                try
                 {
-                    if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
-                    {
-                        metadata.Published = published;
-                        log?.Invoke($"Published: {published:yyyy-MM-dd}");
-                    }
+                    catalogEntryUrl = ApplyRegistrationMetadata(
+                        registrationResult.Content!,
+                        registrationUrl,
+                        metadata,
+                        log);
+                    found = true;
+                    break;
                 }
-
-                if (root.TryGetProperty("catalogEntry", out var catalogElement))
+                catch (Exception ex) when (ex is
+                    JsonException
+                    or InvalidOperationException
+                    or UriFormatException)
                 {
-                    catalogEntryUrl = catalogElement.GetString();
+                    log?.Invoke($"Invalid registration metadata from {source.Name}: {ex.Message}");
+                    sawIndeterminate = true;
+                }
+                continue;
+            }
+
+            if (!registrationResult.IsNotFound)
+            {
+                sawIndeterminate = true;
+            }
+        }
+
+        if (packageBaseAddresses.Count > 0
+            && (!registrationOnly || !found))
+        {
+            sawExistenceEndpoint = true;
+            foreach (ServiceResource packageBaseAddress in packageBaseAddresses)
+            {
+                PackageProbeResult probe = await ProbePackageAsync(
+                    client,
+                    source,
+                    packageBaseAddress,
+                    normalizedName,
+                    version,
+                    log,
+                    untrustedClient).ConfigureAwait(false);
+                if (probe.Presence == SourcePresence.Present)
+                {
+                    found = true;
+                    metadata.PackageSize = probe.PackageSize;
+                    break;
+                }
+                if (probe.Presence == SourcePresence.Indeterminate)
+                {
+                    sawIndeterminate = true;
                 }
             }
         }
-        catch (Exception ex) when (ex is not NetworkPolicyException)
+
+        if (registrationOnly)
         {
-            log?.Invoke($"Error fetching registration metadata: {ex.Message}");
+            return found
+                ? new SourceMetadataResult(SourcePresence.Present, metadata)
+                : sawExistenceEndpoint && !sawIndeterminate
+                ? new SourceMetadataResult(SourcePresence.Absent)
+                : new SourceMetadataResult(SourcePresence.Indeterminate);
         }
 
-        // Fetch catalog entry for version-specific deprecation
+        if (!found)
+        {
+            return sawExistenceEndpoint && !sawIndeterminate
+                ? new SourceMetadataResult(SourcePresence.Absent)
+                : new SourceMetadataResult(SourcePresence.Indeterminate);
+        }
+
+        bool catalogDataAvailable = true;
         if (!string.IsNullOrEmpty(catalogEntryUrl))
         {
+            catalogDataAvailable = false;
             try
             {
                 log?.Invoke($"Fetching catalog entry: {catalogEntryUrl}");
-                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(
-                    client, catalogEntryUrl,
-                    trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
-                if (catalogJson != null)
+                TextFetchResult catalogResult = await FetchTextAsync(
+                    client,
+                    untrustedClient,
+                    source,
+                    catalogEntryUrl,
+                    NetworkTrafficKind.PackageMetadata,
+                    log).ConfigureAwait(false);
+                if (catalogResult.IsSuccess)
                 {
-                    using var doc = HardenedJson.Parse(catalogJson);
-                    var root = doc.RootElement;
-
-                    if (root.TryGetProperty("deprecation", out var deprecationElement) &&
-                        deprecationElement.ValueKind == JsonValueKind.Object)
-                    {
-                        metadata.Deprecation = ParseDeprecation(deprecationElement);
-                        log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
-                    }
+                    ApplyCatalogMetadata(catalogResult.Content!, metadata, log);
+                    catalogDataAvailable = true;
                 }
             }
             catch (Exception ex) when (ex is not NetworkPolicyException)
@@ -193,109 +376,516 @@ public static class PackageMetadataService
             }
         }
 
-        // Fetch from search API (downloads, verified, owners)
-        try
+        bool searchDataAvailable = searchQueryServices.Count == 0;
+        if (searchQueryServices.Count > 0)
         {
-            string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{normalizedName}&take=1";
-            log?.Invoke($"Fetching search metadata: {searchUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-                client, searchUrl,
-                trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
-            if (json != null)
+            foreach (ServiceResource searchQueryService in searchQueryServices)
             {
-                using var doc = HardenedJson.Parse(json);
-                if (doc.RootElement.TryGetProperty("data", out var data) &&
-                    data.GetArrayLength() > 0)
+                try
                 {
-                    var pkg = data[0];
-
-                    if (pkg.TryGetProperty("totalDownloads", out var downloads))
+                    SearchFetchResult searchResult =
+                        await FetchSearchMetadataAsync(
+                                client,
+                                source,
+                                searchQueryService,
+                                normalizedName,
+                                version,
+                                metadata,
+                                log,
+                                untrustedClient)
+                            .ConfigureAwait(false);
+                    if (searchResult.Succeeded)
                     {
-                        metadata.TotalDownloads = downloads.GetInt64();
+                        searchDataAvailable = true;
+                        break;
                     }
-
-                    if (pkg.TryGetProperty("versions", out var versions))
-                    {
-                        metadata.VersionCount = versions.GetArrayLength();
-
-                        foreach (var v in versions.EnumerateArray())
-                        {
-                            if (v.TryGetProperty("version", out var versionProp) &&
-                                string.Equals(versionProp.GetString(), version, StringComparison.OrdinalIgnoreCase) &&
-                                v.TryGetProperty("downloads", out var versionDownloads))
-                            {
-                                metadata.VersionDownloads = versionDownloads.GetInt64();
-                                break;
-                            }
-                        }
-                    }
-
-                    if (pkg.TryGetProperty("verified", out var verified))
-                    {
-                        metadata.IsVerified = verified.GetBoolean();
-                    }
-
-                    if (pkg.TryGetProperty("owners", out var owners))
-                    {
-                        metadata.Owners = owners.EnumerateArray()
-                            .Select(o => o.GetString())
-                            .Where(o => o != null)
-                            .Cast<string>()
-                            .ToList();
-                    }
-
-                    // Deprecation (from search API - more reliable than registration API)
-                    if (metadata.Deprecation == null &&
-                        pkg.TryGetProperty("deprecation", out var deprecationElement) &&
-                        deprecationElement.ValueKind == JsonValueKind.Object)
-                    {
-                        metadata.Deprecation = ParseDeprecation(deprecationElement);
-                        log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
-                    }
+                }
+                catch (Exception ex) when (ex is not NetworkPolicyException)
+                {
+                    log?.Invoke(
+                        $"Error fetching search metadata from "
+                        + $"{searchQueryService.Id}: {ex.Message}");
                 }
             }
         }
-        catch (Exception ex) when (ex is not NetworkPolicyException)
-        {
-            log?.Invoke($"Error fetching search metadata: {ex.Message}");
-        }
 
-        // Fetch from vulnerability API
-        try
+        bool vulnerabilityDataAvailable = vulnerabilityInfos.Count == 0;
+        List<PackageVulnerability> partialVulnerabilities = [];
+        if (vulnerabilityInfos.Count > 0)
         {
-            var vulnerabilities = await GetPackageVulnerabilitiesAsync(client, normalizedName, version, log).ConfigureAwait(false);
-            if (vulnerabilities.Count > 0)
+            foreach (ServiceResource vulnerabilityInfo in vulnerabilityInfos)
             {
-                metadata.Vulnerabilities = vulnerabilities;
+                try
+                {
+                    VulnerabilityFetchResult result =
+                        await GetPackageVulnerabilitiesAsync(
+                            client,
+                            source,
+                            vulnerabilityInfo.Id,
+                            normalizedName,
+                            version,
+                            log,
+                            untrustedClient).ConfigureAwait(false);
+                    if (!result.Succeeded)
+                    {
+                        if (result.Vulnerabilities.Count
+                            > partialVulnerabilities.Count)
+                        {
+                            partialVulnerabilities =
+                                result.Vulnerabilities;
+                        }
+                        continue;
+                    }
+
+                    vulnerabilityDataAvailable = true;
+                    metadata.Vulnerabilities ??= [];
+                    metadata.Vulnerabilities.AddRange(
+                        result.Vulnerabilities);
+                    break;
+                }
+                catch (Exception ex) when (ex is not NetworkPolicyException)
+                {
+                    log?.Invoke(
+                        $"Error fetching vulnerability data from "
+                        + $"{vulnerabilityInfo.Id}: {ex.Message}");
+                }
             }
         }
-        catch (Exception ex) when (ex is not NetworkPolicyException)
+
+        if (!vulnerabilityDataAvailable
+            && partialVulnerabilities.Count > 0)
         {
-            log?.Invoke($"Error fetching vulnerability data: {ex.Message}");
+            metadata.Vulnerabilities = partialVulnerabilities;
         }
 
-        // Fetch package size via HEAD request
-        try
-        {
-            string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{version}/{normalizedName}.{version}.nupkg";
-            log?.Invoke($"Fetching package size: {nupkgUrl}");
-
-            var response = await HttpRetryHelper.HeadWithRetryAsync(
-                client, nupkgUrl,
-                trafficKind: NetworkTrafficKind.PackageSizeProbe).ConfigureAwait(false);
-            if (response?.Content.Headers.ContentLength is long contentLength)
-            {
-                metadata.PackageSize = contentLength;
-            }
-        }
-        catch (Exception ex) when (ex is not NetworkPolicyException)
-        {
-            log?.Invoke($"Error fetching package size: {ex.Message}");
-        }
-
-        return metadata;
+        return new SourceMetadataResult(
+            SourcePresence.Present,
+            metadata,
+            Cacheable: catalogDataAvailable
+                && searchDataAvailable
+                && vulnerabilityDataAvailable);
     }
+
+    private static List<ServiceResource> CompatibleResources(
+        IReadOnlyList<ServiceResource> resources,
+        string typePrefix)
+    {
+        List<ServiceResource> matching =
+        [
+            .. resources.Where(resource =>
+                IsServiceType(resource.Type, typePrefix)),
+        ];
+        if (matching.Count == 0)
+            return [];
+
+        System.Version bestVersion = ResourceVersion(matching[0].Type);
+        for (int i = 1; i < matching.Count; i++)
+        {
+            System.Version version = ResourceVersion(matching[i].Type);
+            if (version > bestVersion)
+                bestVersion = version;
+        }
+        return
+        [
+            .. matching.Where(resource =>
+                ResourceVersion(resource.Type) == bestVersion),
+        ];
+    }
+
+    private static System.Version ResourceVersion(string resourceType)
+    {
+        int separator = resourceType.IndexOf('/');
+        return separator >= 0
+            && System.Version.TryParse(
+                resourceType[(separator + 1)..],
+                out System.Version? version)
+                ? version
+                : new System.Version();
+    }
+
+    private static bool IsServiceType(string type, string prefix) =>
+        type.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+        || type.StartsWith($"{prefix}/", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<TextFetchResult> FetchTextAsync(
+        HttpClient client,
+        HttpClient untrustedClient,
+        PackageSource source,
+        string url,
+        NetworkTrafficKind trafficKind,
+        Action<string>? log)
+    {
+        HttpClient endpointClient = NuGetCredentialScope.IsSameOrigin(
+            source.Url,
+            url)
+                ? client
+                : untrustedClient;
+        HttpRetryHelper.HttpRetryResult result =
+            await HttpRetryHelper.GetWithRetryResultAsync(
+                endpointClient,
+                url,
+                log: log,
+                auth: NuGetCredentialScope.AuthFor(source, url, log),
+                trafficKind: trafficKind).ConfigureAwait(false);
+        using HttpResponseMessage? response = result.Response;
+        if (response is null)
+        {
+            return new TextFetchResult(null, result.StatusCode);
+        }
+
+        string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        return new TextFetchResult(content, result.StatusCode);
+    }
+
+    private static async Task<PackageProbeResult> ProbePackageAsync(
+        HttpClient client,
+        PackageSource source,
+        ServiceResource packageBaseAddress,
+        string normalizedName,
+        string version,
+        Action<string>? log,
+        HttpClient untrustedClient)
+    {
+        string nupkgUrl = AppendPath(
+            packageBaseAddress.Id,
+            normalizedName,
+            version,
+            $"{normalizedName}.{version}.nupkg");
+        log?.Invoke($"Fetching package size from {source.Name}: {nupkgUrl}");
+
+        AuthenticationHeaderValue? auth =
+            NuGetCredentialScope.AuthFor(source, nupkgUrl, log);
+        HttpRetryHelper.HttpRetryResult sizeResult =
+            await HttpRetryHelper.GetWithRetryResultAsync(
+                NuGetCredentialScope.IsSameOrigin(source.Url, nupkgUrl)
+                    ? client
+                    : untrustedClient,
+                nupkgUrl,
+                log: log,
+                trafficKind: NetworkTrafficKind.PackageSizeProbe,
+                auth: auth,
+                range: new RangeHeaderValue(0, 0)).ConfigureAwait(false);
+        using HttpResponseMessage? response = sizeResult.Response;
+        if (response is null)
+        {
+            return new PackageProbeResult(
+                sizeResult.IsNotFound
+                    ? SourcePresence.Absent
+                    : SourcePresence.Indeterminate);
+        }
+
+        if (response.StatusCode == HttpStatusCode.OK
+            && string.Equals(
+                response.Content.Headers.ContentType?.MediaType,
+                "text/html",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            log?.Invoke(
+                $"Package endpoint returned HTML instead of package content: "
+                + $"{nupkgUrl}");
+            return new PackageProbeResult(SourcePresence.Indeterminate);
+        }
+
+        long? contentLength = response.StatusCode
+            == HttpStatusCode.PartialContent
+                ? response.Content.Headers.ContentRange?.Length
+                : response.Content.Headers.ContentLength;
+        return new PackageProbeResult(
+            SourcePresence.Present,
+            contentLength);
+    }
+
+    private static async Task<SearchFetchResult> FetchSearchMetadataAsync(
+        HttpClient client,
+        PackageSource source,
+        ServiceResource searchQueryService,
+        string normalizedName,
+        string version,
+        PackageMetadata metadata,
+        Action<string>? log,
+        HttpClient untrustedClient)
+    {
+        const int PageSize = 20;
+        const int MaxSearchResults = 1000;
+        int examined = 0;
+
+        while (examined < MaxSearchResults)
+        {
+            string searchUrl = AddQuery(
+                searchQueryService.Id,
+                $"q={Uri.EscapeDataString(normalizedName)}"
+                + $"&skip={examined}&take={PageSize}"
+                + "&prerelease=true&semVerLevel=2.0.0");
+            log?.Invoke(
+                $"Fetching search metadata from {source.Name}: {searchUrl}");
+
+            TextFetchResult searchResult = await FetchTextAsync(
+                client,
+                untrustedClient,
+                source,
+                searchUrl,
+                NetworkTrafficKind.PackageMetadata,
+                log).ConfigureAwait(false);
+            if (!searchResult.IsSuccess)
+                return new SearchFetchResult(
+                    Succeeded: false,
+                    Found: false);
+
+            SearchPageResult page = ApplySearchMetadata(
+                searchResult.Content!,
+                normalizedName,
+                version,
+                metadata,
+                log);
+            if (page.Found)
+                return new SearchFetchResult(
+                    Succeeded: true,
+                    Found: true);
+            if (page.ResultCount == 0)
+                return new SearchFetchResult(
+                    Succeeded: true,
+                    Found: false);
+
+            examined += page.ResultCount;
+            if (page.TotalHits is > 0 && examined >= page.TotalHits)
+                return new SearchFetchResult(
+                    Succeeded: true,
+                    Found: false);
+        }
+
+        return new SearchFetchResult(
+            Succeeded: true,
+            Found: false);
+    }
+
+    private static string? ApplyRegistrationMetadata(
+        string json,
+        string registrationUrl,
+        PackageMetadata metadata,
+        Action<string>? log)
+    {
+        using var doc = HardenedJson.Parse(json);
+        JsonElement root = doc.RootElement;
+
+        if (root.TryGetProperty("published", out JsonElement publishedElement)
+            && DateTimeOffset.TryParse(
+                publishedElement.GetString(),
+                out DateTimeOffset published))
+        {
+            metadata.Published = published;
+            log?.Invoke($"Published: {published:yyyy-MM-dd}");
+        }
+
+        if (!root.TryGetProperty("catalogEntry", out JsonElement catalogElement))
+        {
+            return null;
+        }
+
+        if (catalogElement.ValueKind == JsonValueKind.Object)
+        {
+            ApplyCatalogElement(catalogElement, metadata, log);
+            return null;
+        }
+
+        string? catalogEntry = catalogElement.GetString();
+        if (string.IsNullOrWhiteSpace(catalogEntry))
+            return null;
+
+        try
+        {
+            return ResolveReference(registrationUrl, catalogEntry);
+        }
+        catch (UriFormatException)
+        {
+            log?.Invoke("Ignoring malformed catalog entry URL.");
+            return null;
+        }
+    }
+
+    private static void ApplyCatalogMetadata(
+        string json,
+        PackageMetadata metadata,
+        Action<string>? log)
+    {
+        using var doc = HardenedJson.Parse(json);
+        ApplyCatalogElement(doc.RootElement, metadata, log);
+    }
+
+    private static void ApplyCatalogElement(
+        JsonElement root,
+        PackageMetadata metadata,
+        Action<string>? log)
+    {
+        if (root.TryGetProperty("published", out JsonElement publishedElement)
+            && DateTimeOffset.TryParse(
+                publishedElement.GetString(),
+                out DateTimeOffset published))
+        {
+            metadata.Published ??= published;
+        }
+
+        if (root.TryGetProperty("deprecation", out JsonElement deprecationElement)
+            && deprecationElement.ValueKind == JsonValueKind.Object)
+        {
+            metadata.Deprecation = ParseDeprecation(deprecationElement);
+            log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
+        }
+    }
+
+    private static SearchPageResult ApplySearchMetadata(
+        string json,
+        string normalizedName,
+        string version,
+        PackageMetadata metadata,
+        Action<string>? log)
+    {
+        using var doc = HardenedJson.Parse(json);
+        if (!doc.RootElement.TryGetProperty("data", out JsonElement data)
+            || data.ValueKind != JsonValueKind.Array)
+        {
+            throw new JsonException(
+                "Search metadata did not contain a data array.");
+        }
+
+        int resultCount = data.GetArrayLength();
+        long? totalHits =
+            doc.RootElement.TryGetProperty(
+                "totalHits",
+                out JsonElement totalHitsElement)
+            && TryReadInt64(totalHitsElement, out long parsedTotalHits)
+                ? parsedTotalHits
+                : null;
+        JsonElement? package = data
+            .EnumerateArray()
+            .FirstOrDefault(item =>
+                item.TryGetProperty("id", out JsonElement id)
+                && string.Equals(
+                    id.GetString(),
+                    normalizedName,
+                    StringComparison.OrdinalIgnoreCase));
+        if (package is not JsonElement pkg
+            || pkg.ValueKind != JsonValueKind.Object)
+        {
+            return new SearchPageResult(
+                Found: false,
+                resultCount,
+                totalHits);
+        }
+
+        if (pkg.TryGetProperty("totalDownloads", out JsonElement downloads)
+            && TryReadInt64(downloads, out long totalDownloads))
+        {
+            metadata.TotalDownloads = totalDownloads;
+        }
+
+        if (pkg.TryGetProperty("versions", out JsonElement versions)
+            && versions.ValueKind == JsonValueKind.Array)
+        {
+            metadata.VersionCount = versions.GetArrayLength();
+
+            foreach (JsonElement item in versions.EnumerateArray())
+            {
+                if (item.TryGetProperty("version", out JsonElement versionElement)
+                    && VersionsEqual(versionElement.GetString(), version)
+                    && item.TryGetProperty(
+                        "downloads",
+                        out JsonElement versionDownloads)
+                    && TryReadInt64(
+                        versionDownloads,
+                        out long downloadCount))
+                {
+                    metadata.VersionDownloads = downloadCount;
+                    break;
+                }
+            }
+        }
+
+        if (pkg.TryGetProperty("verified", out JsonElement verified)
+            && verified.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            metadata.IsVerified = verified.GetBoolean();
+        }
+
+        if (pkg.TryGetProperty("owners", out JsonElement owners))
+        {
+            metadata.Owners = owners.ValueKind switch
+            {
+                JsonValueKind.Array =>
+                [
+                    .. owners
+                        .EnumerateArray()
+                        .Select(owner => owner.GetString())
+                        .Where(owner => !string.IsNullOrWhiteSpace(owner))
+                        .Cast<string>(),
+                ],
+                JsonValueKind.String =>
+                [
+                    .. (owners.GetString() ?? "")
+                        .Split(
+                            ',',
+                            StringSplitOptions.RemoveEmptyEntries
+                                | StringSplitOptions.TrimEntries),
+                ],
+                _ => metadata.Owners,
+            };
+        }
+
+        if (metadata.Deprecation is null
+            && pkg.TryGetProperty(
+                "deprecation",
+                out JsonElement deprecationElement)
+            && deprecationElement.ValueKind == JsonValueKind.Object)
+        {
+            metadata.Deprecation = ParseDeprecation(deprecationElement);
+            log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
+        }
+
+        return new SearchPageResult(
+            Found: true,
+            resultCount,
+            totalHits);
+    }
+
+    private static bool TryReadInt64(JsonElement element, out long value)
+    {
+        if (element.ValueKind == JsonValueKind.Number)
+        {
+            return element.TryGetInt64(out value);
+        }
+
+        value = default;
+        return element.ValueKind == JsonValueKind.String
+            && long.TryParse(element.GetString(), out value);
+    }
+
+    private static bool VersionsEqual(string? left, string right) =>
+        NuGetVersion.TryParse(left, out NuGetVersion? parsedLeft)
+        && NuGetVersion.TryParse(right, out NuGetVersion? parsedRight)
+            ? parsedLeft == parsedRight
+            : string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+    private static string AppendPath(string baseUrl, params string[] segments)
+    {
+        var builder = new UriBuilder(baseUrl);
+        string suffix = string.Join(
+            '/',
+            segments.Select(Uri.EscapeDataString));
+        builder.Path = $"{builder.Path.TrimEnd('/')}/{suffix}";
+        return builder.Uri.AbsoluteUri;
+    }
+
+    private static string AddQuery(string baseUrl, string query)
+    {
+        var builder = new UriBuilder(baseUrl);
+        string existing = builder.Query.TrimStart('?');
+        builder.Query = string.IsNullOrEmpty(existing)
+            ? query
+            : $"{existing}&{query}";
+        return builder.Uri.AbsoluteUri;
+    }
+
+    private static string ResolveReference(string baseUrl, string reference) =>
+        new Uri(new Uri(baseUrl, UriKind.Absolute), reference).AbsoluteUri;
 
     internal static PackageDeprecation ParseDeprecation(JsonElement deprecationElement)
     {
@@ -322,65 +912,171 @@ public static class PackageMetadataService
         return deprecation;
     }
 
-    private static async Task<List<PackageVulnerability>> GetPackageVulnerabilitiesAsync(
-        HttpClient client, string packageName, string version, Action<string>? log)
+    private static async Task<VulnerabilityFetchResult> GetPackageVulnerabilitiesAsync(
+        HttpClient client,
+        PackageSource source,
+        string indexUrl,
+        string packageName,
+        string version,
+        Action<string>? log,
+        HttpClient untrustedClient)
     {
         List<PackageVulnerability> result = [];
 
         if (!NuGet.Versioning.NuGetVersion.TryParse(version, out var packageVersion))
         {
             log?.Invoke($"Could not parse version: {version}");
-            return result;
+            return new VulnerabilityFetchResult(
+                Succeeded: false,
+                result);
         }
 
-        string indexUrl = "https://api.nuget.org/v3/vulnerabilities/index.json";
-        string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(
-            client, indexUrl,
-            trafficKind: NetworkTrafficKind.VulnerabilityData).ConfigureAwait(false);
-        if (indexJson == null)
-            return result;
-
-        using var indexDoc = HardenedJson.Parse(indexJson);
-        var pages = indexDoc.RootElement.EnumerateArray()
-            .Select(e => e.GetProperty("@id").GetString())
-            .Where(url => url != null)
-            .ToList();
-
-        foreach (var pageUrl in pages)
+        TextFetchResult indexResult = await FetchTextAsync(
+            client,
+            untrustedClient,
+            source,
+            indexUrl,
+            NetworkTrafficKind.VulnerabilityData,
+            log).ConfigureAwait(false);
+        if (!indexResult.IsSuccess)
         {
-            if (pageUrl == null) continue;
+            return new VulnerabilityFetchResult(
+                Succeeded: false,
+                result);
+        }
 
-            log?.Invoke($"Fetching vulnerability page: {pageUrl}");
-            string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(
-                client, pageUrl,
-                trafficKind: NetworkTrafficKind.VulnerabilityData).ConfigureAwait(false);
-            if (pageJson == null) continue;
+        using var indexDoc = HardenedJson.Parse(indexResult.Content!);
+        bool allPagesSucceeded = true;
+        if (indexDoc.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return new VulnerabilityFetchResult(
+                Succeeded: false,
+                result);
+        }
 
-            using var pageDoc = HardenedJson.Parse(pageJson);
-
-            if (pageDoc.RootElement.TryGetProperty(packageName, out var vulnArray))
+        List<string> pages = [];
+        foreach (JsonElement entry in indexDoc.RootElement.EnumerateArray())
+        {
+            if (entry.ValueKind == JsonValueKind.Object
+                && entry.TryGetProperty("@id", out JsonElement id)
+                && id.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(id.GetString()))
             {
-                foreach (var vuln in vulnArray.EnumerateArray())
-                {
-                    string? versionsRange = vuln.TryGetProperty("versions", out var v) ? v.GetString() : null;
-                    int severityNum = vuln.TryGetProperty("severity", out var s) ? s.GetInt32() : 0;
-                    string? advisoryUrl = vuln.TryGetProperty("url", out var u) ? u.GetString() : null;
+                pages.Add(id.GetString()!);
+            }
+            else
+            {
+                allPagesSucceeded = false;
+            }
+        }
 
-                    if (versionsRange != null && IsVersionInRange(packageVersion, versionsRange))
+        foreach (string pageUrl in pages)
+        {
+            string resolvedPageUrl;
+            try
+            {
+                resolvedPageUrl = ResolveReference(indexUrl, pageUrl);
+            }
+            catch (UriFormatException ex)
+            {
+                log?.Invoke(
+                    $"Invalid vulnerability page reference from "
+                    + $"{source.Name}: {ex.Message}");
+                allPagesSucceeded = false;
+                continue;
+            }
+
+            log?.Invoke($"Fetching vulnerability page: {resolvedPageUrl}");
+            TextFetchResult pageResult = await FetchTextAsync(
+                client,
+                untrustedClient,
+                source,
+                resolvedPageUrl,
+                NetworkTrafficKind.VulnerabilityData,
+                log).ConfigureAwait(false);
+            if (!pageResult.IsSuccess)
+            {
+                allPagesSucceeded = false;
+                continue;
+            }
+
+            try
+            {
+                using var pageDoc = HardenedJson.Parse(pageResult.Content!);
+
+                if (pageDoc.RootElement.TryGetProperty(
+                        packageName,
+                        out JsonElement vulnArray))
+                {
+                    if (vulnArray.ValueKind != JsonValueKind.Array)
                     {
+                        allPagesSucceeded = false;
+                        continue;
+                    }
+
+                    foreach (JsonElement vuln in vulnArray.EnumerateArray())
+                    {
+                        if (vuln.ValueKind != JsonValueKind.Object)
+                        {
+                            allPagesSucceeded = false;
+                            continue;
+                        }
+
+                        string? versionsRange =
+                            vuln.TryGetProperty("versions", out JsonElement range)
+                            && range.ValueKind == JsonValueKind.String
+                                ? range.GetString()
+                                : null;
+                        long severityValue = default;
+                        bool hasSeverity =
+                            vuln.TryGetProperty(
+                                "severity",
+                                out JsonElement severity)
+                            && TryReadInt64(
+                                severity,
+                                out severityValue)
+                            && severityValue is >= 0 and <= 3;
+                        string? advisoryUrl =
+                            vuln.TryGetProperty("url", out JsonElement advisory)
+                            && advisory.ValueKind == JsonValueKind.String
+                                ? advisory.GetString()
+                                : null;
+
+                        if (string.IsNullOrWhiteSpace(versionsRange)
+                            || !hasSeverity
+                            || string.IsNullOrWhiteSpace(advisoryUrl)
+                            || !NuGet.Versioning.VersionRange.TryParse(
+                                versionsRange,
+                                out NuGet.Versioning.VersionRange? affectedVersions))
+                        {
+                            allPagesSucceeded = false;
+                            continue;
+                        }
+
+                        if (!affectedVersions.Satisfies(packageVersion))
+                        {
+                            continue;
+                        }
+
                         var vulnerability = new PackageVulnerability
                         {
-                            Severity = SeverityToString(severityNum),
-                            AdvisoryUrl = advisoryUrl
+                            Severity = SeverityToString((int)severityValue),
+                            AdvisoryUrl = advisoryUrl,
                         };
 
-                        if (advisoryUrl != null && advisoryUrl.Contains("github.com/advisories/GHSA-"))
+                        if (advisoryUrl.Contains(
+                                "github.com/advisories/GHSA-",
+                                StringComparison.Ordinal))
                         {
-                            var ghsaId = ExtractGhsaId(advisoryUrl);
-                            if (ghsaId != null)
+                            string? ghsaId = ExtractGhsaId(advisoryUrl);
+                            if (ghsaId is not null)
                             {
                                 vulnerability.GhsaId = ghsaId;
-                                await EnrichFromGitHubAdvisoryAsync(client, vulnerability, ghsaId, log).ConfigureAwait(false);
+                                await EnrichFromGitHubAdvisoryAsync(
+                                    client,
+                                    vulnerability,
+                                    ghsaId,
+                                    log).ConfigureAwait(false);
                             }
                         }
 
@@ -388,9 +1084,20 @@ public static class PackageMetadataService
                     }
                 }
             }
+            catch (Exception ex) when (ex is
+                JsonException
+                or InvalidOperationException)
+            {
+                log?.Invoke(
+                    $"Invalid vulnerability page from "
+                    + $"{source.Name}: {ex.Message}");
+                allPagesSucceeded = false;
+            }
         }
 
-        return result;
+        return new VulnerabilityFetchResult(
+            allPagesSucceeded,
+            result);
     }
 
     private static string? ExtractGhsaId(string url)

@@ -1048,22 +1048,30 @@ public sealed partial class CSharpPrinter
     {
         if (element.Array.ResultType is not { } arrayType || !IsMultiDimArrayType(arrayType) || element.Index is not TupleExpression tuple)
             return null;
-        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Get");
+        var place = MultiDimArrayPlaceText(element.Array, tuple.Elements, "Get");
+        if (place.UsesPseudoMember)
+            _printedRanges?.SetNodeKind(element, "InvocationExpression");
+        return place.Text;
     }
 
     string? MultiDimArrayElementAddressText(LoadElementAddress element)
     {
         if (element.Array.ResultType is not { } arrayType || !IsMultiDimArrayType(arrayType) || element.Index is not TupleExpression tuple)
             return null;
-        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Address");
+        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Address").Text;
     }
 
-    string MultiDimArrayPlaceText(IrExpression array, IReadOnlyList<IrExpression> indices, string pseudoMember)
+    (string Text, bool UsesPseudoMember) MultiDimArrayPlaceText(
+        IrExpression array,
+        IReadOnlyList<IrExpression> indices,
+        string pseudoMember)
     {
         var indexTexts = indices.Select(Expression).ToArray();
-        return HasRepeatedStackSlot(indices) || HasRepeatedGeneratedTempName(indexTexts)
+        bool usesPseudoMember = HasRepeatedStackSlot(indices) || HasRepeatedGeneratedTempName(indexTexts);
+        string text = usesPseudoMember
             ? $"{Operand(array)}.{pseudoMember}({string.Join(", ", indexTexts)})"
             : $"{Operand(array)}[{string.Join(", ", indexTexts)}]";
+        return (text, usesPseudoMember);
     }
 
     /// <summary>

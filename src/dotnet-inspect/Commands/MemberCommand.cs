@@ -340,9 +340,9 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
             }
 
-            // Cross-assembly Callers: expand --bin/--directory, --project, and --caller-package
-            // into the assemblies to scan for inbound callers, in addition to the selected
-            // member's own assembly. Works for a specific overload or all overloads of a member.
+            // Expand --bin/--directory, --project, and --caller-package into assemblies
+            // for cross-assembly callers and Call Graph traversal, in addition to the
+            // selected member's own assembly.
             if (effectiveOptions.HasCallerScope)
             {
                 var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
@@ -521,6 +521,7 @@ public static class MemberCommand
         SectionNames.FidelityCauses,
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
+        SectionNames.AnnotatedSourceDocument,
         SectionNames.OriginalSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,
@@ -567,7 +568,7 @@ public static class MemberCommand
         _ => kind
     };
 
-    private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
+    internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
         if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
@@ -578,6 +579,7 @@ public static class MemberCommand
         return pdbAuthorized
                && (sections.Contains(SectionNames.DecompiledSource)
                    || sections.Contains(SectionNames.AnnotatedSource)
+                   || sections.Contains(SectionNames.AnnotatedSourceDocument)
                    || sections.Contains(SectionNames.Facts));
     }
 

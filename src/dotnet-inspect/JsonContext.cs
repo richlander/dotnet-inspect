@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ILInspector.Decompiler;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -13,6 +14,8 @@ namespace DotnetInspector;
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(InspectionResult))]
+[JsonSerializable(typeof(InspectionResult[]))]
 [JsonSerializable(typeof(LibraryInspection))]
 [JsonSerializable(typeof(LibraryInspection[]))]
 [JsonSerializable(typeof(PerformanceProjection))]
@@ -48,6 +51,12 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<SourceFileInfo>))]
 [JsonSerializable(typeof(PackageSourceFileInfo))]
 [JsonSerializable(typeof(List<PackageSourceFileInfo>))]
+[JsonSerializable(typeof(PackageSourceLinkIssue))]
+[JsonSerializable(typeof(List<PackageSourceLinkIssue>))]
+[JsonSerializable(typeof(PackageSourceLinkFile))]
+[JsonSerializable(typeof(List<PackageSourceLinkFile>))]
+[JsonSerializable(typeof(PackageSourceAvailability))]
+[JsonSerializable(typeof(PackageSourceIntegrity))]
 public partial class JsonContext : JsonSerializerContext
 {
 }
@@ -126,6 +135,26 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
+{
+}
+
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,
@@ -194,6 +223,20 @@ internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(MemberFindResult))]
 internal partial class MemberFindResultJsonlContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
+internal partial class BodyShapeJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
+internal partial class BodyShapeCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

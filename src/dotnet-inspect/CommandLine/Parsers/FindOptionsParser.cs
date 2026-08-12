@@ -64,9 +64,13 @@ public static class FindOptionsParser
         if (string.IsNullOrEmpty(pattern))
             return new ShowHelpWithTips();
 
+        var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-            parseResult.GetValue(args.PackageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+            parseResult.GetValue(args.PackageOption) ?? [],
+            packagePrefix,
+            parseResult.GetValue(opts.Verbose),
+            sourceOptions);
         var assemblies = parseResult.GetValue(args.AssemblyOption) ?? [];
         var projects = parseResult.GetValue(args.ProjectOption) ?? [];
         var binPaths = parseResult.GetValue(args.BinOption) ?? [];
@@ -114,7 +118,7 @@ public static class FindOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+            SourceOptions = sourceOptions
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);

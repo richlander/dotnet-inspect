@@ -86,6 +86,30 @@ with a temporary NuGet config that includes both the .NET 11 daily feed and
 nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
 projects still target stable `net10.0` packs.
 
+### Refreshing an older Windows checkout
+
+`.gitattributes` pins tracked text files to LF, but Git may leave CRLF bytes in
+a Windows working tree created before that policy was added. The tree still
+appears clean because Git compares normalized content. Check the effective
+working-tree endings with:
+
+```powershell
+git ls-files --eol | Select-String 'w/(crlf|mixed).*eol=lf'
+```
+
+No output means the checkout follows the policy. If files are listed, run the
+following commands from the repository root. First commit or stash any work and
+confirm `git status --short` is empty, because the final command discards
+working-tree changes:
+
+```powershell
+git rm --cached -r .
+git reset --hard HEAD
+```
+
+`RepositoryLineEndingTests.TrackedLfFilesHaveLfWorkingTreeEndings` enforces the
+same check and prints this repair when a stale checkout reaches the test suite.
+
 ## What it inspects
 
 | Source | Examples | Notes |
@@ -110,13 +134,13 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
-| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
+| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -126,10 +150,11 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
 | `project [path]` | Inspect restored direct package references for skill files and package docs. |
-| `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
+| `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -146,7 +171,21 @@ scope.
 
 ## Signals
 
-`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink: Availability`, `SourceLink: Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink: Integrity`) is opt-in only.
+`Signals` is an evidence report, not a safety certification. Select it with
+`-S Signals`. For libraries, Signals reports metadata/provenance observations
+and acquires a missing PDB when selected to resolve SourceLink. For packages,
+Signals reports package metadata/assets, dependencies, signature provenance,
+and NuGet registry observations. On either `library` or `package`, the
+per-source-file reachability pass (`SourceLink: Availability`,
+`SourceLink: Missing Files`) is selected explicitly with `-S` because its cost
+scales with source-file count. The slow, exhaustive content check
+(`SourceLink: Integrity`) is opt-in only.
+
+For libraries, SourceLink presence and map usability are separate observations.
+`Signals` reports a present map as usable, partially usable, or unusable;
+`SourceLink: Diagnostics` lists parse failures and rejected document mappings.
+`Non-normalized Paths` separately lists SourceLink document keys that do not use
+the deterministic `/_/` prefix.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
@@ -154,6 +193,8 @@ scope.
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
+| `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
 
 Vulnerability-service traffic is capability-gated. It runs only for detailed
 package inspection or an explicitly selected network-using package section;
@@ -179,7 +220,10 @@ library while aggregate sections roll up rows across libraries and include
 library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
 require one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
-`@Integrations`. Add `--count` to a category selector for per-section row counts.
+`@Integrations`. Add `--count` to a category selector for per-section row counts,
+or to bare `-S` for the same map over the fixed overview. For Integrations,
+all-library mode scans selected managed assemblies together within each target
+framework; `--tfm all` keeps each framework in a separate inspection group.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
@@ -237,7 +281,13 @@ of post-processing. `--top` limits the ranked data before rendering; `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`.
+`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--rows` selects the same ordered relationships in every rendering. Markdown
+defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
+standalone diagram, or `--markdown --mermaid` for an embedded diagram.
+When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
+`Call Graph` traverses both callers and callees across that scope; `Callers`
+retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -310,7 +360,8 @@ Common `--triage-shape` values include `capturing-delegate`,
 
 `member -S @Source` raises a method body to C# and shows the supporting
 evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
-hidden-fact comments and interleaved IL), `Original Source` (SourceLink-backed),
+hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
+rendering as a machine payload), `Original Source` (SourceLink-backed),
 and `IL`. The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
@@ -321,20 +372,47 @@ behind the grade. That section distinguishes Full fidelity, an absent method
 body, and inspection failure. Maintainers diagnose pipeline state with
 DecompilerHarness.
 
-The `Decompiled Source` view renders the shipped canonical C# by default. A
-tool-owned `.dotnet-inspectconfig` file (discovered by walking up from the
-working directory) selects opt-in class-3 spellings — today `this`-qualification
-of field and property access — using `.editorconfig` key names. `--taste`
-requests the whole oracle-endorsed set for one invocation without a config file.
-`Annotated Source` names the applied spellings in a trailing comment on the
-member signature, and drops its interleaved IL for any member a byte-divergent
-lens actually rewrote. See
+The `Decompiled Source` view renders readable local names by default when a PDB
+does not supply the source name, deriving conservative names such as `text`,
+`items`, or `stringBuilder` from the local's type and role. This is
+byte-preserving; fidelity and corpus tooling retain stable `V_index` slot names.
+Set `dotnet_inspect_style_slot_local_names = true` in the tool-owned
+`.dotnet-inspectconfig` file to restore slot names, or use `--readable-names` to
+override that configuration for one invocation. The original
+`dotnet_inspect_style_readable_local_names = false` spelling remains accepted
+for compatibility. The same config file
+(discovered by walking up from the working directory) selects other class-3
+spellings using `.editorconfig` key names. `--taste` requests the whole
+oracle-endorsed set for one invocation without a config file. `Annotated Source`
+names the applied spellings in a trailing comment on the member signature, and
+drops its interleaved IL for any member a byte-divergent lens actually rewrote.
+See
 [docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
+
+`Annotated Source Document` is the machine form of that same view, emitted
+directly as JSON when it is the only selected section. It is a text buffer plus
+overlays: `text` is the exact interleaved rendering, and every coordinate is an
+absolute, end-exclusive UTF-16 span into it, so lines and columns are derived by
+counting newlines rather than stored. `text` is well-formed UTF-16 — an unpaired
+surrogate is rejected, never repaired, because JSON would replace it with U+FFFD
+and shift every later span; malformed IL operand and fact text arrives already
+contained as a visible `\uXXXX` spelling. `nodes` name text structure (C# syntax
+kinds from a stable rendered-syntax catalog, plus one `Instruction` node per
+rendered IL line carrying its `il_offset`),
+`regions` name construct parts, `facts` are the semantic observations stated once
+each, and `targets` is the only join between them — fact to node, then node spans
+to text. A node carries several spans when interleaved IL splits its construct,
+and the C# line breaks it printed stay inside those spans, so concatenating them
+reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
+carry an `il_offset`, and a fact with no target is explicitly unanchored rather
+than missing. Producers never expose decompiler CLR type names as kinds;
+consumers tolerate unfamiliar kinds so the catalog can grow additively.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source Document" --json
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Fidelity Causes"
 dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 ```
@@ -355,8 +433,8 @@ second lookup. The `#` column is the real metadata row id, so
 position in the rendered page.
 
 These sections are **opt-in only**. A table such as `MethodDef` grows without a
-meaningful bound, so no verbosity renders one — not even `-v:d`, and not
-`-S @All`. They are reachable by exact name (`-S "Metadata: TypeRef"`) or
+meaningful bound, so no verbosity renders one — not even `-v:d`. They are
+reachable by exact name (`-S "Metadata: TypeRef"`) or
 through the `@Metadata` category door, and they are catalog-hidden like the
 `@Performance` kinds: the top-level `-D` catalog lists `@Metadata` as their
 single entrypoint. Drill in with `-D @Metadata` to list the tables that
@@ -423,7 +501,12 @@ renders its coverage as a caveat.
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`--rows 2..10` names them), `--count` to reduce a selected section/vector to a single row count, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`--rows 2..10` names them), `--count` to reduce a selected section/vector to a single row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+
+Call Graph edge rows use the machine field names `from`, `from_group`,
+`to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
+`--table` retain the human headings `From`, `From Group`, `To`, `To Group`, and
+`Label`.
 
 Sections and fields are queryable without a template language:
 
@@ -451,7 +534,11 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, `member Type -m Name` uses `Methods` overload rows, and a selected `member Type.Member:N` renders `Signature`. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+
+Package uses `@Package` and `@Files` for its ordinary evidence, with focused
+`@Dependencies`, `@Audit`, and `@SourceLink` doors. Library similarly uses
+`@Library` and `@Surface` as its ordinary evidence scope.
 
 ## Common examples
 
@@ -463,6 +550,11 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S @Package
+dotnet-inspect package System.Text.Json -S @Dependencies
+dotnet-inspect package System.Text.Json -S @Audit
+dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
+dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect package System.Text.Json --versions --include-unlisted
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
@@ -483,7 +575,10 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S C
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
+dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll -S "Call Graph" --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --tree
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --markdown --mermaid
 dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
 dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking

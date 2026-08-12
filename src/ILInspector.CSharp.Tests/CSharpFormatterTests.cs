@@ -78,6 +78,93 @@ public sealed class CSharpFormatterTests
         Assert.Empty(declaration.Diagnostics);
     }
 
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.Qualified, "public System.Threading.Tasks.Task Run()", false)]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Task Run()", true)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort, "public Task Run()", false)]
+    public void TypeNamePolicyAppliesToIndividualMemberDeclarations(
+        CSharpTypeNamePolicy policy,
+        string expectedDeclaration,
+        bool expectsGeneratedUsing)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task",
+                MemberName = "Run"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = policy,
+            Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                ? ["System.Threading.Tasks"]
+                : []
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(expectedDeclaration, declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(expectsGeneratedUsing, declaration.Usings.Contains("System.Threading.Tasks"));
+    }
+
+    [Fact]
+    public void FormatsBareMemberTypesWithNamespaceSet()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "FieldWriter",
+            Kind = "class"
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, constructor);
+
+        Assert.Equal(
+            """
+            using Markout;
+            using Markout.Formatting;
+            using System.IO;
+
+            public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)
+            """,
+            declaration.Text);
+        Assert.Equal(
+            ["Markout", "Markout.Formatting", "System.IO"],
+            declaration.Usings);
+        Assert.DoesNotContain(
+            declaration.Usings,
+            value => value.StartsWith("using ", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
     {

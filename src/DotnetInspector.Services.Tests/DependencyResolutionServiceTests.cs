@@ -6,6 +6,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(CoreCacheCollection.Name)]
 public class DependencyResolutionServiceTests
 {
     [Theory]
@@ -89,6 +90,88 @@ public class DependencyResolutionServiceTests
                 "net10.0",
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 log: null));
+    }
+
+    [Fact]
+    public async Task ResolveDependencyTree_UnmappedTransitivePackagePropagatesMappingFailure()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Other.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = "Unmapped.Dependency", Version = "1.0.0" }
+        };
+
+        try
+        {
+            PackageSourceMappingException exception =
+                await Assert.ThrowsAsync<PackageSourceMappingException>(
+                    () => DependencyResolutionService.ResolveDependencyTreeAsync(
+                        new HttpClient(),
+                        dependencies,
+                        "net10.0",
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        log: null,
+                        sourceOptions: new NuGetSourceOptions { ConfigFile = configPath }));
+
+            Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task ResolveDependencyTree_UsesCallerSourcesForEveryTransitiveNuspec()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        const string index = "https://private.example/v3/index.json";
+        const string flat = "https://private.example/v3-flatcontainer/";
+        string suffix = Guid.NewGuid().ToString("N");
+        string parentId = $"Parent.Package.{suffix}";
+        string childId = $"Child.Package.{suffix}";
+        var handler = new TransitiveNuspecHandler(index, flat, parentId, childId);
+        using var client = new HttpClient(handler);
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = parentId, Version = "1.0.0" }
+        };
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyTreeAsync(
+                client,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null,
+                sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        DependencyNode parent = Assert.Single(result);
+        Assert.Equal(parentId, parent.PackageId);
+        Assert.Equal(childId, Assert.Single(parent.Children).PackageId);
+        Assert.Contains(
+            $"{flat}{parentId.ToLowerInvariant()}/1.0.0/{parentId.ToLowerInvariant()}.nuspec",
+            handler.Requested);
+        Assert.Contains(
+            $"{flat}{childId.ToLowerInvariant()}/1.0.0/{childId.ToLowerInvariant()}.nuspec",
+            handler.Requested);
+        Assert.All(handler.Requested, url =>
+            Assert.StartsWith("https://private.example/", url, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -336,6 +419,66 @@ public class DependencyResolutionServiceTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                RequestMessage = request
+            });
+        }
+    }
+
+    private sealed class TransitiveNuspecHandler(
+        string index,
+        string flat,
+        string parentId,
+        string childId) : HttpMessageHandler
+    {
+        public List<string> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            Requested.Add(url);
+
+            string? body = url switch
+            {
+                _ when url == index =>
+                    $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}""",
+                _ when url.EndsWith(
+                    $"/{parentId.ToLowerInvariant()}.nuspec",
+                    StringComparison.Ordinal) =>
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>{{parentId}}</id>
+                        <version>1.0.0</version>
+                        <authors>Test</authors>
+                        <dependencies>
+                          <group targetFramework="net10.0">
+                            <dependency id="{{childId}}" version="1.0.0" />
+                          </group>
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """,
+                _ when url.EndsWith(
+                    $"/{childId.ToLowerInvariant()}.nuspec",
+                    StringComparison.Ordinal) =>
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>{{childId}}</id>
+                        <version>1.0.0</version>
+                        <authors>Test</authors>
+                      </metadata>
+                    </package>
+                    """,
+                _ => null
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? "", Encoding.UTF8),
                 RequestMessage = request
             });
         }

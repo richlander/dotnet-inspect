@@ -27,6 +27,8 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class ReturnToSender
 {
+    const string CompilationAssemblyName = "return-to-sender";
+
     public enum FaultIsolationKind
     {
         BodyDefect,
@@ -44,6 +46,12 @@ static class ReturnToSender
         /// attributable to the decompiler by span comparison.
         /// </summary>
         SpanMeasured,
+
+        /// <summary>
+        /// Authored body compiled in the successful RTS shell and was compared with
+        /// the original method under the same Full-fidelity IL contract.
+        /// </summary>
+        FidelityControl,
     }
 
     public sealed record FaultIsolationResult(
@@ -111,6 +119,11 @@ static class ReturnToSender
         Result Cluster,
         Result All,
         RoundTripScopeComparisonResult Comparison);
+
+    internal sealed record CompilationClosure(
+        AssemblyDependencyResolver Resolver,
+        ResolvedAssemblyReference TargetAssembly,
+        MetadataReference[] References);
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
@@ -448,6 +461,8 @@ static class ReturnToSender
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
+        CompilationClosure compilationClosure =
+            CreateCompilationClosure(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -491,6 +506,7 @@ static class ReturnToSender
 
                 results.Add(CompileBackPropertyGetterOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -548,20 +564,24 @@ static class ReturnToSender
         RequestedTarget target)
     {
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
+        CompilationClosure compilationClosure =
+            CreateCompilationClosure(assemblyPath);
         var cluster = AssertSingleScope(CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
             applyCompileBackFloor: false,
             RoundTripScope.Cluster,
-            RoundTripBodyPolicy.Selected));
+            RoundTripBodyPolicy.Selected,
+            compilationClosure));
         var all = AssertSingleScope(CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
             applyCompileBackFloor: false,
             RoundTripScope.All,
-            RoundTripBodyPolicy.Selected));
+            RoundTripBodyPolicy.Selected,
+            compilationClosure));
         var clusterRequest = CreateRoundTripRequest(assemblyPath, cluster, RoundTripScope.Cluster);
         var allRequest = CreateRoundTripRequest(assemblyPath, all, RoundTripScope.All);
         var comparison = cluster.Compilation is not null && cluster.DonorPe is not null
@@ -694,12 +714,13 @@ static class ReturnToSender
     internal static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        bool applyCompileBackFloor = true)
         => CompileBackTargets(
             assemblyPath,
             targets,
             sourceIndex,
-            applyCompileBackFloor: true,
+            applyCompileBackFloor,
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
@@ -721,7 +742,8 @@ static class ReturnToSender
         ReturnToSenderSourceIndex? sourceIndex,
         bool applyCompileBackFloor,
         RoundTripScope scope,
-        RoundTripBodyPolicy bodyPolicy)
+        RoundTripBodyPolicy bodyPolicy,
+        CompilationClosure? compilationClosure = null)
     {
         if (targets.Count == 0)
             return [];
@@ -740,6 +762,8 @@ static class ReturnToSender
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
+        compilationClosure ??=
+            CreateCompilationClosure(assemblyPath);
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
@@ -764,6 +788,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackPropertyGetterOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -781,6 +806,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackPropertySetterOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -798,6 +824,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackEventAccessorOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -815,6 +842,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackMethodOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -1182,6 +1210,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertyGetterOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1195,7 +1224,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackPropertyGetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1205,6 +1234,7 @@ static class ReturnToSender
 
     static Result CompileBackMethodOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1217,7 +1247,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackMethod(assemblyPath, compilationClosure, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1227,6 +1257,7 @@ static class ReturnToSender
 
     static Result CompileBackEventAccessorOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1242,6 +1273,7 @@ static class ReturnToSender
         {
             return CompileBackEventAccessor(
                 assemblyPath,
+                compilationClosure,
                 pe,
                 reader,
                 source,
@@ -1267,6 +1299,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertySetterOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1280,7 +1313,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackPropertySetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1290,6 +1323,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertyGetter(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1315,6 +1349,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1351,6 +1386,7 @@ static class ReturnToSender
 
     static Result CompileBackMethod(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1375,6 +1411,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1410,6 +1447,7 @@ static class ReturnToSender
 
     static Result CompileBackEventAccessor(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1466,6 +1504,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1506,6 +1545,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertySetter(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1531,6 +1571,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1567,6 +1608,7 @@ static class ReturnToSender
 
     static Result CompileBackTarget(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader originalPe,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -1591,7 +1633,9 @@ static class ReturnToSender
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
-        var references = CompilationReferences(assemblyPath).ToArray();
+        AssemblyDependencyResolver compilationResolver =
+            compilationClosure.Resolver;
+        MetadataReference[] references = compilationClosure.References;
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = scope == RoundTripScope.All
@@ -1618,7 +1662,10 @@ static class ReturnToSender
                         facts.Add(fact);
                 }
             }
-            return CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
+            ArtifactRequest request =
+                createRequest(closureRoots, closureFacts);
+            request.CompilationClosure = compilationClosure;
+            return CompileBackSourceComposer.Compose(request);
         }
 
         var firstArtifact = Compose();
@@ -1687,7 +1734,7 @@ static class ReturnToSender
             },
             new RoundTripCompilationOptions
             {
-                AssemblyName = "return-to-sender",
+                AssemblyName = CompilationAssemblyName,
                 MaxIterations = 80,
             });
 
@@ -1729,8 +1776,7 @@ static class ReturnToSender
             var faultIsolation = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
                 ? null
                 : TryIsolateRecompileFailure(
-                    sourceResult.Request,
-                    unit,
+                    sourceResult,
                     compilationResult.Diagnostics,
                     sourceIndex,
                     parseOptions,
@@ -1806,6 +1852,18 @@ static class ReturnToSender
         string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
             ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
             : fidelityDiff?.Failure;
+        var fidelityIsolation = status is FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff
+                ? TryIsolateFidelityDifference(
+                    sourceResult,
+                    originalPe,
+                    reader,
+                    methodHandle,
+                    sourceIndex,
+                    parseOptions,
+                    compileOptions,
+                    references)
+                : null;
 
         return new Result(
             plan,
@@ -1819,6 +1877,7 @@ static class ReturnToSender
             IlDiff: ilDiff,
             MemberAnchor: memberAnchor,
             Decisions: targetBody.Decisions,
+            FaultIsolation: fidelityIsolation,
             SiblingAccessor: siblingAccessor,
             FidelityDiff: fidelityDiff)
         {
@@ -2159,32 +2218,59 @@ static class ReturnToSender
     }
 
     internal static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
+        => CreateCompilationClosure(targetPath).References;
+
+    internal static CompilationClosure CreateCompilationClosure(
+        string targetPath)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
         {
             ExcludeTargetAssembly = true,
+            SnapshotAssemblyImages = true,
+            AllowPlatformAssemblyVersionRollForward = true,
         });
+        ResolvedAssemblyReference targetAssembly =
+            resolver.AcquireTargetAssembly()
+            ?? throw new InvalidOperationException(
+                "The target assembly could not be acquired into the compilation closure.");
+        return new CompilationClosure(
+            resolver,
+            targetAssembly,
+            CompilationReferences(resolver).ToArray());
+    }
+
+    static IEnumerable<MetadataReference> CompilationReferences(
+        AssemblyDependencyResolver resolver)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var dependency in resolver.ResolveAll())
         {
-            if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
-                continue;
-
             string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
-            if (!seen.Add(simpleName))
+            if (seen.Contains(simpleName))
                 continue;
 
             MetadataReference reference;
             try
             {
-                reference = MetadataReference.CreateFromFile(dependency.Path);
+                ResolvedAssemblyReference? assembly =
+                    resolver.Acquire(dependency);
+                if (assembly is null)
+                    continue;
+                using Stream stream = assembly.OpenRead();
+                using var image = new MemoryStream();
+                stream.CopyTo(image);
+                reference =
+                    RoundTripCompilationEngine.CreateFrozenReference(
+                        image.ToArray(),
+                        dependency.Path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
             {
                 continue;
             }
 
+            seen.Add(simpleName);
             yield return reference;
         }
     }
@@ -2201,71 +2287,215 @@ static class ReturnToSender
     }
 
     internal static FaultIsolationResult? TryIsolateRecompileFailure(
-        ArtifactRequest request,
-        string decompiledSource,
+        ProductArtifact artifact,
         ImmutableArray<Diagnostic> decompiledDiagnostics,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
-        if (sourceIndex is null)
+        var request = artifact.Request;
+        var control = TryCompileAuthoredBody(
+            artifact,
+            sourceIndex,
+            parseOptions,
+            compileOptions,
+            references);
+        if (control is null)
             return null;
 
-        string? signature = string.IsNullOrWhiteSpace(request.SignatureText)
-            ? null
-            : request.SignatureText;
-        if (!sourceIndex.TryFind(
-                new RequestedTarget(request.FullType, request.MethodName, request.Overload, signature),
+        if (control.PeImage is not null)
+        {
+            return new FaultIsolationResult(
+                FaultIsolationKind.BodyDefect,
+                control.SourceMember.SourcePath,
+                "authored body compiled in the same RTS shell");
+        }
+
+        // Shell is broken: the substitution control is blind. Recover the
+        // additional signal by span attribution — but only credit a body
+        // defect for a provably shell-independent in-body error (syntax or
+        // body-intrinsic semantic).
+        if (BuildTargetIdentity(request) is { } identity
+            && SpanAttribution.IsolatingBodyError(
+                artifact.Source,
+                decompiledDiagnostics,
+                control.Source,
+                control.Diagnostics,
+                identity,
+                parseOptions) is { } isolatingError)
+        {
+            return new FaultIsolationResult(
+                FaultIsolationKind.BodyDefect,
+                control.SourceMember.SourcePath,
+                $"span-measured: shell-independent decompiled body error absent from authored body ({FormatDiagnostic(isolatingError)})")
+            {
+                Method = FaultIsolationMethod.SpanMeasured,
+            };
+        }
+
+        var error = control.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        return new FaultIsolationResult(
+            FaultIsolationKind.ShellOrClosureDefect,
+            control.SourceMember.SourcePath,
+            FormatDiagnostic(error));
+    }
+
+    /// <summary>
+    /// Attributes a successful RTS IL-diff by replacing only the target body with
+    /// its exactly correlated authored body and recompiling the final RTS shell.
+    /// Authored IL exactness isolates the decompiled body; authored IL divergence
+    /// or compilation failure isolates the shell/context. Missing correlation or an
+    /// unavailable Full-fidelity comparison produces no verdict.
+    /// </summary>
+    /// <remarks>
+    /// <c>ValidDifferentFaultIsolationTests</c> gates the two verdicts, the
+    /// unavailable path, and non-vacuous wiring from <c>CompileBackTarget</c>.
+    /// </remarks>
+    internal static FaultIsolationResult? TryIsolateFidelityDifference(
+        ProductArtifact artifact,
+        PEReader originalPe,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
+        ReturnToSenderSourceIndex? sourceIndex,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions,
+        IReadOnlyList<MetadataReference> references)
+    {
+        var request = artifact.Request;
+        var control = TryCompileAuthoredBody(
+            artifact,
+            sourceIndex,
+            parseOptions,
+            compileOptions,
+            references);
+        if (control is null)
+            return null;
+
+        if (control.PeImage is null)
+        {
+            var error = control.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+            string errorDetail = FormatDiagnostic(error) ?? "compile failed without an error diagnostic";
+            return new FaultIsolationResult(
+                FaultIsolationKind.ShellOrClosureDefect,
+                control.SourceMember.SourcePath,
+                $"authored body did not compile in the same RTS shell ({errorDetail})")
+            {
+                Method = FaultIsolationMethod.FidelityControl,
+            };
+        }
+
+        using var stream = new MemoryStream(control.PeImage, writable: false);
+        using var authoredPe = new PEReader(stream);
+        var authoredOps = FindAndDisassemble(authoredPe, request.FullType, request.MethodName, overload: 0)
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        if (authoredOps is null)
+            return null;
+
+        var fidelityDiff = BuildIlDiff(
+            originalPe,
+            originalReader,
+            originalMethod,
+            authoredPe,
+            request.FullType,
+            request.MethodName,
+            overload: 0,
+            FidelityCheck.ContractBodyDiffNormalization)?.Diff;
+        var originalOps = MetadataInstructionProducer.Disassemble(
+                originalPe,
+                originalReader,
+                originalReader.GetMethodDefinition(originalMethod))
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        if (originalOps is null)
+            return null;
+
+        var status = ClassifyFidelityControlStatus(
+            originalOps.SequenceEqual(authoredOps),
+            fidelityDiff);
+        return status switch
+        {
+            FidelityCheck.CompileBackStatus.Exact => new FaultIsolationResult(
+                FaultIsolationKind.BodyDefect,
+                control.SourceMember.SourcePath,
+                "authored body reproduced the original IL in the same RTS shell")
+            {
+                Method = FaultIsolationMethod.FidelityControl,
+            },
+            FidelityCheck.CompileBackStatus.OpcodeDiff or FidelityCheck.CompileBackStatus.OperandDiff
+                => new FaultIsolationResult(
+                    FaultIsolationKind.ShellOrClosureDefect,
+                    control.SourceMember.SourcePath,
+                    $"authored body also produced {status} in the same RTS shell")
+                {
+                    Method = FaultIsolationMethod.FidelityControl,
+                },
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Forms an authored-body control verdict only when the Full-fidelity body
+    /// comparison itself is available. The general compile-back classifier can
+    /// still report an opcode difference without that comparison; attribution
+    /// cannot, because methodology v3 promises the existing Full contract.
+    /// </summary>
+    internal static FidelityCheck.CompileBackStatus? ClassifyFidelityControlStatus(
+        bool opcodesExact,
+        IlBodyDiffResult? fidelityDiff)
+    {
+        if (fidelityDiff is not { IsAvailable: true })
+            return null;
+
+        return FidelityCheck.ClassifyStatus(
+            isFull: true,
+            opcodesExact,
+            fidelityDiff);
+    }
+
+    sealed record AuthoredBodyCompilation(
+        ReturnToSenderSourceMember SourceMember,
+        string Source,
+        ImmutableArray<Diagnostic> Diagnostics,
+        byte[]? PeImage);
+
+    static AuthoredBodyCompilation? TryCompileAuthoredBody(
+        ProductArtifact artifact,
+        ReturnToSenderSourceIndex? sourceIndex,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions,
+        IReadOnlyList<MetadataReference> references)
+    {
+        var request = artifact.Request;
+        if (sourceIndex is null
+            || !sourceIndex.TryFindForAttribution(
+                new RequestedTarget(request.FullType, request.MethodName, request.Overload, Signature: null),
+                MetadataTokens.GetToken(request.TargetMethod),
                 out var sourceMember)
             || sourceMember.Body is not { } authoredBody)
         {
             return null;
         }
 
-        var authoredTargetBody = new ProductTargetBody(authoredBody, []);
         try
         {
-            var authoredArtifact = CompileBackSourceComposer.Compose(WithTargetBody(request, authoredTargetBody));
-            var tree = CSharpSyntaxTree.ParseText(authoredArtifact.Source, parseOptions);
-            var compilation = CSharpCompilation.Create("return-to-sender-source-oracle", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = compilation.Emit(ms);
-            if (emit.Success)
-            {
-                return new FaultIsolationResult(
-                    FaultIsolationKind.BodyDefect,
-                    sourceMember.SourcePath,
-                    "authored body compiled in the same RTS shell");
-            }
-
-            // Shell is broken: the substitution control is blind. Recover the
-            // additional signal by span attribution — but only credit a body
-            // defect for a provably shell-independent in-body error (syntax or
-            // body-intrinsic semantic).
-            if (BuildTargetIdentity(request) is { } identity
-                && SpanAttribution.IsolatingBodyError(
-                    decompiledSource,
-                    decompiledDiagnostics,
-                    authoredArtifact.Source,
-                    emit.Diagnostics,
-                    identity,
-                    parseOptions) is { } isolatingError)
-            {
-                return new FaultIsolationResult(
-                    FaultIsolationKind.BodyDefect,
-                    sourceMember.SourcePath,
-                    $"span-measured: shell-independent decompiled body error absent from authored body ({FormatDiagnostic(isolatingError)})")
-                {
-                    Method = FaultIsolationMethod.SpanMeasured,
-                };
-            }
-
-            var error = emit.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-            return new FaultIsolationResult(
-                FaultIsolationKind.ShellOrClosureDefect,
-                sourceMember.SourcePath,
-                FormatDiagnostic(error));
+            // The product froze both the compiled unit and its selected body range.
+            // Do not recompose the shell or rediscover the member in the harness.
+            string authoredSource = artifact.SourceArtifact.ReplaceBody(authoredBody);
+            var tree = CSharpSyntaxTree.ParseText(authoredSource, parseOptions);
+            var compilation = CSharpCompilation.Create(
+                CompilationAssemblyName,
+                [tree],
+                references,
+                compileOptions);
+            using var stream = new MemoryStream();
+            var emit = compilation.Emit(stream);
+            return new AuthoredBodyCompilation(
+                sourceMember,
+                authoredSource,
+                emit.Diagnostics,
+                emit.Success ? stream.ToArray() : null);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {

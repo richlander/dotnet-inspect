@@ -212,10 +212,17 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact
-ids, dependency names, and a `Produce(ResearchFactContext)` method. The registry
-orders producers by dependencies, invokes them for an imported method, and merges
-their annotations by IL offset and descriptor id. The default registry currently
-includes:
+ids, dependency names, declared `ResearchFactRequirements`, and a
+`Produce(ResearchFactContext)` method. Requirements name the Analysis feature
+set and whether it is body-local or assembly-wide; the registry unions them
+before acquisition. A body-local index can satisfy one member without decoding
+every body, while a compatible full index can satisfy a later narrower request.
+Assembly projections on `ResearchAssemblyContext` remain lazy. A producer that
+declares no Analysis requirement receives no assembly context.
+
+The registry orders producers by dependencies, invokes them for an imported
+method, and merges their annotations by IL offset and descriptor id. The default
+registry currently includes:
 
 | Producer | Source | Facts |
 | -------- | ------ | ----- |
@@ -225,6 +232,12 @@ includes:
 | `CallSiteSemanticsFactProducer` | Analysis call-site Findings joined with callee semantics | `semantics.callee`, `safety.callee` |
 | `MethodHeaderLeverageFactProducer` | Analysis method-signal and leverage aggregates | `cost.method` |
 | `DecompilerLifetimeFactProducer` | existing decompiler lifetime classifier | `lifetime.*` |
+
+`ResearchFactRegistry.CallRelationships` is a separate, focused profile. Its
+`DirectCallFactProducer` turns already-acquired physical `DirectCall` values
+into `call.edge` facts; it declares no Analysis requirement and fails if the
+caller omits the supplied evidence. This lets a graph-owning query annotate
+source without opening a second body index.
 
 The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
 Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or
@@ -458,7 +471,8 @@ The layers cooperate as follows:
 
 1. `PdbContext` extracts named documents, checksums, sequence-point ranges,
    type/member/token relationships, and raw CDI blobs.
-2. `ILInspector.SourceLink` extracts and parses the SourceLink map.
+2. `ILInspector.SourceLink` extracts and parses the SourceLink map, retaining
+   map-level errors and individually rejected document keys for audit output.
 3. The high-level resolver combines raw PDB correlation with document-name
    fallback and canonical path selection.
 4. SourceLinkFetch applies the winning map entry and establishes provenance.
@@ -584,6 +598,11 @@ Research overlay bridge, and the application layer:
 │  Inspectors/      App-specific inspection logic             │
 │  Options/         CLI option types                          │
 ├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Queries (L1 inspection coordination)       │
+│                                                             │
+│  Workspace and binding-consistent assembly context groups   │
+│  Typed per-assembly and group-query coordination             │
+├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │
 │  ResearchFactRegistry       ordered fact producers           │
@@ -625,7 +644,7 @@ Research overlay bridge, and the application layer:
 ├─────────────────────────────────────────────────────────────┤
 │  CSharpText (C# textual grammar)                            │
 │                                                             │
-│  Lexer, conservative declaration index and source ranges    │
+│  Names, signatures, XML docs, lexer, source spans and layout│
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.SourceLink (source decoration)                 │
 │                                                             │
@@ -645,13 +664,64 @@ Research overlay bridge, and the application layer:
 ### Layer rules
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
+- **Queries** owns content-shaped workspace lifetimes and typed inspection
+  request/result contracts. It coordinates domain providers without taking
+  filesystem paths or presentation dependencies.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
-- **CSharp** owns C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
-- **CSharpText** owns dependency-free C# lexing and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
+- **CSharp** owns model-bound C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
-- **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading. `LibraryBodyIndex` runs selected producers in one metadata-ordered assembly acquisition; the app unions the features required by selected sections and owns one lazy `MethodBodyInspectionSession` per command. Library body commands consume immutable content from the prefetched `PdbContext` image already opened for metadata/PDB inspection rather than reopening the target file or receiving Metadata's raw reader. Producers may still perform their own instruction interpretation over the acquired bodies.
+- **Analysis** owns R1 whole-assembly evidence and must not depend on the
+  decompiler IR, Roslyn, or inspected-assembly loading. One
+  `LibraryBodyAnalysisPlan` normalizes producer dependencies and scope before
+  `LibraryBodyIndex` runs the selected producers in one metadata-ordered
+  assembly acquisition. The acquisition returns cohesive method, safety,
+  allocation, optimization, and resource-lifecycle result bundles rather than
+  a flat omnibus tuple; independent judgments such as repeated-scan and
+  generated-framework classification remain separate Analysis services over
+  those shared results. Within acquisition, one
+  `MethodBodyAnalysisContext` carries the method identity, exception regions,
+  shared Layer-0 `MethodInstructions`, Analysis-owned loop regions, and
+  immutable decoded local types to topic producers, plus the neutral navigation
+  those producers share (instruction-at-offset, next-non-`nop` index, loop-region
+  membership). Raw IL, generic decoding
+  scope, metadata readers, and reader-bound method bodies remain outside the
+  context, preventing producers from creating a second decode or metadata
+  traversal path. Allocation path contexts, confidence, and
+  post-dominance remain producer-owned Layer-1 interpretations.
+  `BodySignalAnalysis` consumes the context with metadata-dependent box
+  classification supplied through a narrow callback.
+  `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
+  occurrence interpretation; call-site acquisition remains separate and
+  delegates only its safety projection.
+  `MethodAllocationAnalysis` owns allocation interpretation for one decoded
+  body: occurrence discovery, allocation-shape classification, escape
+  classification, and the private path-context/confidence/post-dominance indexes
+  that produce its multiplicity reading. It receives metadata and raw-IL
+  judgments through the narrow `IMethodAllocationResolver` contract the assembly
+  reader implements, and returns one `MethodAllocationResult` carrying the
+  discovered and escape-refined occurrences from a single scan. Call-site acquisition and
+  optimization-opportunity collection query that interpretation instead of
+  rebuilding it; the reader retains PE/body acquisition, the intentionally
+  throwing decode path, method identity and scope creation, metadata ownership
+  and token resolution, orchestration, call-site acquisition, optimization
+  recommendations, resource/leak analysis, and result aggregation.
+  `MethodInstructionFacts` owns the
+  metadata-free local/argument-slot, operand, and single-branch-target grammar
+  shared by safety and allocation
+  interpretation, and `CompilerGeneratedNames` owns the unspeakable-name grammar
+  shared by escape classification and optimization-opportunity classification.
+  `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
+  analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
+  of every analysis algorithm. The app unions the features required by selected
+  sections and owns one lazy
+  `MethodBodyInspectionSession` per command. Library body commands consume
+  immutable content from the prefetched `PdbContext` image already opened for
+  metadata/PDB inspection rather than reopening the target file or receiving
+  Metadata's raw reader. Producers may still perform their own instruction
+  interpretation over the acquired bodies.
 - **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
 - **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
 - **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.

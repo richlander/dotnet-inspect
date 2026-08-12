@@ -61,6 +61,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
+            ["AuthoredRebuildFidelityTests.cs"] = (1, "Cross-assembly snapshot seam: replaces a same-identity dependency after RTS acquisition and proves authored replay uses the frozen closure."),
 
             // Product-output validity under varying compilation options.
             ["ExpressionTreeLambdaTests.cs"] = (3, "Product-output validity + compile-back oracle: compiles synthesized expression-tree source under varying compilation options (overflow checks) and recompiles recovered arithmetic/comparison lambdas to assert their expression-tree node identity."),
@@ -75,6 +76,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
             ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
+            ["ValidDifferentFaultIsolationTests.cs"] = (1, "Round-trip oracle seam: compiles runtime-varying authored and rejected bodies to gate successful IL-diff attribution."),
         };
 
     // Fingerprint. Three independent +1 site additions stack on the 29 files /
@@ -108,9 +110,14 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3238 adds AnnotatedCompileBackFailureTests.cs (1 site): compiles a
     //     synthesized invisible-rune source to obtain a real diagnostic for the
     //     annotated compile-back failure caret render.
-    //   Combined: 37 files, 47 sites.
-    const int ExpectedDynamicFiles = 37;
-    const int ExpectedDynamicSites = 47;
+    //   #3784 adds ValidDifferentFaultIsolationTests.cs (1 site): compiles
+    //     runtime-varying authored and rejected bodies to gate successful
+    //     IL-diff attribution.
+    //   #3898 adds AuthoredRebuildFidelityTests.cs (1 site): constructs and
+    //     replaces a same-identity dependency to gate frozen-closure reuse.
+    //   Combined: 39 files, 49 sites.
+    const int ExpectedDynamicFiles = 39;
+    const int ExpectedDynamicSites = 49;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

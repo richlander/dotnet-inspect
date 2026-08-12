@@ -16,9 +16,9 @@ namespace DotnetInspector.Inspectors;
 internal static class PackageInspector
 {
     public static async Task<InspectionResult> InspectAsync(
-        string extractPath,
-        string packageName,
-        string version,
+        PackageExtractionResult resolution,
+        string fallbackPackageName,
+        string fallbackVersion,
         bool isLocalFile,
         string? localFilePath,
         NuspecData? nuspec,
@@ -26,26 +26,42 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
-        string? nupkgPath = null,
         bool fetchMetadata = false,
         NuGetSourceOptions? sourceOptions = null)
     {
+        string extractPath = resolution.ExtractPath;
+        string packageName = resolution.PackageName ?? fallbackPackageName;
+        string version = resolution.Version ?? fallbackVersion;
+        string? nupkgPath = resolution.NupkgPath;
         fetchMetadata = !isLocalFile && (fetchMetadata || verbosity >= Verbosity.Detailed);
+        NuGetSourceOptions? metadataSourceOptions = resolution.ProducerKey is null
+            ? sourceOptions
+            : NuGetSourceResolver.RestrictToSourceKeys(
+                sourceOptions,
+                [resolution.ProducerKey]);
 
         // Try package index cache (skips all filesystem scanning)
-        if (!isLocalFile)
+        if (!isLocalFile && resolution.ProducerKey is { } producerKey)
         {
             InspectionResult? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
             {
-                cached = PackageIndexCache.TryGet(packageName, version);
+                cached = PackageIndexCache.TryGet(
+                    packageName,
+                    version,
+                    producerKey);
             }
             if (cached != null)
             {
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
-                        httpClient, packageName, version, logger.Log, forceLatest, sourceOptions);
+                        httpClient,
+                        packageName,
+                        version,
+                        logger.Log,
+                        forceLatest,
+                        metadataSourceOptions);
                     ApplyMetadata(cached, metadata);
                 }
                 return cached;
@@ -117,7 +133,8 @@ internal static class PackageInspector
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
         PopulateLibraryFiles(extractPath, result);
         result.BinarySignals = await ScanBinarySignalsAsync(
-            extractPath, packageName, version, httpClient, logger, acquirePdb: false);
+            extractPath, packageName, version, httpClient, logger,
+            acquirePdb: false, sourceOptions);
 
         // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
         if (hasToolsDir)
@@ -143,17 +160,26 @@ internal static class PackageInspector
         }
 
         // Cache the filesystem-derived result (before metadata overlay)
-        if (!isLocalFile)
+        if (!isLocalFile && resolution.ProducerKey is { } writeProducerKey)
         {
             using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad);
-            PackageIndexCache.Set(packageName, version, result);
+            PackageIndexCache.Set(
+                packageName,
+                version,
+                writeProducerKey,
+                result);
         }
 
         // Fetch package metadata from NuGet (only at detailed verbosity)
         if (fetchMetadata)
         {
             var metadata = await PackageMetadataService.FetchAllMetadataAsync(
-                httpClient, packageName, version, logger.Log, forceLatest, sourceOptions);
+                httpClient,
+                packageName,
+                version,
+                logger.Log,
+                forceLatest,
+                metadataSourceOptions);
             ApplyMetadata(result, metadata);
         }
 
@@ -180,7 +206,8 @@ internal static class PackageInspector
         string? packageVersion,
         HttpClient httpClient,
         VerboseLogger logger,
-        bool acquirePdb)
+        bool acquirePdb,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var dlls = TfmSelector.GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
@@ -207,7 +234,8 @@ internal static class PackageInspector
                 {
                     await SourceEnricher.AcquirePdbAsync(
                         service.Context, httpClient, packageName, packageVersion,
-                        isPlatformAssembly: false, logger.Log).ConfigureAwait(false);
+                        isPlatformAssembly: false, logger.Log,
+                        sourceOptions: sourceOptions).ConfigureAwait(false);
                 }
 
                 if (service.HasPdb)

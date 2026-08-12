@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using CSharpText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -51,6 +53,19 @@ public record ExtensionMethodInfo(
 }
 
 /// <summary>
+/// Image-local address used to resolve one type during extension reachability.
+/// </summary>
+public sealed record ExtensionReachabilityType(
+    string FullName,
+    string SimpleName,
+    int MetadataToken);
+
+/// <summary>One public-member edge used by extension reachability.</summary>
+public sealed record ExtensionReachabilityEdge(
+    string Type,
+    string PathSegment);
+
+/// <summary>
 /// Scans assemblies for extension methods targeting a specific type.
 /// </summary>
 public static class ExtensionMethodScanner
@@ -65,7 +80,7 @@ public static class ExtensionMethodScanner
             yield break;
 
         var reader = peReader.GetMetadataReader();
-        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -96,7 +111,7 @@ public static class ExtensionMethodScanner
                 includeAll))
             {
                 if (TypeMatcher.Matches(
-                    TypeMatcher.Normalize(property.ExtendedType),
+                    FqnParser.NormalizeTypeName(property.ExtendedType),
                     normalizedTarget))
                 {
                     yield return property;
@@ -133,7 +148,7 @@ public static class ExtensionMethodScanner
                     if (signature.ParameterTypes.Length == 0) continue;
 
                     var extendedType = signature.ParameterTypes[0];
-                    var normalizedExtended = TypeMatcher.Normalize(extendedType);
+                    var normalizedExtended = FqnParser.NormalizeTypeName(extendedType);
 
                     // Match against target
                     if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))
@@ -265,6 +280,55 @@ public static class ExtensionMethodScanner
     }
 
     /// <summary>
+    /// Indexes type names without decoding their member signatures.
+    /// </summary>
+    public static List<ExtensionReachabilityType> IndexReachableTypes(
+        PEReader peReader)
+    {
+        if (!peReader.HasMetadata)
+            return [];
+
+        MetadataReader reader = peReader.GetMetadataReader();
+        var types = new List<ExtensionReachabilityType>(
+            reader.TypeDefinitions.Count);
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            types.Add(
+                new ExtensionReachabilityType(
+                    reader.GetFullTypeName(type),
+                    reader.GetString(type.Name),
+                    MetadataTokens.GetToken(handle)));
+        }
+
+        return types;
+    }
+
+    /// <summary>
+    /// Decodes the reachable public-member edges of one image-local type.
+    /// </summary>
+    public static List<ExtensionReachabilityEdge> FindReachableEdges(
+        PEReader peReader,
+        int metadataToken)
+    {
+        if (!peReader.HasMetadata)
+            return [];
+
+        EntityHandle entity = MetadataTokens.EntityHandle(metadataToken);
+        if (entity.Kind != HandleKind.TypeDefinition)
+        {
+            throw new ArgumentException(
+                "Extension reachability requires a TypeDef token.",
+                nameof(metadataToken));
+        }
+
+        MetadataReader reader = peReader.GetMetadataReader();
+        return FindReachableEdges(
+            reader,
+            (TypeDefinitionHandle)entity);
+    }
+
+    /// <summary>
     /// Finds types reachable from a target type by traversing public members.
     /// Used for the --reachable flag to discover transitive extension methods.
     /// </summary>
@@ -328,61 +392,16 @@ public static class ExtensionMethodScanner
                     continue;
 
                 var (reader, typeDefHandle) = found;
-                var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                var context = GenericContext.ForType(reader, typeDef);
-
-                // Properties
-                foreach (var propHandle in typeDef.GetProperties())
+                foreach (ExtensionReachabilityEdge edge
+                    in FindReachableEdges(reader, typeDefHandle))
                 {
-                    var prop = reader.GetPropertyDefinition(propHandle);
-                    var propName = reader.GetString(prop.Name);
-
-                    try
-                    {
-                        var sig = GuardedSignatureText.PropertyText(reader, prop, context)
-                            .GetValueOrThrow();
-                        var propType = UnwrapAsyncType(sig.ReturnType);
-
-                        if (!string.IsNullOrEmpty(propType) && !IsPrimitiveType(propType) && visited.Add(propType))
-                        {
-                            var path = $"{currentPath}.{propName}";
-                            results.Add((propType, path));
-                            toProcess.Enqueue((propType, path, remainingDepth - 1));
-                        }
-                    }
-                    // Skip properties with undecodable signatures
-                    catch { }
-                }
-
-                // Methods (return types)
-                foreach (var methodHandle in typeDef.GetMethods())
-                {
-                    var method = reader.GetMethodDefinition(methodHandle);
-                    if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public) continue;
-
-                    string methodName = reader.GetString(method.Name);
-                    if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
-                        methodName.StartsWith("add_") || methodName.StartsWith("remove_") ||
-                        methodName.StartsWith("."))
+                    if (!visited.Add(edge.Type))
                         continue;
 
-                    try
-                    {
-                        var methodContext = GenericContext.ForMethod(reader, typeDef, method);
-                        var sig = GuardedSignatureText.MethodText(reader, method, methodContext)
-                            .GetValueOrThrow();
-                        var retType = UnwrapAsyncType(sig.ReturnType);
-
-                        if (!string.IsNullOrEmpty(retType) && retType != "void" &&
-                            !IsPrimitiveType(retType) && visited.Add(retType))
-                        {
-                            var path = $"{currentPath}.{methodName}()";
-                            results.Add((retType, path));
-                            toProcess.Enqueue((retType, path, remainingDepth - 1));
-                        }
-                    }
-                    // Skip methods with undecodable signatures
-                    catch { }
+                    var path = currentPath + edge.PathSegment;
+                    results.Add((edge.Type, path));
+                    toProcess.Enqueue(
+                        (edge.Type, path, remainingDepth - 1));
                 }
             }
         }
@@ -394,6 +413,111 @@ public static class ExtensionMethodScanner
 
         return results;
     }
+
+    private static List<ExtensionReachabilityEdge> FindReachableEdges(
+        MetadataReader reader,
+        TypeDefinitionHandle typeDefHandle)
+    {
+        var results = new List<ExtensionReachabilityEdge>();
+        TypeDefinition typeDef =
+            reader.GetTypeDefinition(typeDefHandle);
+        GenericContext context =
+            GenericContext.ForType(reader, typeDef);
+
+        foreach (PropertyDefinitionHandle propHandle
+            in typeDef.GetProperties())
+        {
+            PropertyDefinition prop =
+                reader.GetPropertyDefinition(propHandle);
+            string propName = reader.GetString(prop.Name);
+
+            try
+            {
+                var signature =
+                    GuardedSignatureText.PropertyText(
+                            reader,
+                            prop,
+                            context)
+                        .GetValueOrThrow();
+                string propType =
+                    UnwrapAsyncType(signature.ReturnType);
+
+                if (!string.IsNullOrEmpty(propType)
+                    && !IsPrimitiveType(propType))
+                {
+                    results.Add(
+                        new ExtensionReachabilityEdge(
+                            propType,
+                            $".{propName}"));
+                }
+            }
+            catch (Exception ex) when (IsUndecodableSignature(ex))
+            {
+            }
+        }
+
+        foreach (MethodDefinitionHandle methodHandle
+            in typeDef.GetMethods())
+        {
+            MethodDefinition method =
+                reader.GetMethodDefinition(methodHandle);
+            if ((method.Attributes & MethodAttributes.MemberAccessMask)
+                != MethodAttributes.Public)
+            {
+                continue;
+            }
+
+            string methodName = reader.GetString(method.Name);
+            if (methodName.StartsWith("get_", StringComparison.Ordinal)
+                || methodName.StartsWith("set_", StringComparison.Ordinal)
+                || methodName.StartsWith("add_", StringComparison.Ordinal)
+                || methodName.StartsWith("remove_", StringComparison.Ordinal)
+                || methodName.StartsWith(".", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                GenericContext methodContext =
+                    GenericContext.ForMethod(
+                        reader,
+                        typeDef,
+                        method);
+                var signature =
+                    GuardedSignatureText.MethodText(
+                            reader,
+                            method,
+                            methodContext)
+                        .GetValueOrThrow();
+                string returnType =
+                    UnwrapAsyncType(signature.ReturnType);
+
+                if (!string.IsNullOrEmpty(returnType)
+                    && returnType != "void"
+                    && !IsPrimitiveType(returnType))
+                {
+                    results.Add(
+                        new ExtensionReachabilityEdge(
+                            returnType,
+                            $".{methodName}()"));
+                }
+            }
+            catch (Exception ex) when (IsUndecodableSignature(ex))
+            {
+            }
+        }
+
+        return results;
+    }
+
+    private static bool IsUndecodableSignature(Exception exception)
+        => exception is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or NotSupportedException
+            or OverflowException
+            or IndexOutOfRangeException;
 
     private static string UnwrapAsyncType(string type)
     {

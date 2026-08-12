@@ -37,6 +37,7 @@ internal static class ApiSourceResolver
         string? apiSource = null;
         string? apiVersion = null;
         string? projectAssetsPath = null;
+        NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
         var typeName = options.TypeName;
         var packagePath = options.PackagePath;
 
@@ -74,6 +75,10 @@ internal static class ApiSourceResolver
                     }
 
                     packagePath = $"{range!.PackageId}@{address!.Version.ToNormalizedString()}";
+                    acquisitionSourceOptions =
+                        NuGetSourceResolver.RestrictToSources(
+                            options.SourceOptions,
+                            address.ReportingSourceUrls);
                     context.Logger.Log(
                         $"Resolved {range.PackageId}@{range.Start}..{range.End} {options.PackageRangeAddress} "
                         + $"to {address.Version} ({address.Selector} of #{vector.Addresses.Length})");
@@ -101,7 +106,12 @@ internal static class ApiSourceResolver
 
         if (!string.IsNullOrEmpty(packagePath))
         {
-            var outcome = await PackageExtractor.ExtractPackageAsync(context.HttpClient, packagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
+            var outcome = await PackageExtractor.ExtractPackageAsync(
+                context.HttpClient,
+                packagePath,
+                context.Logger.Log,
+                "inspect-api",
+                acquisitionSourceOptions);
             if (!outcome.IsSuccess)
             {
                 CommandError.Write($"{outcome.ErrorMessage}");
@@ -204,7 +214,8 @@ internal static class ApiSourceResolver
                 options.PlatformAssembly,
                 context.HttpClient,
                 logger.Log,
-                options.PlatformFramework);
+                options.PlatformFramework,
+                sourceOptions: options.SourceOptions);
 
             if (error != null)
             {
@@ -216,7 +227,8 @@ internal static class ApiSourceResolver
                         typeName,
                         [frameworkShortName],
                         context.HttpClient,
-                        logger);
+                        logger,
+                        options.SourceOptions);
 
                     if (lookupResult != null)
                     {
@@ -247,7 +259,8 @@ internal static class ApiSourceResolver
                             typeName,
                             otherFrameworks,
                             context.HttpClient,
-                            logger);
+                            logger,
+                            options.SourceOptions);
 
                         if (foundElsewhere != null)
                         {

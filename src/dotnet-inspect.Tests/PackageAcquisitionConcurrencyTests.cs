@@ -32,7 +32,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     public PackageAcquisitionConcurrencyTests()
     {
         _cachePath = Path.Combine(_testRoot, "cache");
-        Core.HttpClientFactory.Initialize(offline: false);
+        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
         Core.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize(
             "dotnet-inspect-test",
@@ -42,7 +42,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     public void Dispose()
     {
-        Core.HttpClientFactory.Initialize(offline: false);
+        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
         Core.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
@@ -204,6 +204,46 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_RestoresActiveSourcesForPinnedRedirectTarget()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string wrapperPackage = $"wrapper.scope.{suffix}";
+        string payloadPackage = $"payload.scope.{suffix}";
+        const string Version = "1.0.0";
+        const string FeedA = "https://feed-a.invalid/v3/index.json";
+        const string FeedB = "https://feed-b.invalid/v3/index.json";
+        var handler = new CoordinateScopedRedirectHandler(
+            wrapperPackage,
+            payloadPackage,
+            CreateToolWrapperArchive(
+                wrapperPackage,
+                Version,
+                payloadPackage),
+            CreatePackageArchive(payloadPackage, Version));
+        using var client = new HttpClient(handler);
+        NuGetSourceOptions? sourceOptions =
+            NuGetSourceResolver.RestrictToSources(
+                new NuGetSourceOptions
+                {
+                    Sources = [FeedA, FeedB],
+                },
+                [FeedA]);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                wrapperPackage,
+                sourceOptions: sourceOptions,
+                version: Version);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(payloadPackage, outcome.Result!.PackageName);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(FeedB),
+            outcome.Result.ProducerKey);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_ToolWrapperRedirectAtHopLimitReturnsPayload()
     {
         const int MaxRedirectHops = 8;
@@ -313,35 +353,33 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
 
-        Task<CommittedPackage> publishA = Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(
+        Task<CommittedPackage> publishA = StartDedicatedWorker(
+            ready,
+            start,
+            () => NuGetCache.CommitPackage(
                 sourceA,
                 nupkgPath: null,
                 packageName,
                 Version,
-                TestSourceKey);
-        });
-        Task<CommittedPackage> publishB = Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(
+                TestSourceKey));
+        Task<CommittedPackage> publishB = StartDedicatedWorker(
+            ready,
+            start,
+            () => NuGetCache.CommitPackage(
                 sourceB,
                 nupkgPath: null,
                 packageName,
                 Version,
-                TestSourceKey);
-        });
+                TestSourceKey));
 
-        Assert.True(
-            ready.Wait(
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken));
-        start.Set();
-        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        (bool publishersReady, CommittedPackage[] committed) =
+            await WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                TestContext.Current.CancellationToken,
+                publishA,
+                publishB);
+        Assert.True(publishersReady);
 
         Assert.Equal(committed[0].ExtractPath, committed[1].ExtractPath);
         string[] payloads = Directory.GetFiles(
@@ -354,6 +392,64 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             payloads,
             payload => Assert.Equal(winner, File.ReadAllText(payload)));
         AssertNoStagingDirectories(packageName);
+    }
+
+    [Fact]
+    public async Task WaitForAndJoinWorkersAsync_CancellationJoinsWorkersBeforeRethrowing()
+    {
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim();
+        using var workersWaiting = new CountdownEvent(2);
+        using var releaseWorkers = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        int completedWorkers = 0;
+
+        Task<int> StartWorker() =>
+            StartDedicatedWorker(
+                ready,
+                start,
+                () =>
+                {
+                    workersWaiting.Signal();
+                    releaseWorkers.Wait();
+                    return Interlocked.Increment(ref completedWorkers);
+                });
+
+        Task<int> first = StartWorker();
+        Task<int> second = StartWorker();
+        cancellation.Cancel();
+
+        Task<(bool Ready, int[] Results)> completion =
+            WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                cancellation.Token,
+                first,
+                second);
+
+        bool bothWorkersWaiting;
+        bool completedBeforeRelease;
+        try
+        {
+            bothWorkersWaiting =
+                workersWaiting.WaitHandle.WaitOne(TimeSpan.FromSeconds(5));
+            completedBeforeRelease = completion.IsCompleted;
+        }
+        finally
+        {
+            releaseWorkers.Set();
+        }
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => completion);
+
+        Assert.True(bothWorkersWaiting);
+        Assert.False(completedBeforeRelease);
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.True(first.IsCompletedSuccessfully);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.Equal(2, completedWorkers);
     }
 
     [Fact]
@@ -662,7 +758,90 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public void TryGetLatestCachedVersion_IgnoresVersionsFromUnconfiguredSources()
+    public void GlobalPackageContent_RequiresMatchingRecordedSource()
+    {
+        string packageName = $"globalprovenance.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        const string RecordedSource = "https://private.invalid/v3/index.json";
+        string packageDirectory = CreateExtractedPackage(
+            Path.Combine(_testRoot, "global", packageName, Version),
+            packageName,
+            "private",
+            payloadCount: 1);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            $$"""{"version":2,"source":"{{RecordedSource}}"}""");
+
+        string recordedKey = NuGetCache.GetSourceKey(RecordedSource);
+        string otherKey = NuGetCache.GetSourceKey(
+            "https://api.nuget.org/v3/index.json");
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [otherKey]));
+
+        CachedPackage? matching = NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [otherKey, recordedKey]);
+
+        Assert.NotNull(matching);
+        Assert.Equal(packageDirectory, matching.ExtractPath);
+        Assert.Equal(recordedKey, matching.ProducerKey);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"version":2,"source":null}""")]
+    [InlineData("""{"version":2,"source":42}""")]
+    [InlineData("""{"version":2,"source":""}""")]
+    [InlineData("""{"version":2,"source":"https://a.invalid","source":"https://b.invalid"}""")]
+    [InlineData("[]")]
+    [InlineData("not json")]
+    public void GlobalPackageContent_RejectsMissingAmbiguousOrMalformedProvenance(
+        string metadata)
+    {
+        string packageName = $"globalmissing.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        string packageDirectory = CreateExtractedPackage(
+            Path.Combine(_testRoot, "global", packageName, Version),
+            packageName,
+            "payload",
+            payloadCount: 1);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            metadata);
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [NuGetCache.GetSourceKey("https://a.invalid")]));
+    }
+
+    [Fact]
+    public void GlobalPackageContent_RejectsAbsentMetadata()
+    {
+        string packageName = $"globalabsent.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        CreateExtractedPackage(
+            Path.Combine(_testRoot, "global", packageName, Version),
+            packageName,
+            "payload",
+            payloadCount: 1);
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [TestSourceKey]));
+    }
+
+    [Fact]
+    public void PackageContentCaches_DoNotIntroduceVersionCandidates()
     {
         string packageName = $"latestscope.test.{Guid.NewGuid():N}";
         string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
@@ -679,9 +858,58 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             NuGetCache.CommitPackage(staged, nupkgPath: null, packageName, version, sourceKey);
         }
 
-        // 2.0.0 is newer but came from a feed this caller no longer reads.
-        Assert.Equal("1.0.0", NuGetCache.TryGetLatestCachedVersion(packageName, [publicFeedKey]));
-        Assert.Equal("2.0.0", NuGetCache.TryGetLatestCachedVersion(packageName, [publicFeedKey, privateFeedKey]));
+        Assert.Null(PackageExtractor.TryGetLatestCachedCandidateVersion(
+            packageName,
+            [publicFeedKey, privateFeedKey]));
+    }
+
+    [Fact]
+    public void GetCachedVersions_GlobalPackageRequiresMatchingRecordedSource()
+    {
+        string packageName = $"globalhint.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        const string PrivateFeed = "https://private.invalid/v3/index.json";
+        string globalPackagesPath = Path.Combine(_testRoot, "global-hints");
+        string packageDirectory = Path.Combine(globalPackagesPath, packageName, Version);
+        Directory.CreateDirectory(packageDirectory);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, $"{packageName}.nuspec"),
+            "<package />");
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            $$"""{"source":"{{PrivateFeed}}"}""");
+
+        string? previousPackagesPath =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                globalPackagesPath);
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                _cachePath,
+                skipNuGetCache: false);
+
+            Assert.Empty(NuGetCache.GetCachedVersions(
+                packageName,
+                [NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json")]));
+            Assert.Equal(
+                [Version],
+                NuGetCache.GetCachedVersions(
+                    packageName,
+                    [NuGetCache.GetSourceKey(PrivateFeed)]));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                previousPackagesPath);
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                _cachePath,
+                skipNuGetCache: true);
+        }
     }
 
     [Fact]
@@ -727,6 +955,14 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void GetCachedVersions_InvalidPackageName_HasNoSuggestions()
+    {
+        Assert.Empty(NuGetCache.GetCachedVersions(
+            "../outside",
+            [TestSourceKey]));
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_LatestLookupTimesOutEarlyAndOffersCachedPins()
     {
         string packageName = $"versiontimeout.test.{Guid.NewGuid():N}";
@@ -745,22 +981,33 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 TestSourceKey);
         }
 
-        using var client = new HttpClient(new NeverAnsweringHandler());
-        var stopwatch = Stopwatch.StartNew();
+        var handler = new NeverAnsweringHandler();
+        using var client = new HttpClient(handler);
 
-        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            PackageExtractor.CachedVersionResolutionTimeout);
+
+        Task<PackageExtractionOutcome> extraction = PackageExtractor.ExtractPackageAsync(
             client,
             packageName,
             sourceOptions: s_nugetOrgSource);
 
-        stopwatch.Stop();
+        PackageExtractionOutcome outcome = await extraction.WaitAsync(
+            TimeSpan.FromSeconds(15),
+            TestContext.Current.CancellationToken);
+
         Assert.False(outcome.IsSuccess);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3), stopwatch.Elapsed.ToString());
         Assert.Contains("online lookup timed out", outcome.ErrorMessage);
         Assert.Contains("Locally cached versions: 2.0.0, 1.0.0", outcome.ErrorMessage);
         Assert.Contains(
             $"dotnet-inspect package {packageName}@2.0.0",
             outcome.ErrorMessage);
+        Assert.True(handler.RequestStarted.IsCompletedSuccessfully);
+        Assert.True(handler.CancellationObserved.IsCompletedSuccessfully);
+        Assert.True(
+            handler.CancellationDelay < TimeSpan.FromSeconds(5),
+            handler.CancellationDelay.ToString());
     }
 
     [Theory]
@@ -794,6 +1041,22 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void GetSourceKey_TreatsAFragmentAsPartOfSourceIdentity()
+    {
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
+            NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json#custom"));
+    }
+
+    [Fact]
+    public void GetSourceKey_DistinguishesRepeatedTrailingSlashes()
+    {
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json"),
+            NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json//"));
+    }
+
+    [Fact]
     public void GetSourceKey_DerivesWebSourceIdentityFromTheSharedCanonicalizer()
     {
         // The cache identity and the credential-scope comparison must agree
@@ -810,6 +1073,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             "https://pkgs.invalid/FeedA/v3/index.json",
             "https://pkgs.invalid/v3/index.json?feed=a/",
             "https://pkgs.invalid/v3/index.json?feed=a",
+            "https://pkgs.invalid/v3/index.json#custom",
         ];
 
         foreach (var left in urls)
@@ -922,6 +1186,204 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void PackageAcquisitionIdentity_IncludesAuthorizedProducerOrder()
+    {
+        string producerA = NuGetCache.GetSourceKey(
+            "https://feed-a.invalid/v3/index.json");
+        string producerB = NuGetCache.GetSourceKey(
+            "https://feed-b.invalid/v3/index.json");
+
+        var forward = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producerA, producerB],
+            null,
+            null);
+        var reversed = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producerB, producerA],
+            null,
+            null);
+        var reporterAOnly = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producerA],
+            null,
+            null);
+
+        Assert.NotEqual(forward, reversed);
+        Assert.NotEqual(forward, reporterAOnly);
+    }
+
+    [Fact]
+    public void PackageAcquisitionIdentity_IncludesCredentialTransport()
+    {
+        const string SourceUrl = "https://feed.invalid/v3/index.json";
+        string producer = NuGetCache.GetSourceKey(SourceUrl);
+        using var client = new HttpClient();
+        var stale = new NuGetFetch.PackageSource(
+            "feed",
+            SourceUrl,
+            new NuGetFetch.PackageSourceCredential("user", "stale"));
+        var valid = new NuGetFetch.PackageSource(
+            "feed",
+            SourceUrl,
+            new NuGetFetch.PackageSourceCredential("user", "valid"));
+
+        var staleRequest = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [stale],
+            client);
+        var validRequest = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [valid],
+            client);
+
+        Assert.NotEqual(staleRequest, validRequest);
+        Assert.DoesNotContain("stale", staleRequest.ToString());
+        Assert.DoesNotContain("valid", validRequest.ToString());
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_DoesNotShareFlightsAcrossHttpClients()
+    {
+        string packageName = $"clientflight.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        byte[] archive = CreatePackageArchive(packageName, Version);
+        var firstHandler = new GatedPackageHandler(archive);
+        var secondHandler = new GatedPackageHandler(archive);
+        using var firstClient = new HttpClient(firstHandler);
+        using var secondClient = new HttpClient(secondHandler);
+
+        Task<PackageExtractionOutcome> first =
+            PackageExtractor.ExtractPackageAsync(
+                firstClient,
+                packageName,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+        Task<PackageExtractionOutcome> second =
+            PackageExtractor.ExtractPackageAsync(
+                secondClient,
+                packageName,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        bool[] bothStarted;
+        try
+        {
+            bothStarted = await Task.WhenAll(
+                WaitForRequestCountAsync(
+                    firstHandler,
+                    1,
+                    TimeSpan.FromSeconds(20)),
+                WaitForRequestCountAsync(
+                    secondHandler,
+                    1,
+                    TimeSpan.FromSeconds(20)));
+        }
+        finally
+        {
+            firstHandler.Release();
+            secondHandler.Release();
+        }
+
+        Assert.All(bothStarted, Assert.True);
+        PackageExtractionOutcome[] outcomes = await Task.WhenAll(first, second);
+        Assert.All(outcomes, outcome => Assert.True(outcome.IsSuccess));
+    }
+
+    [Fact]
+    public async Task DiscoveredPackage_DoesNotUsePayloadFromNonReportingActiveSource()
+    {
+        string packageName = $"reporterscope.test.{Guid.NewGuid():N}";
+        const string SelectedVersion = "2.0.0";
+        const string FeedA = "https://feed-a.invalid/v3/index.json";
+        const string FeedB = "https://feed-b.invalid/v3/index.json";
+        string producerA = NuGetCache.GetSourceKey(FeedA);
+        string producerB = NuGetCache.GetSourceKey(FeedB);
+
+        NuGetCache.CommitPackage(
+            CreateExtractedPackage(
+                Path.Combine(_testRoot, "reporter-a"),
+                packageName,
+                "A",
+                payloadCount: 1),
+            nupkgPath: null,
+            packageName,
+            SelectedVersion,
+            producerA);
+
+        byte[] selectedArchive = CreatePackageArchive(
+            packageName,
+            SelectedVersion);
+        var handler = new ReporterScopedPackageHandler(
+            packageName,
+            selectedArchive);
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [FeedA, FeedB],
+                });
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(SelectedVersion, outcome.Result!.Version);
+        Assert.Equal(producerB, outcome.Result.ProducerKey);
+        Assert.Equal(1, handler.PackageDownloadCount);
+        Assert.Equal(
+            NuGetCache.GetPackageCachePath(
+                packageName,
+                SelectedVersion,
+                producerB),
+            outcome.Result.ExtractPath);
+    }
+
+    [Fact]
+    public async Task PinnedPackage_MayUseAnyActiveProducer()
+    {
+        string packageName = $"pinnedscope.test.{Guid.NewGuid():N}";
+        const string Version = "2.0.0";
+        const string FeedA = "https://feed-a.invalid/v3/index.json";
+        const string FeedB = "https://feed-b.invalid/v3/index.json";
+        string producerA = NuGetCache.GetSourceKey(FeedA);
+
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            CreateExtractedPackage(
+                Path.Combine(_testRoot, "pinned-a"),
+                packageName,
+                "A",
+                payloadCount: 1),
+            nupkgPath: null,
+            packageName,
+            Version,
+            producerA);
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [FeedA, FeedB],
+                },
+                version: Version);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(committed.ExtractPath, outcome.Result!.ExtractPath);
+        Assert.Equal(producerA, outcome.Result.ProducerKey);
+    }
+
+    [Fact]
     public void CommitPackage_SecondSourceCommitsAlongsideTheFirst()
     {
         // The same coordinate served by two configured feeds. The second feed
@@ -967,19 +1429,28 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
 
-        Task<CommittedPackage> Publish(string dir, string key) => Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(dir, nupkgPath: null, packageName, Version, key);
-        });
+        Task<CommittedPackage> Publish(string dir, string key) =>
+            StartDedicatedWorker(
+                ready,
+                start,
+                () => NuGetCache.CommitPackage(
+                    dir,
+                    nupkgPath: null,
+                    packageName,
+                    Version,
+                    key));
 
         Task<CommittedPackage> publishA = Publish(sourceA, keyA);
         Task<CommittedPackage> publishB = Publish(sourceB, keyB);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-        start.Set();
-        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        (bool publishersReady, CommittedPackage[] committed) =
+            await WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                TestContext.Current.CancellationToken,
+                publishA,
+                publishB);
+        Assert.True(publishersReady);
 
         Assert.NotEqual(committed[0].ExtractPath, committed[1].ExtractPath);
         AssertNoStagingDirectories(packageName);
@@ -1119,6 +1590,62 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         return path;
     }
 
+    private static Task<T> StartDedicatedWorker<T>(
+        CountdownEvent ready,
+        ManualResetEventSlim start,
+        Func<T> action)
+    {
+        // These tests exercise filesystem concurrency, not ThreadPool scheduling.
+        // Dedicated workers keep a loaded suite from consuming the readiness budget.
+        return Task.Factory.StartNew(
+            () =>
+            {
+                ready.Signal();
+                start.Wait();
+                return action();
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private static async Task<(bool Ready, T[] Results)> WaitForAndJoinWorkersAsync<T>(
+        CountdownEvent ready,
+        ManualResetEventSlim start,
+        CancellationToken cancellationToken,
+        params Task<T>[] workers)
+    {
+        bool workersReady = false;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? cancellation = null;
+        try
+        {
+            workersReady = ready.Wait(
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+        }
+        catch (OperationCanceledException exception)
+        {
+            cancellation =
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            start.Set();
+        }
+
+        T[] results;
+        try
+        {
+            results = await Task.WhenAll(workers);
+        }
+        finally
+        {
+            cancellation?.Throw();
+        }
+
+        return (workersReady, results);
+    }
+
     private static void AssertNoTemporaryDirectories(string prefix)
     {
         Assert.Empty(
@@ -1152,6 +1679,53 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             return;
 
         Assert.Empty(Directory.GetDirectories(parent, ".*.tmp-*"));
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_PackageSourceMappingSelectsEligibleSource()
+    {
+        const string PackageName = "gamma.mapped";
+        const string Version = "1.0.0";
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"acquisition-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="refusing" value="https://refusing.example/v3/index.json" />
+                <add key="serving" value="https://serving.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="serving">
+                  <package pattern="gamma.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        var handler = new RefusesOnePackageHandler(
+            PackageName,
+            CreatePackageArchive(PackageName, Version));
+        using var client = new HttpClient(handler);
+
+        try
+        {
+            PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+                client,
+                PackageName,
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath },
+                version: Version);
+
+            Assert.True(outcome.IsSuccess);
+            Assert.DoesNotContain(
+                handler.Requests,
+                url => url.Contains("refusing.example", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
     }
 
     [Fact]
@@ -1229,10 +1803,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         string refusedPackageId,
         byte[] refusedPackageArchive) : HttpMessageHandler
     {
+        public List<string> Requests { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Uri uri = request.RequestUri!;
+            Requests.Add(uri.AbsoluteUri);
             HttpResponseMessage response;
 
             if (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.OrdinalIgnoreCase))
@@ -1277,12 +1854,40 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     private sealed class NeverAnsweringHandler : HttpMessageHandler
     {
+        private readonly TaskCompletionSource _requestStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _cancellationObserved =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _requestStartedTimestamp;
+        private long _cancellationObservedTimestamp;
+
+        public Task RequestStarted => _requestStarted.Task;
+
+        public Task CancellationObserved => _cancellationObserved.Task;
+
+        public TimeSpan CancellationDelay => Stopwatch.GetElapsedTime(
+            Volatile.Read(ref _requestStartedTimestamp),
+            Volatile.Read(ref _cancellationObservedTimestamp));
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            throw new InvalidOperationException("The request should have been canceled.");
+            Volatile.Write(ref _requestStartedTimestamp, Stopwatch.GetTimestamp());
+            _requestStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The request should have been canceled.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Volatile.Write(
+                    ref _cancellationObservedTimestamp,
+                    Stopwatch.GetTimestamp());
+                _cancellationObserved.TrySetResult();
+                throw;
+            }
         }
     }
 
@@ -1334,6 +1939,108 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                     Content = new ByteArrayContent(_responses.Dequeue()),
                 });
         }
+    }
+
+    private sealed class ReporterScopedPackageHandler(
+        string packageName,
+        byte[] packageArchive)
+        : HttpMessageHandler
+    {
+        private readonly string _normalizedName =
+            packageName.ToLowerInvariant();
+        private int _packageDownloadCount;
+
+        public int PackageDownloadCount =>
+            Volatile.Read(ref _packageDownloadCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url == "https://feed-a.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == "https://feed-b.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == $"https://content-a.invalid/flat/{_normalizedName}/index.json")
+                return Json("""{"versions":["1.0.0"]}""");
+            if (url == $"https://content-b.invalid/flat/{_normalizedName}/index.json")
+                return Json("""{"versions":["2.0.0"]}""");
+            if (url == $"https://content-b.invalid/flat/{_normalizedName}/2.0.0/{_normalizedName}.2.0.0.nupkg")
+            {
+                Interlocked.Increment(ref _packageDownloadCount);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(packageArchive),
+                });
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+
+        private static Task<HttpResponseMessage> Json(string body) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+            });
+    }
+
+    private sealed class CoordinateScopedRedirectHandler(
+        string wrapperPackage,
+        string payloadPackage,
+        byte[] wrapperArchive,
+        byte[] payloadArchive)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url == "https://feed-a.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == "https://feed-b.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == NupkgUrl("content-a", wrapperPackage))
+                return Bytes(wrapperArchive);
+            if (url == NupkgUrl("content-b", payloadPackage))
+                return Bytes(payloadArchive);
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+
+        private static string NupkgUrl(string host, string packageName)
+            => $"https://{host}.invalid/flat/{packageName}/1.0.0/{packageName}.1.0.0.nupkg";
+
+        private static Task<HttpResponseMessage> Json(string body)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+            });
+
+        private static Task<HttpResponseMessage> Bytes(byte[] body)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+            });
     }
 
     private sealed class FailingHandler : HttpMessageHandler

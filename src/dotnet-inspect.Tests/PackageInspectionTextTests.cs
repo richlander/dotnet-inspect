@@ -24,6 +24,10 @@ public class PackageInspectionTextTests
             [typeof(PackageDependency)] = typeof(PackageDependencyText),
             [typeof(PackageFile)] = typeof(PackageFileText),
             [typeof(PackageSourceFileInfo)] = typeof(PackageSourceFileText),
+            [typeof(PackageSourceLinkIssue)] = typeof(PackageSourceLinkIssueText),
+            [typeof(PackageSourceLinkFile)] = typeof(PackageSourceLinkFileText),
+            [typeof(PackageSourceAvailability)] = typeof(PackageSourceAvailabilityText),
+            [typeof(PackageSourceIntegrity)] = typeof(PackageSourceIntegrityText),
             [typeof(SignatureVerificationResult)] = typeof(PackageSignatureText),
             [typeof(AuditSignal)] = typeof(PackageAuditSignalText),
         };
@@ -132,6 +136,42 @@ public class PackageInspectionTextTests
                 result => result.SourceFiles![0] = result.SourceFiles[0] with { Type = Hazard },
             [$"{nameof(InspectionResult.SourceFiles)}[].{nameof(PackageSourceFileInfo.Url)}"] =
                 result => result.SourceFiles![0] = result.SourceFiles[0] with { Url = Hazard },
+            [$"{nameof(InspectionResult.SourceAvailability)}.{nameof(PackageSourceAvailability.MissingFiles)}[].{nameof(PackageSourceLinkFile.Library)}"] =
+                result => result.SourceAvailability!.MissingFiles![0] =
+                    result.SourceAvailability.MissingFiles[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceAvailability)}.{nameof(PackageSourceAvailability.MissingFiles)}[].{nameof(PackageSourceLinkFile.Path)}"] =
+                result => result.SourceAvailability!.MissingFiles![0] =
+                    result.SourceAvailability.MissingFiles[0] with { Path = Hazard },
+            [$"{nameof(InspectionResult.SourceAvailability)}.{nameof(PackageSourceAvailability.UnavailableLibraries)}[].{nameof(PackageSourceLinkIssue.Library)}"] =
+                result => result.SourceAvailability!.UnavailableLibraries![0] =
+                    result.SourceAvailability.UnavailableLibraries[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceAvailability)}.{nameof(PackageSourceAvailability.UnavailableLibraries)}[].{nameof(PackageSourceLinkIssue.Reason)}"] =
+                result => result.SourceAvailability!.UnavailableLibraries![0] =
+                    result.SourceAvailability.UnavailableLibraries[0] with { Reason = Hazard },
+            [$"{nameof(InspectionResult.SourceAvailability)}.{nameof(PackageSourceAvailability.FailedLibraries)}[].{nameof(PackageSourceLinkIssue.Library)}"] =
+                result => result.SourceAvailability!.FailedLibraries![0] =
+                    result.SourceAvailability.FailedLibraries[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceAvailability)}.{nameof(PackageSourceAvailability.FailedLibraries)}[].{nameof(PackageSourceLinkIssue.Reason)}"] =
+                result => result.SourceAvailability!.FailedLibraries![0] =
+                    result.SourceAvailability.FailedLibraries[0] with { Reason = Hazard },
+            [$"{nameof(InspectionResult.SourceIntegrity)}.{nameof(PackageSourceIntegrity.MismatchedFiles)}[].{nameof(PackageSourceLinkFile.Library)}"] =
+                result => result.SourceIntegrity!.MismatchedFiles![0] =
+                    result.SourceIntegrity.MismatchedFiles[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceIntegrity)}.{nameof(PackageSourceIntegrity.MismatchedFiles)}[].{nameof(PackageSourceLinkFile.Path)}"] =
+                result => result.SourceIntegrity!.MismatchedFiles![0] =
+                    result.SourceIntegrity.MismatchedFiles[0] with { Path = Hazard },
+            [$"{nameof(InspectionResult.SourceIntegrity)}.{nameof(PackageSourceIntegrity.UnavailableLibraries)}[].{nameof(PackageSourceLinkIssue.Library)}"] =
+                result => result.SourceIntegrity!.UnavailableLibraries![0] =
+                    result.SourceIntegrity.UnavailableLibraries[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceIntegrity)}.{nameof(PackageSourceIntegrity.UnavailableLibraries)}[].{nameof(PackageSourceLinkIssue.Reason)}"] =
+                result => result.SourceIntegrity!.UnavailableLibraries![0] =
+                    result.SourceIntegrity.UnavailableLibraries[0] with { Reason = Hazard },
+            [$"{nameof(InspectionResult.SourceIntegrity)}.{nameof(PackageSourceIntegrity.FailedLibraries)}[].{nameof(PackageSourceLinkIssue.Library)}"] =
+                result => result.SourceIntegrity!.FailedLibraries![0] =
+                    result.SourceIntegrity.FailedLibraries[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceIntegrity)}.{nameof(PackageSourceIntegrity.FailedLibraries)}[].{nameof(PackageSourceLinkIssue.Reason)}"] =
+                result => result.SourceIntegrity!.FailedLibraries![0] =
+                    result.SourceIntegrity.FailedLibraries[0] with { Reason = Hazard },
             [$"{nameof(InspectionResult.SignatureResult)}.{nameof(SignatureVerificationResult.Publisher)}"] =
                 result => result.SignatureResult = result.SignatureResult! with { Publisher = Hazard },
             [$"{nameof(InspectionResult.SignatureResult)}.{nameof(SignatureVerificationResult.Repository)}"] =
@@ -490,6 +530,25 @@ public class PackageInspectionTextTests
             Files = [new PackageFile(value, 42)],
             PackageFiles = [new PackageFile(value, 42)],
             SourceFiles = [new PackageSourceFileInfo(value, value, value)],
+            SourceAvailability = new PackageSourceAvailability(
+                1,
+                1,
+                1,
+                1,
+                0,
+                [new PackageSourceLinkFile(value, value)],
+                [new PackageSourceLinkIssue(value, value)],
+                [new PackageSourceLinkIssue(value, value)]),
+            SourceIntegrity = new PackageSourceIntegrity(
+                1,
+                1,
+                1,
+                1,
+                0,
+                0,
+                [new PackageSourceLinkFile(value, value)],
+                [new PackageSourceLinkIssue(value, value)],
+                [new PackageSourceLinkIssue(value, value)]),
             SignatureResult = new SignatureVerificationResult
             {
                 Publisher = value,

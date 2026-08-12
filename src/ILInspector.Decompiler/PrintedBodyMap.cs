@@ -19,9 +19,15 @@ public readonly record struct PrintedExtent(
 /// <summary>
 /// Where one node's characters landed, in text coordinates.
 /// </summary>
-/// <param name="Kind">The node kind that printed these characters, e.g. <c>NewObject</c>.</param>
+/// <param name="Id">
+/// This node's identity within its containing <see cref="PrintedBodyMap"/>:
+/// contiguous from <c>0</c> in list order, so a reference to a node is an
+/// integer rather than a re-match on coordinates. The id is scoped to the map
+/// that minted it and means nothing outside it.
+/// </param>
+/// <param name="Kind">The stable rendered-syntax kind for these characters, e.g. <c>ObjectCreationExpression</c>.</param>
 /// <param name="Extent">The exact characters the node printed.</param>
-public readonly record struct PrintedNodeSpan(string Kind, PrintedExtent Extent);
+public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent Extent);
 
 /// <summary>
 /// One fact, positioned at the characters it is about.
@@ -29,10 +35,17 @@ public readonly record struct PrintedNodeSpan(string Kind, PrintedExtent Extent)
 /// <param name="Descriptor">The fact family's id, e.g. <c>alloc.new</c>.</param>
 /// <param name="Category">The fact family's category, e.g. <c>Allocation</c>. Carried because a gesture selector chooses on category as well as id, and a consumer holding only this payload must be able to make that choice.</param>
 /// <param name="Conditionality">How often the fact materialises at run time. Carried because it is part of the rendered label — <c>AnnotationText</c> appends <c>cached-once</c> or <c>per-iteration</c> — so a consumer holding only this payload would otherwise render a <em>different</em> annotation than the in-process renderer, silently promoting a cached allocation to an unconditional one.</param>
-/// <param name="Kind">The node kind the fact was found on.</param>
+/// <param name="Kind">The stable rendered-syntax kind the extent names, e.g. <c>ObjectCreationExpression</c> for C# or <c>Instruction</c> for IL.</param>
 /// <param name="Extent">The exact characters the fact is about, or <see langword="null"/> when the node could not be placed.</param>
 /// <param name="Detail">Rendered specifics, e.g. the allocated type name.</param>
 /// <param name="SourceOffset">IL offset of the originating instruction, or <c>-1</c> when unknown.</param>
+/// <param name="NodeId">
+/// The <see cref="PrintedNodeSpan.Id"/> of the canonical surface-syntax node
+/// this fact was placed on, or <see langword="null"/> when it could not be
+/// placed. Minted while the contributing <c>IrNode</c> identities are still
+/// alive; implementation nodes that produce the same <paramref name="Kind"/>
+/// and <paramref name="Extent"/> intentionally share one id.
+/// </param>
 public readonly record struct PrintedAnnotationSpan(
     string Descriptor,
     string Category,
@@ -40,7 +53,8 @@ public readonly record struct PrintedAnnotationSpan(
     string Kind,
     PrintedExtent? Extent,
     string? Detail,
-    int SourceOffset);
+    int SourceOffset,
+    int? NodeId);
 
 /// <summary>Which syntactic part of a compound construct a printed region represents.</summary>
 public enum PrintedRegionRole
@@ -78,12 +92,12 @@ public readonly record struct PrintedRegion(PrintedRegionRole Role, PrintedExten
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the map a consumer outside the decompiler can actually use. The rich
-/// map the printer builds (<see cref="PrintedRangeMap"/>) is keyed by
-/// <see cref="IrNode"/>, whose identity is the CLR object reference, so it is
-/// only meaningful while its object graph is alive and in this process. Nothing
-/// here is a reference: an extent and a name. It serialises,
-/// travels, and replays.
+/// This is the body-local <em>printer projection</em>: the bridge between the
+/// rich map the printer builds (<see cref="PrintedRangeMap"/>) and anything that
+/// has to outlive it. That map is keyed by <see cref="IrNode"/>, whose identity
+/// is the CLR object reference, so it is only meaningful while its object graph
+/// is alive and in this process. Nothing here is a reference: an extent, a name,
+/// and an integer id. It serialises, travels, and replays.
 /// </para>
 /// <para>
 /// It is also the separation of concerns the caret gesture wants. Rendering a
@@ -94,11 +108,22 @@ public readonly record struct PrintedRegion(PrintedRegionRole Role, PrintedExten
 /// </para>
 /// <para>
 /// The three lists answer different questions and are deliberately not merged:
-/// <see cref="Nodes"/> says what each IR node printed,
+/// <see cref="Nodes"/> says what rendered syntax each mapped IR node printed,
 /// <see cref="Regions"/> names the syntactic parts of compound constructs, and
 /// <see cref="Annotations"/> is the much smaller set of facts worth reporting.
 /// A caret renderer needs only the annotations; a tool correlating structure to
 /// text can also consume nodes and regions.
+/// </para>
+/// <para>
+/// This map stays deliberately denormalized — a placed annotation repeats the
+/// kind and extent of the node it sits on — because a caret renderer wants one
+/// self-describing row. What it no longer leaves implicit is the <em>join</em>:
+/// <see cref="PrintedAnnotationSpan.NodeId"/> names the canonical
+/// <see cref="PrintedNodeSpan.Id"/> the fact was placed on. It is minted while
+/// <see cref="IrNode"/> identity is still alive, after implementation wrappers
+/// with the same rendered kind and extent have been normalized to one surface
+/// node. The portable document form (<see cref="AnnotatedSourceDocument"/>)
+/// carries that established join rather than re-deriving it.
 /// </para>
 /// <para>
 /// <see cref="Nodes"/> and <see cref="Regions"/> form a laminar family: any two
@@ -116,9 +141,9 @@ public sealed record PrintedBodyMap
     /// invariants.
     /// </summary>
     /// <param name="Lines">The printed body, split into lines.</param>
-    /// <param name="Nodes">Every node whose exact printed extent is known.</param>
+    /// <param name="Nodes">Every distinct kind-and-extent pair whose exact printed extent is known, with ids contiguous from <c>0</c> in list order.</param>
     /// <param name="Regions">Named construct and clause regions recorded during emission.</param>
-    /// <param name="Annotations">Every fact, with its exact node extent when one is known.</param>
+    /// <param name="Annotations">Every fact, with its exact node extent and node id when one is known.</param>
     public PrintedBodyMap(
         IReadOnlyList<string> Lines,
         IReadOnlyList<PrintedNodeSpan> Nodes,
@@ -137,10 +162,17 @@ public sealed record PrintedBodyMap
         var regions = Regions.ToArray();
         var annotations = Annotations.ToArray();
 
-        foreach (var node in nodes)
+        for (int index = 0; index < nodes.Length; index++)
         {
+            var node = nodes[index];
             if (node.Kind is null)
                 throw new ArgumentException("Node kinds cannot be null.", nameof(Nodes));
+            if (node.Id != index)
+            {
+                throw new ArgumentException(
+                    $"Node ids must be contiguous from 0 in list order; slot {index} carries id {node.Id}.",
+                    nameof(Nodes));
+            }
             ValidateExtent(node.Extent, lines, nameof(Nodes));
         }
         foreach (var region in regions)
@@ -150,20 +182,34 @@ public sealed record PrintedBodyMap
             ValidateExtent(region.Extent, lines, nameof(Regions));
         }
 
-        var nodeSet = nodes
-            .Select(node => (node.Kind, node.Extent))
-            .ToHashSet();
         foreach (var annotation in annotations)
         {
             if (annotation.Kind is null)
                 throw new ArgumentException("Annotation node kinds cannot be null.", nameof(Annotations));
             if (annotation.Extent is not { } extent)
+            {
+                if (annotation.NodeId is not null)
+                {
+                    throw new ArgumentException(
+                        $"Unplaced annotation {annotation.Descriptor} cannot name a node.",
+                        nameof(Annotations));
+                }
                 continue;
+            }
             ValidateExtent(extent, lines, nameof(Annotations));
-            if (!nodeSet.Contains((annotation.Kind, extent)))
+            if (annotation.NodeId is not { } nodeId
+                || nodeId < 0
+                || nodeId >= nodes.Length)
             {
                 throw new ArgumentException(
-                    $"Placed annotation {annotation.Descriptor} has no matching {annotation.Kind} node extent.",
+                    $"Placed annotation {annotation.Descriptor} must name an existing node.",
+                    nameof(Annotations));
+            }
+            var target = nodes[nodeId];
+            if (target.Kind != annotation.Kind || target.Extent != extent)
+            {
+                throw new ArgumentException(
+                    $"Placed annotation {annotation.Descriptor} names node {nodeId}, which is not the {annotation.Kind} it claims.",
                     nameof(Annotations));
             }
         }
@@ -180,7 +226,7 @@ public sealed record PrintedBodyMap
     /// <summary>The printed body, split into lines.</summary>
     public IReadOnlyList<string> Lines { get; }
 
-    /// <summary>Every node whose exact printed extent is known.</summary>
+    /// <summary>Every distinct kind-and-extent pair whose exact printed extent is known, with ids contiguous from <c>0</c> in list order.</summary>
     public IReadOnlyList<PrintedNodeSpan> Nodes { get; }
 
     /// <summary>Named construct and clause regions in canonical coordinate order.</summary>
@@ -217,7 +263,9 @@ public sealed record PrintedBodyMap
         if (c != 0) return c;
         c = a.Conditionality.CompareTo(b.Conditionality);
         if (c != 0) return c;
-        return string.CompareOrdinal(a.Detail, b.Detail);
+        c = string.CompareOrdinal(a.Detail, b.Detail);
+        if (c != 0) return c;
+        return Nullable.Compare(a.NodeId, b.NodeId);
     }
 
     /// <summary>An empty map.</summary>
@@ -243,31 +291,25 @@ public sealed record PrintedBodyMap
     {
         ArgumentNullException.ThrowIfNull(ranges);
 
-        string[] lines = ranges.Output.Length == 0
-            ? []
-            : ranges.Output.Split('\n');
-
-        var nodes = new List<PrintedNodeSpan>(ranges.Count);
-        foreach (var printed in ranges)
-        {
-            if (ranges.TryGetExtent(printed.Node, out var extent))
-                nodes.Add(new PrintedNodeSpan(printed.Node.GetType().Name, extent));
-        }
-
-        var regions = new List<PrintedRegion>(ranges.PrintedRegions.Count);
-        foreach (var printed in ranges.PrintedRegions)
-            if (ranges.TryGetExtent(printed.Characters, out var extent))
-                regions.Add(new PrintedRegion(printed.Role, extent));
+        var (lines, nodes, regions, nodeIds) = Project(ranges);
 
         var facts = new List<PrintedAnnotationSpan>();
         if (annotations is not null)
         {
             foreach (var (node, found) in annotations)
             {
-                PrintedExtent? extent = ranges.TryGetExtent(node, out var placed)
-                    ? placed
-                    : null;
-                string kind = node.GetType().Name;
+                PrintedExtent? extent = null;
+                int? nodeId = null;
+                if (nodeIds.TryGetValue(node, out int id))
+                {
+                    extent = nodes[id].Extent;
+                    nodeId = id;
+                }
+                string kind = nodeId is { } placedId
+                    ? nodes[placedId].Kind
+                    : ranges.TryGetNodeKind(node, out string? renderedKind)
+                        ? renderedKind
+                        : AnnotatedSourceNodeKindProjection.From(node);
                 foreach (var annotation in found)
                 {
                     facts.Add(new PrintedAnnotationSpan(
@@ -277,11 +319,151 @@ public sealed record PrintedBodyMap
                         kind,
                         extent,
                         annotation.Detail,
-                        annotation.SourceOffset));
+                        annotation.SourceOffset,
+                        nodeId));
                 }
             }
         }
 
+        facts.Sort(Compare);
+
+        return new PrintedBodyMap(lines, nodes, regions, facts);
+    }
+
+    /// <summary>
+    /// Mints node ids while <see cref="IrNode"/> identity is still alive, and
+    /// returns the map from node to id alongside the portable rows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="PrintedRangeMap"/> promises only that descendants precede
+    /// ancestors; sibling order is whatever emission happened to produce. Ids cut
+    /// from that order directly would therefore be reproducible only by accident,
+    /// so rows are canonicalized first — by extent, then by kind, and for an exact
+    /// tie by the original recording slot, which is deterministic within a print
+    /// and is the only thing left that can separate two rows that agree on
+    /// everything portable.
+    /// </para>
+    /// <para>
+    /// The <see cref="IrNode"/> keys are carried through that reordering rather
+    /// than re-matched afterwards. When several implementation nodes print the
+    /// same characters under the same kind, every contributing identity is
+    /// assigned the one normalized surface-node id.
+    /// </para>
+    /// </remarks>
+    static (
+        string[] Lines,
+        PrintedNodeSpan[] Nodes,
+        List<PrintedRegion> Regions,
+        Dictionary<IrNode, int> NodeIds) Project(PrintedRangeMap ranges)
+    {
+        string[] lines = ranges.Output.Length == 0
+            ? []
+            : ranges.Output.Split('\n');
+
+        var recorded = new List<(IrNode Node, string Kind, PrintedExtent Extent, int Slot)>(ranges.Count);
+        int slot = 0;
+        foreach (var printed in ranges)
+        {
+            if (ranges.TryGetExtent(printed.Node, out var extent))
+            {
+                string kind = ranges.TryGetNodeKind(printed.Node, out string? renderedKind)
+                    ? renderedKind
+                    : AnnotatedSourceNodeKindProjection.From(printed.Node);
+                recorded.Add((printed.Node, kind, extent, slot));
+            }
+            slot++;
+        }
+        recorded.Sort(static (a, b) =>
+        {
+            int c = Compare(a.Extent, b.Extent);
+            if (c != 0) return c;
+            c = string.CompareOrdinal(a.Kind, b.Kind);
+            return c != 0 ? c : a.Slot.CompareTo(b.Slot);
+        });
+
+        var nodes = new List<PrintedNodeSpan>(recorded.Count);
+        var nodeIds = new Dictionary<IrNode, int>(recorded.Count, ReferenceEqualityComparer.Instance);
+        foreach (var (node, kind, extent, _) in recorded)
+        {
+            int id;
+            if (nodes.Count > 0
+                && nodes[^1].Kind == kind
+                && nodes[^1].Extent == extent)
+            {
+                id = nodes.Count - 1;
+            }
+            else
+            {
+                id = nodes.Count;
+                nodes.Add(new PrintedNodeSpan(id, kind, extent));
+            }
+            nodeIds[node] = id;
+        }
+
+        var regions = new List<PrintedRegion>(ranges.PrintedRegions.Count);
+        foreach (var printed in ranges.PrintedRegions)
+            if (ranges.TryGetExtent(printed.Characters, out var extent))
+                regions.Add(new PrintedRegion(printed.Role, extent));
+
+        return (lines, [.. nodes], regions, nodeIds);
+    }
+
+    /// <summary>
+    /// Projects facts onto their narrowest printed nodes, preserving facts with
+    /// no C# placement as annotations with null extents.
+    /// </summary>
+    /// <param name="ranges">The printer's node-keyed character ranges.</param>
+    /// <param name="function">The printed function after raising or lowering.</param>
+    /// <param name="annotations">The complete fact set for the member.</param>
+    /// <returns>A portable C# body map with precise fact extents where available.</returns>
+    public static PrintedBodyMap Create(
+        PrintedRangeMap ranges,
+        IrFunction function,
+        IReadOnlyList<IAnnotation> annotations)
+    {
+        ArgumentNullException.ThrowIfNull(ranges);
+        ArgumentNullException.ThrowIfNull(function);
+        ArgumentNullException.ThrowIfNull(annotations);
+
+        var (lines, nodes, regions, nodeIds) = Project(ranges);
+        var printedNodes = AnnotationAnchor.ComputePrintedNodes(annotations, function, ranges);
+        var statementSpans = AnnotationAnchor.ComputeSpans(function);
+        var facts = new List<PrintedAnnotationSpan>(annotations.Count);
+        foreach (var annotation in annotations)
+        {
+            PrintedExtent? extent = null;
+            int? nodeId = null;
+            string kind;
+            if (printedNodes.TryGetValue(annotation, out var printed)
+                && nodeIds.TryGetValue(printed, out int id))
+            {
+                extent = nodes[id].Extent;
+                nodeId = id;
+                kind = nodes[id].Kind;
+            }
+            else
+            {
+                var fallback = printed
+                    ?? AnnotationAnchor.Best(statementSpans, annotation.SourceOffset);
+                kind = fallback is not null
+                    && ranges.TryGetNodeKind(fallback, out string? renderedKind)
+                        ? renderedKind
+                        : fallback is not null
+                            ? AnnotatedSourceNodeKindProjection.From(fallback)
+                            : AnnotatedSourceNodeKindProjection.From(function);
+            }
+
+            facts.Add(new PrintedAnnotationSpan(
+                annotation.Descriptor.Id,
+                annotation.Descriptor.Category.ToString(),
+                annotation.Conditionality,
+                kind,
+                extent,
+                annotation.Detail,
+                annotation.SourceOffset,
+                nodeId));
+        }
         facts.Sort(Compare);
 
         return new PrintedBodyMap(lines, nodes, regions, facts);
@@ -319,7 +501,7 @@ public sealed record PrintedBodyMap
         return c != 0 ? c : column.CompareTo(otherColumn);
     }
 
-    static void ValidateExtent(PrintedExtent extent, IReadOnlyList<string> lines, string parameterName)
+    internal static void ValidateExtent(PrintedExtent extent, IReadOnlyList<string> lines, string parameterName)
     {
         if (extent.StartLine < 0 || extent.StartLine >= lines.Count
             || extent.EndLine < 0 || extent.EndLine >= lines.Count)

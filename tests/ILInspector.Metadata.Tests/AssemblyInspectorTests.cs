@@ -29,4 +29,18 @@ public sealed class AssemblyInspectorTests
         var expectedToken = Convert.ToHexString(expectedTokenBytes).ToLowerInvariant();
         Assert.Equal(expectedToken, info.PublicKeyToken);
     }
+
+    [Fact]
+    public void ExtractReferences_OpenImage_MatchesAssemblyInfoProjection()
+    {
+        using var stream = File.OpenRead(typeof(AssemblyInspectorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var references = AssemblyInspector.ExtractReferences(peReader);
+        var assemblyInfo = AssemblyInspector.ExtractAssemblyInfo(
+            peReader,
+            includeReferences: true);
+
+        Assert.Equal(assemblyInfo.References, references);
+    }
 }

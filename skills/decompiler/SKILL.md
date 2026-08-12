@@ -1,15 +1,18 @@
 ---
 name: dotnet-inspect-decompiler
 version: 0.1.0
-description: Reconstruct a method or type locally as C# and IL — decompiled source, annotated source with hidden facts, raw IL, fidelity levels, and IL-offset lookup. Always local, no network.
+description: Reconstruct a method or type as C# and IL — decompiled source, annotated source with hidden facts, raw IL, fidelity levels, and IL-offset lookup. Use --offline to prohibit package and PDB network acquisition.
 ---
 
 # dotnet-inspect: decompiler and IL
 
 Use this skill to understand how code actually works from the assembly you have.
-The decompiler is local and always available (no network), and the IL and
-annotated views can reveal more than the original source. For the authoritative
-original source as written by the author, use the `sourcelink` skill.
+The decompiler runs locally against the acquired assembly, and the IL and
+annotated views can reveal more than the original source. Package and PDB
+acquisition can use the network; add `--offline` to prohibit network access.
+For authored original source, use the `sourcelink` skill and follow its
+checksum-verification boundaries before treating fetched content as
+authoritative.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -17,24 +20,65 @@ dnx dotnet-inspect -y -- <command>
 
 ## Decompiled source and IL
 
-A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
-Use `-S @Source` for the full local evidence set (it also pulls `Original
-Source` when SourceLink is available — see the `sourcelink` skill):
+A selected overload and bare `-S` both render its bounded `Signature` overview.
+Select `Decompiled Source` explicitly when implementation evidence is the
+question. Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the
+full zero-network evidence set:
 
-- `Decompiled Source` — raised, lowered C# (readable best-effort).
+- `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
+  PDB names use byte-preserving type/role-derived names by default.
 - `Annotated Source` — C# with hidden-fact comments and interleaved IL.
 - `IL` — raw IL, the highest-fidelity view.
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
+`-S @Source` is broader and may fetch network `Original Source` content when
+SourceLink is available; that network body is not checksum-verified by default.
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S @Source
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json \
+  Serialize:1 -S "Decompiled Source,Annotated Source,IL" --offline
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Annotated Source"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source" --bare
-dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S @Source
+dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled Source,Annotated Source,IL"
+```
+
+## Search rendered body shapes
+
+Use `body-shape` when the question is "which methods contain this C# syntax?"
+The query is exact and assembly-scoped: its positional value is a stable
+rendered-syntax kind such as `ObjectCreationExpression`, `TryStatement`, or
+`ElementAccessExpression`, not an IR class name or text pattern. It returns the
+containing stable member selector and MethodDef token, a one-based start/end
+range, and the exact selected text. Public surface members are searched by
+default; add `--all` for non-public, hidden, and obsolete members. Bodies below
+`Full` fidelity are skipped and reported; add `--verbose` for per-member detail.
+
+```bash
+dnx dotnet-inspect -y -- body-shape ObjectCreationExpression --library MyLib.dll
+dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
+dnx dotnet-inspect -y -- body-shape ElementAccessExpression --library MyLib.dll --limit 20 --tsv
+```
+
+The search runs the decompiler for each candidate body; it is intentionally
+explicit and may be expensive on a large library. `--json` preserves multi-line
+match text and zero-based `extent` coordinates; table and TSV output present
+the same coordinates as one-based line/column fields.
+
+### Readability and taste
+
+`--readable-names` replaces compiler-style local names such as `V_0` where the
+body provides a stable readable alternative. It is independent of C# taste
+options. A tool-owned `.dotnet-inspectconfig`, discovered by walking up from the
+working directory, selects configured spellings; `--taste` requests the full
+supported taste set for one invocation. `Applied Taste` reports which choices
+actually changed the rendered body.
+
+```bash
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Decompiled Source,Applied Taste" --taste --readable-names
 ```
 
 ### Focusing annotations
@@ -64,8 +108,8 @@ degradation. `Decompiled Source` is lowered C#; raw/annotated `IL` is highest
 fidelity.
 
 If decompiled output looks wrong, capture `Decompiled Source`, `Annotated
-Source`, `Original Source` (via the `sourcelink` skill), and `IL` together;
-maintainers diagnose pipeline state with DecompilerHarness.
+Source`, `Original Source`, `Source Diff` (via the `sourcelink` skill), and `IL`
+together; maintainers diagnose pipeline state with DecompilerHarness.
 
 Select `Fidelity Causes` for the typed `DEC####` cause census behind that
 fidelity grade. It distinguishes a Full method (complete, no causes), a method
@@ -82,5 +126,8 @@ dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
 ```
 
 Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL offset) to
-map a crash location back to the method and source. For call edges (what a method
+compose its default source-location, member, instruction, exception, callsite,
+and return-address sections. Allocation, safety, and cost are opt-in; request
+them with `-S "Context: Allocation,Context: Safety,Context: Cost"`. Use
+`--il-offsets coordinates.txt` for a sparse batch. For call edges (what a method
 calls, who calls it), see the `relationships` skill.

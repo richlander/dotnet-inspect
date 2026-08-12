@@ -5,6 +5,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.Instructions;
 using DotnetInspector.RoundTripCompilation;
+using DotnetInspector.Services;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -12,6 +13,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -891,11 +893,17 @@ public class ReturnToSenderPrototypeTests
             Assert.False(all.UsedCompileBackFloor, all.Detail);
             Assert.NotNull(cluster.Compilation);
             Assert.NotNull(all.Compilation);
+            Assert.Same(
+                cluster.FinalRequest!.CompilationClosure,
+                all.FinalRequest!.CompilationClosure);
             Assert.NotNull(cluster.DonorPe);
             Assert.NotNull(all.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.ContextFail, all.Status);
-            Assert.Equal(RoundTripScopeComparisonStatus.Completed, pair.Comparison.Status);
+            Assert.True(
+                pair.Comparison.Status
+                    == RoundTripScopeComparisonStatus.Completed,
+                pair.Comparison.Failure);
             var comparison = Assert.Single(pair.Comparison.Members);
             Assert.Equal(RoundTripEvidenceStatus.Exact, comparison.CSharpStatus);
             Assert.Equal(IlBodyDiffOutcome.Exact, comparison.IlStatus);
@@ -1226,6 +1234,497 @@ public class ReturnToSenderPrototypeTests
                     StringComparison.Ordinal),
                 result.Source);
             Assert.DoesNotContain("System_Collections_IEnumerable_GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var baseFacadePath = CompileFixture(
+            "namespace RtsForwardBase { public interface IBase { } }",
+            directory: fixtureDir,
+            assemblyName: "RtsForwardBaseFacade");
+        var facadePath = CompileFixture(
+            """
+            namespace RtsForward
+            {
+                public interface IProbe : RtsForwardBase.IBase
+                {
+                    void Target();
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardFacade",
+            additionalReferences: [MetadataReference.CreateFromFile(baseFacadePath)]);
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class ForwardedImpl : RtsForward.IProbe
+            {
+                void RtsForward.IProbe.Target() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences:
+            [
+                MetadataReference.CreateFromFile(facadePath),
+                MetadataReference.CreateFromFile(baseFacadePath),
+            ]);
+        var targetPath = CompileFixture(
+            """
+            namespace RtsForward
+            {
+                public interface IProbe : RtsForwardBase.IBase
+                {
+                    void Target();
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardTarget",
+            additionalReferences: [MetadataReference.CreateFromFile(baseFacadePath)]);
+        var baseTargetPath = CompileFixture(
+            "namespace RtsForwardBase { public interface IBase { } }",
+            directory: fixtureDir,
+            assemblyName: "RtsForwardBaseTarget");
+        CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(RtsForwardBase.IBase))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardBaseFacade",
+            additionalReferences: [MetadataReference.CreateFromFile(baseTargetPath)]);
+        CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(RtsForward.IProbe))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardFacade",
+            additionalReferences: [MetadataReference.CreateFromFile(targetPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ForwardedImpl",
+                    "RtsForward.IProbe.Target",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "RtsForward.IProbe.Target()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "RtsForward_IProbe_Target",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.Serialization.IJsonOnDeserialized)
+            .Assembly.Location;
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class ExactCopyImpl :
+                System.Text.Json.Serialization.IJsonOnDeserialized
+            {
+                void System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.Copy(
+            platformPath,
+            Path.Combine(fixtureDir, "System.Text.Json.dll"));
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExactCopyImpl",
+                    "System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "IJsonOnDeserialized.OnDeserialized()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DeclinesDirectSignedInterfaceSpoof()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.Serialization.IJsonOnDeserialized)
+            .Assembly.Location;
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class SpoofedImpl :
+                System.Text.Json.Serialization.IJsonOnDeserialized
+            {
+                void System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "System.Text.Json.dll"),
+            BuildConfusableInterfaceAssemblyImage(
+                platformPath,
+                "System.Text.Json.Serialization",
+                "IJsonOnDeserialized",
+                "OnDeserialized"));
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "SpoofedImpl",
+                    "System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized",
+                    0)]));
+
+            Assert.Contains(
+                "System_Text_Json_Serialization_IJsonOnDeserialized_OnDeserialized",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "IJsonOnDeserialized.OnDeserialized()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackPropertyGetters_SharesOneCompilationClosure()
+    {
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class Fixture
+            {
+                public int First => 1;
+                public int Second => 2;
+            }
+            """);
+        try
+        {
+            IReadOnlyList<ReturnToSender.Result> results =
+                ReturnToSender.CompileBackPropertyGetters(
+                    assemblyPath,
+                    maxTargets: 2);
+
+            Assert.Equal(2, results.Count);
+            Assert.Same(
+                results[0].FinalRequest!.CompilationClosure,
+                results[1].FinalRequest!.CompilationClosure);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string dependencyPath = CompileFixture(
+            "public interface IBefore { void M(); }",
+            directory: fixtureDir,
+            assemblyName: "RtsSnapshotDependency");
+        var dependency = ResolvedAssemblyReference.CreateFromPath(
+            dependencyPath,
+            AssemblyResolutionProvenance.Local("test"));
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        try
+        {
+            var closure = ReturnToSender.CreateCompilationClosure(assemblyPath);
+
+            CompileFixture(
+                "public interface IAfter { void M(); }",
+                directory: fixtureDir,
+                assemblyName: "RtsSnapshotDependency");
+
+            ResolvedAssemblyReference frozen = Assert.IsType<ResolvedAssemblyReference>(
+                closure.Resolver.Resolve(
+                    dependency.Identity,
+                    AssemblyResolutionScope.Any));
+            using Stream frozenStream = frozen.OpenRead();
+            using var frozenPe = new PEReader(frozenStream);
+            Assert.True(
+                ContainsType(
+                    frozenPe.GetMetadataReader(),
+                    "IBefore"));
+            Assert.False(
+                ContainsType(
+                    frozenPe.GetMetadataReader(),
+                    "IAfter"));
+
+            PortableExecutableReference roslynReference =
+                Assert.Single(
+                    closure.References.OfType<PortableExecutableReference>(),
+                    reference =>
+                    {
+                        var metadata =
+                            Assert.IsType<AssemblyMetadata>(
+                                reference.GetMetadata());
+                        var module = Assert.Single(metadata.GetModules());
+                        var reader = module.GetMetadataReader();
+                        return AssemblyReferenceIdentity
+                            .FromAssemblyDefinition(reader)
+                            == dependency.Identity;
+                    });
+            var roslynMetadata =
+                Assert.IsType<AssemblyMetadata>(
+                    roslynReference.GetMetadata());
+            var roslynReader =
+                Assert.Single(roslynMetadata.GetModules())
+                    .GetMetadataReader();
+            Assert.True(ContainsType(roslynReader, "IBefore"));
+            Assert.False(ContainsType(roslynReader, "IAfter"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.Copy(
+            platformPath,
+            Path.Combine(fixtureDir, "System.Text.Json.dll"));
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.NotNull(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure()
+    {
+        string assemblyPath = CompileFixture("public sealed class Fixture { }");
+        string runtimePath = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Single(path => Path.GetFileName(path).Equals("System.Runtime.dll", StringComparison.OrdinalIgnoreCase));
+        try
+        {
+            using var stream = File.OpenRead(runtimePath);
+            using var pe = new PEReader(stream);
+            AssemblyReferenceIdentity runtimeIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
+            Assert.NotNull(runtimeIdentity.Version);
+            Assert.True(runtimeIdentity.Version.Major > 0);
+            AssemblyReferenceIdentity priorRuntimeIdentity = runtimeIdentity with
+            {
+                Version = new Version(runtimeIdentity.Version.Major - 1, 0, 0, 0),
+            };
+            ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
+
+            var resolved = CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                closure.TargetAssembly,
+                priorRuntimeIdentity,
+                "System.IConvertible",
+                closure.Resolver);
+
+            Assert.NotNull(resolved);
+            Assert.Equal("System.Private.CoreLib", resolved.Value.Assembly.Identity.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "System.Text.Json.dll"),
+            BuildSpoofedDefinitionAddressAssemblyImage(
+                platformPath,
+                "System.Text.Json",
+                "JsonSerializer"));
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.Null(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "System.Text.Json.dll"),
+            BuildConfusableAssemblyImage(platformPath));
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.Null(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        using (var stream = File.OpenRead(platformPath))
+        using (var pe = new PEReader(stream))
+        {
+            Version platformVersion = pe.GetMetadataReader().GetAssemblyDefinition().Version;
+            File.WriteAllBytes(
+                Path.Combine(fixtureDir, "System.Text.Json.dll"),
+                BuildConfusableAssemblyImage(
+                    platformPath,
+                    new Version(platformVersion.Major - 1, 0, 0, 0)));
+        }
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.Null(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
         }
         finally
         {
@@ -5577,7 +6076,8 @@ public class ReturnToSenderPrototypeTests
             var result = TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
-                "return Missing.Symbol;");
+                "return Missing.Symbol;",
+                "return 42;");
 
             Assert.NotNull(result);
             Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
@@ -5615,12 +6115,320 @@ public class ReturnToSenderPrototypeTests
             var result = TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
-                "return AlsoMissing.Symbol;");
+                "return AlsoMissing.Symbol;",
+                "return Missing.Symbol;");
 
             Assert.NotNull(result);
             Assert.Equal(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect, result.Kind);
             Assert.Equal(sourcePath, result.SourcePath);
             Assert.Contains("CS0103", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Gates the corpus path for #3804: the authored body is pre-correlated to
+    /// the exact metadata method token, so source declaration order is irrelevant.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_AttributesCorrelatedOverloadByMetadataToken()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int Pick(int value) { return value + 1; }
+
+                public int Pick(string value) { return value.Length; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ReversedOverloads.cs",
+            """
+            public class Class1
+            {
+                public int Pick(string value) { return value.Length; }
+
+                public int Pick(int value) { return value + 1; }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return value + 1;",
+                methodName: "Pick",
+                overload: 0);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(sourcePath, result.SourcePath);
+            Assert.Contains("authored body compiled", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Raw source parsing has no exact metadata identity and therefore cannot
+    /// support fault attribution, even for a unique method.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesRawSourceIndex()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("RawSource.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                useRawSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Raw source declaration order can differ from metadata order. Without an
+    /// exact token correlation, fault attribution must fail closed (#3804).
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesReorderedRawOverloads()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int Pick(int value) { return value + 1; }
+
+                public int Pick(string value) { return value.Length; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ReorderedRawOverloads.cs",
+            """
+            public class Class1
+            {
+                public int Pick(string value) { return value.Length; }
+
+                public int Pick(int value) { return value + 1; }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                useRawSourceIndex: true,
+                methodName: "Pick",
+                overload: 0));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Theory]
+    [InlineData(0x06ffffff)]
+    [InlineData(0x02000001)]
+    public void TryIsolateRecompileFailure_RejectsInvalidCorrelatedToken(int metadataToken)
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("OutOfRangeToken.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return 42;",
+                correlatedMetadataTokenOverride: metadataToken));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void AuthoredCorpusBenchmark_RejectsMismatchedModuleCorrelation()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("CorpusCorrelation.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        var corpusPath = Path.Combine(sourceDirectory, "corpus.jsonl");
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
+            var type = reader.GetTypeDefinition(typeHandle);
+            string signature = SignatureIdentity.ForMetadataMethod(reader, type, methodHandle)
+                ?? throw new InvalidOperationException("Expected a method signature.");
+            var (assemblyName, assemblyVersion) = AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath);
+            var record = new AuthoredSourceHarvest.CorpusRecord(
+                assemblyName,
+                assemblyVersion,
+                "test",
+                "Class1",
+                "M",
+                0,
+                signature,
+                MetadataTokens.GetToken(methodHandle),
+                0,
+                reader.GetMethodDefinition(methodHandle).RelativeVirtualAddress,
+                sourcePath,
+                null,
+                null,
+                "return 42;",
+                Guid.NewGuid());
+            File.WriteAllText(
+                corpusPath,
+                JsonSerializer.Serialize(record, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                }));
+
+            Assert.Equal(1, AuthoredCorpusBenchmark.Run([assemblyPath], corpusPath, json: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Raw source is parsed without the original build's preprocessor symbols.
+    /// A unique syntax member can therefore still be the wrong compiled body.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesRawConditionalSource()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ConditionalSource.cs",
+            """
+            public class Class1
+            {
+                public int M()
+                {
+            #if FEATURE
+                    return 42;
+            #else
+                    return Missing.Symbol;
+            #endif
+                }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return AlsoMissing.Symbol;",
+                authoredBody: null,
+                useRawSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_RejectsCorrelatedMemberFromDifferentModule()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("DifferentModule.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return 42;",
+                correlatedModuleVersionIdOverride: Guid.NewGuid()));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_RejectsDuplicateCorrelatedTokens()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("DuplicateToken.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return 42;",
+                addDuplicateCorrelatedToken: true));
         }
         finally
         {
@@ -5648,14 +6456,6 @@ public class ReturnToSenderPrototypeTests
     /// source index is substituted so the lookup succeeds with a null body. Without
     /// the substitution a miss would return null for the wrong reason and prove nothing.
     /// </para>
-    /// <para>
-    /// This gates the common path only. Isolation resolves its source member with
-    /// <c>CorpusMethodIdentity.SignatureText</c> while the index is keyed by
-    /// <c>SignatureIdentity</c>, so its signature lookup always misses and falls
-    /// back to the ordinal (#3804). Where those disagree the two sides can select
-    /// different overloads, and this invariant does not cover that case. The floor
-    /// clearing does not depend on it either way.
-    /// </para>
     /// </remarks>
     [Fact]
     public void TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody()
@@ -5670,23 +6470,19 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
         try
         {
-            var bodyless = ReturnToSenderSourceIndex.FromMembers(
-            [
-                new ReturnToSenderSourceMember("Class1", "M", 0, "", sourcePath, Body: null),
-            ]);
-
             // Same target and same rejected body that yields BodyDefect against a
-            // real index; only the authored body is absent.
+            // correlated member with a body; only the authored body is absent.
             Assert.Null(TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
                 "return Missing.Symbol;",
-                sourceIndexOverride: bodyless));
+                authoredBody: null));
 
             Assert.NotNull(TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
-                "return Missing.Symbol;"));
+                "return Missing.Symbol;",
+                "return 42;"));
         }
         finally
         {
@@ -5719,16 +6515,35 @@ public class ReturnToSenderPrototypeTests
         string assemblyPath,
         string sourcePath,
         string rejectedTargetBody,
-        ReturnToSenderSourceIndex? sourceIndexOverride = null)
+        string? authoredBody,
+        bool useRawSourceIndex = false,
+        string methodName = "M",
+        int overload = 0,
+        Guid? correlatedModuleVersionIdOverride = null,
+        bool addDuplicateCorrelatedToken = false,
+        int? correlatedMetadataTokenOverride = null)
     {
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
 
-        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
-        var function = IrImporter.Import(source, "Class1", "M", 0)
-            ?? throw new InvalidOperationException("Could not import Class1::M.");
+        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", methodName, overload);
+        var moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+        string? signature = SignatureIdentity.ForMetadataMethod(reader, typeDefinition, methodHandle);
+        if (signature is not null
+            && !ReturnToSender.ResolvesUniquelyBySignature(
+                reader,
+                typeDefinition,
+                methodName,
+                signature,
+                methodHandle))
+        {
+            signature = null;
+        }
+        var function = IrImporter.Import(source, "Class1", methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import Class1::{methodName}#{overload}.");
         var request = new MethodArtifactRequest(
             AssemblyPath: assemblyPath,
             Reader: reader,
@@ -5737,12 +6552,47 @@ public class ReturnToSenderPrototypeTests
             TargetMethod: methodHandle,
             TargetBody: new ProductTargetBody(rejectedTargetBody, []),
             FullType: "Class1",
-            MethodName: "M",
-            Overload: 0,
+            MethodName: methodName,
+            Overload: overload,
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
             ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
-        var sourceIndex = sourceIndexOverride ?? ReturnToSenderSourceIndex.TryCreate([sourcePath]);
+        ReturnToSenderSourceIndex? sourceIndex;
+        if (useRawSourceIndex)
+        {
+            sourceIndex = ReturnToSenderSourceIndex.TryCreate([sourcePath]);
+        }
+        else
+        {
+            var correlatedMembers = new List<ReturnToSenderSourceMember>
+            {
+                new(
+                    "Class1",
+                    methodName,
+                    overload,
+                    signature ?? "",
+                    sourcePath,
+                    authoredBody,
+                    correlatedMetadataTokenOverride ?? MetadataTokens.GetToken(methodHandle),
+                    correlatedModuleVersionIdOverride ?? moduleVersionId),
+            };
+            if (addDuplicateCorrelatedToken)
+            {
+                correlatedMembers.Add(new(
+                    "Other",
+                    methodName,
+                    overload,
+                    signature ?? "",
+                    sourcePath,
+                    authoredBody,
+                    MetadataTokens.GetToken(methodHandle),
+                    moduleVersionId));
+            }
+
+            sourceIndex = ReturnToSenderSourceIndex.FromCorrelatedMembers(
+                correlatedMembers,
+                reader);
+        }
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
@@ -5752,14 +6602,14 @@ public class ReturnToSenderPrototypeTests
         var references = RoslynTestReferences.TrustedPlatform.ToArray();
 
         var decompiledArtifact = CompileBackSourceComposer.Compose(request);
+        Assert.NotNull(decompiledArtifact.SourceArtifact.ReplaceableBodyRange);
         var decompiledTree = CSharpSyntaxTree.ParseText(decompiledArtifact.Source, parseOptions);
         var decompiledDiagnostics = CSharpCompilation
             .Create("return-to-sender-decompiled", [decompiledTree], references, compileOptions)
             .GetDiagnostics();
 
         return ReturnToSender.TryIsolateRecompileFailure(
-            request,
-            decompiledArtifact.Source,
+            decompiledArtifact,
             decompiledDiagnostics,
             sourceIndex,
             parseOptions,
@@ -5770,7 +6620,8 @@ public class ReturnToSenderPrototypeTests
     static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
         MetadataReader reader,
         string typeName,
-        string methodName)
+        string methodName,
+        int overload = 0)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -5778,16 +6629,31 @@ public class ReturnToSenderPrototypeTests
             if (!string.Equals(reader.GetFullTypeName(type), typeName, StringComparison.Ordinal))
                 continue;
 
+            int seen = 0;
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal))
+                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal)
+                    && seen++ == overload)
+                {
                     return (typeHandle, methodHandle);
+                }
             }
         }
 
-        throw new InvalidOperationException($"Could not find {typeName}::{methodName}.");
+        throw new InvalidOperationException($"Could not find {typeName}::{methodName}#{overload}.");
     }
+
+    static bool ContainsType(
+        MetadataReader reader,
+        string typeName) =>
+        reader.TypeDefinitions.Any(
+            handle =>
+                string.Equals(
+                    reader.GetFullTypeName(
+                        reader.GetTypeDefinition(handle)),
+                    typeName,
+                    StringComparison.Ordinal));
 
     [Fact]
     public void CompileBackTargets_EmitsNestedTargetMemberRequirement()
@@ -8026,6 +8892,208 @@ public class ReturnToSenderPrototypeTests
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildConfusableAssemblyImage(
+        string platformPath,
+        Version? version = null)
+    {
+        using var stream = File.OpenRead(platformPath);
+        using var reader = new PEReader(stream);
+        var platformMetadata = reader.GetMetadataReader();
+        var platformAssembly = platformMetadata.GetAssemblyDefinition();
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name) + ".dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name)),
+            version ?? platformAssembly.Version,
+            platformAssembly.Culture.IsNil
+                ? default
+                : metadata.GetOrAddString(
+                    platformMetadata.GetString(platformAssembly.Culture)),
+            platformAssembly.PublicKey.IsNil
+                ? default
+                : metadata.GetOrAddBlob(
+                    platformMetadata.GetBlobBytes(platformAssembly.PublicKey)),
+            platformAssembly.Flags,
+            platformAssembly.HashAlgorithm);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildConfusableInterfaceAssemblyImage(
+        string platformPath,
+        string namespaceName,
+        string typeName,
+        string methodName)
+    {
+        using var stream = File.OpenRead(platformPath);
+        using var reader = new PEReader(stream);
+        var platformMetadata = reader.GetMetadataReader();
+        var platformAssembly = platformMetadata.GetAssemblyDefinition();
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name) + ".dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name)),
+            platformAssembly.Version,
+            platformAssembly.Culture.IsNil
+                ? default
+                : metadata.GetOrAddString(
+                    platformMetadata.GetString(platformAssembly.Culture)),
+            platformAssembly.PublicKey.IsNil
+                ? default
+                : metadata.GetOrAddBlob(
+                    platformMetadata.GetBlobBytes(platformAssembly.PublicKey)),
+            platformAssembly.Flags,
+            platformAssembly.HashAlgorithm);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+            metadata.GetOrAddString(namespaceName),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x20); // HASTHIS, default calling convention
+        methodSignature.WriteCompressedInteger(0);
+        methodSignature.WriteByte(0x01); // void
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildSpoofedDefinitionAddressAssemblyImage(
+        string platformPath,
+        string namespaceName,
+        string typeName)
+    {
+        using var stream = File.OpenRead(platformPath);
+        using var reader = new PEReader(stream);
+        var platformMetadata = reader.GetMetadataReader();
+        var platformAssembly = platformMetadata.GetAssemblyDefinition();
+        TypeDefinitionHandle target = platformMetadata.TypeDefinitions.Single(
+            handle =>
+            {
+                var definition = platformMetadata.GetTypeDefinition(handle);
+                return platformMetadata.GetString(definition.Namespace) == namespaceName
+                    && platformMetadata.GetString(definition.Name) == typeName;
+            });
+
+        var metadata = new MetadataBuilder();
+        var platformModule = platformMetadata.GetModuleDefinition();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                platformMetadata.GetString(platformModule.Name)),
+            mvid: metadata.GetOrAddGuid(
+                platformMetadata.GetGuid(platformModule.Mvid)),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name)),
+            platformAssembly.Version,
+            platformAssembly.Culture.IsNil
+                ? default
+                : metadata.GetOrAddString(
+                    platformMetadata.GetString(platformAssembly.Culture)),
+            platformAssembly.PublicKey.IsNil
+                ? default
+                : metadata.GetOrAddBlob(
+                    platformMetadata.GetBlobBytes(platformAssembly.PublicKey)),
+            platformAssembly.Flags,
+            platformAssembly.HashAlgorithm);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        int targetRow = MetadataTokens.GetRowNumber(target);
+        for (int row = 2; row < targetRow; row++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Spoof"),
+                metadata.GetOrAddString($"Padding{row}"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString(namespaceName),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

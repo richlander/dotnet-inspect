@@ -93,6 +93,9 @@ public static class SectionNames
     /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>
     public const string AnnotatedSource = "Annotated Source";
 
+    /// <summary>Section for the portable rendered source text with its node, region, fact, and target planes.</summary>
+    public const string AnnotatedSourceDocument = "Annotated Source Document";
+
     /// <summary>Section for explicit inter-method cost annotations over the decompiled C# method body.</summary>
     public const string CostOverlay = "Cost Overlay";
 
@@ -281,9 +284,6 @@ public static class SectionNames
     /// <summary>Section for direct assembly references.</summary>
     public const string References = "References";
 
-    /// <summary>Section for transitive assembly dependencies.</summary>
-    public const string Dependencies = "Dependencies";
-
     /// <summary>Section for P/Invoke declarations.</summary>
     public const string PInvokeMethods = "P/Invoke Methods";
 
@@ -301,5 +301,8 @@ public static class SectionNames
 
     /// <summary>Section for build paths that leak non-deterministic local or CI directories.</summary>
     public const string NonNormalizedPaths = "Non-normalized Paths";
+
+    /// <summary>Section for SourceLink map parse and entry-validation diagnostics.</summary>
+    public const string SourceLinkDiagnostics = "SourceLink: Diagnostics";
 
 }
