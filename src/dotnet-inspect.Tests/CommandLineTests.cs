@@ -668,6 +668,16 @@ public class CommandLineTests
         Assert.Equal(["find", "Foo", "--columns", "--json"], result);
     }
 
+    [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public void PreprocessArgs_DoesNotRewriteProjectionAfterOptionTerminator(string literal)
+    {
+        var args = new[] { "find", "--", literal, literal };
+
+        Assert.Same(args, CommandLineBuilder.PreprocessArgs(args));
+    }
+
     [Fact]
     public void PreprocessArgs_SingleSelect_Unchanged()
     {

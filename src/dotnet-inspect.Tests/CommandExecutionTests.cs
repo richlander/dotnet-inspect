@@ -6668,6 +6668,20 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public async Task Find_InlineEmptyProjectionAfterOptionTerminator_IsALiteralPattern(string literal)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "--library", TestAssemblyPath, "--", literal);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("No types found matching the pattern.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("requires at least one name", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("Type;Type")]
     [InlineData("Type, Type")]
     [InlineData("Type,TYPE")]

@@ -427,7 +427,11 @@ public static class ArgumentPreprocessor
     {
         int occurrences = 0;
         foreach (var arg in args)
+        {
+            if (arg == "--")
+                break;
             if (IsListOptionAlias(arg, aliases, out _)) occurrences++;
+        }
         if (occurrences < 2)
             return args;
 
@@ -437,6 +441,12 @@ public static class ArgumentPreprocessor
         int valueSlot = -1;
         for (int i = 0; i < args.Length; i++)
         {
+            if (args[i] == "--")
+            {
+                result.AddRange(args[i..]);
+                break;
+            }
+
             if (IsListOptionAlias(args[i], aliases, out var inlineValue))
             {
                 var value = inlineValue;
@@ -474,6 +484,12 @@ public static class ArgumentPreprocessor
         List<string>? result = null;
         for (var i = 0; i < args.Length; i++)
         {
+            if (args[i] == "--")
+            {
+                result?.AddRange(args[i..]);
+                break;
+            }
+
             if (IsListOptionAlias(args[i], aliases, out var inlineValue) && inlineValue == "")
             {
                 result ??= [.. args[..i]];
