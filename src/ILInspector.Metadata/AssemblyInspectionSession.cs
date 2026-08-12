@@ -98,7 +98,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
-        => ResourceScanner.Scan(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return ResourceScanner.Scan(_image.PEReader);
+    }
 
     /// <summary>
     /// Extracts embedded manifest resources beneath a directory without allowing
