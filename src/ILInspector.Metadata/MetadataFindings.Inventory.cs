@@ -274,7 +274,7 @@ public static partial class MetadataFindings
         var builder = ImmutableArray.CreateBuilder<PairFinding<T>>(pairs.Length);
         foreach (var pair in pairs)
         {
-            if (pair is PairFinding<T>.Present present
+            if (pair.Value is PairFinding<T>.Present present
                 && !(payloadsEqual?.Invoke(
                         present.Old.Payload,
                         present.New.Payload)

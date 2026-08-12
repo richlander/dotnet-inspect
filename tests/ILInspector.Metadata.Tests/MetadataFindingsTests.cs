@@ -675,7 +675,7 @@ public class MetadataFindingsTests
 
     static ImmutableArray<PairFinding<T>> Pairs<T>(FindingComparison<T> comparison)
         where T : notnull
-        => comparison is FindingComparison<T>.Complete complete
+        => comparison.Value is FindingComparison<T>.Complete complete
             ? complete.Pairs
             : throw new Xunit.Sdk.XunitException($"Expected a complete comparison; failure: {comparison.Failure}");
 

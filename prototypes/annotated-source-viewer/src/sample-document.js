@@ -21,7 +21,7 @@ export const sampleDocument = {
   nodes: [
     {
       id: 0,
-      kind: "ForLoop",
+      kind: "ForStatement",
       medium: "CSharp",
       spans: [
         { start: starts[0], length: header.length + 1 },
@@ -31,7 +31,7 @@ export const sampleDocument = {
     },
     {
       id: 1,
-      kind: "NewObject",
+      kind: "ObjectCreationExpression",
       medium: "CSharp",
       spans: [{ start: objectStart, length: "new object()".length }],
     },
