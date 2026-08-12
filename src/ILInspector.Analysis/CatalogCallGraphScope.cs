@@ -235,6 +235,20 @@ public sealed class CatalogCallGraphScope : IDisposable
     }
 
     /// <summary>
+    /// Detaches one tree from this scope's catalog generation while preserving
+    /// physical evidence and safe logical joins.
+    /// </summary>
+    /// <remarks>
+    /// <c>CatalogCallGraphScopeTests</c> gates version-skew separation,
+    /// repeated external joins, and independent-acquisition identity.
+    /// </remarks>
+    public CallTreeNode Detach(CallTreeNode root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        return Graph.Detach(root);
+    }
+
+    /// <summary>
     /// Releases physical graph storage and its frozen generation. Catalog
     /// acquisition caches remain available for a later rebuild.
     /// </summary>
@@ -988,6 +1002,90 @@ public sealed class CatalogCallGraphScope : IDisposable
                 out ImmutableArray<StoredDefinition> definitions)
                 ? definitions[0]
                 : null;
+
+        internal CallTreeNode Detach(CallTreeNode root)
+        {
+            var detached = new Dictionary<
+                GraphNodeIdentity,
+                GraphNodeIdentity>();
+
+            GraphNodeIdentity DetachIdentity(
+                GraphNodeEvidence evidence,
+                bool isRoot)
+            {
+                if (detached.TryGetValue(
+                        evidence.Identity,
+                        out GraphNodeIdentity? existing))
+                {
+                    return existing;
+                }
+
+                GraphNodeIdentity identity;
+                if (isRoot
+                    && evidence.Storage.Kind
+                        == GraphNodeStorageKind.Definition)
+                {
+                    identity = GraphNodeIdentity.FromArtifactMember(
+                        evidence.Storage);
+                }
+                else if (_definitionsByIdentity.TryGetValue(
+                        evidence.Identity,
+                        out ImmutableArray<StoredDefinition> definitions)
+                    && definitions.Length == 1
+                    && (evidence.Storage.Kind
+                            == GraphNodeStorageKind.Definition
+                        || evidence.Kind
+                            == GraphCorrespondenceKind.Exact))
+                {
+                    identity = GraphNodeIdentity.FromArtifactMember(
+                        definitions[0].Evidence.Storage);
+                }
+                else if (evidence.Kind
+                    == GraphCorrespondenceKind.Incomplete)
+                {
+                    identity = GraphNodeIdentity.FromStorage(
+                        evidence.Storage);
+                }
+                else
+                {
+                    identity =
+                        GraphNodeIdentity.CreateDetachedCatalog();
+                }
+
+                detached.Add(evidence.Identity, identity);
+                return identity;
+            }
+
+            GraphNodeEvidence? DetachEvidence(
+                GraphNodeEvidence? evidence,
+                bool isRoot)
+            {
+                if (evidence is null)
+                    return null;
+
+                return new GraphNodeEvidence(
+                    evidence.Storage,
+                    DetachIdentity(evidence, isRoot),
+                    correspondence: null);
+            }
+
+            CallTreeNode DetachNode(
+                CallTreeNode node,
+                bool isRoot = false) =>
+                node with
+                {
+                    GraphEvidence = DetachEvidence(
+                        node.GraphEvidence,
+                        isRoot),
+                    Children =
+                    [
+                        .. node.Children.Select(
+                            child => DetachNode(child)),
+                    ],
+                };
+
+            return DetachNode(root, isRoot: true);
+        }
 
         static GraphNodeEvidence Evidence(
             GraphNodeStorageKey storage,

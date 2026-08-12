@@ -16,9 +16,9 @@ namespace DotnetInspector.Inspectors;
 internal static class PackageInspector
 {
     public static async Task<InspectionResult> InspectAsync(
-        string extractPath,
-        string packageName,
-        string version,
+        PackageExtractionResult resolution,
+        string fallbackPackageName,
+        string fallbackVersion,
         bool isLocalFile,
         string? localFilePath,
         NuspecData? nuspec,
@@ -26,26 +26,42 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
-        string? nupkgPath = null,
         bool fetchMetadata = false,
         NuGetSourceOptions? sourceOptions = null)
     {
+        string extractPath = resolution.ExtractPath;
+        string packageName = resolution.PackageName ?? fallbackPackageName;
+        string version = resolution.Version ?? fallbackVersion;
+        string? nupkgPath = resolution.NupkgPath;
         fetchMetadata = !isLocalFile && (fetchMetadata || verbosity >= Verbosity.Detailed);
+        NuGetSourceOptions? metadataSourceOptions = resolution.ProducerKey is null
+            ? sourceOptions
+            : NuGetSourceResolver.RestrictToSourceKeys(
+                sourceOptions,
+                [resolution.ProducerKey]);
 
         // Try package index cache (skips all filesystem scanning)
-        if (!isLocalFile)
+        if (!isLocalFile && resolution.ProducerKey is { } producerKey)
         {
             InspectionResult? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
             {
-                cached = PackageIndexCache.TryGet(packageName, version);
+                cached = PackageIndexCache.TryGet(
+                    packageName,
+                    version,
+                    producerKey);
             }
             if (cached != null)
             {
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
-                        httpClient, packageName, version, logger.Log, forceLatest, sourceOptions);
+                        httpClient,
+                        packageName,
+                        version,
+                        logger.Log,
+                        forceLatest,
+                        metadataSourceOptions);
                     ApplyMetadata(cached, metadata);
                 }
                 return cached;
@@ -144,17 +160,26 @@ internal static class PackageInspector
         }
 
         // Cache the filesystem-derived result (before metadata overlay)
-        if (!isLocalFile)
+        if (!isLocalFile && resolution.ProducerKey is { } writeProducerKey)
         {
             using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad);
-            PackageIndexCache.Set(packageName, version, result);
+            PackageIndexCache.Set(
+                packageName,
+                version,
+                writeProducerKey,
+                result);
         }
 
         // Fetch package metadata from NuGet (only at detailed verbosity)
         if (fetchMetadata)
         {
             var metadata = await PackageMetadataService.FetchAllMetadataAsync(
-                httpClient, packageName, version, logger.Log, forceLatest, sourceOptions);
+                httpClient,
+                packageName,
+                version,
+                logger.Log,
+                forceLatest,
+                metadataSourceOptions);
             ApplyMetadata(result, metadata);
         }
 
