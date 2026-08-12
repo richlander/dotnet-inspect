@@ -684,7 +684,9 @@ Research overlay bridge, and the application layer:
   those shared results. Within acquisition, one
   `MethodBodyAnalysisContext` carries the method identity, exception regions,
   shared Layer-0 `MethodInstructions`, Analysis-owned loop regions, and
-  immutable decoded local types to topic producers. Raw IL, generic decoding
+  immutable decoded local types to topic producers, plus the neutral navigation
+  those producers share (instruction-at-offset, next-non-`nop` index, loop-region
+  membership). Raw IL, generic decoding
   scope, metadata readers, and reader-bound method bodies remain outside the
   context, preventing producers from creating a second decode or metadata
   traversal path. Allocation path contexts, confidence, and
@@ -693,9 +695,24 @@ Research overlay bridge, and the application layer:
   classification supplied through a narrow callback.
   `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
   occurrence interpretation; call-site acquisition remains separate and
-  delegates only its safety projection. `MethodInstructionFacts` owns the
-  metadata-free local/argument-slot grammar shared by safety and allocation
-  interpretation.
+  delegates only its safety projection.
+  `MethodAllocationAnalysis` owns allocation interpretation for one decoded
+  body: occurrence discovery, allocation-shape classification, escape
+  classification, and the private path-context/confidence/post-dominance indexes
+  that produce its multiplicity reading. It receives metadata and raw-IL
+  judgments through the narrow `IMethodAllocationResolver` contract the assembly
+  reader implements, and returns one `MethodAllocationResult` carrying the
+  discovered and escape-refined occurrences from a single scan. Call-site acquisition and
+  optimization-opportunity collection query that interpretation instead of
+  rebuilding it; the reader retains PE/body acquisition, the intentionally
+  throwing decode path, method identity and scope creation, metadata ownership
+  and token resolution, orchestration, call-site acquisition, optimization
+  recommendations, resource/leak analysis, and result aggregation.
+  `MethodInstructionFacts` owns the
+  metadata-free local/argument-slot, operand, and single-branch-target grammar
+  shared by safety and allocation
+  interpretation, and `CompilerGeneratedNames` owns the unspeakable-name grammar
+  shared by escape classification and optimization-opportunity classification.
   `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
   analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
   of every analysis algorithm. The app unions the features required by selected
