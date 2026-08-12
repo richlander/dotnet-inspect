@@ -446,7 +446,33 @@ public sealed class BodyShapeCommandTests
             })));
 
         Assert.Equal(1, unreadable.ExitCode);
-        Assert.Contains("Could not find file", unreadable.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                $"Error: Could not read library: {missing}",
+                unreadable.Error.Trim());
+
+            string invalid = Path.Combine(Path.GetTempPath(), $"invalid-body-shape-{Guid.NewGuid():N}.dll");
+            await File.WriteAllTextAsync(
+                invalid,
+                "not a PE image",
+                TestContext.Current.CancellationToken);
+            try
+            {
+                var nonPe = await ConsoleCapture.RunAsync(() => Task.FromResult(
+                    BodyShapeCommand.Execute(new BodyShapeOptions
+                    {
+                        Kind = "ObjectCreationExpression",
+                        LibraryPath = invalid
+                    })));
+
+                Assert.Equal(1, nonPe.ExitCode);
+                Assert.Equal(
+                    $"Error: Could not read library: {invalid}",
+                    nonPe.Error.Trim());
+            }
+            finally
+            {
+                File.Delete(invalid);
+            }
     }
 
     [Fact]

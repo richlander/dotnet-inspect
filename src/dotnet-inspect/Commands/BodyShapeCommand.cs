@@ -76,15 +76,26 @@ public static class BodyShapeCommand
                 return 1;
             }
 
-            using var source = MetadataSource.Open(options.LibraryPath, options.PdbPath);
             options.RenderConfigWarnings?.EmitOnce();
-            var result = BodyShapeSearch.Search(
-                source,
-                options.Kind,
-                options.IncludeAll,
-                options.MatchLimit,
-                cancellationToken,
-                options.RenderOptions);
+            BodyShapeSearchResult result;
+            try
+            {
+                using var source = MetadataSource.Open(options.LibraryPath, options.PdbPath);
+                result = BodyShapeSearch.Search(
+                    source,
+                    options.Kind,
+                    options.IncludeAll,
+                    options.MatchLimit,
+                    cancellationToken,
+                    options.RenderOptions);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+            {
+                CommandError.Write($"Could not read library: {options.LibraryPath}");
+                return 1;
+            }
 
             if (options.Verbose)
             {
