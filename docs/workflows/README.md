@@ -67,12 +67,12 @@ Within each goal or variant, code fences define the executable scenario:
 - **`prompt`** — The natural language request an agent or user would make. Essential for eval systems; the H2/H3 headings are categories, not prompts.
 - **`setup`** — Commands to run before this specific scenario (scenario-level, unlike file-level Preconditions).
 - **`bash`** — The exact command to run.
-- **`expect`** — Substrings that must appear in stdout.
-- **`expect-not`** — Substrings that must NOT appear (stdout or stderr).
+- **`expect`** — Substrings that must appear in the current assertion output.
+- **`expect-not`** — Substrings that must NOT appear in the current assertion output.
 - **`expect-error`** — Like `expect`, but command must exit nonzero.
 - **`expect-stderr`** — Substrings that must appear in stderr.
 - **`expect-not-stderr`** — Substrings that must NOT appear in stderr.
-- **`query`** — Shell pipeline to extract a specific value from stdout.
+- **`query`** — Shell pipelines that independently extract values from stdout.
 - **`perf`** — Latency and exit code constraints.
 
 This structure makes scenarios simultaneously:
@@ -80,6 +80,14 @@ This structure makes scenarios simultaneously:
 1. **Readable** — Markdown renders nicely in any viewer; goals and variants are scannable.
 2. **Executable** — Code fences are unambiguous; automation can parse and run them.
 3. **Evaluable** — The `prompt` + `expect` pattern maps directly to agent evals: give the prompt, check the output.
+
+Before evaluation, publish the exact revision under test, set
+`DOTNET_INSPECT_WORKFLOW_BINARY` to that apphost and
+`DOTNET_INSPECT_WORKFLOW_VERSION` to its `--version` output, and prepend the
+apphost directory to `PATH`. Bare `dotnet-inspect` commands and workflows that
+use `$INSPECT` must therefore resolve to the same executable unless a workflow
+explicitly builds an alternate apphost required by its goal. Such an exception
+must verify the same version and its required runtime flavor.
 
 ## Example
 
@@ -178,15 +186,24 @@ dotnet-inspect cache clear
 
 The exact `dotnet-inspect` invocation. Run it as-is.
 
+A workflow starts at the repository root. Each `setup` or `bash` fence is one
+shell program initialized with the working directory and exported environment
+left by the preceding executable fence in that workflow. Changes made by
+commands such as `cd` and `export` therefore persist to later fences, but shell
+locals and functions do not. Commands may span physical lines with the usual
+trailing `\` line continuation.
+
 ````markdown
 ```bash
 dotnet-inspect System.Text.Json -v:q
 ```
 ````
 
-### `expect` — content that must appear in stdout
+### `expect` — content that must appear in the current assertion output
 
-Each line is a substring that must appear somewhere in the command's stdout. All lines must match.
+Each line is a substring that must appear in the current assertion output.
+Before a `query`, that is the command's stdout. After a `query`, it is only the
+derived query output. All lines must match.
 
 ````markdown
 ```expect
@@ -197,7 +214,11 @@ Source: Platform
 
 ### `expect-not` — content that must NOT appear
 
-Each line is a substring that must **not** appear anywhere in stdout or stderr. If any line matches, the scenario fails.
+Each line is a substring that must **not** appear in the current assertion
+output. Before a `query`, that is the command's combined stdout and stderr.
+After a `query`, it is only the derived query output. Use
+`expect-not-stderr` when stderr must remain absent regardless of query position.
+If any line matches, the scenario fails.
 
 ````markdown
 ```expect-not
@@ -239,13 +260,30 @@ Deprecated:
 
 ### `query` — extraction pipeline
 
-A shell pipeline applied to stdout. Used to isolate a specific value for comparison. Useful for building dashboards or feeding results into other tools.
+A shell pipeline applied to stdout. Used to isolate a specific value for
+comparison. Useful for building dashboards or feeding results into other tools.
 
 ````markdown
 ```query
 grep -o 'Source: [A-Za-z]*'
 ```
 ````
+
+Query evaluation is sequential and position-sensitive:
+
+1. Fold physical lines joined by a trailing `\` into one logical line.
+2. Apply each nonempty logical line in the `query` fence independently to the
+   original command stdout. A later query line does not consume an earlier
+   query line's output.
+3. Concatenate each query line's stdout, in source order, to form the derived
+   query output.
+4. `expect` and `expect-not` blocks before a `query` validate the original
+   command output. Those after a `query` validate only the derived query output.
+   Place original-output negative assertions before the first query.
+
+This keeps multiline shell commands possible while making a multi-line query
+an explicit list of independent projections rather than an accidental shell
+script.
 
 ### `perf` — performance constraints
 
