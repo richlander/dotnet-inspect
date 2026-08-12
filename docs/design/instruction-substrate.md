@@ -289,8 +289,9 @@ not attempted in that PR.
   cutover" above). `LibraryBodyAnalysisBuilder` also uses the throwing Layer-0
   primitives and wraps their result in `MethodInstructions`; this preserves its
   per-method malformed-body diagnostic behavior while giving topic producers
-  one shared façade. Its allocation-specific path, confidence, and
-  post-dominance indexes remain Analysis-owned Layer 1. Remaining: the
+  one shared façade. The allocation-specific path, confidence, and
+  post-dominance indexes over those blocks are Analysis-owned Layer 1, private
+  to `MethodAllocationAnalysis`. Remaining: the
   decompiler importer (with the minimal-CFG refactor), and consolidating the
   three metadata-token-to-string traversals
   (`ILTokenResolver`/`CanonicalIL`/`IlBodyDiff.MetadataOperandResolver`) if their
