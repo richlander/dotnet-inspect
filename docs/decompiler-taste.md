@@ -626,6 +626,11 @@ public override T? Pick<T, U>(T? value)
     where U : class => value;
 ```
 
+Constraint layout is comment-aware. Text that resembles a `where` clause inside
+a block comment is ignored while locating real clauses. A declaration head that
+contains a line comment stays unchanged because inserting a line break after
+`//` can promote commented text into live C#.
+
 - **Short-circuit `&&` / `||` chains — opt-in.** The boolean analog breaks each
   operand onto its own line with the operator trailing each broken line. It
   carries the same whitespace-only guarantee — it re-renders each flattened

@@ -136,11 +136,13 @@ public static class CSharpMemberLayout
     /// can be located unambiguously. <paramref name="renderTail"/> is the member
     /// terminator, expression body, or empty block tail; with constraints it follows
     /// the final clause. Falls back to the inline single line when one-liner wrapping
-    /// is disabled. Whitespace only: every form is token-identical.
+    /// is disabled or a line comment makes line breaks semantically significant.
+    /// Block-comment contents are ignored while locating clauses. Whitespace only:
+    /// every transformed form is token-identical.
     /// </summary>
     static string LayOutHead(string pad, string head, string renderTail, string decisionSuffix, bool disableOneLinerWrapping)
     {
-        if (disableOneLinerWrapping)
+        if (disableOneLinerWrapping || ContainsLineComment(head))
             return pad + head + renderTail;
 
         if (SplitConstraintClauses(head) is { Count: > 1 } parts)
@@ -179,6 +181,11 @@ public static class CSharpMemberLayout
             if (c is '"' or '\'')
             {
                 i = SkipLiteral(head, i);
+                continue;
+            }
+            if (c == '/' && i + 1 < head.Length && head[i + 1] == '*')
+            {
+                i = SkipBlockComment(head, i);
                 continue;
             }
             switch (c)
@@ -222,6 +229,32 @@ public static class CSharpMemberLayout
             parts.Add(head[start..end].Trim());
         }
         return parts;
+    }
+
+    static bool ContainsLineComment(string head)
+    {
+        for (int i = 0; i + 1 < head.Length; i++)
+        {
+            char c = head[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            if (c != '/')
+                continue;
+            if (head[i + 1] == '/')
+                return true;
+            if (head[i + 1] == '*')
+                i = SkipBlockComment(head, i);
+        }
+        return false;
+    }
+
+    static int SkipBlockComment(string head, int start)
+    {
+        int end = head.IndexOf("*/", start + 2, StringComparison.Ordinal);
+        return end < 0 ? head.Length - 1 : end + 1;
     }
 
     static string? WrapParameterList(string pad, string head, string renderTail)

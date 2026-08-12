@@ -282,6 +282,39 @@ public sealed class CSharpMemberLayoutTests
                 indent: 4));
 
     [Fact]
+    public void Append_WhereInsideLineComment_DoesNotBecomeLiveConstraint()
+        => Assert.Equal(
+            "    public void Log<T>() // mentions where U : class\n"
+            + "    {\n"
+            + "        Log();\n"
+            + "        Log();\n"
+            + "    }\n",
+            Render(
+                "public void Log<T>() // mentions where U : class",
+                "Log();\nLog();",
+                indent: 4));
+
+    [Fact]
+    public void Append_WhereInsideBlockComment_IsIgnoredWhileRealConstraintWraps()
+        => Assert.Equal(
+            "    public void Log<T>() /* mentions where U : class */\n"
+            + "        where T : class;\n",
+            Render(
+                "public void Log<T>() /* mentions where U : class */ where T : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_LineCommentMarkerInsideBlockComment_DoesNotDisableConstraintWrapping()
+        => Assert.Equal(
+            "    public void Log<T>() /* // mentions where U : class */\n"
+            + "        where T : class;\n",
+            Render(
+                "public void Log<T>() /* // mentions where U : class */ where T : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
     public void Append_GenericConstraints_DisableOneLinerWrapping_StayInline()
         => Assert.Equal(
             "    public override T? Pick<T, U>(T? value) where T : U where U : class => value;\n",
