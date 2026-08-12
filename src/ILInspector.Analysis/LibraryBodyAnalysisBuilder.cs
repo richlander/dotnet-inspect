@@ -231,434 +231,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             ? AssemblyResolutionScope.Platform
             : AssemblyResolutionScope.Any;
 
-    sealed class DecodedBody
-    {
-        readonly Dictionary<int, int> _instructionIndexByOffset;
-
-        public DecodedBody(MethodInstructions methodInstructions)
-        {
-            MethodInstructions = methodInstructions;
-            _instructionIndexByOffset =
-                new Dictionary<int, int>(Instructions.Length);
-            for (int i = 0; i < Instructions.Length; i++)
-                _instructionIndexByOffset[Instructions[i].Offset] = i;
-            LoopRegions = CollectLoopRegions();
-            PathContexts = AllocationPathContextIndex.Create(this);
-            PathConfidences = AllocationPathConfidenceIndex.Create(this);
-            PostDominances = AllocationPostDominanceIndex.Create(this);
-        }
-
-        public MethodInstructions MethodInstructions { get; }
-        public ImmutableArray<DecodedInstruction> Instructions
-            => MethodInstructions.Instructions;
-        public BlockGraph BlockGraph => MethodInstructions.Blocks;
-        public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
-        public AllocationPathContextIndex PathContexts { get; }
-        public AllocationPathConfidenceIndex PathConfidences { get; }
-        public AllocationPostDominanceIndex PostDominances { get; }
-
-        public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
-        {
-            if (_instructionIndexByOffset.TryGetValue(offset, out int index))
-            {
-                instruction = Instructions[index];
-                return true;
-            }
-            instruction = default!;
-            return false;
-        }
-
-        public int IndexAtOrAfter(int offset)
-            => MethodInstructions.InstructionIndexAtOrAfter(offset);
-
-        public int NextNonNopIndexAtOrAfter(int offset)
-        {
-            int index = IndexAtOrAfter(offset);
-            while (index < Instructions.Length && Instructions[index].OpCode == ILOpCode.Nop)
-                index++;
-            return index;
-        }
-
-        IReadOnlyList<(int Start, int End)> CollectLoopRegions()
-        {
-            var regions = new List<(int Start, int End)>();
-            foreach (var instruction in Instructions)
-            {
-                if (instruction.OpCode == ILOpCode.Switch)
-                    continue;
-                int sourceBlock = BlockGraph.BlockIndexAt(instruction.Offset);
-                foreach (int target in instruction.BranchTargets)
-                {
-                    if (target >= instruction.Offset)
-                        continue;
-                    int targetBlock = BlockGraph.BlockIndexAt(target);
-                    if (sourceBlock >= 0
-                        && targetBlock >= 0
-                        && BlockGraph.Blocks[sourceBlock].Edges.Successors.Contains(targetBlock))
-                    {
-                        regions.Add((target, instruction.Offset));
-                    }
-                }
-            }
-            return regions;
-        }
-    }
-
-    sealed class AllocationPathContextIndex
-    {
-        readonly bool[] _branchBlocks;
-        readonly bool[] _switchArmBlocks;
-        readonly bool[] _errorPathBlocks;
-
-        AllocationPathContextIndex(bool[] branchBlocks, bool[] switchArmBlocks, bool[] errorPathBlocks)
-        {
-            _branchBlocks = branchBlocks;
-            _switchArmBlocks = switchArmBlocks;
-            _errorPathBlocks = errorPathBlocks;
-        }
-
-        public static AllocationPathContextIndex Create(DecodedBody decodedBody)
-        {
-            var blockGraph = decodedBody.BlockGraph;
-            var branchBlocks = new bool[blockGraph.Blocks.Length];
-            var switchArmBlocks = new bool[blockGraph.Blocks.Length];
-            var errorPathBlocks = new bool[blockGraph.Blocks.Length];
-            var lastByBlock = LastInstructionsByBlock(decodedBody);
-            var predecessorCounts = PredecessorCounts(blockGraph);
-
-            foreach (var region in blockGraph.Regions)
-            {
-                switch (region.Kind)
-                {
-                    case HandlerKind.Catch:
-                    case HandlerKind.Fault:
-                        MarkBlocksInRange(blockGraph, errorPathBlocks, region.HandlerStart, region.HandlerEnd);
-                        break;
-                    case HandlerKind.Filter:
-                        MarkBlocksInRange(blockGraph, errorPathBlocks, region.FilterStart, region.FilterEnd);
-                        MarkBlocksInRange(blockGraph, errorPathBlocks, region.HandlerStart, region.HandlerEnd);
-                        break;
-                }
-            }
-
-            for (int blockIndex = 0; blockIndex < lastByBlock.Length; blockIndex++)
-            {
-                var terminator = lastByBlock[blockIndex];
-                if (terminator is null || !terminator.Branches)
-                    continue;
-
-                if (terminator.OpCode == ILOpCode.Switch)
-                {
-                    foreach (int target in terminator.BranchTargets)
-                        MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, target);
-                    if (terminator.FallsThrough)
-                    {
-                        int defaultBlock = blockGraph.BlockIndexAt(terminator.NextOffset);
-                        MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, terminator.NextOffset);
-                        if (defaultBlock >= 0
-                            && lastByBlock[defaultBlock] is { IsUnconditionalBranch: true, BranchTargets.Length: 1 } redirect)
-                        {
-                            MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, redirect.BranchTargets[0]);
-                        }
-                    }
-                    continue;
-                }
-
-                if (terminator.IsUnconditionalBranch)
-                    continue;
-
-                foreach (int target in terminator.BranchTargets)
-                    MarkBranchArm(blockGraph, branchBlocks, predecessorCounts, target);
-                if (terminator.FallsThrough)
-                    MarkBranchArm(blockGraph, branchBlocks, predecessorCounts, terminator.NextOffset);
-            }
-
-            return new AllocationPathContextIndex(branchBlocks, switchArmBlocks, errorPathBlocks);
-        }
-
-        public AllocationPathContext ContextFor(int blockIndex)
-        {
-            if ((uint)blockIndex >= (uint)_branchBlocks.Length)
-                return AllocationPathContext.StraightLine;
-            if (_errorPathBlocks[blockIndex])
-                return AllocationPathContext.ErrorPath;
-            if (_switchArmBlocks[blockIndex])
-                return AllocationPathContext.SwitchArm;
-            if (_branchBlocks[blockIndex])
-                return AllocationPathContext.Branch;
-            return AllocationPathContext.StraightLine;
-        }
-
-        static DecodedInstruction?[] LastInstructionsByBlock(DecodedBody decodedBody)
-        {
-            var lastByBlock = new DecodedInstruction?[decodedBody.BlockGraph.Blocks.Length];
-            int cursor = 0;
-            foreach (var instruction in decodedBody.Instructions)
-            {
-                while (cursor + 1 < decodedBody.BlockGraph.Blocks.Length
-                    && instruction.Offset >= decodedBody.BlockGraph.Blocks[cursor + 1].Start)
-                {
-                    cursor++;
-                }
-                if ((uint)cursor < (uint)lastByBlock.Length)
-                    lastByBlock[cursor] = instruction;
-            }
-            return lastByBlock;
-        }
-
-        static int[] PredecessorCounts(BlockGraph blockGraph)
-        {
-            var counts = new int[blockGraph.Blocks.Length];
-            foreach (var block in blockGraph.Blocks)
-            {
-                foreach (int successor in block.Edges.Successors)
-                    if ((uint)successor < (uint)counts.Length)
-                        counts[successor]++;
-            }
-            return counts;
-        }
-
-        static void MarkBlocksInRange(BlockGraph blockGraph, bool[] targets, int start, int end)
-        {
-            for (int i = 0; i < blockGraph.Blocks.Length; i++)
-            {
-                var block = blockGraph.Blocks[i];
-                if (block.Start < end && block.End > start)
-                    targets[i] = true;
-            }
-        }
-
-        static void MarkSwitchArm(BlockGraph blockGraph, bool[] switchArmBlocks, int[] predecessorCounts, int offset)
-        {
-            int blockIndex = blockGraph.BlockIndexAt(offset);
-            if ((uint)blockIndex < (uint)switchArmBlocks.Length && predecessorCounts[blockIndex] <= 1)
-                switchArmBlocks[blockIndex] = true;
-        }
-
-        static void MarkBranchArm(BlockGraph blockGraph, bool[] branchBlocks, int[] predecessorCounts, int offset)
-        {
-            int blockIndex = blockGraph.BlockIndexAt(offset);
-            if ((uint)blockIndex < (uint)branchBlocks.Length && predecessorCounts[blockIndex] <= 1)
-                branchBlocks[blockIndex] = true;
-        }
-    }
-
-    static int[] ReturnBlocks(DecodedBody decodedBody)
-    {
-        var returns = new List<int>();
-        foreach (var instruction in decodedBody.Instructions)
-        {
-            if (instruction.OpCode != ILOpCode.Ret)
-                continue;
-            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(instruction.Offset);
-            if (blockIndex >= 0)
-                returns.Add(blockIndex);
-        }
-        return [.. returns.Distinct().Order()];
-    }
-
-    sealed class AllocationPathConfidenceIndex
-    {
-        readonly AllocationPathConfidence[] _confidenceByBlock;
-
-        AllocationPathConfidenceIndex(AllocationPathConfidence[] confidenceByBlock)
-        {
-            _confidenceByBlock = confidenceByBlock;
-        }
-
-        public static AllocationPathConfidenceIndex Create(DecodedBody decodedBody)
-        {
-            var blockGraph = decodedBody.BlockGraph;
-            var confidenceByBlock = new AllocationPathConfidence[blockGraph.Blocks.Length];
-            if (blockGraph.Blocks.Length == 0)
-                return new AllocationPathConfidenceIndex(confidenceByBlock);
-
-            var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
-            var dominators = Dominators.Of(edges);
-            var returnBlocks = ReturnBlocks(decodedBody);
-            for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
-            {
-                var pathContext = decodedBody.PathContexts.ContextFor(blockIndex);
-                if (pathContext == AllocationPathContext.ErrorPath)
-                    continue;
-                if (pathContext is AllocationPathContext.Branch or AllocationPathContext.SwitchArm)
-                {
-                    confidenceByBlock[blockIndex] = AllocationPathConfidence.BehindBranch;
-                    continue;
-                }
-
-                if (returnBlocks.Length > 0
-                    && returnBlocks.All(returnBlock => dominators.Dominates(blockIndex, returnBlock)))
-                {
-                    confidenceByBlock[blockIndex] = AllocationPathConfidence.DominatesReturn;
-                }
-            }
-            return new AllocationPathConfidenceIndex(confidenceByBlock);
-        }
-
-        public AllocationPathConfidence ConfidenceFor(int blockIndex)
-            => (uint)blockIndex < (uint)_confidenceByBlock.Length
-                ? _confidenceByBlock[blockIndex]
-                : AllocationPathConfidence.Unknown;
-    }
-
-    sealed class AllocationPostDominanceIndex
-    {
-        readonly AllocationPostDominance[] _postDominanceByBlock;
-        readonly bool[] _reachesCycleByBlock;
-
-        AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock, bool[] reachesCycleByBlock)
-        {
-            _postDominanceByBlock = postDominanceByBlock;
-            _reachesCycleByBlock = reachesCycleByBlock;
-        }
-
-        public static AllocationPostDominanceIndex Create(DecodedBody decodedBody)
-        {
-            var blockGraph = decodedBody.BlockGraph;
-            var postDominanceByBlock = new AllocationPostDominance[blockGraph.Blocks.Length];
-            if (blockGraph.Blocks.Length == 0)
-                return new AllocationPostDominanceIndex(postDominanceByBlock, []);
-
-            var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
-            var reachesCycleOnly = BackwardReachable(edges, CyclicBlocks(edges));
-            var postDominators = PostDominators.Of(edges);
-            var returnBlocks = ReturnBlocks(decodedBody);
-            if (returnBlocks.Length == 0)
-                return new AllocationPostDominanceIndex(postDominanceByBlock, reachesCycleOnly);
-
-            var reachesReturn = BackwardReachable(edges, returnBlocks);
-            var returnSet = returnBlocks.ToHashSet();
-            var reachesNonReturnExit = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
-                .Where(block => !returnSet.Contains(block)
-                    && (edges[block].ExitsMethod
-                        || edges[block].ExternalTargets.Count > 0
-                        || edges[block].LeavesRegion)));
-            var reachesNonExitingBlock = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
-                .Where(block => postDominators.ImmediatePostDominator(block) == PostDominators.None));
-            var reachesCycle = reachesCycleOnly;
-
-            for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
-            {
-                if (decodedBody.PathContexts.ContextFor(blockIndex) == AllocationPathContext.ErrorPath)
-                    continue;
-                if (reachesReturn[blockIndex]
-                    && !reachesNonReturnExit[blockIndex]
-                    && !reachesNonExitingBlock[blockIndex]
-                    && !reachesCycle[blockIndex])
-                {
-                    postDominanceByBlock[blockIndex] = AllocationPostDominance.ReturnPostDominates;
-                }
-            }
-
-            return new AllocationPostDominanceIndex(postDominanceByBlock, reachesCycle);
-        }
-
-        public AllocationPostDominance PostDominanceFor(int blockIndex)
-            => (uint)blockIndex < (uint)_postDominanceByBlock.Length
-                ? _postDominanceByBlock[blockIndex]
-                : AllocationPostDominance.Unknown;
-
-        // Whether control can flow from this block back to a loop backedge. A block
-        // inside a loop region that CANNOT (it exits first via return/throw) runs at
-        // most once per call and is not a hot loop.
-        public bool ReachesCycleFor(int blockIndex)
-            => (uint)blockIndex < (uint)_reachesCycleByBlock.Length && _reachesCycleByBlock[blockIndex];
-
-        static bool[] BackwardReachable(IReadOnlyList<BlockEdges> edges, IEnumerable<int> seeds)
-        {
-            var reachable = new bool[edges.Count];
-            var predecessors = new List<int>[edges.Count];
-            for (int i = 0; i < predecessors.Length; i++)
-                predecessors[i] = [];
-            for (int from = 0; from < edges.Count; from++)
-                foreach (int to in edges[from].Successors)
-                    if ((uint)to < (uint)predecessors.Length)
-                        predecessors[to].Add(from);
-
-            var stack = new Stack<int>();
-            foreach (int seed in seeds)
-            {
-                if ((uint)seed >= (uint)reachable.Length || reachable[seed])
-                    continue;
-                reachable[seed] = true;
-                stack.Push(seed);
-            }
-
-            while (stack.Count > 0)
-            {
-                int block = stack.Pop();
-                foreach (int predecessor in predecessors[block])
-                {
-                    if (reachable[predecessor])
-                        continue;
-                    reachable[predecessor] = true;
-                    stack.Push(predecessor);
-                }
-            }
-
-            return reachable;
-        }
-
-        static IEnumerable<int> CyclicBlocks(IReadOnlyList<BlockEdges> edges)
-        {
-            var state = new byte[edges.Count]; // 0 = unvisited, 1 = active, 2 = done
-            var activePath = new List<int>();
-            var activePosition = new int[edges.Count];
-            Array.Fill(activePosition, -1);
-            var cyclic = new bool[edges.Count];
-
-            for (int root = 0; root < edges.Count; root++)
-            {
-                if (state[root] != 0)
-                    continue;
-
-                var frames = new Stack<(int Block, int NextSuccessor)>();
-                Enter(root, frames);
-                while (frames.Count > 0)
-                {
-                    var (block, nextSuccessor) = frames.Pop();
-                    var successors = edges[block].Successors;
-                    if (nextSuccessor >= successors.Count)
-                    {
-                        state[block] = 2;
-                        activePosition[block] = -1;
-                        activePath.RemoveAt(activePath.Count - 1);
-                        continue;
-                    }
-
-                    frames.Push((block, nextSuccessor + 1));
-                    int successor = successors[nextSuccessor];
-                    if ((uint)successor >= (uint)edges.Count)
-                        continue;
-
-                    if (state[successor] == 0)
-                    {
-                        Enter(successor, frames);
-                        continue;
-                    }
-
-                    if (state[successor] == 1 && activePosition[successor] >= 0)
-                    {
-                        for (int i = activePosition[successor]; i < activePath.Count; i++)
-                            cyclic[activePath[i]] = true;
-                    }
-                }
-            }
-
-            return Enumerable.Range(0, cyclic.Length).Where(block => cyclic[block]).ToArray();
-
-            void Enter(int block, Stack<(int Block, int NextSuccessor)> frames)
-            {
-                state[block] = 1;
-                activePosition[block] = activePath.Count;
-                activePath.Add(block);
-                frames.Push((block, 0));
-            }
-        }
-    }
-
-    static DecodedBody DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+    static MethodInstructions DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         // The substrate decode contract is BadImageFormatException for malformed IL (normalized
         // at InstructionDecoder.Decode), which the per-method IsRecoverableMethodFailure gate
@@ -666,13 +239,40 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         // Do not use MethodInstructions.Decode: its fail-closed contract would hide the throw
         // from that gate and turn a malformed method into success-shaped empty evidence.
         var instructions = InstructionDecoder.Decode(il);
-        var methodInstructions = new MethodInstructions(
+        return new MethodInstructions(
             instructions,
             BlockGraph.Build(
                 il.Length,
                 instructions,
                 exceptionRegions));
-        return new DecodedBody(methodInstructions);
+    }
+
+    // Analysis-owned loop regions over the shared Layer-0 blocks: a backward branch
+    // whose target block is a real successor of the branching block. Computed once
+    // per body and carried on the context, so no topic producer recomputes it.
+    static IReadOnlyList<(int Start, int End)> CollectLoopRegions(MethodInstructions body)
+    {
+        var regions = new List<(int Start, int End)>();
+        var blockGraph = body.Blocks;
+        foreach (var instruction in body.Instructions)
+        {
+            if (instruction.OpCode == ILOpCode.Switch)
+                continue;
+            int sourceBlock = blockGraph.BlockIndexAt(instruction.Offset);
+            foreach (int target in instruction.BranchTargets)
+            {
+                if (target >= instruction.Offset)
+                    continue;
+                int targetBlock = blockGraph.BlockIndexAt(target);
+                if (sourceBlock >= 0
+                    && targetBlock >= 0
+                    && blockGraph.Blocks[sourceBlock].Edges.Successors.Contains(targetBlock))
+                {
+                    regions.Add((target, instruction.Offset));
+                }
+            }
+        }
+        return regions;
     }
 
     bool DetectMemorySafetyRules()
@@ -967,30 +567,34 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         MetadataTokens.EntityHandle(token),
                         scope));
             }
-            var decodedBody = DecodeBody(il, body.ExceptionRegions);
-            var loopRegions = decodedBody.LoopRegions;
+            var methodInstructions = DecodeBody(il, body.ExceptionRegions);
+            var loopRegions = CollectLoopRegions(methodInstructions);
             var localTypes = DecodeLocalTypes(body, scope);
             var context = new MethodBodyAnalysisContext(
                 caller,
-                decodedBody.MethodInstructions,
+                methodInstructions,
                 body.ExceptionRegions,
                 loopRegions,
                 localTypes);
+            // One allocation interpretation per decoded body. It owns the path,
+            // confidence, post-dominance, and multiplicity reading of the shared
+            // control flow, which call-site acquisition and optimization-opportunity
+            // collection query rather than rebuild.
+            var allocationAnalysis = new MethodAllocationAnalysis(context);
             var localSafety = MethodSafetyAnalysis.InspectLocals(
                 context,
                 evidence);
             bool hasUnsafeLocals = localSafety.HasUnsafeLocals;
-            // Scan allocation occurrences once (raw, escape = Unknown). The main allocation output
+            // Discover allocation occurrences once. The main allocation output
             // needs escape classification, while Performance Triage's optimization-opportunity pass
-            // reuses the same raw occurrences (it keys them by IL offset and does not read escape
-            // state). Classifying once and sharing the raw scan avoids a second full instruction/
+            // reuses the same discovered occurrences (it keys them by IL offset and does not read escape
+            // state). Refining once and sharing the discovery scan avoids a second full instruction/
             // token scan per method whenever opportunities are computed.
-            var rawAllocations = includeAllocations
-                ? CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: false)
-                : ImmutableArray<AllocationOccurrence>.Empty;
-            result.Allocations = includeAllocations && !rawAllocations.IsDefaultOrEmpty
-                ? ClassifyAllocationEscapes(rawAllocations, il, decodedBody, body.ExceptionRegions, caller, scope)
-                : rawAllocations;
+            var allocations = includeAllocations
+                ? allocationAnalysis.Collect(
+                    new AllocationResolver(this, scope, caller, il, body.ExceptionRegions))
+                : MethodAllocationResult.Empty;
+            result.Allocations = allocations.ClassifiedOccurrences;
             result.Unsafety = MethodSafetyAnalysis.CollectOccurrences(
                 context,
                 token => CalliReturnDetail(token, scope));
@@ -1001,7 +605,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     && !HasGeneratedCodeAttribute(methodAttributes)
                     && !HasCompilerGeneratedAttribute(methodAttributes)
                     && !IsBlazorRenderMethod(caller))
-                    result.Opportunities = CollectOptimizationOpportunities(rawAllocations, il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions);
+                    result.Opportunities = CollectOptimizationOpportunities(allocations.DiscoveredOccurrences, allocationAnalysis, il, context, scope);
                 else
                     result.Suppressed = true;
             }
@@ -1015,9 +619,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            ScanBody(decodedBody, caller, scope, calls, evidence,
-                includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
-                loopRegions);
+            ScanBody(context, allocationAnalysis, scope, calls, evidence,
+                includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
         }
         catch (Exception ex) when (IsRecoverableMethodFailure(ex))
         {
@@ -1438,284 +1041,110 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return ("", "");
     }
 
-    ImmutableArray<AllocationOccurrence> CollectAllocationOccurrences(
-        byte[] il,
-        DecodedBody decodedBody,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+    // Metadata- and IL-dependent judgments for one method's allocation analysis.
+    // The builder owns the metadata reader, the caller's generic scope, and the raw
+    // IL bytes; MethodAllocationAnalysis sees only these narrow answers, so it cannot
+    // open a second decode or metadata traversal path.
+    sealed class AllocationResolver(
+        LibraryBodyAnalysisBuilder owner,
+        GenericScope scope,
         MethodIdentity caller,
-        GenericScope callerScope,
-        IReadOnlyList<(int Start, int End)> loopRegions,
-        bool classifyEscapes)
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+        : IMethodAllocationResolver
     {
-        var occurrences = ImmutableArray.CreateBuilder<AllocationOccurrence>();
-        ILOpCode previousOpcode = default;
-        int? pendingArrayLength = null;
-        int pendingArrayLengthBlock = -1;
-        foreach (var instruction in decodedBody.Instructions)
-        {
-            int offset = instruction.Offset;
-            var opcode = instruction.OpCode;
-            try
-            {
-                switch (opcode)
-                {
-                    case ILOpCode.Ldc_i4_m1:
-                    case ILOpCode.Ldc_i4_0:
-                    case ILOpCode.Ldc_i4_1:
-                    case ILOpCode.Ldc_i4_2:
-                    case ILOpCode.Ldc_i4_3:
-                    case ILOpCode.Ldc_i4_4:
-                    case ILOpCode.Ldc_i4_5:
-                    case ILOpCode.Ldc_i4_6:
-                    case ILOpCode.Ldc_i4_7:
-                    case ILOpCode.Ldc_i4_8:
-                        SetPendingArrayLength(
-                            opcode switch
-                            {
-                                ILOpCode.Ldc_i4_m1 => -1,
-                                ILOpCode.Ldc_i4_0 => 0,
-                                ILOpCode.Ldc_i4_1 => 1,
-                                ILOpCode.Ldc_i4_2 => 2,
-                                ILOpCode.Ldc_i4_3 => 3,
-                                ILOpCode.Ldc_i4_4 => 4,
-                                ILOpCode.Ldc_i4_5 => 5,
-                                ILOpCode.Ldc_i4_6 => 6,
-                                ILOpCode.Ldc_i4_7 => 7,
-                                _ => 8,
-                            },
-                            offset);
-                        break;
-                    case ILOpCode.Ldc_i4_s:
-                        SetPendingArrayLength((int)instruction.OperandValue, offset);
-                        break;
-                    case ILOpCode.Ldc_i4:
-                        SetPendingArrayLength(OperandInt32(instruction), offset);
-                        break;
-                    case ILOpCode.Newarr:
-                    {
-                        int token = OperandInt32(instruction);
-                        var element = ResolveTypeToken(token, callerScope);
-                        var array = TypeRef.SzArray(element);
-                        var (estimatedSizeBytes, sizeTier) = EstimateNewarrSize(element, token, ValidPendingArrayLength(offset));
-                        occurrences.Add(MakeAllocation(
-                            caller, offset, token, AllocationKind.Array, array, array.ToDisplayString(), countsAsHeapAllocation: true,
-                            AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                            AllocationEscape.Unknown, AllocationFactSource.Newarr,
-                            estimatedSizeBytes, sizeTier));
-                        ClearPendingArrayLength();
-                        break;
-                    }
-                    case ILOpCode.Newobj:
-                    {
-                        ClearPendingArrayLength();
-                        int token = OperandInt32(instruction);
-                        var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                        if (IsNonHeapNewObj(token, constructor.DeclaringType))
-                        {
-                            if (ShouldEmitUnresolvedValueTypeAnnotation(token, constructor.DeclaringType))
-                            {
-                                occurrences.Add(MakeAllocation(
-                                    caller, offset, token, AllocationKind.Object, constructor.DeclaringType, LegacyDetail(constructor.DeclaringType, AllocationKind.Object), countsAsHeapAllocation: false,
-                                    AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                                    AllocationEscape.Unknown, AllocationFactSource.Newobj));
-                            }
-                        }
-                        else if (ClassifyNewObjectAllocation(il, decodedBody, offset, instruction.NextOffset, token, constructor, loopRegions) is { } occurrence)
-                        {
-                            occurrences.Add(occurrence);
-                        }
-                        break;
-                    }
-                    case ILOpCode.Call:
-                    case ILOpCode.Callvirt:
-                    {
-                        ClearPendingArrayLength();
-                        int token = OperandInt32(instruction);
-                        var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                        if (RepeatedScanAnalysis.IsInterfaceEnumeratorAllocation(callee))
-                        {
-                            occurrences.Add(MakeAllocation(
-                                caller, offset, token, AllocationKind.Enumerator, callee.ReturnType, callee.ReturnType.ToDisplayString(), countsAsHeapAllocation: false,
-                                AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                                AllocationEscape.Unknown, AllocationFactSource.GetEnumeratorCall));
-                        }
-                        break;
-                    }
-                    case ILOpCode.Box:
-                    {
-                        ClearPendingArrayLength();
-                        int token = OperandInt32(instruction);
-                        var boxed = ResolveTypeToken(token, callerScope);
-                        occurrences.Add(MakeAllocation(
-                            caller, offset, token, AllocationKind.Box, boxed, boxed.ToDisplayString(),
-                            countsAsHeapAllocation: IsAllocatingValueTypeBox(token, boxed),
-                            AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                            MethodBodyFlowProbe.BoxFeedsThrowSoon(
-                                decodedBody.MethodInstructions,
-                                instruction.NextOffset)
-                                ? AllocationEscape.ThrowPath
-                                : AllocationEscape.Unknown,
-                            AllocationFactSource.Box));
-                        break;
-                    }
-                    default:
-                        ClearPendingArrayLength();
-                        break;
-                }
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-            {
-                break;
-            }
+        public TypeRef ResolveType(int token)
+            => owner.ResolveTypeToken(token, scope);
 
-            if (opcode != ILOpCode.Nop)
-                previousOpcode = opcode;
-        }
-        var collected = occurrences.ToImmutable();
-        return collected.Length == 0 || !classifyEscapes
-            ? collected
-            : ClassifyAllocationEscapes(collected, il, decodedBody, exceptionRegions, caller, callerScope);
+        public MemberRef ResolveMember(int token)
+            => MemberResolver.ResolveMethod(
+                owner._reader,
+                MetadataTokens.EntityHandle(token),
+                scope);
 
-        void SetPendingArrayLength(int length, int instructionOffset)
-        {
-            pendingArrayLength = length;
-            pendingArrayLengthBlock = decodedBody.BlockGraph.BlockIndexAt(instructionOffset);
-        }
-
-        void ClearPendingArrayLength()
-        {
-            pendingArrayLength = null;
-            pendingArrayLengthBlock = -1;
-        }
-
-        int? ValidPendingArrayLength(int newarrOffset)
-            => pendingArrayLength is { } length
-                && decodedBody.BlockGraph.IsComplete
-                && pendingArrayLengthBlock >= 0
-                && pendingArrayLengthBlock == decodedBody.BlockGraph.BlockIndexAt(newarrOffset)
-                ? length
-                : null;
-
-        AllocationOccurrence? ClassifyNewObjectAllocation(
-            byte[] ilBytes,
-            DecodedBody decoded,
-            int newObjectOffset,
-            int afterNewObjectPosition,
+        public NewObjectConstructionKind ClassifyConstruction(
             int operandToken,
-            MemberRef constructor,
-            IReadOnlyList<(int Start, int End)> loops)
+            TypeRef declaringType)
         {
-            var type = constructor.DeclaringType;
-            if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
-            {
-                return MakeAllocation(
-                    caller, newObjectOffset, operandToken, AllocationKind.Array, type, LegacyDetail(type, AllocationKind.Array), countsAsHeapAllocation: true,
-                    AllocationFrequency.Always, IsInLoopRegion(newObjectOffset, loops),
-                    AllocationEscape.Unknown, AllocationFactSource.Newobj);
-            }
-
-            AllocationKind kind = AllocationKind.Object;
-            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-            string name = definition.Name;
-            if (IsDelegateConstructorToken(operandToken, constructor))
-                kind = AllocationKind.Delegate;
-            else if (name.Contains("c__DisplayClass", StringComparison.Ordinal))
-                kind = AllocationKind.Closure;
-            else if (name.Contains(">d__", StringComparison.Ordinal))
-                kind = AllocationKind.StateMachine;
-
-            bool followsFunctionPointer = previousOpcode is ILOpCode.Ldftn or ILOpCode.Ldvirtftn;
-            if (kind == AllocationKind.Delegate && !followsFunctionPointer)
-                kind = AllocationKind.Object;
-
-            var frequency = kind == AllocationKind.Delegate && DelegateNewObjectIsCachedOnce(decoded, newObjectOffset, afterNewObjectPosition)
-                ? AllocationFrequency.CachedOnce
-                : AllocationFrequency.Always;
-            return MakeAllocation(
-                caller, newObjectOffset, operandToken, kind, type, LegacyDetail(type, kind), countsAsHeapAllocation: true,
-                frequency, IsInLoopRegion(newObjectOffset, loops),
-                MethodBodyFlowProbe.NewObjectFeedsThrowSoon(
-                    decoded.MethodInstructions,
-                    afterNewObjectPosition)
-                    ? AllocationEscape.ThrowPath
-                    : AllocationEscape.Unknown,
-                AllocationFactSource.Newobj);
-        }
-
-        AllocationOccurrence MakeAllocation(
-            MethodIdentity method,
-            int offset,
-            int? operandToken,
-            AllocationKind kind,
-            TypeRef? allocatedType,
-            string? detail,
-            bool countsAsHeapAllocation,
-            AllocationFrequency frequency,
-            bool inLoop,
-            AllocationEscape escape,
-            AllocationFactSource source,
-            int? estimatedSizeBytes = null,
-            AllocationSizeTier sizeTier = AllocationSizeTier.Unknown)
-            => new(
-                method,
-                offset,
+            if (!owner.IsNonHeapNewObj(operandToken, declaringType))
+                return NewObjectConstructionKind.Heap;
+            return owner.IsUnresolvedExternalValueTypeConstruction(
                 operandToken,
-                kind,
-                allocatedType,
-                detail,
-                countsAsHeapAllocation,
-                frequency,
-                inLoop,
-                escape,
-                source,
-                RuntimeAllocationType(kind, allocatedType),
-                AllocationPathContextFor(decodedBody, offset, loopRegions, escape),
-                AllocationPathConfidenceFor(decodedBody, offset, escape),
-                estimatedSizeBytes,
-                sizeTier)
-            {
-                PostDominance = AllocationPostDominanceFor(decodedBody, offset, escape),
-                Multiplicity = AllocationMultiplicityFor(decodedBody, offset, loopRegions, escape),
-                ChurnedType = ChurnedTypeFor(kind, allocatedType),
-            };
-
-        bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
-        {
-            try
-            {
-                var handle = MetadataTokens.EntityHandle(operandToken);
-                var parent = handle.Kind switch
-                {
-                    HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
-                    _ => default,
-                };
-                return parent.Kind == HandleKind.TypeReference
-                    && IsNonHeapConstructionByName(type);
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-            {
-                return false;
-            }
+                declaringType)
+                    ? NewObjectConstructionKind.UnresolvedExternalValueType
+                    : NewObjectConstructionKind.NonHeap;
         }
 
+        public bool IsDelegateConstructor(int operandToken, MemberRef constructor)
+            => owner.IsDelegateConstructorToken(operandToken, constructor);
+
+        public bool IsAllocatingValueTypeBox(int operandToken, TypeRef boxed)
+            => owner.IsAllocatingValueTypeBox(operandToken, boxed);
+
+        public bool IsInAssemblyReferenceType(int typeToken)
+            => owner.IsInAssemblyReferenceTypeElement(typeToken);
+
+        public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
+            => owner.ResolveFieldOwner(fieldToken, scope);
+
+        public ReachingDefinitionsResult AnalyzeReachingDefinitions()
+            => ReachingDefinitions.Analyze(
+                il,
+                ArgumentSlotCount(caller),
+                exceptionRegions);
     }
 
-    static string LegacyDetail(TypeRef type, AllocationKind kind)
+    // A value-type `newobj` whose operand is an unresolvable external TypeRef is still
+    // recorded (as a non-heap annotation) when the type is a recognized framework value
+    // type by name, so the row is not silently dropped.
+    bool IsUnresolvedExternalValueTypeConstruction(
+        int operandToken,
+        TypeRef type)
     {
-        if (kind is AllocationKind.Closure or AllocationKind.StateMachine)
-            return LeafDisplayName(type);
-        return type.ToDisplayString();
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(operandToken);
+            var parent = handle.Kind switch
+            {
+                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+                _ => default,
+            };
+            return parent.Kind == HandleKind.TypeReference
+                && IsNonHeapConstructionByName(type);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+        {
+            return false;
+        }
     }
 
-    static string LeafDisplayName(TypeRef type)
+    // The declaring type and name behind a field-store operand. Returns (null, null)
+    // when the operand is not a resolvable field, leaving the escape-kind judgment to
+    // the allocation analysis that asked.
+    (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken, GenericScope callerScope)
     {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        string name = definition.Name;
-        int nested = name.LastIndexOf('+');
-        if (nested >= 0)
-            name = name[(nested + 1)..];
-        int arity = name.IndexOf('`');
-        return arity >= 0 ? name[..arity] : name;
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(fieldToken);
+            switch (handle.Kind)
+            {
+                case HandleKind.FieldDefinition:
+                    var field = _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
+                    return (
+                        TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0),
+                        _reader.GetString(field.Name));
+                case HandleKind.MemberReference:
+                    return (
+                        ResolveMemberReferenceParentType(handle, callerScope),
+                        _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name));
+                default:
+                    return (null, null);
+            }
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+        {
+            return (null, null);
+        }
     }
 
     bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)
@@ -1876,17 +1305,23 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
     }
 
-    ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(ImmutableArray<AllocationOccurrence> rawAllocations, byte[] il, DecodedBody decodedBody, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
+    ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(
+        ImmutableArray<AllocationOccurrence> discoveredAllocations,
+        MethodAllocationAnalysis allocationAnalysis,
+        byte[] il,
+        MethodBodyAnalysisContext context,
+        GenericScope callerScope)
     {
+        var caller = context.Method;
         var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-        // Raw (unclassified) allocation occurrences for this method, scanned once by the caller
+        // Discovered allocation occurrences for this method, scanned once by the caller
         // and shared here to avoid a redundant second allocation scan. Escape state is not read.
-        var allocationByOffset = rawAllocations.ToDictionary(occurrence => occurrence.ILOffset);
+        var allocationByOffset = discoveredAllocations.ToDictionary(occurrence => occurrence.ILOffset);
         ReachingDefinitionsResult? reachingDefinitions = null;
         ReachingDefinitionsResult GetReachingDefinitions()
-            => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
+            => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), context.ExceptionRegions);
 
-        var branchTargetOffsets = decodedBody.Instructions
+        var branchTargetOffsets = context.Instructions.Instructions
             .SelectMany(static instruction => instruction.BranchTargets)
             .ToArray();
         int? pendingConstant = null;
@@ -1911,7 +1346,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         // if the delegate flows straight into a lazy LINQ operator, the obvious iterator
         // rewrite only moves the allocation, so we annotate that on the row.
         int? pendingDelegateOpportunityIndex = null;
-        foreach (var instruction in decodedBody.Instructions)
+        foreach (var instruction in context.Instructions.Instructions)
         {
             int offset = instruction.Offset;
             var opcode = instruction.OpCode;
@@ -1947,11 +1382,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     SetPendingConstant((int)instruction.OperandValue, offset);
                     break;
                 case ILOpCode.Ldc_i4:
-                    SetPendingConstant(OperandInt32(instruction), offset);
+                    SetPendingConstant(MethodInstructionFacts.OperandInt32(instruction), offset);
                     break;
                 case ILOpCode.Newarr:
                 {
-                    int elementToken = OperandInt32(instruction);
+                    int elementToken = MethodInstructionFacts.OperandInt32(instruction);
                     if (allocationByOffset.TryGetValue(offset, out var arrayAllocation)
                         && arrayAllocation.Kind == AllocationKind.Array
                         && ValidPendingConstant(offset) is int length && length >= 0 && length <= 8)
@@ -1960,7 +1395,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         // array provably stays local AND its element type is stackalloc-
                         // eligible (an unmanaged primitive); otherwise keep the
                         // non-committal shape.
-                        bool local = ArrayProvablyStaysLocal(decodedBody, GetReachingDefinitions(), instruction.NextOffset)
+                        bool local = ArrayProvablyStaysLocal(context, GetReachingDefinitions(), instruction.NextOffset)
                             && IsStackallocEligibleElement(ResolveTypeToken(elementToken, callerScope));
                         opportunities.Add(local
                             ? new OptimizationOpportunity(
@@ -1969,7 +1404,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                                 $"newarr with small constant length ({length}) that does not escape",
                                 "The array stays local, so a stackalloc span avoids the heap allocation.",
                                 "high",
-                                IsInLoopRegion(offset, loopRegions),
+                                context.IsInLoopRegion(offset),
                                 offset,
                                 null)
                             : new OptimizationOpportunity(
@@ -1978,7 +1413,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                                 $"newarr with small constant length ({length})",
                                 "If the array does not escape, a span or stackalloc may avoid the allocation.",
                                 "medium",
-                                IsInLoopRegion(offset, loopRegions),
+                                context.IsInLoopRegion(offset),
                                 offset,
                                 "Escape not analyzed; confirm the array stays local before replacing."));
                     }
@@ -2007,8 +1442,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                             // genuinely repeats each iteration is high; a one-shot delegate —
                             // including a loop early-exit that runs once — is low, especially
                             // since .NET 10+ partially stack-allocates non-escaping ones.
-                            var inLoop = IsInLoopRegion(offset, loopRegions);
-                            bool iteratesInLoop = AllocationMultiplicityFor(decodedBody, offset, loopRegions, AllocationEscape.Unknown) == AllocationMultiplicity.Loop;
+                            var inLoop = context.IsInLoopRegion(offset);
+                            bool iteratesInLoop = allocationAnalysis.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
                             pendingDelegateOpportunityIndex = opportunities.Count;
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -2022,9 +1457,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         }
                         else if (!cachedOnce && pendingDelegateInstanceGroup)
                         {
-                            var inLoop = IsInLoopRegion(offset, loopRegions);
-                            bool iteratesInLoop = AllocationMultiplicityFor(decodedBody, offset, loopRegions, AllocationEscape.Unknown) == AllocationMultiplicity.Loop;
-                            bool stackGuardFallback = IsStackGuardFallbackAllocation(decodedBody, offset, callerScope);
+                            var inLoop = context.IsInLoopRegion(offset);
+                            bool iteratesInLoop = allocationAnalysis.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
+                            bool stackGuardFallback = IsStackGuardFallbackAllocation(context, offset, callerScope);
                             pendingDelegateOpportunityIndex = opportunities.Count;
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -2047,7 +1482,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         && stateMachineAllocation.Kind == AllocationKind.StateMachine
                         && IsAsyncStateMachineType(stateMachineAllocation.AllocatedType))
                     {
-                        var inLoop = IsInLoopRegion(offset, loopRegions);
+                        var inLoop = context.IsInLoopRegion(offset);
                         opportunities.Add(new OptimizationOpportunity(
                             caller,
                             "async-state-machine",
@@ -2070,7 +1505,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 case ILOpCode.Callvirt:
                 {
                     ClearPendingConstant();
-                    int token = OperandInt32(instruction);
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
                     var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                     // When the delegate just allocated flows straight into a lazy LINQ
                     // operator (Where/Select/…), a static-local-function rewrite removes the
@@ -2097,13 +1532,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                             $"{callee.DeclaringType.ToQualifiedDisplayString()}::{callee.Name}",
                             "Prefer BinaryPrimitives.Write* or a stackalloc span when byte order is known.",
                             "high",
-                            IsInLoopRegion(offset, loopRegions),
+                            context.IsInLoopRegion(offset),
                             offset,
                             null));
                     }
                     else if (IsSpanToArrayCopy(callee, out var copyReceiver))
                     {
-                        if (!SpanToArrayResultEscapes(decodedBody, GetReachingDefinitions(), instruction.NextOffset))
+                        if (!SpanToArrayResultEscapes(context, GetReachingDefinitions(), instruction.NextOffset))
                         {
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -2111,14 +1546,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                                 copyReceiver,
                                 "Let the span flow through to the consumer instead of materializing a copy when the array is not retained.",
                                 "medium",
-                                IsInLoopRegion(offset, loopRegions),
+                                context.IsInLoopRegion(offset),
                                 offset,
                                 "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
                         }
                     }
                     else if (RepeatedScanAnalysis.IsLinqMaterializer(callee, out var materializeOp)
-                        && TryGetContainingLoop(offset, loopRegions, out var materializeLoop)
-                        && LinqMaterializerSourceIsLoopInvariant(decodedBody, GetReachingDefinitions(), offset, materializeLoop, out var sourceEvidence))
+                        && TryGetContainingLoop(offset, context.LoopRegions, out var materializeLoop)
+                        && LinqMaterializerSourceIsLoopInvariant(context, GetReachingDefinitions(), offset, materializeLoop, out var sourceEvidence))
                     {
                         opportunities.Add(new OptimizationOpportunity(
                             caller,
@@ -2130,7 +1565,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                             offset,
                             "Only valid when the source sequence is unchanged during the loop; this row requires complete reaching-defs and an outside-loop source definition."));
                     }
-                    else if (RepeatedScanAnalysis.IsLinqMembershipScan(callee, out var scanOp) && IsInLoopRegion(offset, loopRegions))
+                    else if (RepeatedScanAnalysis.IsLinqMembershipScan(callee, out var scanOp) && context.IsInLoopRegion(offset))
                     {
                         // A membership/search LINQ terminal (Any, First, Count, Contains, …)
                         // that runs inside a loop re-scans its sequence on every iteration.
@@ -2146,8 +1581,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                             offset,
                             "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
                     }
-                    else if (RepeatedScanAnalysis.IsStringConcat(callee) && IsInLoopRegion(offset, loopRegions)
-                        && ConcatAccumulatesIntoSource(decodedBody, offset, instruction.NextOffset, callee.ParameterTypes.Length, callerScope))
+                    else if (RepeatedScanAnalysis.IsStringConcat(callee) && context.IsInLoopRegion(offset)
+                        && ConcatAccumulatesIntoSource(context, offset, instruction.NextOffset, callee.ParameterTypes.Length, callerScope))
                     {
                         // `s += …` inside a loop lowers to String.Concat(s, …) stored back to
                         // the same local/parameter. Each iteration copies the whole growing
@@ -2168,7 +1603,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                             offset,
                             null));
                     }
-                    else if (RepeatedScanAnalysis.IsInterfaceEnumeratorAllocation(callee) && IsInLoopRegion(offset, loopRegions))
+                    else if (RepeatedScanAnalysis.IsInterfaceEnumeratorAllocation(callee) && context.IsInLoopRegion(offset))
                     {
                         // foreach over an interface (IEnumerable/IEnumerable<T>) binds to a
                         // GetEnumerator returning the reference-type IEnumerator/IEnumerator<T>,
@@ -2193,7 +1628,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 case ILOpCode.Ldvirtftn:
                 {
                     ClearPendingConstant();
-                    int token = OperandInt32(instruction);
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
                     // Defer emission to the following newobj (de-dup). Capture is decided
                     // by the target method's declaring type: a lambda that closes over state
                     // is emitted on a compiler-generated display class. An instance method
@@ -2208,7 +1643,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     pendingDelegateCapturing = IsClosureTarget(ftnTarget);
                     pendingDelegateInstanceGroup = !pendingDelegateCapturing
                         && ftnTarget.Kind != MemberKind.Unsupported
-                        && !DeclaringTypeLeafName(ftnTarget.DeclaringType).Contains("<>", StringComparison.Ordinal)
+                        && !CompilerGeneratedNames.LeafName(ftnTarget.DeclaringType).Contains("<>", StringComparison.Ordinal)
                         && previousOpcode != ILOpCode.Ldnull;
                     break;
                 }
@@ -2229,7 +1664,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 case ILOpCode.Box:
                 {
                     ClearPendingConstant();
-                    int token = OperandInt32(instruction);
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
                     var boxed = ResolveTypeToken(token, callerScope);
                     // ECMA-335 permits `box` on reference types (a no-op) and generic
                     // parameters (compiler-mandated, JIT-specialized), and `box Nullable<T>`
@@ -2306,7 +1741,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             pendingConstant = value;
             pendingConstantOffset = instructionOffset;
-            pendingConstantBlock = decodedBody.BlockGraph.BlockIndexAt(instructionOffset);
+            pendingConstantBlock = context.Blocks.BlockIndexAt(instructionOffset);
         }
 
         void ClearPendingConstant()
@@ -2318,11 +1753,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
         int? ValidPendingConstant(int newarrOffset)
             => pendingConstant is { } value
-                && decodedBody.BlockGraph.IsComplete
+                && context.Blocks.IsComplete
                 && pendingConstantBlock >= 0
                 // EH-aware blocks can split protected regions at every instruction; only a
                 // real branch target between the constant and newarr makes the length joined.
-                && (pendingConstantBlock == decodedBody.BlockGraph.BlockIndexAt(newarrOffset)
+                && (pendingConstantBlock == context.Blocks.BlockIndexAt(newarrOffset)
                     || !HasBranchTargetBetween(pendingConstantOffset, newarrOffset))
                 ? value
                 : null;
@@ -2344,14 +1779,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 annotated = annotated with
                 {
                     RuntimeAllocationType = runtimeAllocation,
-                    PathContext = opportunity.PathContext ?? OptimizationOpportunityAnalysis.FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
-                    PathConfidence = opportunity.PathConfidence ?? OptimizationOpportunityAnalysis.FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
-                    PostDominance = opportunity.PostDominance ?? OptimizationOpportunityAnalysis.FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
+                    PathContext = opportunity.PathContext ?? OptimizationOpportunityAnalysis.FormatPathContext(allocationAnalysis.PathContextAt(opportunityOffset)),
+                    PathConfidence = opportunity.PathConfidence ?? OptimizationOpportunityAnalysis.FormatPathConfidence(allocationAnalysis.PathConfidenceAt(opportunityOffset)),
+                    PostDominance = opportunity.PostDominance ?? OptimizationOpportunityAnalysis.FormatPostDominance(allocationAnalysis.PostDominanceAt(opportunityOffset)),
                     Multiplicity = opportunity.Multiplicity ?? OptimizationOpportunityAnalysis.FormatMultiplicity(
                         allocation?.Multiplicity is { } allocationMultiplicity
                             && allocationMultiplicity != AllocationMultiplicity.Unknown
                                 ? allocationMultiplicity
-                                : AllocationMultiplicityFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                                : allocationAnalysis.MultiplicityAt(opportunityOffset)),
                     EstimatedSizeBytes = opportunity.EstimatedSizeBytes ?? allocation?.EstimatedSizeBytes,
                 };
             }
@@ -2365,95 +1800,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // method groups live on ordinary types, so none of those match.
     static bool IsClosureTarget(MemberRef target)
         => target.Kind != MemberKind.Unsupported
-           && DeclaringTypeLeafName(target.DeclaringType)
-               .StartsWith("<>c__DisplayClass", StringComparison.Ordinal);
+           && CompilerGeneratedNames.IsDisplayClass(target.DeclaringType);
 
-    static string DeclaringTypeLeafName(TypeRef type)
-    {
-        string name = type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
-        int nested = name.LastIndexOf('+');
-        return nested < 0 ? name : name[(nested + 1)..];
-    }
-
-    bool DelegateNewObjectIsCachedOnce(DecodedBody decodedBody, int newObjectOffset, int afterNewObjectPosition)
-    {
-        try
-        {
-            if (!TryFindDelegateCacheProbe(decodedBody, newObjectOffset, out int probeFieldToken, out int branchTarget))
-                return false;
-            return TryReadDelegateCacheStore(decodedBody, afterNewObjectPosition, out int storeFieldToken, out int storeOffset)
-                && storeFieldToken == probeFieldToken
-                && branchTarget > storeOffset;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return false;
-        }
-    }
-
-    bool TryFindDelegateCacheProbe(DecodedBody decodedBody, int newObjectOffset, out int fieldToken, out int branchTarget)
-    {
-        fieldToken = 0;
-        branchTarget = -1;
-        foreach (var instruction in decodedBody.Instructions)
-        {
-            if (instruction.Offset >= newObjectOffset)
-                break;
-            if (instruction.OpCode == ILOpCode.Ldsfld)
-            {
-                int candidateToken = OperandInt32(instruction);
-                if (TryReadLdsfldDupBranchOverOffset(decodedBody, instruction.NextOffset, newObjectOffset, out int candidateBranchTarget))
-                {
-                    fieldToken = candidateToken;
-                    branchTarget = candidateBranchTarget;
-                }
-            }
-        }
-        return fieldToken != 0;
-    }
-
-    bool TryReadLdsfldDupBranchOverOffset(DecodedBody decodedBody, int position, int targetOffset, out int branchTarget)
-    {
-        branchTarget = -1;
-        int dupIndex = decodedBody.NextNonNopIndexAtOrAfter(position);
-        if (dupIndex >= decodedBody.Instructions.Length)
-            return false;
-        var dup = decodedBody.Instructions[dupIndex];
-        if (dup.OpCode != ILOpCode.Dup)
-            return false;
-        int branchIndex = decodedBody.NextNonNopIndexAtOrAfter(dup.NextOffset);
-        if (branchIndex >= decodedBody.Instructions.Length)
-            return false;
-        var branch = decodedBody.Instructions[branchIndex];
-        return branch.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
-            && TrySingleBranchTarget(branch, out branchTarget)
-            && branchTarget > targetOffset;
-    }
-
-    bool TryReadDelegateCacheStore(DecodedBody decodedBody, int position, out int fieldToken, out int storeOffset)
-    {
-        fieldToken = 0;
-        storeOffset = -1;
-        int index = decodedBody.NextNonNopIndexAtOrAfter(position);
-        if (index >= decodedBody.Instructions.Length)
-            return false;
-        var instruction = decodedBody.Instructions[index];
-        storeOffset = instruction.Offset;
-        if (instruction.OpCode == ILOpCode.Dup)
-        {
-            index = decodedBody.NextNonNopIndexAtOrAfter(instruction.NextOffset);
-            if (index >= decodedBody.Instructions.Length)
-                return false;
-            instruction = decodedBody.Instructions[index];
-            storeOffset = instruction.Offset;
-        }
-        if (instruction.OpCode != ILOpCode.Stsfld)
-            return false;
-        fieldToken = OperandInt32(instruction);
-        return true;
-    }
-
-    bool IsStackGuardFallbackAllocation(DecodedBody decodedBody, int allocationOffset, GenericScope callerScope)
+    bool IsStackGuardFallbackAllocation(MethodBodyAnalysisContext context, int allocationOffset, GenericScope callerScope)
     {
         const int NoStackGuardCondition = 0;
         const int DirectResult = 1;
@@ -2468,7 +1817,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             int conditionState = NoStackGuardCondition;
             int conditionSlot = -1;
-            foreach (var instruction in decodedBody.Instructions)
+            foreach (var instruction in context.Instructions.Instructions)
             {
                 if (instruction.Offset >= allocationOffset)
                     break;
@@ -2476,7 +1825,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 var opcode = instruction.OpCode;
                 if (opcode is ILOpCode.Call or ILOpCode.Callvirt)
                 {
-                    int token = OperandInt32(instruction);
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
                     var call = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                     conditionState = call.Name == "TryEnterOnCurrentStack"
                         ? DirectResult
@@ -2523,7 +1872,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 }
                 if (opcode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
                 {
-                    if (TrySingleBranchTarget(instruction, out int branchTarget)
+                    if (MethodInstructionFacts.TrySingleBranchTarget(instruction, out int branchTarget)
                         && branchTarget > allocationOffset
                         && BranchSkipsStackGuardFallback(opcode, conditionState))
                     {
@@ -2667,76 +2016,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
     }
 
-    const int X64SzArrayHeaderBytes = 24;
-    const int X64ReferenceOrPointerElementBytes = 8;
-    const int X64ObjectAlignmentBytes = 8;
-
-    // Exact size estimates are calibrated to the x64 managed object layout:
-    // 8-byte object header + 8-byte method-table pointer + 4-byte length padded to 24,
-    // then element payload rounded up to the 8-byte allocation quantum.
-    (int? Size, AllocationSizeTier Tier) EstimateNewarrSize(TypeRef element, int elementToken, int? length)
-    {
-        if (length is null or < 0)
-            return (null, AllocationSizeTier.Unknown);
-        if (!TryGetNewarrElementSize(element, elementToken, out int elementSize))
-            return (null, AllocationSizeTier.Unknown);
-
-        long rawSize = X64SzArrayHeaderBytes + (long)length.Value * elementSize;
-        long alignedSize = AlignUp(rawSize, X64ObjectAlignmentBytes);
-        return alignedSize <= int.MaxValue
-            ? ((int)alignedSize, AllocationSizeTier.Exact)
-            : (null, AllocationSizeTier.Unknown);
-    }
-
-    bool TryGetNewarrElementSize(TypeRef element, int elementToken, out int size)
-    {
-        if (TryGetPrimitiveElementSize(element, out size))
-            return true;
-        if (element.Kind is TypeRefKind.Pointer or TypeRefKind.SzArray or TypeRefKind.Array)
-        {
-            size = X64ReferenceOrPointerElementBytes;
-            return true;
-        }
-        if (element.Kind != TypeRefKind.Definition)
-        {
-            size = 0;
-            return false;
-        }
-        if (IsKnownCoreLibraryReferenceElement(element)
-            || IsInAssemblyReferenceTypeElement(elementToken))
-        {
-            size = X64ReferenceOrPointerElementBytes;
-            return true;
-        }
-
-        size = 0;
-        return false;
-    }
-
-    static bool TryGetPrimitiveElementSize(TypeRef element, out int size)
-    {
-        if (element.Kind != TypeRefKind.Definition || element.Namespace != "System")
-        {
-            size = 0;
-            return false;
-        }
-
-        size = element.Name switch
-        {
-            "Boolean" or "Byte" or "SByte" => 1,
-            "Char" or "Int16" or "UInt16" => 2,
-            "Int32" or "UInt32" or "Single" => 4,
-            "Int64" or "UInt64" or "Double" or "IntPtr" or "UIntPtr" => 8,
-            _ => 0,
-        };
-        return size != 0 && FrameworkIdentity.IsCoreLibraryType(element, "System", element.Name);
-    }
-
-    static bool IsKnownCoreLibraryReferenceElement(TypeRef element)
-        => FrameworkIdentity.IsCoreLibraryType(element, "System", "Object")
-           || FrameworkIdentity.IsCoreLibraryType(element, "System", "String")
-           || FrameworkIdentity.IsCoreLibraryType(element, "System", "Type");
-
     bool IsInAssemblyReferenceTypeElement(int elementToken)
     {
         try
@@ -2751,9 +2030,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
     }
 
-    static long AlignUp(long value, int alignment)
-        => (value + alignment - 1) / alignment * alignment;
-
     // True only for the unmanaged primitive element types that C# stackalloc accepts.
     // Enums and unmanaged structs are also stackalloc-eligible but require resolving the
     // type's layout/base, so they are conservatively excluded (kept as small-array).
@@ -2765,170 +2041,16 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                or "Int64" or "UInt64" or "Single" or "Double"
                or "IntPtr" or "UIntPtr";
 
-    static string? RuntimeAllocationType(AllocationKind kind, TypeRef? allocatedType)
-    {
-        if (allocatedType is null)
-            return kind == AllocationKind.Object ? "object" : null;
-        return kind switch
-        {
-            AllocationKind.Box => $"boxed {RuntimeTypeName(allocatedType)}",
-            AllocationKind.Closure => $"display class ({RuntimeTypeName(allocatedType)})",
-            AllocationKind.StateMachine => $"state machine ({RuntimeTypeName(allocatedType)})",
-            _ => RuntimeTypeName(allocatedType),
-        };
-    }
-
-    // The backing array a growable collection churns as it resizes — the type that
-    // actually allocates at runtime, distinct from the collection object itself. Only
-    // the single-backing-array collections are reported; Dictionary/HashSet grow
-    // multiple internal arrays (buckets + entries) so they stay fail-honest null.
-    static string? ChurnedTypeFor(AllocationKind kind, TypeRef? allocatedType)
-    {
-        if (kind != AllocationKind.Object || allocatedType is null)
-            return null;
-
-        if (FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Text", "System.Text", "StringBuilder"))
-            return "System.Char[]";
-
-        if (allocatedType.Kind == TypeRefKind.GenericInstance
-            && allocatedType.TypeArguments.Length == 1
-            && (FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Collections", "System.Collections.Generic", "List`1")
-                || FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Collections", "System.Collections.Generic", "Queue`1")
-                || FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Collections", "System.Collections.Generic", "Stack`1")))
-            return $"{RuntimeTypeName(allocatedType.TypeArguments[0])}[]";
-
-        return null;
-    }
-
-    static string RuntimeTypeName(TypeRef type)
-        => type.Kind switch
-        {
-            TypeRefKind.Definition => type.Namespace.Length == 0 ? StripMetadataGenericArity(type.Name) : $"{type.Namespace}.{StripMetadataGenericArity(type.Name)}",
-            TypeRefKind.GenericInstance => $"{RuntimeTypeName(type.ElementType ?? type)}<{string.Join(", ", type.TypeArguments.Select(RuntimeTypeName))}>",
-            TypeRefKind.SzArray => $"{RuntimeTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{RuntimeTypeName(type.ElementType!)}[{new string(',', type.Rank - 1)}]",
-            TypeRefKind.ByRef => $"ref {RuntimeTypeName(type.ElementType!)}",
-            TypeRefKind.Pointer => $"{RuntimeTypeName(type.ElementType!)}*",
-            _ => type.ToQualifiedDisplayString(),
-        };
-
-    static string StripMetadataGenericArity(string name)
-    {
-        if (!name.Contains('`', StringComparison.Ordinal))
-            return name;
-        return string.Join("+", name.Split('+').Select(segment =>
-        {
-            int tick = segment.IndexOf('`');
-            return tick < 0 ? segment : segment[..tick];
-        }));
-    }
-
-    static AllocationPathContext AllocationPathContextFor(
-        DecodedBody decodedBody,
-        int offset,
-        IReadOnlyList<(int Start, int End)> loopRegions,
-        AllocationEscape escape)
-    {
-        if (escape == AllocationEscape.ThrowPath)
-            return AllocationPathContext.ErrorPath;
-        int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
-        var blockContext = decodedBody.PathContexts.ContextFor(blockIndex);
-        if (blockContext == AllocationPathContext.ErrorPath)
-            return AllocationPathContext.ErrorPath;
-        if (IsInLoopRegion(offset, loopRegions))
-            return AllocationPathContext.LoopBody;
-
-        return blockContext;
-    }
-
-    static AllocationPathConfidence AllocationPathConfidenceFor(
-        DecodedBody decodedBody,
-        int offset,
-        AllocationEscape escape)
-    {
-        if (escape == AllocationEscape.ThrowPath)
-            return AllocationPathConfidence.Unknown;
-        int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
-        return decodedBody.PathConfidences.ConfidenceFor(blockIndex);
-    }
-
-    static AllocationPostDominance AllocationPostDominanceFor(
-        DecodedBody decodedBody,
-        int offset,
-        AllocationEscape escape)
-    {
-        if (escape == AllocationEscape.ThrowPath)
-            return AllocationPostDominance.Unknown;
-        int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
-        return decodedBody.PostDominances.PostDominanceFor(blockIndex);
-    }
-
-    // Per-invocation multiplicity, consolidated from the existing path axes.
-    // Precedence favors soundness (never confidently wrong) over completeness:
-    //   post-dominates return -> the block reaches a return with NO loop backedge,
-    //     so it runs at most once (Once if it also dominates return, else Conditional).
-    //     This correctly demotes a `return new T()` early-exit inside a loop.
-    //   thrown value in a loop -> ambiguous (caught-in-loop iterates N times,
-    //     uncaught exits after one) so fail-honest Unknown; a non-loop throw is
-    //     Conditional (runs 0/1).
-    //   loop body        -> Loop (0..N per call; N is not statically resolved)
-    //   error path       -> Conditional (runs only when the exception fires)
-    //   dominates-return -> Once
-    //   behind a branch  -> Conditional
-    //   otherwise        -> Unknown (fail-honest)
-    static AllocationMultiplicity AllocationMultiplicityFor(
-        DecodedBody decodedBody,
-        int offset,
-        IReadOnlyList<(int Start, int End)> loopRegions,
-        AllocationEscape escape)
-    {
-        int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
-        var confidence = decodedBody.PathConfidences.ConfidenceFor(blockIndex);
-
-        // Reaches a return without cycling back -> at most one execution per call,
-        // even when the block's IL offset happens to sit inside a loop region.
-        if (decodedBody.PostDominances.PostDominanceFor(blockIndex) == AllocationPostDominance.ReturnPostDominates)
-            return confidence == AllocationPathConfidence.DominatesReturn
-                ? AllocationMultiplicity.Once
-                : AllocationMultiplicity.Conditional;
-
-        bool inLoop = IsInLoopRegion(offset, loopRegions);
-        if (escape == AllocationEscape.ThrowPath)
-            return inLoop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional;
-        if (inLoop)
-        {
-            // A block inside a loop region only iterates if it can flow back to the
-            // loop backedge. One that exits first — an early return OR an uncaught
-            // throw after the allocation — runs at most once, so it is not a hot loop.
-            if (!decodedBody.PostDominances.ReachesCycleFor(blockIndex))
-                return confidence == AllocationPathConfidence.DominatesReturn
-                    ? AllocationMultiplicity.Once
-                    : AllocationMultiplicity.Conditional;
-            return AllocationMultiplicity.Loop;
-        }
-
-        var context = decodedBody.PathContexts.ContextFor(blockIndex);
-        if (context == AllocationPathContext.ErrorPath)
-            return AllocationMultiplicity.Conditional;
-        if (confidence == AllocationPathConfidence.DominatesReturn)
-            return AllocationMultiplicity.Once;
-        if (confidence == AllocationPathConfidence.BehindBranch
-            || context is AllocationPathContext.Branch or AllocationPathContext.SwitchArm)
-            return AllocationMultiplicity.Conditional;
-
-        return AllocationMultiplicity.Unknown;
-    }
-
     // Conservative, sound local-escape check for a freshly created array. Returns true
     // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
     // load is an in-place element access / length read — never returned, stored to a
     // field, address-taken, or passed to a call. Any shape we cannot prove local returns
     // false (keep the non-committal `small-array`), so a false positive is impossible.
-    bool ArrayProvablyStaysLocal(DecodedBody decodedBody, ReachingDefinitionsResult reachingDefinitions, int positionAfterNewarr)
+    bool ArrayProvablyStaysLocal(MethodBodyAnalysisContext context, ReachingDefinitionsResult reachingDefinitions, int positionAfterNewarr)
     {
         try
         {
-            if (!TryReadStoreLocalDefinition(decodedBody, positionAfterNewarr, out int slot, out int storeOffset))
+            if (!TryReadStoreLocalDefinition(context, positionAfterNewarr, out int slot, out int storeOffset))
                 return false;
             if (!reachingDefinitions.IsComplete)
                 return false;
@@ -2941,8 +2063,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             {
                 if (use.Address)
                     return false;
-                if (!TryPositionAfterLoadLocal(decodedBody, use.Offset, slot, out int positionAfterLoad)
-                    || ArrayLoadEscapes(decodedBody, positionAfterLoad))
+                if (!TryPositionAfterLoadLocal(context, use.Offset, slot, out int positionAfterLoad)
+                    || ArrayLoadEscapes(context, positionAfterLoad))
                 {
                     return false;
                 }
@@ -2953,509 +2075,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
         {
             return false;
-        }
-    }
-
-    ImmutableArray<AllocationOccurrence> ClassifyAllocationEscapes(
-        ImmutableArray<AllocationOccurrence> occurrences,
-        byte[] il,
-        DecodedBody decodedBody,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        MethodIdentity caller,
-        GenericScope callerScope)
-    {
-        ReachingDefinitionsResult? reachingDefinitions = null;
-        bool reachingDefinitionsAttempted = false;
-
-        ReachingDefinitionsResult? GetReachingDefinitions()
-        {
-            if (!reachingDefinitionsAttempted)
-            {
-                reachingDefinitionsAttempted = true;
-                try
-                {
-                    reachingDefinitions = ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
-                }
-                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-                {
-                    reachingDefinitions = null;
-                }
-            }
-            return reachingDefinitions;
-        }
-
-        var builder = ImmutableArray.CreateBuilder<AllocationOccurrence>(occurrences.Length);
-        foreach (var occurrence in occurrences)
-        {
-            if (occurrence.Escape != AllocationEscape.Unknown
-                || !decodedBody.TryGetInstructionAt(occurrence.ILOffset, out var instruction))
-            {
-                builder.Add(occurrence);
-                continue;
-            }
-
-            var escape = ClassifyProducedValueEscape(
-                decodedBody,
-                GetReachingDefinitions,
-                callerScope,
-                instruction.NextOffset,
-                occurrence.Kind,
-                occurrence.AllocatedType);
-
-            builder.Add(escape.Escape == AllocationEscape.Unknown
-                ? occurrence
-                : occurrence with
-                {
-                    Escape = escape.Escape,
-                    EscapeKind = escape.Escape == AllocationEscape.Escapes ? escape.Kind : AllocationEscapeKind.None,
-                    PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
-                    PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
-                    PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
-                    Multiplicity = escape.Escape == AllocationEscape.ThrowPath
-                        ? (occurrence.Multiplicity == AllocationMultiplicity.Loop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional)
-                        : occurrence.Multiplicity,
-                });
-        }
-        return builder.MoveToImmutable();
-    }
-
-    // Verdict plus the objective refinement of WHERE an Escapes value escapes.
-    // Kind is only meaningful when Escape == Escapes; otherwise it stays None.
-    readonly record struct EscapeClassification(AllocationEscape Escape, AllocationEscapeKind Kind)
-    {
-        public static readonly EscapeClassification Unknown = new(AllocationEscape.Unknown, AllocationEscapeKind.None);
-        public static readonly EscapeClassification LocalOnly = new(AllocationEscape.LocalOnly, AllocationEscapeKind.None);
-        public static readonly EscapeClassification ThrowPath = new(AllocationEscape.ThrowPath, AllocationEscapeKind.None);
-        public static EscapeClassification Escapes(AllocationEscapeKind kind) => new(AllocationEscape.Escapes, kind);
-    }
-
-    EscapeClassification ClassifyProducedValueEscape(
-        DecodedBody decodedBody,
-        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
-        GenericScope callerScope,
-        int positionAfterValue,
-        AllocationKind kind,
-        TypeRef? allocatedType)
-        => ClassifyStackValueUse(decodedBody, reachingDefinitionsProvider, callerScope, positionAfterValue, kind, allocatedType, []);
-
-    EscapeClassification ClassifyDefinitionEscape(
-        DecodedBody decodedBody,
-        ReachingDefinitionsResult reachingDefinitions,
-        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
-        GenericScope callerScope,
-        LocalDefinition definition,
-        AllocationKind kind,
-        TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
-    {
-        if (!reachingDefinitions.IsComplete)
-            return EscapeClassification.Unknown;
-        if (!visitingDefinitions.Add(definition.Id))
-            return EscapeClassification.Unknown;
-
-        var verdict = EscapeClassification.LocalOnly;
-        foreach (var use in reachingDefinitions.UsesOf(definition))
-        {
-            EscapeClassification useEscape;
-            if (use.Address)
-            {
-                useEscape = EscapeClassification.Escapes(AllocationEscapeKind.None);
-            }
-            else if (TryPositionAfterLoadSlot(decodedBody, use.Offset, use.Slot, use.IsArgument, out int positionAfterLoad))
-            {
-                useEscape = ClassifyStackValueUse(
-                    decodedBody,
-                    reachingDefinitionsProvider,
-                    callerScope,
-                    positionAfterLoad,
-                    kind,
-                    allocatedType,
-                    visitingDefinitions);
-            }
-            else
-            {
-                useEscape = EscapeClassification.Unknown;
-            }
-
-            verdict = JoinEscape(verdict, useEscape);
-            // Escapes(None) is absorbing under JoinEscape (further merges keep it
-            // Escapes/None), so we can stop. A single-kind Escapes must keep scanning
-            // the remaining uses so a conflicting sink can fail honest to None — the
-            // verdict stays Escapes either way, only the kind can degrade.
-            if (verdict.Escape == AllocationEscape.Escapes && verdict.Kind == AllocationEscapeKind.None)
-                break;
-        }
-
-        visitingDefinitions.Remove(definition.Id);
-        return verdict;
-    }
-
-    EscapeClassification ClassifyStackValueUse(
-        DecodedBody decodedBody,
-        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
-        GenericScope callerScope,
-        int position,
-        AllocationKind kind,
-        TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
-    {
-        try
-        {
-            int index = decodedBody.NextNonNopIndexAtOrAfter(position);
-            if (index >= decodedBody.Instructions.Length)
-                return EscapeClassification.LocalOnly;
-
-            var instruction = decodedBody.Instructions[index];
-            if (TryReadStoreSlotDefinition(instruction, out var storeAccess))
-            {
-                var reachingDefinitions = reachingDefinitionsProvider();
-                if (reachingDefinitions is null || !reachingDefinitions.IsComplete)
-                    return EscapeClassification.Unknown;
-                var definition = reachingDefinitions.Definitions.FirstOrDefault(def =>
-                    def.IsArgument == storeAccess.IsArgument
-                    && def.Slot == storeAccess.Slot
-                    && def.Offset == instruction.Offset);
-                return definition is null
-                    ? EscapeClassification.Unknown
-                    : ClassifyDefinitionEscape(
-                        decodedBody,
-                        reachingDefinitions,
-                        reachingDefinitionsProvider,
-                        callerScope,
-                        definition,
-                        kind,
-                        allocatedType,
-                        visitingDefinitions);
-            }
-
-            if (kind == AllocationKind.Array)
-                return ClassifyArrayStackValueUse(decodedBody, callerScope, index, allocatedType);
-
-            return ClassifyImmediateConsumer(decodedBody, callerScope, instruction, kind, allocatedType, stackValuesAbove: 0);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return EscapeClassification.Unknown;
-        }
-    }
-
-    EscapeClassification ClassifyArrayStackValueUse(DecodedBody decodedBody, GenericScope callerScope, int startIndex, TypeRef? allocatedType)
-    {
-        int stackValuesAbove = 0;
-        for (int index = startIndex; index < decodedBody.Instructions.Length; index++)
-        {
-            var instruction = decodedBody.Instructions[index];
-            var opcode = instruction.OpCode;
-            switch (opcode)
-            {
-                case ILOpCode.Nop:
-                    continue;
-                case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-                    or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-                    or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull
-                    or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
-                    or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 or ILOpCode.Ldstr
-                    or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-                    or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
-                    or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-                    or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga:
-                    stackValuesAbove++;
-                    continue;
-                case ILOpCode.Pop:
-                    if (stackValuesAbove == 0)
-                        return EscapeClassification.LocalOnly;
-                    stackValuesAbove--;
-                    continue;
-                case ILOpCode.Ldlen:
-                    return stackValuesAbove == 0 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
-                case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
-                    or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
-                    or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
-                    return stackValuesAbove == 1 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
-                case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
-                    or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
-                    or ILOpCode.Stelem_ref:
-                    return stackValuesAbove switch
-                    {
-                        0 => EscapeClassification.Escapes(AllocationEscapeKind.Collection),
-                        2 => EscapeClassification.LocalOnly,
-                        _ => EscapeClassification.Unknown,
-                    };
-                default:
-                    return ClassifyImmediateConsumer(decodedBody, callerScope, instruction, AllocationKind.Array, allocatedType, stackValuesAbove);
-            }
-        }
-        return EscapeClassification.Unknown;
-    }
-
-    EscapeClassification ClassifyImmediateConsumer(
-        DecodedBody decodedBody,
-        GenericScope callerScope,
-        DecodedInstruction instruction,
-        AllocationKind kind,
-        TypeRef? allocatedType,
-        int stackValuesAbove)
-    {
-        if (stackValuesAbove != 0)
-            return EscapeClassification.Unknown;
-
-        if (IsCompilerGeneratedDisplayClass(allocatedType)
-            && TryClassifyDisplayClassDelegateTarget(decodedBody, instruction.Offset, callerScope, out var displayClassEscape))
-        {
-            return displayClassEscape;
-        }
-
-        switch (instruction.OpCode)
-        {
-            case ILOpCode.Pop:
-                return EscapeClassification.LocalOnly;
-            case ILOpCode.Ret:
-                return EscapeClassification.Escapes(AllocationEscapeKind.Return);
-            case ILOpCode.Throw:
-                return EscapeClassification.ThrowPath;
-            case ILOpCode.Stfld:
-                return EscapeClassification.Escapes(ClassifyFieldStoreEscapeKind(instruction, callerScope));
-            case ILOpCode.Stsfld:
-                return EscapeClassification.Escapes(AllocationEscapeKind.Static);
-            case ILOpCode.Stelem:
-            case ILOpCode.Stelem_i:
-            case ILOpCode.Stelem_i1:
-            case ILOpCode.Stelem_i2:
-            case ILOpCode.Stelem_i4:
-            case ILOpCode.Stelem_i8:
-            case ILOpCode.Stelem_r4:
-            case ILOpCode.Stelem_r8:
-            case ILOpCode.Stelem_ref:
-                // Collection detection is limited to single-dim array element stores.
-                // List<T>.Add / multidim Set(...) are calls (fall through to Unknown),
-                // and span element stores lower to stobj/stind (Escapes(None) below):
-                // those stay fail-honest rather than being labelled Collection.
-                return EscapeClassification.Escapes(AllocationEscapeKind.Collection);
-            case ILOpCode.Stobj:
-            case ILOpCode.Stind_i:
-            case ILOpCode.Stind_i1:
-            case ILOpCode.Stind_i2:
-            case ILOpCode.Stind_i4:
-            case ILOpCode.Stind_i8:
-            case ILOpCode.Stind_r4:
-            case ILOpCode.Stind_r8:
-            case ILOpCode.Stind_ref:
-                return EscapeClassification.Escapes(AllocationEscapeKind.None);
-            case ILOpCode.Unbox_any:
-                return kind == AllocationKind.Box ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
-            case ILOpCode.Call:
-            case ILOpCode.Callvirt:
-            case ILOpCode.Newobj:
-            {
-                int token = OperandInt32(instruction);
-                var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                return IsSpanSafeLocalSink(callee, allocatedType)
-                    ? EscapeClassification.LocalOnly
-                    : EscapeClassification.Unknown;
-            }
-            default:
-                return EscapeClassification.Unknown;
-        }
-    }
-
-    bool TryClassifyDisplayClassDelegateTarget(
-        DecodedBody decodedBody,
-        int position,
-        GenericScope callerScope,
-        out EscapeClassification classification)
-    {
-        classification = EscapeClassification.Unknown;
-        int index = decodedBody.NextNonNopIndexAtOrAfter(position);
-        if (index >= decodedBody.Instructions.Length)
-            return false;
-
-        // Track only copies of the display-class allocation (true) vs unrelated stack
-        // values (false); fail closed as soon as a shape needs fuller stack semantics.
-        var stack = new List<bool> { true };
-        const int MaxScanInstructions = 48;
-        int maxIndex = Math.Min(decodedBody.Instructions.Length, index + MaxScanInstructions);
-        for (; index < maxIndex; index++)
-        {
-            var instruction = decodedBody.Instructions[index];
-            if (instruction.Branches || instruction.Exits)
-                return false;
-
-            switch (instruction.OpCode)
-            {
-                case ILOpCode.Nop:
-                    continue;
-                case ILOpCode.Dup:
-                    if (stack.Count == 0)
-                        return false;
-                    stack.Add(stack[^1]);
-                    continue;
-                case ILOpCode.Stfld:
-                    if (!Pop(stack, 2))
-                        return false;
-                    if (!stack.Contains(true))
-                        return false;
-                    continue;
-                case ILOpCode.Ldfld:
-                    if (!Pop(stack, 1))
-                        return false;
-                    stack.Add(false);
-                    continue;
-                case ILOpCode.Ldftn:
-                    stack.Add(false);
-                    if (StackTopIsDelegateTarget(stack)
-                        && NextNonNopIsDelegateConstructor(decodedBody, instruction.NextOffset, callerScope))
-                    {
-                        classification = EscapeClassification.Escapes(AllocationEscapeKind.Capture);
-                        return true;
-                    }
-                    return false;
-                case ILOpCode.Ldvirtftn:
-                    if (!Pop(stack, 1))
-                        return false;
-                    stack.Add(false);
-                    if (StackTopIsDelegateTarget(stack)
-                        && NextNonNopIsDelegateConstructor(decodedBody, instruction.NextOffset, callerScope))
-                    {
-                        classification = EscapeClassification.Escapes(AllocationEscapeKind.Capture);
-                        return true;
-                    }
-                    return false;
-                default:
-                    if (IsSimpleBinaryStackReplacement(instruction.OpCode))
-                    {
-                        if (!PopUntracked(stack, 2))
-                            return false;
-                        stack.Add(false);
-                        continue;
-                    }
-                    if (IsSimpleStackPush(instruction.OpCode))
-                    {
-                        stack.Add(false);
-                        continue;
-                    }
-                    return false;
-            }
-        }
-
-        return false;
-
-        static bool Pop(List<bool> stack, int count)
-        {
-            if (stack.Count < count)
-                return false;
-            stack.RemoveRange(stack.Count - count, count);
-            return true;
-        }
-
-        static bool PopUntracked(List<bool> stack, int count)
-        {
-            if (stack.Count < count)
-                return false;
-            for (int i = stack.Count - count; i < stack.Count; i++)
-            {
-                if (stack[i])
-                    return false;
-            }
-            stack.RemoveRange(stack.Count - count, count);
-            return true;
-        }
-
-        static bool StackTopIsDelegateTarget(List<bool> stack)
-            => stack.Count >= 2 && !stack[^1] && stack[^2];
-    }
-
-    bool NextNonNopIsDelegateConstructor(DecodedBody decodedBody, int position, GenericScope callerScope)
-    {
-        int index = decodedBody.NextNonNopIndexAtOrAfter(position);
-        if (index >= decodedBody.Instructions.Length)
-            return false;
-
-        var instruction = decodedBody.Instructions[index];
-        if (instruction.OpCode != ILOpCode.Newobj)
-            return false;
-
-        int token = OperandInt32(instruction);
-        var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-        return IsDelegateConstructorToken(token, constructor);
-    }
-
-    static bool IsCompilerGeneratedDisplayClass(TypeRef? type)
-        => type is not null
-           && DeclaringTypeLeafName(type).StartsWith("<>c__DisplayClass", StringComparison.Ordinal);
-
-    static bool IsSimpleStackPush(ILOpCode opcode)
-        => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-            or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-            or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull
-            or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
-            or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 or ILOpCode.Ldstr
-            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
-            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-            or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga;
-
-    static bool IsSimpleBinaryStackReplacement(ILOpCode opcode)
-        => opcode is ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un
-            or ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un
-            or ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un
-            or ILOpCode.Div or ILOpCode.Div_un or ILOpCode.Rem or ILOpCode.Rem_un
-            or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
-            or ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un
-            or ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un;
-
-    // stfld into a compiler-generated closure display class (<>c__DisplayClass) or
-    // async/iterator state machine (<...>d__) hoists the value into that object's
-    // lifetime; report it as a capture escape. The iterator result field
-    // `<>2__current` is the exception: it holds the yielded value exposed to the
-    // consumer (not a captured local), and its promotion is genuinely ambiguous,
-    // so it stays fail-honest None. Any other/unresolvable field store is a plain
-    // field escape (fail-honest).
-    AllocationEscapeKind ClassifyFieldStoreEscapeKind(DecodedInstruction instruction, GenericScope callerScope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(OperandInt32(instruction));
-            TypeRef? declaring;
-            string? fieldName;
-            switch (handle.Kind)
-            {
-                case HandleKind.FieldDefinition:
-                    var field = _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
-                    declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0);
-                    fieldName = _reader.GetString(field.Name);
-                    break;
-                case HandleKind.MemberReference:
-                    declaring = ResolveMemberReferenceParentType(handle, callerScope);
-                    fieldName = _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name);
-                    break;
-                default:
-                    declaring = null;
-                    fieldName = null;
-                    break;
-            }
-            if (declaring is null)
-                return AllocationEscapeKind.Field;
-
-            string leaf = DeclaringTypeLeafName(declaring);
-            // Match only the compiler-generated unspeakable names: closures are
-            // `<>c__DisplayClass...` and iterator/async state machines are `<...>d__...`.
-            // Both contain '<'/'>' which a user-defined type name cannot, so this
-            // never fires on a real user type that merely echoes the suffix.
-            bool isClosure = leaf.Contains("<>c__DisplayClass", StringComparison.Ordinal);
-            bool isStateMachine = leaf.Contains(">d__", StringComparison.Ordinal);
-            if (!isClosure && !isStateMachine)
-                return AllocationEscapeKind.Field;
-
-            // The yielded value stored into the iterator's `<>2__current` is exposed
-            // to the consumer, not a hoisted capture; don't over-claim capture.
-            if (isStateMachine && fieldName == "<>2__current")
-                return AllocationEscapeKind.None;
-
-            return AllocationEscapeKind.Capture;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return AllocationEscapeKind.Field;
         }
     }
 
@@ -3471,147 +2090,15 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         };
     }
 
-    static EscapeClassification JoinEscape(EscapeClassification left, EscapeClassification right)
-    {
-        if (left.Escape == AllocationEscape.Escapes && right.Escape == AllocationEscape.Escapes)
-            return EscapeClassification.Escapes(left.Kind == right.Kind ? left.Kind : AllocationEscapeKind.None);
-        if (left.Escape == AllocationEscape.Escapes)
-            return left;
-        if (right.Escape == AllocationEscape.Escapes)
-            return right;
-        if (left.Escape == AllocationEscape.Unknown || right.Escape == AllocationEscape.Unknown)
-            return EscapeClassification.Unknown;
-        if (left.Escape == AllocationEscape.ThrowPath || right.Escape == AllocationEscape.ThrowPath)
-            return EscapeClassification.ThrowPath;
-        return EscapeClassification.LocalOnly;
-    }
-
-    static bool TryReadStoreSlotDefinition(DecodedInstruction instruction, out LocalSlotAccess access)
-    {
-        if (MethodInstructionFacts.TryReadLocalSlot(
-                instruction,
-                out access)
-            && access.IsStore)
-            return true;
-        return false;
-    }
-
-    static bool TryPositionAfterLoadSlot(DecodedBody decodedBody, int offset, int slot, bool isArgument, out int positionAfterLoad)
-    {
-        positionAfterLoad = offset;
-        if (!decodedBody.TryGetInstructionAt(offset, out var instruction)
-            || !MethodInstructionFacts.TryReadLocalSlot(
-                instruction,
-                out var access)
-            || access.IsStore
-            || access.IsArgument != isArgument
-            || access.Slot != slot)
-        {
-            return false;
-        }
-        positionAfterLoad = instruction.NextOffset;
-        return true;
-    }
-
-    static bool IsSpanSafeLocalSink(MemberRef member, TypeRef? allocatedType)
-    {
-        if (member.Kind == MemberKind.Unsupported)
-            return false;
-
-        if (FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Text", "System.Text", "StringBuilder")
-            && member.Name is "Append" or "AppendLine")
-        {
-            return member.ParameterTypes.Any(parameter =>
-                IsStringType(parameter)
-                || IsReadOnlySpanOfChar(parameter)
-                || IsSpanOfChar(parameter));
-        }
-
-        if (member.Name is "AppendFormatted" or "AppendLiteral"
-            && IsTrustedFrameworkInterpolatedStringHandler(member.DeclaringType)
-            && member.DeclaringType.Name.Contains("InterpolatedStringHandler", StringComparison.Ordinal))
-        {
-            return member.ParameterTypes.Any(parameter =>
-                IsStringType(parameter)
-                || IsReadOnlySpanOfChar(parameter)
-                || IsSpanOfChar(parameter));
-        }
-
-        if (member.Name == "TryParse"
-            && member.ParameterTypes.Any(IsReadOnlySpanOfChar)
-            && IsPrimitiveParseDeclaringType(member.DeclaringType))
-        {
-            return true;
-        }
-
-        return allocatedType is not null
-            && IsMemoryExtensionsLocalSink(member)
-            && member.ParameterTypes.Any(parameter => SameTypeIgnoringByRef(parameter, allocatedType));
-    }
-
-    static bool IsStringType(TypeRef type)
-        => FrameworkIdentity.IsCoreLibraryType(type, "System", "String");
-
-    static bool IsPrimitiveParseDeclaringType(TypeRef type)
-        => FrameworkIdentity.IsCoreLibraryType(type, "System", "Boolean")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Byte")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "SByte")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Int16")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "UInt16")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Int32")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "UInt32")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Int64")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "UInt64")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Single")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Double")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Decimal")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "DateTime")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "DateTimeOffset")
-            || FrameworkIdentity.IsCoreLibraryType(type, "System", "Guid");
-
-    static bool IsTrustedFrameworkInterpolatedStringHandler(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        return definition.TrustedFrameworkAssembly
-            && definition.Namespace is "System.Runtime.CompilerServices" or "System.Text";
-    }
-
-    static bool IsReadOnlySpanOfChar(TypeRef type)
-        => IsSpanDefinition(type, "ReadOnlySpan", "Char");
-
-    static bool IsSpanOfChar(TypeRef type)
-        => IsSpanDefinition(type, "Span", "Char");
-
-    static bool IsSpanDefinition(TypeRef type, string spanName, string elementName)
-    {
-        if (type.Kind != TypeRefKind.GenericInstance || type.TypeArguments.Length != 1)
-            return false;
-        var definition = type.ElementType;
-        return definition is not null
-            && FrameworkIdentity.IsCoreLibraryType(definition, "System", spanName + "`1")
-            && FrameworkIdentity.IsCoreLibraryType(type.TypeArguments[0], "System", elementName);
-    }
-
-    static bool IsMemoryExtensionsLocalSink(MemberRef member)
-    {
-        if (!FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "MemoryExtensions"))
-            return false;
-        return member.Name is "IndexOf" or "LastIndexOf" or "SequenceEqual"
-            or "StartsWith" or "EndsWith" or "Contains";
-    }
-
-    static bool SameTypeIgnoringByRef(TypeRef parameter, TypeRef value)
-        => (parameter.Kind == TypeRefKind.ByRef ? parameter.ElementType ?? parameter : parameter).Equals(value);
-
     static int ArgumentSlotCount(MethodIdentity method)
         => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
 
     // If the next instruction stores to a local, returns its slot and IL offset.
-    static bool TryReadStoreLocalDefinition(DecodedBody decodedBody, int position, out int slot, out int storeOffset)
+    static bool TryReadStoreLocalDefinition(MethodBodyAnalysisContext context, int position, out int slot, out int storeOffset)
     {
         slot = -1;
         storeOffset = position;
-        if (!decodedBody.TryGetInstructionAt(position, out var instruction)
+        if (context.InstructionAt(position) is not { } instruction
             || !MethodInstructionFacts.TryReadLocalSlot(
                 instruction,
                 out var access)
@@ -3625,10 +2112,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return true;
     }
 
-    static bool TryPositionAfterLoadLocal(DecodedBody decodedBody, int offset, int slot, out int positionAfterLoad)
+    static bool TryPositionAfterLoadLocal(MethodBodyAnalysisContext context, int offset, int slot, out int positionAfterLoad)
     {
         positionAfterLoad = offset;
-        if (!decodedBody.TryGetInstructionAt(offset, out var instruction)
+        if (context.InstructionAt(offset) is not { } instruction
             || !MethodInstructionFacts.TryReadLocalSlot(
                 instruction,
                 out var access)
@@ -3642,18 +2129,18 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return true;
     }
 
-    bool SpanToArrayResultEscapes(DecodedBody decodedBody, ReachingDefinitionsResult reachingDefinitions, int positionAfterCall)
+    bool SpanToArrayResultEscapes(MethodBodyAnalysisContext context, ReachingDefinitionsResult reachingDefinitions, int positionAfterCall)
     {
         try
         {
             if (!reachingDefinitions.IsComplete)
                 return true;
 
-            int firstUseIndex = decodedBody.NextNonNopIndexAtOrAfter(positionAfterCall);
-            positionAfterCall = firstUseIndex < decodedBody.Instructions.Length
-                ? decodedBody.Instructions[firstUseIndex].Offset
+            int firstUseIndex = context.NextNonNopIndexAtOrAfter(positionAfterCall);
+            positionAfterCall = firstUseIndex < context.Instructions.Instructions.Length
+                ? context.Instructions.Instructions[firstUseIndex].Offset
                 : positionAfterCall;
-            if (TryReadStoreLocalDefinition(decodedBody, positionAfterCall, out int slot, out int storeOffset))
+            if (TryReadStoreLocalDefinition(context, positionAfterCall, out int slot, out int storeOffset))
             {
                 var definition = reachingDefinitions.Definitions.FirstOrDefault(d =>
                     !d.IsArgument && d.Slot == slot && d.Offset == storeOffset);
@@ -3664,8 +2151,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 {
                     if (use.Address)
                         return true;
-                    if (!TryPositionAfterLoadLocal(decodedBody, use.Offset, slot, out int positionAfterLoad)
-                        || ArrayLoadEscapes(decodedBody, positionAfterLoad))
+                    if (!TryPositionAfterLoadLocal(context, use.Offset, slot, out int positionAfterLoad)
+                        || ArrayLoadEscapes(context, positionAfterLoad))
                     {
                         return true;
                     }
@@ -3674,7 +2161,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 return false;
             }
 
-            return ArrayLoadEscapes(decodedBody, positionAfterCall);
+            return ArrayLoadEscapes(context, positionAfterCall);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
         {
@@ -3698,7 +2185,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     }
 
     bool LinqMaterializerSourceIsLoopInvariant(
-        DecodedBody decodedBody,
+        MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reachingDefinitions,
         int callOffset,
         (int Start, int End) loop,
@@ -3707,7 +2194,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         evidence = "";
         if (!reachingDefinitions.IsComplete)
             return false;
-        if (!TryFindPreviousInstruction(decodedBody, callOffset, out var loadInstruction))
+        if (!TryFindPreviousInstruction(context, callOffset, out var loadInstruction))
             return false;
         if (!MethodInstructionFacts.TryReadLocalSlot(
                 loadInstruction,
@@ -3742,10 +2229,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return true;
     }
 
-    static bool TryFindPreviousInstruction(DecodedBody decodedBody, int targetOffset, out DecodedInstruction previousInstruction)
+    static bool TryFindPreviousInstruction(MethodBodyAnalysisContext context, int targetOffset, out DecodedInstruction previousInstruction)
     {
         previousInstruction = default!;
-        foreach (var instruction in decodedBody.Instructions)
+        foreach (var instruction in context.Instructions.Instructions)
         {
             if (instruction.Offset >= targetOffset)
                 break;
@@ -3760,12 +2247,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // keeps it local. Walks forward tracking how many extra slots sit above the array;
     // an element access / length read that consumes the array at the right depth is local,
     // anything else (return, store, call argument, ambiguous stack shape) is an escape.
-    bool ArrayLoadEscapes(DecodedBody decodedBody, int position)
+    bool ArrayLoadEscapes(MethodBodyAnalysisContext context, int position)
     {
         int extra = 0; // stack slots pushed above the array reference
-        for (int index = decodedBody.IndexAtOrAfter(position); index < decodedBody.Instructions.Length; index++)
+        for (int index = context.IndexAtOrAfter(position); index < context.Instructions.Instructions.Length; index++)
         {
-            var opcode = decodedBody.Instructions[index].OpCode;
+            var opcode = context.Instructions.Instructions[index].OpCode;
             switch (opcode)
             {
                 // Simple single pushes (indices, values) layered above the array.
@@ -3813,13 +2300,16 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     }
 
 
-    void ScanBody(DecodedBody decodedBody, MethodIdentity caller, GenericScope callerScope,
+    void ScanBody(
+        MethodBodyAnalysisContext context,
+        MethodAllocationAnalysis allocationAnalysis,
+        GenericScope callerScope,
         ImmutableArray<DirectCall>.Builder calls,
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
-        bool includeIndirectOpcodes,
-        IReadOnlyList<(int Start, int End)> loopRegions)
+        bool includeIndirectOpcodes)
     {
-        foreach (var instruction in decodedBody.Instructions)
+        var caller = context.Method;
+        foreach (var instruction in context.Instructions.Instructions)
         {
             int offset = instruction.Offset;
             var opcode = instruction.OpCode;
@@ -3831,9 +2321,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 case ILOpCode.Ldftn:
                 case ILOpCode.Ldvirtftn:
                 {
-                    int token = OperandInt32(instruction);
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
                     var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                    bool inLoop = IsInLoopRegion(offset, loopRegions);
+                    bool inLoop = context.IsInLoopRegion(offset);
                     calls.Add(new DirectCall(
                         caller,
                         callee,
@@ -3845,11 +2335,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     {
                         Opcode = FormatCallOpcode(opcode),
                         ReturnAddress = instruction.NextOffset,
-                        Multiplicity = AllocationMultiplicityFor(
-                            decodedBody,
-                            offset,
-                            loopRegions,
-                            AllocationEscape.Unknown),
+                        Multiplicity =
+                            allocationAnalysis.MultiplicityAt(offset),
                     });
                     if (MethodSafetyAnalysis.InspectCall(
                             caller,
@@ -3865,7 +2352,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 }
                 case ILOpCode.Calli:
                 {
-                    int token = OperandInt32(instruction);
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
                     calls.Add(new DirectCall(
                         caller,
                         ResolveCalliMember(token, callerScope),
@@ -3873,15 +2360,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         token,
                         token,
                         CallKind.CallIndirect,
-                        IsInLoopRegion(offset, loopRegions))
+                        context.IsInLoopRegion(offset))
                     {
                         Opcode = FormatCallOpcode(opcode),
                         ReturnAddress = instruction.NextOffset,
-                        Multiplicity = AllocationMultiplicityFor(
-                            decodedBody,
-                            offset,
-                            loopRegions,
-                            AllocationEscape.Unknown),
+                        Multiplicity =
+                            allocationAnalysis.MultiplicityAt(offset),
                     });
                     unsafeEvidence.Add(
                         MethodSafetyAnalysis.CallIndirect(
@@ -3962,9 +2446,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return token;
     }
 
-    static bool IsInLoopRegion(int offset, IReadOnlyList<(int Start, int End)> regions)
-        => regions.Any(region => offset >= region.Start && offset <= region.End);
-
     static bool IsBitConverterGetBytes(MemberRef member)
         => member.Kind != MemberKind.Unsupported
             && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "BitConverter")
@@ -4044,14 +2525,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // instruction at `storeOffset` — accumulates into one of its own arguments, i.e.
     // `s = String.Concat(s, …)` (the `s += …` lowering). Each iteration copies the whole
     // growing accumulator: the canonical O(n^2) StringBuilder anti-pattern.
-    bool ConcatAccumulatesIntoSource(DecodedBody decodedBody, int concatOffset, int storeOffset, int concatArgCount, GenericScope callerScope)
+    bool ConcatAccumulatesIntoSource(MethodBodyAnalysisContext context, int concatOffset, int storeOffset, int concatArgCount, GenericScope callerScope)
     {
         const int ArgSlotBias = 1 << 20;
         try
         {
             if (concatOffset < 0 || concatArgCount <= 0)
                 return false;
-            if (!decodedBody.TryGetInstructionAt(storeOffset, out var storeInstruction)
+            if (context.InstructionAt(storeOffset) is not { } storeInstruction
                 || !MethodInstructionFacts.TryReadLocalSlot(
                     storeInstruction,
                     out var storeAccess)
@@ -4062,7 +2543,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             int storeKey = (storeAccess.IsArgument ? ArgSlotBias : 0) | storeAccess.Slot;
 
             int blockStart = 0;
-            foreach (var instruction in decodedBody.Instructions)
+            foreach (var instruction in context.Instructions.Instructions)
             {
                 if (instruction.Offset >= concatOffset)
                     break;
@@ -4078,9 +2559,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             }
 
             var stack = new List<bool>();
-            for (int i = decodedBody.IndexAtOrAfter(blockStart); i < decodedBody.Instructions.Length; i++)
+            for (int i = context.IndexAtOrAfter(blockStart); i < context.Instructions.Instructions.Length; i++)
             {
-                var instruction = decodedBody.Instructions[i];
+                var instruction = context.Instructions.Instructions[i];
                 if (instruction.Offset >= concatOffset)
                     break;
                 if (MethodInstructionFacts.TryReadLocalSlot(
@@ -4152,7 +2633,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 return Pop(stack, 1);
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
             {
-                int token = OperandInt32(instruction);
+                int token = MethodInstructionFacts.OperandInt32(instruction);
                 var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                 if (callee.Kind == MemberKind.Unsupported)
                     return false;
@@ -4197,20 +2678,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s
             or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
             or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Switch;
-
-    static int OperandInt32(DecodedInstruction instruction)
-        => checked((int)instruction.OperandValue);
-
-    static bool TrySingleBranchTarget(DecodedInstruction instruction, out int target)
-    {
-        if (instruction.BranchTargets.Length == 1)
-        {
-            target = instruction.BranchTargets[0];
-            return true;
-        }
-        target = -1;
-        return false;
-    }
 
     string MethodLabel(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle)
     {
