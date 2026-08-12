@@ -12,40 +12,46 @@ internal sealed class PackageInspectionText
 {
     private readonly List<PackageFile>? _packageFileSource;
     private List<PackageFileText>? _packageFiles;
+    private List<PackageTextConcernCase>? _packageFileConcernCases;
     private readonly TextConcern _concerns;
+    private readonly IReadOnlyList<PackageTextConcernCase> _concernCases;
 
     public PackageInspectionText(InspectionResult data)
     {
         var collector = new Collector();
 
-        PackageName = collector.Field(data.PackageName);
-        ManifestVersion = collector.OptionalField(data.ManifestVersion);
-        Version = collector.Field(data.Version);
-        Source = collector.OptionalField(data.Source);
-        Description = collector.Existing(data.Description);
-        Authors = collector.OptionalField(data.Authors);
-        License = collector.OptionalField(data.License);
-        LicenseUrl = collector.OptionalField(data.LicenseUrl);
-        Repository = collector.OptionalField(data.Repository);
-        RepositoryType = collector.OptionalField(data.RepositoryType);
-        RepositoryCommit = collector.OptionalField(data.RepositoryCommit);
-        Owners = collector.Fields(data.Owners);
+        PackageName = collector.Field(data.PackageName, nameof(data.PackageName));
+        ManifestVersion = collector.OptionalField(data.ManifestVersion, nameof(data.ManifestVersion));
+        Version = collector.Field(data.Version, nameof(data.Version));
+        Source = collector.OptionalField(data.Source, nameof(data.Source));
+        Description = collector.Existing(data.Description, nameof(data.Description));
+        Authors = collector.OptionalField(data.Authors, nameof(data.Authors));
+        License = collector.OptionalField(data.License, nameof(data.License));
+        LicenseUrl = collector.OptionalField(data.LicenseUrl, nameof(data.LicenseUrl));
+        Repository = collector.OptionalField(data.Repository, nameof(data.Repository));
+        RepositoryType = collector.OptionalField(data.RepositoryType, nameof(data.RepositoryType));
+        RepositoryCommit = collector.OptionalField(data.RepositoryCommit, nameof(data.RepositoryCommit));
+        Owners = collector.Fields(data.Owners, nameof(data.Owners));
         Deprecation = data.Deprecation is { } deprecation
-            ? CreateDeprecation(deprecation, collector)
+            ? CreateDeprecation(deprecation, collector, nameof(data.Deprecation))
             : null;
         Vulnerabilities = data.Vulnerabilities?
-            .Select(value => new PackageVulnerabilityText(
-                collector.Field(value.Severity),
-                collector.OptionalField(value.CveId),
-                collector.OptionalField(value.Summary),
-                collector.OptionalField(value.AdvisoryUrl),
-                collector.OptionalField(value.GhsaId)))
+            .Select((value, index) =>
+            {
+                string location = $"{nameof(data.Vulnerabilities)}[{index}]";
+                return new PackageVulnerabilityText(
+                    collector.Field(value.Severity, $"{location}.{nameof(value.Severity)}"),
+                    collector.OptionalField(value.CveId, $"{location}.{nameof(value.CveId)}"),
+                    collector.OptionalField(value.Summary, $"{location}.{nameof(value.Summary)}"),
+                    collector.OptionalField(value.AdvisoryUrl, $"{location}.{nameof(value.AdvisoryUrl)}"),
+                    collector.OptionalField(value.GhsaId, $"{location}.{nameof(value.GhsaId)}"));
+            })
             .ToList();
-        ReadmeFile = collector.OptionalField(data.ReadmeFile);
-        PackageReadmeFile = collector.OptionalField(data.PackageReadmeFile);
-        PackageTypes = collector.Fields(data.PackageTypes);
-        ContentDirectories = collector.Fields(data.ContentDirectories);
-        TargetFrameworks = collector.Fields(data.TargetFrameworks);
+        ReadmeFile = collector.OptionalField(data.ReadmeFile, nameof(data.ReadmeFile));
+        PackageReadmeFile = collector.OptionalField(data.PackageReadmeFile, nameof(data.PackageReadmeFile));
+        PackageTypes = collector.Fields(data.PackageTypes, nameof(data.PackageTypes));
+        ContentDirectories = collector.Fields(data.ContentDirectories, nameof(data.ContentDirectories));
+        TargetFrameworks = collector.Fields(data.TargetFrameworks, nameof(data.TargetFrameworks));
         OrderedTargetFrameworks = data.TargetFrameworks is { } targetFrameworks
             && TargetFrameworks is { } containedTargetFrameworks
             ? TfmSelector.OrderByTfmPriorityDescending(
@@ -57,20 +63,27 @@ internal sealed class PackageInspectionText
         HighestTfm = OrderedTargetFrameworks is { Count: > 0 } orderedTargetFrameworks
             ? orderedTargetFrameworks[0]
             : null;
-        SupportedRids = collector.Fields(data.SupportedRids);
-        ToolFormat = collector.OptionalField(data.ToolFormat);
-        ToolCommands = collector.Fields(data.ToolCommands);
+        SupportedRids = collector.Fields(data.SupportedRids, nameof(data.SupportedRids));
+        ToolFormat = collector.OptionalField(data.ToolFormat, nameof(data.ToolFormat));
+        ToolCommands = collector.Fields(data.ToolCommands, nameof(data.ToolCommands));
         RuntimeIdentifierPackages = data.RuntimeIdentifierPackages?
-            .Select(value => new RidPackageReferenceText(
-                collector.Field(value.RuntimeIdentifier),
-                collector.Field(value.PackageId),
-                value.Exists))
+            .Select((value, index) =>
+            {
+                string location = $"{nameof(data.RuntimeIdentifierPackages)}[{index}]";
+                return new RidPackageReferenceText(
+                    collector.Field(value.RuntimeIdentifier, $"{location}.{nameof(value.RuntimeIdentifier)}"),
+                    collector.Field(value.PackageId, $"{location}.{nameof(value.PackageId)}"),
+                    value.Exists);
+            })
             .ToList();
-        RuntimeTargetRid = collector.OptionalField(data.RuntimeTargetRid);
-        NativeFiles = collector.Fields(data.NativeFiles);
-        LibraryFiles = collector.Fields(data.LibraryFiles);
+        RuntimeTargetRid = collector.OptionalField(data.RuntimeTargetRid, nameof(data.RuntimeTargetRid));
+        NativeFiles = collector.Fields(data.NativeFiles, nameof(data.NativeFiles));
+        LibraryFiles = collector.Fields(data.LibraryFiles, nameof(data.LibraryFiles));
         DependencyGroups = data.DependencyGroups?
-            .Select(value => CreateDependencyGroup(value, collector))
+            .Select((value, index) => CreateDependencyGroup(
+                value,
+                collector,
+                $"{nameof(data.DependencyGroups)}[{index}]"))
             .ToList();
         FlatDependencies = data.DependencyGroups is { } groups
             && DependencyGroups is { } containedGroups
@@ -88,21 +101,28 @@ internal sealed class PackageInspectionText
                 .ToList()
             : null;
         RuntimeDependencies = data.RuntimeDependencies?
-            .Select(value => CreateDependency(value, collector))
+            .Select((value, index) => CreateDependency(
+                value,
+                collector,
+                $"{nameof(data.RuntimeDependencies)}[{index}]"))
             .ToList();
         Files = data.Files?
-            .Select(value => new PackageFileText(
-                collector.Field(value.Path),
+            .Select((value, index) => new PackageFileText(
+                collector.Field(value.Path, $"{nameof(data.Files)}[{index}].{nameof(value.Path)}"),
                 value.Size,
                 value.IsReadme,
                 value.IsAgents))
             .ToList();
         _packageFileSource = data.PackageFiles;
         SourceFiles = data.SourceFiles?
-            .Select(value => new PackageSourceFileText(
-                collector.Field(value.Library),
-                collector.Field(value.Type),
-                collector.OptionalField(value.Url)))
+            .Select((value, index) =>
+            {
+                string location = $"{nameof(data.SourceFiles)}[{index}]";
+                return new PackageSourceFileText(
+                    collector.Field(value.Library, $"{location}.{nameof(value.Library)}"),
+                    collector.Field(value.Type, $"{location}.{nameof(value.Type)}"),
+                    collector.OptionalField(value.Url, $"{location}.{nameof(value.Url)}"));
+            })
             .ToList();
         SourceAvailability = data.SourceAvailability is { } availability
             ? new PackageSourceAvailabilityText(
@@ -112,13 +132,22 @@ internal sealed class PackageInspectionText
                 availability.AccessibleSourceFiles,
                 availability.EmbeddedSourceFiles,
                 availability.MissingFiles?
-                    .Select(value => CreateSourceLinkFile(value, collector))
+                    .Select((value, index) => CreateSourceLinkFile(
+                        value,
+                        collector,
+                        $"{nameof(data.SourceAvailability)}.{nameof(availability.MissingFiles)}[{index}]"))
                     .ToList(),
                 availability.UnavailableLibraries?
-                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .Select((value, index) => CreateSourceLinkIssue(
+                        value,
+                        collector,
+                        $"{nameof(data.SourceAvailability)}.{nameof(availability.UnavailableLibraries)}[{index}]"))
                     .ToList(),
                 availability.FailedLibraries?
-                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .Select((value, index) => CreateSourceLinkIssue(
+                        value,
+                        collector,
+                        $"{nameof(data.SourceAvailability)}.{nameof(availability.FailedLibraries)}[{index}]"))
                     .ToList())
             : null;
         SourceIntegrity = data.SourceIntegrity is { } integrity
@@ -130,33 +159,53 @@ internal sealed class PackageInspectionText
                 integrity.LineEndingNormalized,
                 integrity.Unverifiable,
                 integrity.MismatchedFiles?
-                    .Select(value => CreateSourceLinkFile(value, collector))
+                    .Select((value, index) => CreateSourceLinkFile(
+                        value,
+                        collector,
+                        $"{nameof(data.SourceIntegrity)}.{nameof(integrity.MismatchedFiles)}[{index}]"))
                     .ToList(),
                 integrity.UnavailableLibraries?
-                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .Select((value, index) => CreateSourceLinkIssue(
+                        value,
+                        collector,
+                        $"{nameof(data.SourceIntegrity)}.{nameof(integrity.UnavailableLibraries)}[{index}]"))
                     .ToList(),
                 integrity.FailedLibraries?
-                    .Select(value => CreateSourceLinkIssue(value, collector))
+                    .Select((value, index) => CreateSourceLinkIssue(
+                        value,
+                        collector,
+                        $"{nameof(data.SourceIntegrity)}.{nameof(integrity.FailedLibraries)}[{index}]"))
                     .ToList())
             : null;
         SignatureResult = data.SignatureResult is { } signature
             ? new PackageSignatureText(
-                collector.OptionalField(signature.Publisher),
+                collector.OptionalField(
+                    signature.Publisher,
+                    $"{nameof(data.SignatureResult)}.{nameof(signature.Publisher)}"),
                 signature.AuthorVerified,
                 signature.RepositoryVerified,
-                collector.OptionalField(signature.Repository),
-                collector.OptionalField(signature.StatusMessage),
+                collector.OptionalField(
+                    signature.Repository,
+                    $"{nameof(data.SignatureResult)}.{nameof(signature.Repository)}"),
+                collector.OptionalField(
+                    signature.StatusMessage,
+                    $"{nameof(data.SignatureResult)}.{nameof(signature.StatusMessage)}"),
                 signature.IsUnsigned)
             : null;
         AuditSignals = data.AuditSignals?
-            .Select(value => new PackageAuditSignalText(
-                collector.Field(value.Area),
-                collector.Field(value.Signal),
-                collector.Field(value.Value),
-                collector.Field(value.Evidence)))
+            .Select((value, index) =>
+            {
+                string location = $"{nameof(data.AuditSignals)}[{index}]";
+                return new PackageAuditSignalText(
+                    collector.Field(value.Area, $"{location}.{nameof(value.Area)}"),
+                    collector.Field(value.Signal, $"{location}.{nameof(value.Signal)}"),
+                    collector.Field(value.Value, $"{location}.{nameof(value.Value)}"),
+                    collector.Field(value.Evidence, $"{location}.{nameof(value.Evidence)}"));
+            })
             .ToList();
 
         _concerns = collector.Concerns;
+        _concernCases = collector.ConcernCases;
     }
 
     public InertString PackageName { get; }
@@ -193,9 +242,7 @@ internal sealed class PackageInspectionText
     public List<PackageFileText>? Files { get; }
     public List<PackageFileText>? PackageFiles => _packageFileSource is null
         ? null
-        : _packageFiles ??= _packageFileSource
-            .Select(CreatePackageFileText)
-            .ToList();
+        : _packageFiles ??= ProjectPackageFiles();
     public List<PackageSourceFileText>? SourceFiles { get; }
     public PackageSourceAvailabilityText? SourceAvailability { get; }
     public PackageSourceIntegrityText? SourceIntegrity { get; }
@@ -208,6 +255,16 @@ internal sealed class PackageInspectionText
             static (concerns, value) => concerns | value.Path.Concerns)
             ?? TextConcern.None);
     public bool RequiredContainment => Concerns != TextConcern.None;
+    public IReadOnlyList<PackageTextConcernCase> ConcernCases
+    {
+        get
+        {
+            _ = PackageFiles;
+            return _packageFileConcernCases is { Count: > 0 } packageFileCases
+                ? _concernCases.Concat(packageFileCases).ToArray()
+                : _concernCases;
+        }
+    }
 
     public List<PackageFileText>? SelectPackageFiles(Func<PackageFile, bool> predicate)
     {
@@ -236,13 +293,40 @@ internal sealed class PackageInspectionText
             value.IsReadme,
             value.IsAgents);
 
+    private List<PackageFileText> ProjectPackageFiles()
+    {
+        List<PackageFileText> files = new(_packageFileSource!.Count);
+        List<PackageTextConcernCase> cases = [];
+        for (int index = 0; index < _packageFileSource.Count; index++)
+        {
+            PackageFileText file = CreatePackageFileText(_packageFileSource[index]);
+            files.Add(file);
+            if (file.Path.Concerns != TextConcern.None)
+            {
+                cases.Add(new PackageTextConcernCase(
+                    $"{nameof(InspectionResult.PackageFiles)}[{index}].{nameof(PackageFile.Path)}",
+                    file.Path.Concerns));
+            }
+        }
+
+        _packageFileConcernCases = cases;
+        return files;
+    }
+
     private static PackageDeprecationText CreateDeprecation(
         PackageDeprecation value,
-        Collector collector)
+        Collector collector,
+        string location)
     {
-        List<InertString>? reasons = collector.Fields(value.Reasons);
-        InertString? message = collector.OptionalField(value.Message);
-        InertString? alternatePackageId = collector.OptionalField(value.AlternatePackageId);
+        List<InertString>? reasons = collector.Fields(
+            value.Reasons,
+            $"{location}.{nameof(value.Reasons)}");
+        InertString? message = collector.OptionalField(
+            value.Message,
+            $"{location}.{nameof(value.Message)}");
+        InertString? alternatePackageId = collector.OptionalField(
+            value.AlternatePackageId,
+            $"{location}.{nameof(value.AlternatePackageId)}");
         List<InertString> parts = [];
 
         if (reasons is { Count: > 0 })
@@ -254,54 +338,109 @@ internal sealed class PackageInspectionText
 
         InertString summary = parts.Count > 0
             ? collector.Compose(InertString.Join(" - ", TextPolicy.Field, parts))
-            : collector.Field("Deprecated");
+            : new InertString(TextPolicy.Field, "Deprecated");
 
         return new PackageDeprecationText(reasons, message, alternatePackageId, summary);
     }
 
     private static PackageDependencyGroupText CreateDependencyGroup(
         DependencyGroup value,
-        Collector collector)
+        Collector collector,
+        string location)
         => new(
-            collector.Field(value.TargetFramework),
-            value.Dependencies.Select(dependency => CreateDependency(dependency, collector)).ToList(),
+            collector.Field(
+                value.TargetFramework,
+                $"{location}.{nameof(value.TargetFramework)}"),
+            value.Dependencies.Select((dependency, index) => CreateDependency(
+                dependency,
+                collector,
+                $"{location}.{nameof(value.Dependencies)}[{index}]")).ToList(),
             value.IsImplicitManifestGroup);
 
     private static PackageDependencyText CreateDependency(
         PackageDependency value,
-        Collector collector)
-        => new(collector.Field(value.Id), collector.Field(value.Version));
+        Collector collector,
+        string location)
+        => new(
+            collector.Field(value.Id, $"{location}.{nameof(value.Id)}"),
+            collector.Field(value.Version, $"{location}.{nameof(value.Version)}"));
 
     private static PackageSourceLinkFileText CreateSourceLinkFile(
         PackageSourceLinkFile value,
-        Collector collector)
-        => new(collector.Field(value.Library), collector.Field(value.Path));
+        Collector collector,
+        string location)
+        => new(
+            collector.Field(value.Library, $"{location}.{nameof(value.Library)}"),
+            collector.Field(value.Path, $"{location}.{nameof(value.Path)}"));
 
     private static PackageSourceLinkIssueText CreateSourceLinkIssue(
         PackageSourceLinkIssue value,
-        Collector collector)
-        => new(collector.Field(value.Library), collector.Field(value.Reason));
+        Collector collector,
+        string location)
+        => new(
+            collector.Field(value.Library, $"{location}.{nameof(value.Library)}"),
+            collector.Field(value.Reason, $"{location}.{nameof(value.Reason)}"));
 
     internal sealed class Collector
     {
+        private readonly List<PackageTextConcernCase> _concernCases = [];
+
         public TextConcern Concerns { get; private set; }
+        public IReadOnlyList<PackageTextConcernCase> ConcernCases => _concernCases;
 
-        public InertString Field(string value)
-            => Compose(new InertString(TextPolicy.Field, value));
+        public InertString Field(string value, string location)
+            => Track(new InertString(TextPolicy.Field, value), location);
 
-        public InertString? OptionalField(string? value)
-            => value is null ? null : Field(value);
+        public InertString? OptionalField(string? value, string location)
+            => value is null ? null : Field(value, location);
 
-        public InertString? Existing(InertString? value)
-            => value is { } existing ? Compose(existing) : null;
+        public InertString? Existing(InertString? value, string location)
+            => value is { } existing ? Track(existing, location) : null;
 
-        public List<InertString>? Fields(List<string>? values)
-            => values?.Select(Field).ToList();
+        public List<InertString>? Fields(List<string>? values, string location)
+            => values?
+                .Select((value, index) => Field(value, $"{location}[{index}]"))
+                .ToList();
+
+        private InertString Track(InertString value, string location)
+        {
+            Compose(value);
+            if (value.Concerns != TextConcern.None)
+                _concernCases.Add(new PackageTextConcernCase(location, value.Concerns));
+            return value;
+        }
 
         public InertString Compose(InertString value)
         {
             Concerns |= value.Concerns;
             return value;
+        }
+    }
+}
+
+internal readonly record struct PackageTextConcernCase(
+    string Location,
+    TextConcern Concerns);
+
+internal static class TextConcernDisplay
+{
+    public static string Describe(TextConcern concerns)
+    {
+        if (concerns == TextConcern.None)
+            return "no concerning scalars found";
+
+        List<string> kinds = [];
+        AddKind(TextConcern.Control, "control (Cc)");
+        AddKind(TextConcern.Format, "format/bidi (Cf)");
+        AddKind(TextConcern.Surrogate, "unpaired surrogate (Cs)");
+        AddKind(TextConcern.LineSeparator, "line separator (Zl)");
+        AddKind(TextConcern.ParagraphSeparator, "paragraph separator (Zp)");
+        return string.Join(", ", kinds);
+
+        void AddKind(TextConcern kind, string description)
+        {
+            if ((concerns & kind) != TextConcern.None)
+                kinds.Add(description);
         }
     }
 }

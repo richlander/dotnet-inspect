@@ -14713,6 +14713,23 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverSchema_ListsArtifactTextAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditArtifactText,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Location | column |", output);
+        Assert.Contains("| Concerns | column |", output);
+    }
+
+    [Fact]
     public async Task Package_DiscoverTree_UsesDiscoveryTreeNotFileTree()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(

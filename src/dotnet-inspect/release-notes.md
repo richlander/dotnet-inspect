@@ -137,6 +137,9 @@
   `Artifact text containment`, with category-only evidence for control,
   format/bidi, unpaired-surrogate, line-separator, and paragraph-separator
   concerns. Literal backslashes do not trigger the concern.
+- Adds the explicit `Audit: Artifact Text` package section under `@Audit`,
+  listing package-model field locations and concern kinds without echoing
+  artifact values.
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a

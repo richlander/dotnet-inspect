@@ -42,10 +42,27 @@ echoes the concerning content. A literal backslash is not a concern: it may be
 rewritten solely to keep the visual encoding invertible, and that mechanical
 rewrite does not change the row to `Required`.
 
+Select `Audit: Artifact Text` for the detected cases, or select `@Audit` to
+include it with the other audit evidence:
+
+```bash
+dotnet-inspect package X -S "Signals,Audit: Artifact Text"
+dotnet-inspect package X -S @Audit
+```
+
+The detail table has `Location` and `Concerns` columns. A location is a stable
+package-model path such as `Owners[0]` or `PackageFiles[3].Path`; it is not the
+artifact value. One field produces one row containing all concern kinds found
+in that field. The section is explicit because package-file paths make its row
+count scale with package size. Markdown and JSONL use the same rows, and neither
+format includes the concerning content.
+
 The package result is gated by
 `PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
 which derives the expected text-source set from the package model and requires
 each source to contribute independently;
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
+content-free detail shapes, and
 `PackageSignals_ReportsNoArtifactTextConcernForBackslashes` gates the close
 negative. Library Signals does not yet report this row because the library
 presentation model still unwraps containment to bare strings at individual row

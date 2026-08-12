@@ -171,6 +171,10 @@ restoration. An audit can therefore aggregate categories without importing the
 decoder or retaining a second raw copy. `RequiredContainment` is exactly
 `Concerns != None`; a literal backslash may affect `VisualForm` to preserve
 invertibility but contributes no concern.
+The package presentation boundary also records the model-field location when a
+source value first becomes an `InertString`. That provenance is kept separately
+from the payload, so `Audit: Artifact Text` can list locations and category
+kinds without retaining or redisplaying artifact content.
 `Concerns_SurviveCompositionRestorationAndBounding` and
 `Concerns_RespectThePolicyThatProducedTheValue` gate that propagation, and
 `Concerns_ClassifyWhyContainmentOccurred` gates the categories.

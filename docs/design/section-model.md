@@ -108,9 +108,9 @@ Domain categories can overlap base categories. For example, `Signals`,
 participating in `@Audit`.
 
 At package scope, `@Dependencies` groups direct and runtime-specific package
-dependencies, while `@Audit` cross-lists package signals, signing,
-vulnerabilities, and SourceLink integrity evidence. `@SourceLink` remains a
-separate provenance domain.
+dependencies, while `@Audit` cross-lists package signals, artifact-text concern
+locations, signing, vulnerabilities, and SourceLink integrity evidence.
+`@SourceLink` remains a separate provenance domain.
 
 ### Category doors
 

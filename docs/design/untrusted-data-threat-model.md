@@ -1020,11 +1020,14 @@ direct JSON, and focused package table/JSONL metadata as `InertString`;
 content-output rows do the same for their package, version, and path framing.
 `InspectionResultView.RequiredContainment` reports the inspection model's
 aggregate before a sink unwraps it, and package `Signals` reports whether that
-aggregate is empty plus its `TextConcern` category kinds. It reports no content
-or locations, so it is not the survey mode described below. Explicit document
-payloads remain raw by contract.
-`PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent` gates the
-reporting boundary. This is intentionally not a global CLI signal. Other
+aggregate is empty plus its `TextConcern` category kinds. The explicit
+`Audit: Artifact Text` section lists package-model field locations and concern
+kinds, but never the field values. It is not the scalar-by-scalar refusal survey
+mode described below: it reports one row per contained presentation field and
+does not change rendering policy. Explicit document payloads remain raw by
+contract. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
+and `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
+summary and detail reporting boundaries. This is intentionally not a global CLI signal. Other
 commands and projections still have their own presentation models, so adopting
 the flags at the root today would claim coverage they do not have.
 

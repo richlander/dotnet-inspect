@@ -5349,6 +5349,7 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 PackageSections.Signals,
+                PackageSections.AuditArtifactText,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
                 PackageSections.SourceLinkAvailability,
@@ -5356,6 +5357,26 @@ public class SectionPipelineTests
                 PackageSections.SourceLinkIntegrity
             ],
             categories[SectionCategoryNames.Audit]);
+    }
+
+    [Theory]
+    [InlineData("ordinary text", false)]
+    [InlineData("C:\\tmp\\package", false)]
+    [InlineData("literal \\u202E text", false)]
+    [InlineData("concerning\u202Etext", true)]
+    public void PackagePipeline_ArtifactTextAuditEffectivenessUsesTypedConcerns(
+        string packageName,
+        bool expected)
+    {
+        var model = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = "1.0.0",
+        };
+
+        Assert.Equal(
+            expected,
+            PackageSectionDescriptors.AuditArtifactText.CanRender(model));
     }
 
     [Fact]
@@ -5419,7 +5440,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(18, pipeline.AllSectionNames.Length);
+        Assert.Equal(19, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -5432,6 +5453,7 @@ public class SectionPipelineTests
         Assert.Contains("Package Info", names);
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
+        Assert.Contains(PackageSections.AuditArtifactText, names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Statistics", names);
@@ -5864,6 +5886,7 @@ public class SectionPipelineTests
         {
             PackageName = "Test",
             Version = "1.0.0",
+            Owners = ["audit\u202Ecase"],
             PackageReadmeFile = "README.md",
             PackageFiles =
             [

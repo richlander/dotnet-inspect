@@ -2713,6 +2713,68 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public async Task PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl()
+    {
+        const string secret = "DO-NOT-REPORT";
+        var result = new InspectionResult
+        {
+            PackageName = "TestPackage",
+            Version = "1.0.0",
+            Owners = [$"owner\u202E{secret}"],
+            PackageFiles = [new PackageFile($"file\u001B{secret}", 42)],
+            AuditSignals =
+            [
+                new AuditSignal(
+                    "Text",
+                    "Artifact text containment",
+                    "Required",
+                    "control (Cc), format/bidi (Cf)"),
+            ],
+        };
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections =
+            [
+                PackageSections.Signals,
+                PackageSections.AuditArtifactText,
+            ],
+        };
+
+        string markdown = OutputFormatter.FormatResult(result, options, pipeline);
+
+        Assert.Contains("## Signals", markdown, StringComparison.Ordinal);
+        Assert.Contains("## Audit: Artifact Text", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Owners[0] | format/bidi (Cf) |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| PackageFiles[0].Path | control (Cc) |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, markdown, StringComparison.Ordinal);
+
+        var (jsonl, error) = await ConsoleCapture.RunAsync(() =>
+            OutputFormatter.WritePackageTable(
+                result,
+                options with
+                {
+                    IncludeSections = [PackageSections.AuditArtifactText],
+                    Jsonl = true,
+                    Tabular = true,
+                },
+                pipeline,
+                showHeader: true));
+
+        Assert.Equal(string.Empty, error);
+        string[] lines = jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        using JsonDocument owner = JsonDocument.Parse(lines[0]);
+        using JsonDocument file = JsonDocument.Parse(lines[1]);
+        Assert.Equal("Owners[0]", owner.RootElement.GetProperty("location").GetString());
+        Assert.Equal("format/bidi (Cf)", owner.RootElement.GetProperty("concerns").GetString());
+        Assert.Equal("PackageFiles[0].Path", file.RootElement.GetProperty("location").GetString());
+        Assert.Equal("control (Cc)", file.RootElement.GetProperty("concerns").GetString());
+        Assert.DoesNotContain(secret, jsonl, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ApiQuiet_ThreeLines()
     {
         var api = CreateTestApiSurface();
