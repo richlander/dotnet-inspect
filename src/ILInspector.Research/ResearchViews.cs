@@ -38,7 +38,8 @@ public static partial class ResearchViews
         int? MethodToken = null,
         PrinterOptions? PrinterOptions = null,
         string? CaretFocus = null,
-        bool SourceDocument = false);
+        bool SourceDocument = false,
+        IReadOnlyList<DirectCall>? CallSites = null);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -66,7 +67,10 @@ public static partial class ResearchViews
         /// Failure isolated to portable-document production. Sibling projections
         /// remain available when the document's C# printer cannot produce output.
         /// </summary>
-        DecompilerResult? SourceDocumentFailure = null);
+        DecompilerResult? SourceDocumentFailure = null,
+
+        /// <summary>The MethodDef token selected for this projection.</summary>
+        int? SelectedMethodToken = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -84,13 +88,19 @@ public static partial class ResearchViews
             var imported = ImportFunction()
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
-            var assembly = ResolveAssemblyContext(imported);
             var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
+            var assembly = ResolveAssemblyContext(
+                imported,
+                effectiveRegistry.Requirements);
             // The reporting half of the data/reporting split: facts are collected
             // once and describe, and this decides which of them this render
             // promotes to the caret gesture.
             var gestures = AnnotationGestureSelector.Focus(request.CaretFocus);
-            var context = new ResearchFactContext(request.Source, imported, assembly);
+            var context = new ResearchFactContext(
+                request.Source,
+                imported,
+                assembly,
+                request.CallSites);
             var facts = effectiveRegistry.Collect(context);
             IReadOnlyList<ResearchHeaderFact> headerFacts = [];
             DecompilerResult? headerFactsFailure = null;
@@ -232,7 +242,8 @@ public static partial class ResearchViews
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
                 UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
                 sourceDocument,
-                sourceDocumentFailure);
+                sourceDocumentFailure,
+                imported.MetadataToken);
         }
         catch (Exception ex)
         {
@@ -288,21 +299,37 @@ public static partial class ResearchViews
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-        return CollectFacts(source, imported, ResolveAssemblyContext(imported), registry);
+        return CollectFacts(source, imported, registry);
     }
 
     /// <summary>
     /// Every entry point resolves the assembly context through this seam, so producers see a
     /// consistent Assembly (or a consistent absence) rather than each re-deriving it independently.
     /// </summary>
-    static ResearchAssemblyContext? ResolveAssemblyContext(IrFunction imported)
-        => imported.AssemblyPath is { Length: > 0 } path
-            ? ResearchAssemblyContextCache.ForIndex(AnalysisIndexCache.ForPath(path))
+    static ResearchAssemblyContext? ResolveAssemblyContext(
+        IrFunction imported,
+        ResearchFactRequirements requirements)
+        => requirements.Scope != ResearchAnalysisScope.None
+            && imported.AssemblyPath is { Length: > 0 } path
+            ? ResearchAssemblyContextCache.ForIndex(
+                AnalysisIndexCache.ForPath(
+                    path,
+                    requirements,
+                    imported.MetadataToken))
             : null;
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
-        => CollectFacts(source, imported, ResolveAssemblyContext(imported), registry);
+    {
+        var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
+        return CollectFacts(
+            source,
+            imported,
+            ResolveAssemblyContext(
+                imported,
+                effectiveRegistry.Requirements),
+            effectiveRegistry);
+    }
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchAssemblyContext? assembly, ResearchFactRegistry? registry = null)
@@ -314,8 +341,13 @@ public static partial class ResearchViews
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-        var context = new ResearchFactContext(source, imported, ResolveAssemblyContext(imported));
         var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
+        var context = new ResearchFactContext(
+            source,
+            imported,
+            ResolveAssemblyContext(
+                imported,
+                effectiveRegistry.Requirements));
         var facts = effectiveRegistry.Collect(context);
         var headerFacts = effectiveRegistry.CollectHeaderFacts(context);
         return BuildFactRows(type, method, imported, facts, headerFacts, source);
@@ -548,9 +580,9 @@ public static partial class ResearchViews
     /// Every IL line becomes an <c>Instruction</c> node carrying its own offset,
     /// because a fact anchors to structure and the interleaved line is no longer
     /// an addressable thing. C# nodes keep the ids the printer projection minted
-    /// while <c>IrNode</c> identity was still alive, so a C# target is the node
-    /// the fact was actually anchored to rather than a coordinate re-match that
-    /// would be ambiguous whenever two nodes print the same characters.
+    /// while <c>IrNode</c> identity was still alive. Equivalent implementation
+    /// wrappers share one canonical surface node, and each C# target carries the
+    /// join established before those identities were discarded.
     /// </para>
     /// <para>
     /// Facts are deduplicated on their full semantic identity, including origin,

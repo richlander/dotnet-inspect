@@ -30,7 +30,8 @@ public abstract record AssemblyIntegrationsEntry(
     public sealed record Available(
         AssemblyContextSubject Subject,
         ImmutableArray<EcosystemIntegrationSignalInfo> EcosystemSignals,
-        ImmutableArray<OpenTelemetrySignalInfo> OpenTelemetrySignals)
+        ImmutableArray<OpenTelemetrySignalInfo> OpenTelemetrySignals,
+        EcosystemIntegrationPresence Presence)
         : AssemblyIntegrationsEntry(Subject);
 
     /// <summary>The participant's immutable image could not be acquired.</summary>
@@ -118,20 +119,98 @@ public static class AssemblyContextIntegrationsQuery
             entries.MoveToImmutable());
     }
 
-    static AssemblyIntegrationsEntry Inspect(
+    /// <summary>
+    /// Scans one participant and runs its asynchronous consumer before
+    /// releasing the participant's retained group image.
+    /// </summary>
+    /// <remarks>
+    /// Hosts invoke participants in group order. This streaming form keeps the
+    /// complete binding universe while bounding retained image bytes to the
+    /// participant currently being consumed. Release is terminal for that
+    /// participant; callers must not run a later whole-group query over the
+    /// same group. Gated by
+    /// <c>UseAssemblyAsync_ReleasesParticipantBeforeAdvancing</c>.
+    /// </remarks>
+    public static async Task<TResult> ExecuteParticipantAsync<TResult>(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        Func<
+            ResolvedAssemblyReference?,
+            AssemblyIntegrationsEntry,
+            Task<TResult>> callback)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyImageAccessResult<TResult> access =
+            await group.UseAndReleaseAssemblySessionAsync(
+                    participant.Assembly,
+                    async (session, retained) =>
+                    {
+                        AssemblyIntegrationsEntry entry =
+                            Inspect(subject, session);
+                        return await callback(retained, entry)
+                            .ConfigureAwait(false);
+                    })
+                .ConfigureAwait(false);
+        return access switch
+        {
+            AssemblyImageAccessResult<TResult>.Available available =>
+                available.Value,
+            AssemblyImageAccessResult<TResult>.Rejected rejected =>
+                await callback(
+                        null,
+                        new AssemblyIntegrationsEntry.Rejected(
+                            subject,
+                            rejected.Failure))
+                    .ConfigureAwait(false),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly image access result."),
+        };
+    }
+
+    internal static AssemblyIntegrationsEntry Inspect(
         AssemblyContextSubject subject,
         AssemblyInspectionSession session)
     {
         try
         {
+            ImmutableArray<EcosystemIntegrationSignalInfo> ecosystemSignals =
+                session.EcosystemIntegrations().ToImmutableArray();
+            ImmutableArray<OpenTelemetrySignalInfo> openTelemetrySignals =
+                session.OpenTelemetrySignals().ToImmutableArray();
             return new AssemblyIntegrationsEntry.Available(
                 subject,
-                session.EcosystemIntegrations().ToImmutableArray(),
-                session.OpenTelemetrySignals().ToImmutableArray());
+                ecosystemSignals,
+                openTelemetrySignals,
+                session.EcosystemIntegrationPresence(
+                    ecosystemSignals));
         }
         catch (BadImageFormatException ex)
         {
             return new AssemblyIntegrationsEntry.Failed(subject, ex);
         }
+        catch (Exception ex) when (
+            ex is ArgumentOutOfRangeException or OverflowException)
+        {
+            return new AssemblyIntegrationsEntry.Failed(
+                subject,
+                new BadImageFormatException(
+                    "The selected image contains invalid metadata.",
+                    ex));
+        }
+    }
+
+    internal static AssemblyIntegrationsEntry ExecuteParticipant(
+        AssemblyContextParticipant participant,
+        AssemblyInspectionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(session);
+        return Inspect(
+            new AssemblyContextSubject(participant.Assembly),
+            session);
     }
 }

@@ -302,4 +302,7 @@ public static class SectionNames
     /// <summary>Section for build paths that leak non-deterministic local or CI directories.</summary>
     public const string NonNormalizedPaths = "Non-normalized Paths";
 
+    /// <summary>Section for SourceLink map parse and entry-validation diagnostics.</summary>
+    public const string SourceLinkDiagnostics = "SourceLink: Diagnostics";
+
 }

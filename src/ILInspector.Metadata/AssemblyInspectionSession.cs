@@ -154,6 +154,14 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<EcosystemIntegrationSignalInfo> EcosystemIntegrations()
         => EcosystemIntegrationScanner.Scan(_image.PEReader);
 
+    /// <summary>Presence flags summarized from grouped integration evidence.</summary>
+    public EcosystemIntegrationPresence EcosystemIntegrationPresence(
+        IEnumerable<EcosystemIntegrationSignalInfo> ecosystemSignals)
+        => EcosystemIntegrationScanner.SummarizePresence(
+            _image.PEReader,
+            ecosystemSignals,
+            OpenTelemetryScanner.HasSupport(_image.PEReader));
+
     /// <summary>Integration opportunities, excluding already-present integrations.</summary>
     public List<IntegrationOpportunityInfo> IntegrationOpportunities(IReadOnlySet<string> existingIntegrations)
         => IntegrationOpportunityScanner.Scan(_image.PEReader, existingIntegrations);

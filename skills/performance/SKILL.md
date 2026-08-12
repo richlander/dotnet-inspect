@@ -204,9 +204,16 @@ probing versions; use this final adjacent comparison as the onset proof.
 `Call Graph` is a bounded bidirectional graph: inbound callers up to entry
 points and outbound calls, centred on the selected member. Project per-node cost
 with `--fields` (alloc, copy, unsafe, reflection, throw/exception,
-catch/finally).
+catch/finally). Its default Markdown edge table is best for comparing
+relationships and cost cues. Use `--tree` when the path toward or away from the
+candidate matters, `--mermaid` for a standalone diagram, or
+`--markdown --mermaid` to embed the diagram. Use `--tsv` or `--jsonl` when a
+script will consume the same edge rows. Requested cost cues remain annotations
+in the node labels; they do not become separate machine columns.
 
 ```bash
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Alloc,Loop" --tree
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --jsonl
 ```
