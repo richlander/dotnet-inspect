@@ -691,6 +691,10 @@ public sealed class LibraryBodyIndex
     /// </summary>
     MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
 
+    readonly record struct LocalCalleeKey(
+        int DefinitionToken,
+        GraphNodeIdentity? StructuralIdentity);
+
     MethodIdentity? DeclaredMethod(int metadataToken)
     {
         // The builder merges declarations in metadata order, so token lookup
@@ -1054,15 +1058,20 @@ public sealed class LibraryBodyIndex
         // index because it is a whole-graph quantity that every request would otherwise rebuild.
         var incomingCounts = DistinctCallersByCallee();
 
-        CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth, bool inLoop = false)
+        CallTreeNode Build(
+            MemberRef member,
+            CallKind? kind,
+            int token,
+            int depth,
+            bool inLoop = false,
+            bool hasVirtualDispatchOccurrence = false)
         {
             MethodIdentity? definition =
                 token == 0 ? null : DeclaredMethod(token);
             var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
             diagnosticsByToken.TryGetValue(token, out AnalysisDiagnostic? diagnostic);
             bool hasUnresolvedDispatch =
-                kind is CallKind.CallVirtual
-                    or CallKind.LoadVirtualFunction
+                hasVirtualDispatchOccurrence
                 && definition?.IsVirtualDispatchOpen == true;
 
             CallTreeNode Node(
@@ -1113,9 +1122,34 @@ public sealed class LibraryBodyIndex
                     new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
             }
 
+            var collapsedEdges = edges
+                .Select(edge =>
+                    (
+                        Edge: edge,
+                        Token: ResolveCallee(edge)))
+                .GroupBy(item =>
+                    item.Token != 0
+                        ? new LocalCalleeKey(
+                            item.Token,
+                            null)
+                        : new LocalCalleeKey(
+                            0,
+                            GraphNodeIdentity.FromMember(
+                                item.Edge.Callee)))
+                .Select(group =>
+                    (
+                        Item: group.FirstOrDefault(
+                            item => item.Edge.InLoop,
+                            group.First()),
+                        HasVirtualDispatch:
+                            group.Any(item =>
+                                item.Edge.Kind
+                                    is CallKind.CallVirtual
+                                        or CallKind.LoadVirtualFunction)))
+                .ToImmutableArray();
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
-            foreach (var edge in edges)
+            foreach (var edgeGroup in collapsedEdges)
             {
                 if (created >= budget)
                 {
@@ -1123,7 +1157,15 @@ public sealed class LibraryBodyIndex
                     break;
                 }
                 created++;
-                children.Add(Build(edge.Callee, edge.Kind, ResolveCallee(edge), depth + 1, edge.InLoop));
+                DirectCall edge = edgeGroup.Item.Edge;
+                children.Add(
+                    Build(
+                        edge.Callee,
+                        edge.Kind,
+                        edgeGroup.Item.Token,
+                        depth + 1,
+                        edge.InLoop,
+                        edgeGroup.HasVirtualDispatch));
             }
 
             var status = truncated

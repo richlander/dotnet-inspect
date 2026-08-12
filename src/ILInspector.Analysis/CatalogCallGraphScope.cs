@@ -871,19 +871,6 @@ public sealed class CatalogCallGraphScope : IDisposable
                         hasUnresolvedDispatch);
                 }
 
-                var edges = rawEdges
-                    .GroupBy(edge => edge.Callee.Evidence.Identity)
-                    .Select(group =>
-                        (
-                            Edge: group.FirstOrDefault(
-                                edge => edge.Call.InLoop,
-                                group.First()),
-                            HasVirtualDispatch:
-                                group.Any(edge =>
-                                    edge.Call.Kind
-                                        is CallKind.CallVirtual
-                                            or CallKind.LoadVirtualFunction)))
-                    .ToImmutableArray();
                 int fanout = rawEdges.Length;
                 if (depth >= maxDepth)
                 {
@@ -926,6 +913,19 @@ public sealed class CatalogCallGraphScope : IDisposable
                         hasUnresolvedDispatch);
                 }
 
+                var edges = rawEdges
+                    .GroupBy(edge => edge.Callee.Evidence.Identity)
+                    .Select(group =>
+                        (
+                            Edge: group.FirstOrDefault(
+                                edge => edge.Call.InLoop,
+                                group.First()),
+                            HasVirtualDispatch:
+                                group.Any(edge =>
+                                    edge.Call.Kind
+                                        is CallKind.CallVirtual
+                                            or CallKind.LoadVirtualFunction)))
+                    .ToImmutableArray();
                 var children =
                     ImmutableArray.CreateBuilder<CallTreeNode>();
                 bool truncated = false;

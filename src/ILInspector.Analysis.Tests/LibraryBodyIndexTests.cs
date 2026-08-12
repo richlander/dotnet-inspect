@@ -855,7 +855,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void CatalogCallTree_PreservesDispatchAcrossCalleeCollapse()
+    public void CallTrees_PreserveDispatchAcrossCalleeCollapse()
     {
         var index =
             LibraryBodyIndex.Open(
@@ -902,25 +902,52 @@ public class LibraryBodyIndexTests
                     maxDepth: 2,
                     maxNodes: 10);
 
-            Assert.Equal(2, local.Children.Length);
-            Assert.Contains(
-                local.Children,
-                child => child.HasUnresolvedDispatch);
+            CallTreeNode localCollapsed =
+                Assert.Single(
+                    local.Children);
             CallTreeNode collapsed =
                 Assert.Single(
                     catalogTree.Children);
             Assert.Equal(
                 CallKind.Call,
+                localCollapsed.Kind);
+            Assert.Equal(
+                CallKind.Call,
                 collapsed.Kind);
+            Assert.Equal(
+                expectedRepresentativeInLoop,
+                localCollapsed.Perf?.InLoop);
             Assert.Equal(
                 expectedRepresentativeInLoop,
                 collapsed.Perf?.InLoop);
             Assert.True(
+                localCollapsed.HasUnresolvedDispatch);
+            Assert.True(
                 collapsed.HasUnresolvedDispatch);
+            Assert.Equal(2, local.Perf?.Fanout);
+            Assert.Equal(2, catalogTree.Perf?.Fanout);
+            Assert.True(
+                CallGraphProjection
+                    .FromCallees(local)
+                    .HasUnexploredTraversalBoundary);
             Assert.True(
                 CallGraphProjection
                     .FromCallees(catalogTree)
                     .HasUnexploredTraversalBoundary);
+
+            Assert.NotEqual(
+                CallTreeStatus.Truncated,
+                index.BuildCallTree(
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 2).Status);
+            Assert.NotEqual(
+                CallTreeStatus.Truncated,
+                catalog.BuildCallTree(
+                    index,
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 2).Status);
         }
     }
 
