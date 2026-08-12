@@ -48,25 +48,32 @@ AssertAll(
         outputs,
         resolutionSucceeds: false),
     "true");
-AssertAll(
-    RunDetection(
+foreach ((string name, string json) in new[]
+{
+    ("non-object", """[null]"""),
+    ("missing filename", """[{"status":"modified"}]"""),
+    ("empty filename", """[{"status":"modified","filename":""}]"""),
+    ("missing status", """[{"filename":"src/missing-status.cs"}]"""),
+    ("empty status", """[{"status":"","filename":"src/empty-status.cs"}]"""),
+    ("renamed without previous filename",
+        """[{"status":"renamed","filename":"Directory.Build.props.moved"}]"""),
+    ("renamed with empty previous filename",
+        """[{"status":"renamed","previous_filename":"","filename":"src/new.cs"}]"""),
+    ("non-string previous filename",
+        """[{"status":"modified","previous_filename":1,"filename":"README.md"}]"""),
+    ("empty non-rename previous filename",
+        """[{"status":"modified","previous_filename":"","filename":"README.md"}]"""),
+})
+{
+    Dictionary<string, string> malformed = RunDetection(
         repository,
         body,
         "pull_request",
         "README.md",
         outputs,
-        malformedFileRecord: true),
-    "true");
-AssertAll(
-    RunDetection(
-        repository,
-        body,
-        "pull_request",
-        "README.md",
-        outputs,
-        reportedChangedFileCount: "1",
-        malformedFileRecord: true),
-    "true");
+        malformedFileRecordJson: json);
+    AssertAll(malformed, "true");
+}
 AssertAll(
     RunDetection(
         repository,
@@ -93,6 +100,24 @@ AssertAll(
         "README.md",
         outputs,
         nulPreviousFileRecord: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        failDecodeAt: 2),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "push",
+        "src/dotnet-inspect/Program.cs",
+        outputs,
+        failDecodeAt: 1),
     "true");
 
 Dictionary<string, string> readme =
@@ -150,6 +175,47 @@ if (source["code"] != "true")
     throw new InvalidOperationException(
         $"Source canary did not select code: {FormatValues(source)}");
 }
+AssertRouting(source, selected: "shipped", notSelected: "csharpdiff");
+
+Dictionary<string, string> csharpDiff = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "tools/CSharpDiffHarness/Program.cs",
+    outputs);
+AssertRouting(csharpDiff, selected: "csharpdiff", notSelected: "code");
+
+Dictionary<string, string> decompiler = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "eng/check-decompiler-gate.cs",
+    outputs);
+AssertRouting(decompiler, selected: "decompiler", notSelected: "code");
+
+Dictionary<string, string> ilDiff = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "tools/IlDiffHarness/Program.cs",
+    outputs);
+AssertRouting(ilDiff, selected: "ildiff", notSelected: "code");
+
+Dictionary<string, string> ilRoundtrip = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "eng/restore-ilassembler.sh",
+    outputs);
+AssertRouting(ilRoundtrip, selected: "ilroundtrip", notSelected: "docs");
+
+Dictionary<string, string> packaging = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/dotnet-inspect/dotnet-inspect.csproj",
+    outputs);
+AssertRouting(packaging, selected: "packaging", notSelected: "docs");
 
 Dictionary<string, string> skill = RunDetection(
     repository,
@@ -284,6 +350,23 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     {
         throw new InvalidOperationException(
             "jobs.changes must declare at least one output.");
+    }
+    string[] requiredOutputs =
+    [
+        "code",
+        "csharpdiff",
+        "decompiler",
+        "docs",
+        "ildiff",
+        "ilroundtrip",
+        "packaging",
+        "shipped",
+    ];
+    if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
+        .SetEquals(requiredOutputs))
+    {
+        throw new InvalidOperationException(
+            $"jobs.changes must declare exactly: {string.Join(", ", requiredOutputs)}.");
     }
 
     YamlSequenceNode steps = GetRequiredSequence(
@@ -475,6 +558,31 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
         jobs,
         "ci-required",
         "jobs");
+    RequireScalarValue(
+        aggregate,
+        "if",
+        "always()",
+        "jobs.ci-required");
+    RequireAbsent(
+        aggregate,
+        "continue-on-error",
+        "jobs.ci-required");
+    YamlSequenceNode needs = GetRequiredSequence(
+        aggregate,
+        "needs",
+        "jobs.ci-required");
+    var actualNeeds = needs.Children
+        .Select(node => RequireScalar(node, "jobs.ci-required need"))
+        .ToHashSet(StringComparer.Ordinal);
+    var expectedNeeds = jobs.Children.Keys
+        .Select(node => RequireScalar(node, "job name"))
+        .Where(name => name != "ci-required")
+        .ToHashSet(StringComparer.Ordinal);
+    if (!actualNeeds.SetEquals(expectedNeeds))
+    {
+        throw new InvalidOperationException(
+            "jobs.ci-required.needs must contain every other job exactly once.");
+    }
     YamlSequenceNode steps = GetRequiredSequence(
         aggregate,
         "steps",
@@ -499,22 +607,30 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
     }
 
     YamlMappingNode check = checks[0];
+    RequireExactKeys(
+        check,
+        ["name", "env", "run"],
+        "ci-required structural check");
+    RequireExactScalarValues(
+        GetRequiredMapping(
+            check,
+            "env",
+            "ci-required structural check"),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["NEEDS"] = "${{ toJSON(needs) }}",
+        },
+        "ci-required structural check.env");
     RequireAbsent(check, "if", "ci-required structural check");
     RequireAbsent(
         check,
         "continue-on-error",
         "ci-required structural check");
-    string body = GetRequiredScalar(
+    RequireScalarSha256(
         check,
         "run",
+        "2DE85E60935EDA6C488053ACD405D02C4842F620AA0E0307E6E64166AF1A7DF8",
         "ci-required structural check");
-    if (!body.Split('\n').Contains(
-            "python3 -I -c '",
-            StringComparer.Ordinal))
-    {
-        throw new InvalidOperationException(
-            "ci-required structural check must isolate Python imports.");
-    }
 }
 
 static YamlMappingNode GetRequiredMapping(
@@ -659,11 +775,12 @@ static Dictionary<string, string> RunDetection(
     string previousFiles = "",
     string? reportedChangedFileCount = null,
     bool resolutionSucceeds = true,
-    bool malformedFileRecord = false,
+    string malformedFileRecordJson = "",
     bool objectShapedFilePage = false,
     bool nulFileRecord = false,
     bool nulPreviousFileRecord = false,
-    string fileStatus = "modified")
+    string fileStatus = "modified",
+    int failDecodeAt = 0)
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
@@ -702,8 +819,8 @@ static Dictionary<string, string> RunDetection(
                && [ "$3" = "--jq" ] && [ "$4" = ".changed_files" ]; then
               if [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
               printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
-              elif [ "$MALFORMED_FILE_RECORD" = "true" ]; then
-              printf '8\n'
+              elif [ -n "$MALFORMED_FILE_RECORD_JSON" ]; then
+              printf '1\n'
               elif [ "$NUL_FILE_RECORD" = "true" ]; then
               printf '1\n'
               elif [ "$NUL_PREVIOUS_FILE_RECORD" = "true" ]; then
@@ -730,17 +847,8 @@ static Dictionary<string, string> RunDetection(
                 if [ "$OBJECT_SHAPED_FILE_PAGE" = "true" ]; then
                   printf '%s\n' \
                     '{"status":"modified","filename":"README.md"}'
-                elif [ "$MALFORMED_FILE_RECORD" = "true" ]; then
-                  printf '%s\n' '[
-                    {"status":"modified","filename":"README.md"},
-                    {"status":"modified"},
-                    {"status":"modified","filename":""},
-                    {"filename":"src/missing-status.cs"},
-                    {"status":"","filename":"src/empty-status.cs"},
-                    {"status":"future","filename":"src/future-status.cs"},
-                    {"status":"renamed","filename":"src/missing-previous.cs"},
-                    {"status":"renamed","previous_filename":"","filename":"src/empty-previous.cs"}
-                  ]'
+                elif [ -n "$MALFORMED_FILE_RECORD_JSON" ]; then
+                  printf '%s\n' "$MALFORMED_FILE_RECORD_JSON"
                 elif [ "$NUL_FILE_RECORD" = "true" ]; then
                   printf '%s\n' \
                     '[{"status":"modified","filename":"s\u0000rc/Program.cs"}]'
@@ -801,6 +909,25 @@ static Dictionary<string, string> RunDetection(
             """;
         WriteExecutable(Path.Combine(binaries, "gh"), FakeGh);
         WriteExecutable(Path.Combine(binaries, "git"), FakeGit);
+        if (failDecodeAt > 0)
+        {
+            const string FakeBase64 = """
+                #!/bin/sh
+                if [ "$1" = "--decode" ]; then
+                  count=0
+                  if [ -f "$BASE64_DECODE_COUNT" ]; then
+                    IFS= read -r count < "$BASE64_DECODE_COUNT"
+                  fi
+                  count=$((count + 1))
+                  printf '%s\n' "$count" > "$BASE64_DECODE_COUNT"
+                  if [ "$FAIL_DECODE_AT" = "$count" ]; then
+                    exit 1
+                  fi
+                fi
+                exec /usr/bin/base64 "$@"
+                """;
+            WriteExecutable(Path.Combine(binaries, "base64"), FakeBase64);
+        }
 
         ProcessStartInfo startInfo = new("bash")
         {
@@ -823,8 +950,12 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["EXPECTED_SHA"] = Sha;
         startInfo.Environment["FILE_STATUS"] = fileStatus;
         startInfo.Environment["GITHUB_OUTPUT"] = output;
-        startInfo.Environment["MALFORMED_FILE_RECORD"] =
-            malformedFileRecord.ToString().ToLowerInvariant();
+        startInfo.Environment["BASE64_DECODE_COUNT"] =
+            Path.Combine(temporary, "base64-decode-count");
+        startInfo.Environment["FAIL_DECODE_AT"] =
+            failDecodeAt.ToString();
+        startInfo.Environment["MALFORMED_FILE_RECORD_JSON"] =
+            malformedFileRecordJson;
         startInfo.Environment["OBJECT_SHAPED_FILE_PAGE"] =
             objectShapedFilePage.ToString().ToLowerInvariant();
         startInfo.Environment["NUL_FILE_RECORD"] =
@@ -910,6 +1041,19 @@ static void AssertAll(Dictionary<string, string> values, string expected)
     {
         throw new InvalidOperationException(
             $"Expected every output to be {expected}, got {FormatValues(values)}.");
+    }
+}
+
+static void AssertRouting(
+    Dictionary<string, string> values,
+    string selected,
+    string notSelected)
+{
+    if (values[selected] != "true" || values[notSelected] != "false")
+    {
+        throw new InvalidOperationException(
+            $"Expected {selected}=true and {notSelected}=false, got " +
+            FormatValues(values));
     }
 }
 

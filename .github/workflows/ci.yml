@@ -313,7 +313,18 @@ jobs:
               fi
             fi
           fi
+          DECODED_FILES=""
+          if [ "$RESOLVED" = "true" ]; then
+            DECODED_FILES=$(mktemp) || DECODED_FILES=""
+            if [ -z "$DECODED_FILES" ] \
+               || ! printf '%s' "$FILES" | base64 --decode > "$DECODED_FILES"; then
+              RESOLVED=false
+            fi
+          fi
           if [ "$RESOLVED" != "true" ]; then
+            if [ -n "$DECODED_FILES" ]; then
+              rm -f "$DECODED_FILES" || true
+            fi
             # Force every gate on and stop here. Deliberately NOT "list every
             # tracked file and classify it": that would put another fallible
             # git call -- and a dependency on every case pattern below matching
@@ -523,7 +534,8 @@ jobs:
               global.json) SHIPPED=true ;;
               .github/workflows/ci.yml) SHIPPED=true ;;
             esac
-          done < <(printf '%s' "$FILES" | base64 --decode)
+          done < "$DECODED_FILES"
+          rm -f "$DECODED_FILES" || true
           # `ilroundtrip` does not have a job of its own: its two steps live
           # inside the `test` job, which is gated on `code`. So an input that
           # sets only `ilroundtrip` computes an output nothing can act on --
