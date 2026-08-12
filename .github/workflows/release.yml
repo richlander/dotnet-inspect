@@ -188,7 +188,9 @@ jobs:
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
         # manifest lands at tools/any/any/DotnetToolSettings.xml. The pointer
         # carries no implementation, so SelfContained pulls in no runtime.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+        # RID-specific packages are built by build-native; disabling inner RID
+        # packs keeps this portable job pointer-only on .NET 11 Preview 7+.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
