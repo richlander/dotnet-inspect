@@ -7,7 +7,6 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
-  dependencyGroupFor,
   dependencyGroupSelectionMessage,
   graphTargetNavigationDisposition,
   graphMemberSelection,
@@ -26,6 +25,7 @@ import {
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
+  selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
@@ -518,7 +518,7 @@ test("dependency selection exposes a missing exact framework", () => {
   assert.equal(dependencyGroupSelectionMessage({}), "");
 });
 
-test("dependency graph does not infer edges from a missing exact group", () => {
+test("missing exact dependency groups never create graph edges", () => {
   const data = {
     dependencyGroupError: "No exact dependency group.",
     dependencyGroups: [{
@@ -528,10 +528,7 @@ test("dependency graph does not infer edges from a missing exact group", () => {
     }]
   };
 
-  assert.equal(dependencyGroupFor(data, "net8.0"), null);
-  assert.equal(
-    dependencyGroupFor(data, "net9.0", true),
-    data.dependencyGroups[0]);
+  assert.equal(selectedDependencyGroup(data), null);
 });
 
 test("dependency graph uses each cached package's product-selected group", () => {
@@ -544,7 +541,7 @@ test("dependency graph uses each cached package's product-selected group", () =>
   };
 
   assert.equal(
-    dependencyGroupFor(data, "net8.0"),
+    selectedDependencyGroup(data),
     data.dependencyGroups[1]);
 });
 

@@ -2,7 +2,6 @@ import {
   assemblyDescriptorForType,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
-  dependencyGroupFor,
   dependencyGroupSelectionMessage,
   graphTargetNavigationDisposition,
   graphMemberSelection,
@@ -23,6 +22,7 @@ import {
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
+  selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
@@ -6249,17 +6249,14 @@ function buildDependencyGraphMermaid(selectedTfm) {
 
   const groupFor = (id, version) => {
     if (id.toLowerCase() === centerKey) {
-      return dependencyGroupFor(
-        state.packageDependencies,
-        selectedTfm,
-        true);
+      return selectedDependencyGroup(state.packageDependencies);
     }
 
     const open = openById.get(id.toLowerCase());
     const data = open
       ? state.workspaceDependencies[workspaceDependencyKey(open)]
       : null;
-    return dependencyGroupFor(data, selectedTfm);
+    return selectedDependencyGroup(data);
   };
 
   // Callees: walk the centre's dependencies, expanding any dependency that is itself an

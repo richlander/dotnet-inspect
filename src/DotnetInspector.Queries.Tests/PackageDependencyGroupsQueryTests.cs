@@ -86,6 +86,32 @@ public sealed class PackageDependencyGroupsQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_PreservesInterleavedImplicitDependencyRuns()
+    {
+        InMemoryPackageContent content = Content(
+            ("Example.Package.nuspec", Manifest(
+                """
+                <dependency id="Before" version="1.0.0" />
+                <group targetFramework="any">
+                  <dependency id="Middle" version="2.0.0" />
+                </group>
+                <dependency id="After" version="3.0.0" />
+                """)));
+
+        PackageDependencyGroups result = Available(
+            await ExecuteAsync(
+                content,
+                "Example.Package",
+                "net8.0"));
+
+        Assert.Equal(
+            ["Before", "Middle", "After"],
+            result.Groups.SelectMany(group =>
+                group.Dependencies.Select(dependency => dependency.Id)));
+        Assert.Equal(3, result.Groups.Length);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_PreservesGroupsWhenExactFrameworkIsAbsent()
     {
         InMemoryPackageContent content = Content(
@@ -150,10 +176,22 @@ public sealed class PackageDependencyGroupsQueryTests
                 Content(
                     ("C:Example.Package.nuspec", Manifest(""))),
                 "Example.Package");
+        PackageDependencyGroupsResult traversal =
+            await ExecuteAsync(
+                Content(
+                    ("nested/../Example.Package.nuspec", Manifest(""))),
+                "Example.Package");
+        PackageDependencyGroupsResult currentDirectory =
+            await ExecuteAsync(
+                Content(
+                    ("./Example.Package.nuspec", Manifest(""))),
+                "Example.Package");
 
         Assert.IsType<InvalidDataException>(Failed(ambiguous));
         Assert.IsType<InvalidDataException>(Failed(backslash));
         Assert.IsType<InvalidDataException>(Failed(volumeQualified));
+        Assert.IsType<InvalidDataException>(Failed(traversal));
+        Assert.IsType<InvalidDataException>(Failed(currentDirectory));
     }
 
     [Fact]

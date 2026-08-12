@@ -149,16 +149,9 @@ export function dependencyGroupSelectionMessage(data) {
   return data?.dependencyGroupError || "";
 }
 
-export function dependencyGroupFor(data, framework, allowDeclaredFallback = false) {
+export function selectedDependencyGroup(data) {
   const groups = data?.dependencyGroups || [];
-  if (!groups.length || (data?.dependencyGroupError && !allowDeclaredFallback)) {
-    return null;
-  }
-  if (allowDeclaredFallback) {
-    return groups.find(group => group.framework === framework)
-      || groups.find(group => group.isActive)
-      || groups[0];
-  }
+  if (!groups.length || data?.dependencyGroupError) return null;
   return groups.find(group => group.isActive) || null;
 }
 

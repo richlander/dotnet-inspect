@@ -178,6 +178,7 @@ public static class NuspecParser
 
                     result.DependencyGroups ??= [];
                     result.DependencyGroups.Add(group);
+                    ungrouped = null;
                 }
                 else if (element.Name == ns + "dependency")
                 {

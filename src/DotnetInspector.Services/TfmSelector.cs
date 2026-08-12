@@ -38,7 +38,12 @@ public static class TfmSelector
 
     public static int GetTfmPriority(string? tfm)
     {
-        return TfmResolver.GetTfmPriority(NormalizeTfm(tfm));
+        string normalized = NormalizeTfm(tfm);
+        int qualifierIndex = normalized.IndexOf('-');
+        return TfmResolver.GetTfmPriority(
+            qualifierIndex < 0
+                ? normalized
+                : normalized[..qualifierIndex]);
     }
 
     public static string? SelectHighestTfm(IEnumerable<string> tfms)
@@ -117,9 +122,16 @@ public static class TfmSelector
                 "PlatformVersion");
             if (!string.IsNullOrWhiteSpace(platformVersion))
             {
-                normalized += platformVersion
+                string version = platformVersion
                     .Trim()
                     .TrimStart('v', 'V');
+                normalized += TryNormalizeVersion(
+                    version,
+                    out _,
+                    out string dotted,
+                    out _)
+                        ? dotted
+                        : version;
             }
         }
 
@@ -134,24 +146,60 @@ public static class TfmSelector
 
     private static string? NormalizeLongFormTfm(string frameworkName, string version)
     {
-        if (string.IsNullOrWhiteSpace(version))
+        if (!TryNormalizeVersion(
+                version,
+                out int major,
+                out string dotted,
+                out string compact))
             return null;
 
         if (frameworkName.Equals(".NETStandard", StringComparison.OrdinalIgnoreCase))
-            return "netstandard" + version;
+            return "netstandard" + dotted;
 
         if (frameworkName.Equals(".NETFramework", StringComparison.OrdinalIgnoreCase))
-            return "net" + version.Replace(".", "", StringComparison.Ordinal);
+            return "net" + compact;
 
         if (frameworkName.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase))
         {
-            var majorText = version.Split('.', 2)[0];
-            return int.TryParse(majorText, out var major) && major >= 5
-                ? "net" + version
-                : "netcoreapp" + version;
+            return major >= 5
+                ? "net" + dotted
+                : "netcoreapp" + dotted;
         }
 
         return null;
+    }
+
+    private static bool TryNormalizeVersion(
+        string value,
+        out int major,
+        out string dotted,
+        out string compact)
+    {
+        major = 0;
+        dotted = "";
+        compact = "";
+        string[] parts = value.Trim().Split('.');
+        if (parts.Length == 0)
+            return false;
+
+        int[] numbers = new int[parts.Length];
+        for (int index = 0; index < parts.Length; index++)
+        {
+            if (!int.TryParse(parts[index], out numbers[index])
+                || numbers[index] < 0)
+            {
+                return false;
+            }
+        }
+
+        int last = numbers.Length - 1;
+        while (last > 1 && numbers[last] == 0)
+            last--;
+
+        major = numbers[0];
+        dotted = string.Join('.', numbers[..(last + 1)]);
+        compact = string.Concat(numbers[..(last + 1)]);
+        return true;
     }
 
     public static List<string> GetPackageDlls(string extractPath)

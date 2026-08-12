@@ -42,6 +42,7 @@ public class DependencyResolutionServiceTests
         Assert.Equal(TfmResolver.GetTfmPriority("net8.0"), TfmSelector.GetTfmPriority(".NETCoreApp,Version=v8.0/linux-x64"));
         Assert.Equal(TfmResolver.GetTfmPriority("netstandard2.0"), TfmSelector.GetTfmPriority(".NETStandard2.0"));
         Assert.Equal(TfmResolver.GetTfmPriority("net472"), TfmSelector.GetTfmPriority(".NETFramework4.7.2"));
+        Assert.Equal(TfmResolver.GetTfmPriority("net40"), TfmSelector.GetTfmPriority(".NETFramework,Version=v4.0,Profile=Client"));
     }
 
     [Fact]
@@ -380,11 +381,12 @@ public class DependencyResolutionServiceTests
     [InlineData(".NETStandard2.0", "netstandard2.0")]
     [InlineData(".NETFramework4.5", "net45")]
     [InlineData(".NETCoreApp,Version=v8.0", "net8.0")]
+    [InlineData(".NETCoreApp,Version=v8.0.0", "net8.0")]
     [InlineData(
-        ".NETFramework,Version=v4.0,Profile=Client",
+        ".NETFramework,Version=v4.0.0,Profile=Client",
         "net40-client")]
     [InlineData(
-        ".NETCoreApp,Version=v8.0,Platform=Windows,PlatformVersion=7.0",
+        ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=7.0.0",
         "net8.0-windows7.0")]
     public void SelectDependencyGroup_ExactMode_NormalizesNuGetLongForm(
         string declared,
@@ -427,6 +429,31 @@ public class DependencyResolutionServiceTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("net45")]
+    public void SelectDependencyGroup_QualifiedGroupOutranksUniversal(
+        string? requested)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new()
+            {
+                TargetFramework =
+                    ".NETFramework,Version=v4.0,Profile=Client",
+            },
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            requested);
+
+        Assert.Equal(
+            ".NETFramework,Version=v4.0,Profile=Client",
+            result.Group?.TargetFramework);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("any")]
     public void SelectDependencyGroup_ExactMode_UniversalGroupMatchesAnyTarget(
@@ -452,15 +479,15 @@ public class DependencyResolutionServiceTests
         var groups = new List<DependencyGroup>
         {
             new() { TargetFramework = "any" },
-            new() { TargetFramework = ".NETStandard2.0" }
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0.0" }
         };
 
         var result = DependencyResolutionService.SelectDependencyGroup(
             groups,
-            "netstandard2.0",
+            "net8.0",
             allowCompatibleFallbackForRequestedTfm: false);
 
-        Assert.Equal(".NETStandard2.0", result.Group?.TargetFramework);
+        Assert.Equal(".NETCoreApp,Version=v8.0.0", result.Group?.TargetFramework);
     }
 
     [Fact]

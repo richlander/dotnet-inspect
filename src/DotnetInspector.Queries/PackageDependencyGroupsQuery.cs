@@ -187,15 +187,23 @@ public static class PackageDependencyGroupsQuery
                 "Package manifest paths must use package-root separators.");
         }
 
-        string[] roots =
+        string[][] manifestSegments =
         [
-            .. manifests.Where(path => !path.Contains('/')),
+            .. manifests.Select(path => path.Split('/')),
         ];
-        if (roots.Any(path => !PackageEntryPath.IsSafeSegment(path)))
+        if (manifestSegments.Any(segments =>
+            segments.Any(segment => !PackageEntryPath.IsSafeSegment(segment))))
         {
             throw new InvalidDataException(
-                "Package manifest paths must be safe package-root entries.");
+                "Package manifest paths must contain safe package-entry segments.");
         }
+
+        string[] roots =
+        [
+            .. manifestSegments
+                .Where(segments => segments.Length == 1)
+                .Select(segments => segments[0]),
+        ];
 
         return roots.Length switch
         {
