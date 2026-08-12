@@ -658,6 +658,36 @@ public class HttpRetryHelperTests
         Assert.True(handler.StreamingRequested);
     }
 
+    [Theory]
+    [InlineData(RetryFailureMode.NonRetryableStatus)]
+    [InlineData(RetryFailureMode.NonRetryableSocket)]
+    [InlineData(RetryFailureMode.RetryableStatus)]
+    [InlineData(RetryFailureMode.RetryableSocket)]
+    [InlineData(RetryFailureMode.Timeout)]
+    [InlineData(RetryFailureMode.Unsupported)]
+    public async Task HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText(
+        RetryFailureMode mode)
+    {
+        const string Secret = "sup3rs3cret";
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(mode));
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                $"https://user:{Secret}@private.example/F/auth/{Secret}/source.cs?sig={Secret}#{Secret}",
+                static _ => true,
+                retryCount: 0,
+                log: messages.Add,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Unavailable, result.Status);
+        Assert.NotEmpty(messages);
+        Assert.DoesNotContain(messages, message =>
+            message.Contains(Secret, StringComparison.Ordinal)
+            || message.Contains("private.example", StringComparison.Ordinal));
+    }
+
     private sealed class FailureHandler(RetryFailureMode mode) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

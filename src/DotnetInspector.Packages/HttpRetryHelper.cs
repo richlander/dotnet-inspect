@@ -404,14 +404,14 @@ public static class HttpRetryHelper
 
                     if (!IsRetryableStatus(statusCode))
                     {
-                        log?.Invoke($"HTTP GET {(int)statusCode} (not retryable): {url}");
+                        log?.Invoke($"HTTP GET {(int)statusCode} (not retryable).");
                         FeedFailureTelemetry.Record(url, statusCode);
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable);
                     }
 
-                    log?.Invoke($"HTTP GET {(int)statusCode} (retryable): {url}");
+                    log?.Invoke($"HTTP GET {(int)statusCode} (retryable).");
                 }
                 catch (ResponseBodyTooLargeException)
                 {
@@ -424,7 +424,10 @@ public static class HttpRetryHelper
                     var (isRetryable, socketError) = GetSocketError(ex);
                     if (!readingBody && !isRetryable)
                     {
-                        log?.Invoke($"HTTP GET error (not retryable): {ex.Message}");
+                        string errorKind = socketError != SocketError.Success
+                            ? socketError.ToString()
+                            : ex.HttpRequestError.ToString();
+                        log?.Invoke($"HTTP GET error {errorKind} (not retryable).");
                         FeedFailureTelemetry.Record(url, null);
                         return new HttpBodyFetchResult(
                             null,
@@ -432,16 +435,16 @@ public static class HttpRetryHelper
                     }
 
                     log?.Invoke(readingBody
-                        ? $"HTTP GET body failed (retryable): {url}"
-                        : $"Socket error {socketError} (retryable): {url}");
+                        ? "HTTP GET body failed (retryable)."
+                        : $"Socket error {socketError} (retryable).");
                 }
                 catch (IOException) when (readingBody)
                 {
-                    log?.Invoke($"HTTP GET body failed (retryable): {url}");
+                    log?.Invoke("HTTP GET body failed (retryable).");
                 }
-                catch (NotSupportedException ex)
+                catch (NotSupportedException)
                 {
-                    log?.Invoke($"HTTP GET unsupported URL (not retryable): {ex.Message}");
+                    log?.Invoke("HTTP GET unsupported URL (not retryable).");
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable);
@@ -464,7 +467,7 @@ public static class HttpRetryHelper
 
                 if (attempts++ >= retryCount)
                 {
-                    log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
+                    log?.Invoke($"Max retries ({retryCount}) exceeded.");
                     FeedFailureTelemetry.Record(url, null);
                     return new HttpBodyFetchResult(
                         null,

@@ -6913,6 +6913,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SourceEnrichment_VerboseProgressDoesNotDiscloseArtifactUrlOrPath()
+    {
+        const string Secret = "sup3rs3cret";
+        var sourceInfo = new ILInspector.SourceLink.SourceLinkResolver.TypeSourceInfo(
+            $"/hostile/{Secret}/Source.cs",
+            $"https://user:{Secret}@source.example/F/auth/{Secret}/Source.cs?sig={Secret}#{Secret}",
+            LineNumber: 42,
+            GitHubBrowseUrl: null);
+        var apiType = new ApiType { Name = "Source" };
+
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => SourceEnricher.ApplySourceInfoAsync(
+                apiType,
+                sourceInfo,
+                new ApiOptions { ShowDocs = true },
+                new VerboseLogger(enabled: true)));
+
+        Assert.Contains("Source (SourceLink) resolved at line 42.", error);
+        Assert.Contains("Fetching SourceLink source.", error);
+        Assert.DoesNotContain(Secret, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("source.example", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("/hostile/", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_DefaultShowsSignatureOnly()
     {
         var options = new MemberOptions

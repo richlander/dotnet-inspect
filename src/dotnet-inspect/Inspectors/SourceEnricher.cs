@@ -751,7 +751,7 @@ internal static class SourceEnricher
         return true;
     }
 
-    private static async Task ApplySourceInfoAsync(
+    internal static async Task ApplySourceInfoAsync(
         ApiType apiType,
         SourceLinkResolver.TypeSourceInfo sourceInfo,
         ApiOptions options,
@@ -782,7 +782,8 @@ internal static class SourceEnricher
         }
 
         logger.Log(
-            $"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
+            $"Source ({sourceInfo.ResolutionMethod}) resolved"
+                + (sourceInfo.LineNumber is { } line ? $" at line {line}." : "."));
 
         if (!(options.ShowDocs || options.ShowSamples)
             || sourceInfo.SourceUrl is null)
@@ -819,7 +820,7 @@ internal static class SourceEnricher
 
         foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
         {
-            logger.Log($"Fetching source from: {url}");
+            logger.Log("Fetching SourceLink source.");
             var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
                 fetcher,
                 url,
@@ -832,8 +833,7 @@ internal static class SourceEnricher
                 continue;
             }
 
-            logger.Log(
-                $"Fetched {content.Length} bytes from {Path.GetFileName(filePath)}");
+            logger.Log($"Fetched {content.Length} source bytes.");
             if (allSourceContents.Count == 0)
             {
                 isPrimaryPartial =
@@ -849,16 +849,13 @@ internal static class SourceEnricher
                 if (isMatchingPartial && fileNamespace == primaryNamespace)
                 {
                     allSourceContents.Add((content, url, filePath));
-                    logger.Log(
-                        $"Validated matching partial in {Path.GetFileName(filePath)}");
+                    logger.Log("Validated matching partial source file.");
                 }
                 else
                 {
-                    logger.Log(
-                        $"Skipping {Path.GetFileName(filePath)} - not a matching partial type");
+                    logger.Log("Skipping non-matching partial source file.");
                 }
             }
-
         }
 
         if (allSourceContents.Count > 0)

@@ -614,6 +614,13 @@ Bounded fetches require Browser/Wasm's streaming-response mode so the browser
 transport cannot buffer an unbounded body before that loop; a browser without
 streaming support fails before body acquisition.
 
+Source fetch progress and bounded-retry failure diagnostics are content-free:
+they report the operation, status, and safe counts, not artifact-derived URLs,
+paths, credentials, fragments, or transport exception text. This is gated by
+`CommandExecutionTests.SourceEnrichment_VerboseProgressDoesNotDiscloseArtifactUrlOrPath`
+and
+`HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
+
 Every product consumer that renders or derives output from fetched source now
 uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. Original Source,
 printed Source Files and Source Locations, IL-offset source lines, and
