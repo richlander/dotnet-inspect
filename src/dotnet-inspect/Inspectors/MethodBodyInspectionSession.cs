@@ -207,6 +207,12 @@ public sealed class MethodBodyInspectionSession
         IReadOnlyList<MethodBodyInspectionSession>? calleeScopes,
         out Analysis.CatalogCallGraphDiagnostics diagnostics)
     {
+        if (callerScopes is not null || calleeScopes is not null)
+        {
+            callerScopes ??= [];
+            calleeScopes ??= [];
+        }
+
         Analysis.CallTreeNode callerRoot = CallerTree(
             methodToken,
             callerScopes,

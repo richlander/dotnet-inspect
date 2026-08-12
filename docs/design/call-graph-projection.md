@@ -219,7 +219,10 @@ graph. The CLI's direction-specific scopes also detach their trees before
 release, preserving physical evidence and safe exact or scope-local identity
 while dropping generation-scoped correspondence. The exact binding remains
 exact graph identity; the diagnostic does not join one assembly version to
-another.
+another. If either direction is scoped, the CLI builds the other direction in
+a target-only catalog rather than mixing a detached tree with an evidence-free
+local tree; `CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped` gates
+that projection never falls back to structural identity and collapses versions.
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library

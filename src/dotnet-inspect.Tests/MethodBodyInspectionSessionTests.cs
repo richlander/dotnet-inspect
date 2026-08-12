@@ -317,6 +317,108 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    public void CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "callgraph-caller-version-skew-").FullName;
+
+        try
+        {
+            byte[] targetImage = CompileFixture(
+                "TargetLib",
+                """
+                namespace Target;
+
+                public static class Api
+                {
+                    public static void Root() { }
+                }
+                """);
+            byte[] callerV1Image = CompileFixture(
+                "CallerLib",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+
+                namespace Shared;
+
+                public static class Entry
+                {
+                    public static void Run() =>
+                        Target.Api.Root();
+                }
+                """,
+                targetImage);
+            byte[] callerV2Image = CompileFixture(
+                "CallerLib",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("2.0.0.0")]
+
+                namespace Shared;
+
+                public static class Entry
+                {
+                    public static void Run() =>
+                        Target.Api.Root();
+                }
+                """,
+                targetImage);
+
+            string targetPath = WriteFixture(
+                directory,
+                "target",
+                "TargetLib.dll",
+                targetImage);
+            string callerV1Path = WriteFixture(
+                directory,
+                "caller-v1",
+                "CallerLib.dll",
+                callerV1Image);
+            string callerV2Path = WriteFixture(
+                directory,
+                "caller-v2",
+                "CallerLib.dll",
+                callerV2Image);
+
+            MethodBodyInspectionSession target =
+                OpenFixture(targetPath);
+            MethodBodyInspectionSession callerV1 =
+                OpenFixture(callerV1Path);
+            MethodBodyInspectionSession callerV2 =
+                OpenFixture(callerV2Path);
+            Analysis.MethodIdentity root =
+                target.BodyIndex.DeclaredMethods.Single(method =>
+                    method.DeclaringType.Name == "Api"
+                    && method.Name == "Root");
+
+            CallGraphProjection projection = target.CallGraph(
+                root.MetadataToken,
+                callerScopes: [callerV1, callerV2],
+                calleeScopes: null,
+                out _);
+
+            CallGraphNode[] callers =
+            [
+                .. projection.Nodes.Where(node =>
+                    node.Member.DeclaringType.Name == "Entry"
+                    && node.Member.Name == "Run"),
+            ];
+            Assert.Equal(2, callers.Length);
+            Assert.All(
+                callers,
+                caller => Assert.Contains(
+                    projection.Edges,
+                    edge => edge.From == caller.Id
+                        && edge.To == projection.Focus.Id));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CallerTree_VersionSkewedScopeRetainsIncompleteEvidence()
     {
         string targetV1 =
