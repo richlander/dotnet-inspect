@@ -2851,9 +2851,10 @@ static class FidelityCheck
     /// A <c>: Base</c> clause for a class whose base is a non-generic type in
     /// this assembly (so its constructors are visible to a lifted
     /// <c>: base(args)</c> initializer). Object and value-type bases need no
-    /// clause; generic bases (TypeSpec) and out-of-assembly bases are skipped —
-    /// the skeleton cannot always spell those, and an absent clause only costs a
-    /// base-call diff, never a miscompile.
+    /// clause; generic bases (TypeSpec) and out-of-assembly bases are skipped
+    /// except for framework bases the skeleton must preserve for C# semantics.
+    /// <see cref="System.Attribute"/> keeps reconstructed custom-attribute types
+    /// usable, and <see cref="System.Exception"/> preserves constructor chains.
     /// </summary>
     static string BaseClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind)
     {
@@ -2871,7 +2872,8 @@ static class FidelityCheck
         {
             return GenericBaseClause(reader, typeDef.BaseType);
         }
-        else if (typeDef.BaseType.Kind != HandleKind.TypeReference || BaseTypeName(reader, typeDef.BaseType) is not "System.Exception")
+        else if (typeDef.BaseType.Kind != HandleKind.TypeReference
+            || BaseTypeName(reader, typeDef.BaseType) is not ("System.Attribute" or "System.Exception"))
         {
             return ""; // most TypeReference bases — not reliably spellable
         }

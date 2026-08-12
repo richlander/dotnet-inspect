@@ -167,10 +167,18 @@ public class FidelityCheckGeneratedFilterTests
     public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
     {
         var assemblyPath = CompileFixture("""
+            using System;
+
+            [AttributeUsage(AttributeTargets.Constructor)]
+            internal sealed class ConstructorTagAttribute : Attribute
+            {
+            }
+
             public sealed class ConstructorWholeMemberFixture
             {
                 private readonly int _value;
 
+                [ConstructorTag]
                 private ConstructorWholeMemberFixture(int value)
                 {
                     _value = value;
@@ -222,6 +230,7 @@ public class FidelityCheckGeneratedFilterTests
                 "private ConstructorWholeMemberFixture(int value)",
                 wholeMember.Value.Text,
                 StringComparison.Ordinal);
+            Assert.Contains("[ConstructorTag]", wholeMember.Value.Text, StringComparison.Ordinal);
             Assert.Null(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
