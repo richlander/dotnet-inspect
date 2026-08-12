@@ -1471,7 +1471,6 @@ static class FidelityCheck
                         CaptureDetail = captureDetail,
                     });
             }
-            StampWholeMemberUsage(forced, entries);
             return forced;
         }
 
@@ -1509,19 +1508,7 @@ static class FidelityCheck
                     };
             }
         }
-        StampWholeMemberUsage(results, entries);
         return results;
-    }
-
-    static void StampWholeMemberUsage(
-        IList<CompileBackResult> results,
-        IReadOnlyList<Entry> entries)
-    {
-        for (int i = 0; i < results.Count && i < entries.Count; i++)
-            results[i] = results[i] with
-            {
-                UsedProductWholeMember = entries[i].Target.WholeMember is not null,
-            };
     }
 
     /// <summary>Builds and compiles one grouped unit; on success appends a classified result per method and returns true.</summary>
@@ -1538,11 +1525,12 @@ static class FidelityCheck
         // them once at the field), so any ctor entry's lifted inits serve the group.
         var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
 
-        string unit;
-        try { unit = timings is null
+        BuiltUnit built;
+        try { built = timings is null
             ? BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)); }
         catch { return false; }
+        string unit = built.Source;
 
         var tree = timings is null
             ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -1560,8 +1548,8 @@ static class FidelityCheck
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var disassembled = timings is null
-            ? DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries)
-            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries));
+            ? DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries, built.ProductWholeMembers)
+            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries, built.ProductWholeMembers));
         if (disassembled is null)
             return false;   // a method that compiled but cannot be found — fall to isolation
         results.AddRange(disassembled);
@@ -1573,7 +1561,8 @@ static class FidelityCheck
         MetadataReader originalReader,
         PEReader recompiledPe,
         string fullType,
-        IReadOnlyList<Entry> entries)
+        IReadOnlyList<Entry> entries,
+        IReadOnlySet<MethodDefinitionHandle> productWholeMembers)
     {
         var disassembled = new List<CompileBackResult>(entries.Count);
         foreach (var e in entries)
@@ -1590,7 +1579,12 @@ static class FidelityCheck
                 fullType,
                 e.Name,
                 e.Overload);
-            disassembled.Add(Classify(fullType, e, rOps, fidelityDiff));
+            disassembled.Add(Classify(
+                fullType,
+                e,
+                rOps,
+                fidelityDiff,
+                productWholeMembers.Contains(e.Handle)));
         }
         return disassembled;
     }
@@ -1601,11 +1595,13 @@ static class FidelityCheck
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, Entry e, FidelityPhaseTimings? timings)
     {
-        string unit;
-        try { unit = timings is null
+        BuiltUnit built;
+        try { built = timings is null
             ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
+        string unit = built.Source;
+        bool usedProductWholeMember = built.ProductWholeMembers.Contains(e.Handle);
 
         var tree = timings is null
             ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -1627,7 +1623,17 @@ static class FidelityCheck
                 File.WriteAllText(path, unit);
                 Console.Error.WriteLine($"{path}: {err}");
             }
-            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", FormatDiagnostic(err), Annotated: RenderAnnotatedFailure(unit, err));
+            return new(
+                fullType,
+                e.Name,
+                e.Overload,
+                e.Signature,
+                CompileBackStatus.RecompileFail,
+                e.OrigText,
+                "",
+                FormatDiagnostic(err),
+                Annotated: RenderAnnotatedFailure(unit, err),
+                UsedProductWholeMember: usedProductWholeMember);
         }
         ms.Position = 0;
         using var rpe = new PEReader(ms);
@@ -1635,12 +1641,22 @@ static class FidelityCheck
             ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
             : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
         return rOps is null
-            ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
+            ? new(
+                fullType,
+                e.Name,
+                e.Overload,
+                e.Signature,
+                CompileBackStatus.ContextFail,
+                e.OrigText,
+                "",
+                "method-not-found",
+                UsedProductWholeMember: usedProductWholeMember)
             : Classify(
                 fullType,
                 e,
                 rOps,
-                CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload));
+                CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload),
+                usedProductWholeMember);
     }
 
     // ---- Reconstruction-closure (cluster) capture (#1412, opt-in via CB_CLUSTER) ----
@@ -1975,8 +1991,8 @@ static class FidelityCheck
         Diagnostic? firstError = null;
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            string unit;
-            try { unit = timings is null
+            BuiltUnit built;
+            try { built = timings is null
                 ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)
                 : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)); }
             catch
@@ -1984,6 +2000,8 @@ static class FidelityCheck
                 captureDetail = "cluster-source-build-failed";
                 return null; // fall back to the whole-module build
             }
+            string unit = built.Source;
+            bool usedProductWholeMember = built.ProductWholeMembers.Contains(e.Handle);
 
             var tree = timings is null
                 ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -2014,7 +2032,8 @@ static class FidelityCheck
                     fullType,
                     e,
                     rOps,
-                    CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload));
+                    CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload),
+                    usedProductWholeMember);
             }
 
             var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
@@ -2257,12 +2276,13 @@ static class FidelityCheck
         string fullType,
         Entry e,
         IReadOnlyList<string> rOps,
-        IlBodyDiffResult fidelityDiff) =>
+        IlBodyDiffResult fidelityDiff,
+        bool usedProductWholeMember) =>
         new(fullType, e.Name, e.Overload, e.Signature,
             ClassifyStatus(e.IsFull, e.OrigOps.SequenceEqual(rOps), fidelityDiff),
             e.OrigText, string.Join(" ", rOps), fidelityDiff.Failure,
             FidelityDiff: fidelityDiff,
-            UsedProductWholeMember: e.Target.WholeMember is not null);
+            UsedProductWholeMember: usedProductWholeMember);
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)
     {
@@ -2786,8 +2806,12 @@ static class FidelityCheck
         string Parameters,
         IReadOnlyList<(string Field, string Value)> FieldInitializers);
 
+    readonly record struct BuiltUnit(
+        string Source,
+        IReadOnlySet<MethodDefinitionHandle> ProductWholeMembers);
+
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
-    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, TargetBody targetBody,
+    static BuiltUnit BuildUnit(MetadataReader reader, MethodDefinitionHandle target, TargetBody targetBody,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
         SignatureSpellability accessibility,
         IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
@@ -2807,12 +2831,13 @@ static class FidelityCheck
     /// them); they only change constructor IL, so non-constructor targets are
     /// indifferent to them.
     /// </summary>
-    static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+    static BuiltUnit BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
         SignatureSpellability accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
         IReadOnlySet<string>? isolatedTargetNamespaces = null)
     {
         var sb = new StringBuilder();
+        var productWholeMembers = new HashSet<MethodDefinitionHandle>();
         sb.AppendLine("#pragma warning disable");
         // The product printer spells framework types by their short name
         // (`List<T>`, `PEReader`, `AssemblyReferenceHandle`), assuming the standard
@@ -2851,15 +2876,33 @@ static class FidelityCheck
             {
                 sb.AppendLine($"namespace {EscapeNamespace(ns)}");
                 sb.AppendLine("{");
-                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 1);
+                EmitType(
+                    reader,
+                    typeHandle,
+                    targets,
+                    fieldInits,
+                    fieldInitType,
+                    accessibility,
+                    productWholeMembers,
+                    sb,
+                    1);
                 sb.AppendLine("}");
             }
             else
             {
-                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 0);
+                EmitType(
+                    reader,
+                    typeHandle,
+                    targets,
+                    fieldInits,
+                    fieldInitType,
+                    accessibility,
+                    productWholeMembers,
+                    sb,
+                    0);
             }
         }
-        return sb.ToString();
+        return new BuiltUnit(sb.ToString(), productWholeMembers);
     }
 
     /// <summary>
@@ -3147,7 +3190,10 @@ static class FidelityCheck
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureSpellability accessibility, StringBuilder sb, int indent)
+        SignatureSpellability accessibility,
+        ISet<MethodDefinitionHandle> productWholeMembers,
+        StringBuilder sb,
+        int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -3250,6 +3296,7 @@ static class FidelityCheck
                     || TryForcePublicConstructorAccessibility(wholeMember, out wholeMember))
                 {
                     EmitPrerenderedMember(wholeMember, sb, pad + "    ");
+                    productWholeMembers.Add(mh);
                     continue;
                 }
             }
@@ -3286,7 +3333,16 @@ static class FidelityCheck
             if (reader.GetString(nestedDef.Name).Contains('<')
                 || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue; // compiler-generated (display class, iterator) — not valid C#
-            EmitType(reader, nested, targets, fieldInits, fieldInitType, accessibility, sb, indent + 1);
+            EmitType(
+                reader,
+                nested,
+                targets,
+                fieldInits,
+                fieldInitType,
+                accessibility,
+                productWholeMembers,
+                sb,
+                indent + 1);
         }
 
         static bool TypeHasAwaitTarget(
@@ -3389,7 +3445,16 @@ static class FidelityCheck
             if (reader.GetString(nestedDef.Name).Contains('<')
                 || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue;
-            EmitType(reader, nested, NoTargets, [], default, accessibility, sb, indent + 1);
+            EmitType(
+                reader,
+                nested,
+                NoTargets,
+                [],
+                default,
+                accessibility,
+                new HashSet<MethodDefinitionHandle>(),
+                sb,
+                indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
