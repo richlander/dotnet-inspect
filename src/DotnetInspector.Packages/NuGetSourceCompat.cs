@@ -18,7 +18,7 @@ public record NuGetSourceOptions
     public string[] Sources { get; init; } = [];
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
-    internal string[]? AuthorizedSourceUrls { get; init; }
+    internal string[]? AuthorizedSourceKeys { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
 }
 
@@ -66,35 +66,50 @@ public static class NuGetSourceResolver
         IReadOnlyList<string> sourceUrls)
     {
         ArgumentNullException.ThrowIfNull(sourceUrls);
+        return RestrictToSourceKeys(
+            original,
+            [.. sourceUrls.Select(NuGetCache.GetSourceKey)]);
+    }
+
+    /// <summary>
+    /// Restricts payload or metadata fulfillment to canonical producer identities established
+    /// by an earlier package acquisition.
+    /// </summary>
+    public static NuGetSourceOptions? RestrictToSourceKeys(
+        NuGetSourceOptions? original,
+        IReadOnlyList<string> sourceKeys)
+    {
+        ArgumentNullException.ThrowIfNull(sourceKeys);
         return (original ?? NuGetSourceOptions.Default) with
         {
-            AuthorizedSourceUrls = [.. sourceUrls],
+            AuthorizedSourceKeys = [.. sourceKeys],
         };
     }
 
-    internal static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
+    /// <summary>
+    /// Applies a producer restriction established by an earlier coordinate resolution to an
+    /// already package-mapped source set.
+    /// </summary>
+    public static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
         NuGetSourceOptions? options,
         IReadOnlyList<NuGetSource> activeSources)
     {
-        if (options?.AuthorizedSourceUrls is not { } authorizedUrls)
+        if (options?.AuthorizedSourceKeys is not { } authorizedKeys)
             return activeSources;
 
-        HashSet<string> authorizedKeys =
-        [
-            .. authorizedUrls.Select(NuGetCache.GetSourceKey),
-        ];
+        HashSet<string> authorizedKeySet = [.. authorizedKeys];
         return
         [
             .. activeSources.Where(source =>
-                authorizedKeys.Contains(NuGetCache.GetSourceKey(source.Url))),
+                authorizedKeySet.Contains(NuGetCache.GetSourceKey(source.Url))),
         ];
     }
 
     internal static NuGetSourceOptions? WithoutSourceRestriction(
         NuGetSourceOptions? options)
-        => options?.AuthorizedSourceUrls is null
+        => options?.AuthorizedSourceKeys is null
             ? options
-            : options with { AuthorizedSourceUrls = null };
+            : options with { AuthorizedSourceKeys = null };
 
     /// <summary>
     /// Resolves sources and reduces them to the identities the package content
