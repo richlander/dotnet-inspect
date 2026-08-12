@@ -359,6 +359,46 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void BodilessCalleeKeepsAnEmptyCycleCensusIncomplete()
+    {
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Leaf(
+                    Member("IService", "Run"),
+                    CallTreeStatus.Bodiless));
+
+        Assert.True(
+            projection.HasUnexploredTraversalBoundary);
+        Assert.False(
+            projection.HasAnalysisFailureBoundary);
+        Assert.Empty(
+            projection.FindFocusCycles().Witnesses);
+    }
+
+    [Fact]
+    public void BodyAnalysisFailureRemainsAnExplicitTraversalBoundary()
+    {
+        CallTreeNode failed =
+            Leaf(
+                Member("Service", "Run"),
+                CallTreeStatus.AnalysisIncomplete) with
+            {
+                Diagnostic = new AnalysisDiagnostic(
+                    0x06000001,
+                    "Service.Run",
+                    "BadImageFormatException: invalid body"),
+            };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(failed);
+
+        Assert.True(
+            projection.HasUnexploredTraversalBoundary);
+        Assert.True(
+            projection.HasAnalysisFailureBoundary);
+    }
+
+    [Fact]
     public void FocusCycleSearchDoesNotRepeatNodesWithinAWitness()
     {
         MemberRef focus = Member("A", "A");

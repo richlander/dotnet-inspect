@@ -93,6 +93,114 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void BuildCallTree_PreservesRecoverableBodyAnalysisFailure()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedBody.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedBody"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Broken"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        var il = new BlobBuilder();
+        var instructions = new InstructionEncoder(
+            il,
+            new ControlFlowBuilder());
+        il.WriteByte((byte)ILOpCode.Br);
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(instructions, maxStack: 0);
+        MethodDefinitionHandle methodHandle =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MalformedBody-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image.ToArray());
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            AnalysisDiagnostic diagnostic =
+                Assert.Single(index.Diagnostics);
+            int methodToken = MetadataTokens.GetToken(methodHandle);
+            CallTreeNode tree = index.BuildCallTree(methodToken);
+
+            Assert.Equal(methodToken, diagnostic.MethodToken);
+            Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
+            Assert.Same(diagnostic, tree.Diagnostic);
+
+            ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "malformed-body call-tree test"));
+            var policy = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path));
+            using var scope = new CatalogCallGraphScope(
+                policy,
+                [new CatalogCallGraphParticipant(index, assembly)]);
+            CallTreeNode catalogTree = scope.BuildCallTree(
+                index,
+                methodToken);
+
+            Assert.Equal(
+                CallTreeStatus.AnalysisIncomplete,
+                catalogTree.Status);
+            Assert.Same(diagnostic, catalogTree.Diagnostic);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void CrossAssemblyMetadataResolver_ResolvesFrameworkTypeDefinition()
     {
         string targetPath = typeof(Console).Assembly.Location;

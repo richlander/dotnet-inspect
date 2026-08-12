@@ -329,6 +329,57 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
+    public void CycleFindingSurvivesAnExplicitBodyAnalysisFailure()
+    {
+        Analysis.MemberRef focus =
+            GraphMember("Recursive", "Run");
+        var root = new Analysis.CallTreeNode(
+            focus,
+            null,
+            Analysis.CallTreeStatus.Expanded,
+            [
+                new Analysis.CallTreeNode(
+                    focus,
+                    null,
+                    Analysis.CallTreeStatus.AlreadyShown,
+                    []),
+                new Analysis.CallTreeNode(
+                    GraphMember("Failed", "Decode"),
+                    null,
+                    Analysis.CallTreeStatus.AnalysisIncomplete,
+                    [])
+                {
+                    Diagnostic = new Analysis.AnalysisDiagnostic(
+                        0x06000002,
+                        "Failed.Decode",
+                        "BadImageFormatException: invalid body"),
+                },
+            ]);
+        var view = new MemberCallGraphView(
+            CallGraphTier.Callees,
+            root,
+            CallerRoot: null)
+        {
+            FocusModuleVersionId =
+                new Guid("11111111-1111-1111-1111-111111111111"),
+            FocusMethodToken = 0x06000001,
+        };
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(root);
+
+        AnnotatedCallGraphCycleInspection result =
+            CallGraphCycleFindings.Inspect(
+                view,
+                projection);
+
+        Assert.Single(result.Findings);
+        Assert.Equal(
+            AnnotatedCallGraphCycleLimit.TraversalBoundary
+                | AnnotatedCallGraphCycleLimit.AnalysisFailure,
+            result.Limits);
+    }
+
+    [Fact]
     public void CycleFindingIdentityDoesNotDependOnEdgeRowNumbers()
     {
         Analysis.MemberRef focus =
@@ -497,6 +548,13 @@ public sealed class MemberCallGraphSessionTests
                     focus.MetadataToken,
                     view.FocusMethodToken);
                 Assert.Empty(view.FocusCallSites);
+                Assert.Equal(
+                    Analysis.CallTreeStatus.Bodiless,
+                    view.CalleeRoot!.Status);
+                Assert.True(
+                    CallGraphProjection.FromCallees(
+                        view.CalleeRoot)
+                        .HasUnexploredTraversalBoundary);
             });
     }
 

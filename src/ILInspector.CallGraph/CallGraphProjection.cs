@@ -130,12 +130,15 @@ public sealed partial class CallGraphProjection
     private CallGraphProjection(
         ImmutableArray<CallGraphNode> nodes,
         ImmutableArray<CallGraphEdge> edges,
-        bool hasUnexploredTraversalBoundary)
+        bool hasUnexploredTraversalBoundary,
+        bool hasAnalysisFailureBoundary)
     {
         Nodes = nodes;
         Edges = edges;
         HasUnexploredTraversalBoundary =
             hasUnexploredTraversalBoundary;
+        HasAnalysisFailureBoundary =
+            hasAnalysisFailureBoundary;
 
         var rows = ImmutableArray.CreateBuilder<CallGraphRow>(edges.Length);
         for (var i = 0; i < edges.Length; i++)
@@ -163,6 +166,12 @@ public sealed partial class CallGraphProjection
     /// depth, or node boundary.
     /// </summary>
     public bool HasUnexploredTraversalBoundary { get; }
+
+    /// <summary>
+    /// Whether the outbound traversal contains a recoverable body-analysis failure.
+    /// Positive graph evidence remains valid, but absence is not exhaustive.
+    /// </summary>
+    public bool HasAnalysisFailureBoundary { get; }
 
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];
@@ -286,8 +295,11 @@ public sealed partial class CallGraphProjection
             !IsTraversalComplete(
                 calleeRoot,
                 useGraphEvidence);
+        bool hasAnalysisFailureBoundary =
+            HasAnalysisFailure(calleeRoot);
         return builder.Build(
-            hasUnexploredTraversalBoundary);
+            hasUnexploredTraversalBoundary,
+            hasAnalysisFailureBoundary);
     }
 
     /// <summary>Projects the inbound (caller) half only, centered on the selected overload.</summary>
@@ -378,7 +390,8 @@ public sealed partial class CallGraphProjection
         }
 
         public CallGraphProjection Build(
-            bool hasUnexploredTraversalBoundary)
+            bool hasUnexploredTraversalBoundary,
+            bool hasAnalysisFailureBoundary)
         {
             var nodes = ImmutableArray.CreateBuilder<CallGraphNode>(_nodes.Count);
             foreach (var node in _nodes)
@@ -395,7 +408,8 @@ public sealed partial class CallGraphProjection
             return new CallGraphProjection(
                 nodes.MoveToImmutable(),
                 [.. _edges],
-                hasUnexploredTraversalBoundary);
+                hasUnexploredTraversalBoundary,
+                hasAnalysisFailureBoundary);
         }
 
         private int GetOrAdd(
@@ -530,9 +544,19 @@ public sealed partial class CallGraphProjection
     private static CallGraphNodeKind KindFor(CallTreeStatus status) => status switch
     {
         CallTreeStatus.External => CallGraphNodeKind.External,
-        CallTreeStatus.DepthLimited or CallTreeStatus.Truncated => CallGraphNodeKind.Truncated,
+        CallTreeStatus.DepthLimited
+            or CallTreeStatus.Truncated
+            or CallTreeStatus.Bodiless
+            or CallTreeStatus.AnalysisIncomplete
+                => CallGraphNodeKind.Truncated,
         _ => CallGraphNodeKind.Normal,
     };
+
+    private static bool HasAnalysisFailure(CallTreeNode? node)
+        => node is not null
+            && (node.Status == CallTreeStatus.AnalysisIncomplete
+                || node.Diagnostic is not null
+                || node.Children.Any(HasAnalysisFailure));
 
     // The loop flag lives on the deeper (child) node and describes the parent↔child
     // call edge: for a callee tree the parent calls the child in a loop; for a caller

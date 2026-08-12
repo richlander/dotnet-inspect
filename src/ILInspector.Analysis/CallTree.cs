@@ -22,6 +22,17 @@ public enum CallTreeStatus
 
     /// <summary>An in-assembly method whose children were partially expanded before the node budget ran out.</summary>
     Truncated,
+
+    /// <summary>
+    /// A resolved method with no IL body, so static operand traversal cannot prove
+    /// that runtime dispatch or an external implementation cannot re-enter the graph.
+    /// </summary>
+    Bodiless,
+
+    /// <summary>
+    /// A method whose IL body analysis failed, so its recorded calls may be incomplete.
+    /// </summary>
+    AnalysisIncomplete,
 }
 
 /// <summary>
@@ -40,6 +51,11 @@ public sealed record CallTreeNode(
     /// was built from a catalog call-graph scope.
     /// </summary>
     public GraphNodeEvidence? GraphEvidence { get; init; }
+
+    /// <summary>
+    /// The recoverable body-analysis failure that made this node incomplete, if any.
+    /// </summary>
+    public AnalysisDiagnostic? Diagnostic { get; init; }
 }
 
 /// <summary>Perf-triage cues surfaced for a call-graph node.</summary>

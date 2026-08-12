@@ -117,12 +117,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FocusCycleSearchDoesNotRepeatNodesWithinAWitness` gate those properties,
   including the equal-length ordering tie-break.
 - **Boundary and external classification.** `External` callees carry
-  `CallGraphNodeKind.External`; `DepthLimited` / `Truncated` nodes carry
-  `Truncated`, meaning "more beyond here". An occurrence expanded elsewhere
-  outranks a boundary occurrence of the same member, so a shared node is never
-  misclassified as a dead end. How a host *shows* those kinds is the host's
-  choice — the CLI groups external nodes and suffixes their labels; the browser
-  styles them with a CSS class.
+  `CallGraphNodeKind.External`; `DepthLimited`, `Truncated`, `Bodiless`, and
+  `AnalysisIncomplete` nodes carry `Truncated`, meaning "more beyond here".
+  `Bodiless` means the resolved definition has no IL body and static operand
+  traversal cannot rule out runtime dispatch or an external implementation.
+  `AnalysisIncomplete` retains the method's typed `AnalysisDiagnostic`; partial
+  calls found before the recoverable failure remain positive evidence. An
+  occurrence expanded elsewhere outranks a boundary occurrence of the same
+  member, so a shared node is never misclassified as a dead end. How a host
+  *shows* those kinds is the host's choice — the CLI groups external nodes and
+  suffixes their labels; the browser styles them with a CSS class.
 - **Directional traversal completeness.**
   `HasUnexploredTraversalBoundary` is separate from the merged display kind.
   Only the outbound callee traversal can prove absence: its edges come from
@@ -130,9 +134,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   callers in this indexed scope." Within the outbound direction, an expanded
   occurrence satisfies boundary duplicates of the same typed graph identity.
   `AlreadyShown` defers to that primary occurrence and cannot override a
-  `Truncated` primary. `CycleCompletenessCollapsesBoundariesWithinOneDirection`,
-  `CallerLeafDoesNotHideAnOutboundTraversalBoundary`, and
-  `AlreadyShownDoesNotHideATruncatedPrimaryOccurrence` gate those distinctions.
+  `Truncated` primary. A bodiless definition and a recoverable body-analysis
+  failure are always outbound boundaries; the latter is also exposed
+  independently as `HasAnalysisFailureBoundary`.
+  `CycleCompletenessCollapsesBoundariesWithinOneDirection`,
+  `CallerLeafDoesNotHideAnOutboundTraversalBoundary`,
+  `AlreadyShownDoesNotHideATruncatedPrimaryOccurrence`,
+  `BodilessCalleeKeepsAnEmptyCycleCensusIncomplete`, and
+  `BodyAnalysisFailureRemainsAnExplicitTraversalBoundary` gate the projection
+  distinctions. `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates
+  the Analysis-to-tree wiring for both assembly-local and catalog traversals.
 - **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
   outbound, `loop call` inbound), read from the child node's loop flag.
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source
@@ -271,14 +282,16 @@ stable edge-row path. Its `FindingKey` comes from the typed member-identity path
 not those projection-local row numbers, so an unrelated earlier edge does not
 rename the observation; `CycleFindingIdentityDoesNotDependOnEdgeRowNumbers`
 gates that separation. Operation completeness remains separate from the durable
-Finding: `TraversalBoundary`, `IncompleteCorrespondence`, `WitnessBudget`, and
-`PathBudget` are independent flags. A positive cycle therefore remains valid
+Finding: `TraversalBoundary`, `AnalysisFailure`,
+`IncompleteCorrespondence`, `WitnessBudget`, and `PathBudget` are independent
+flags. A positive cycle therefore remains valid
 when unrelated work was bounded, while an empty bounded census means only "not
 observed in this tier and budget," never "not recursive." The projection retains
 directional traversal completeness separately from display node kinds, so a
 depth-limited occurrence does not make the census incomplete when that same
 logical node was expanded elsewhere in the same direction.
-`CycleFindingSurvivesUnrelatedGraphAndCorrespondenceLimits` and
+`CycleFindingSurvivesUnrelatedGraphAndCorrespondenceLimits`,
+`CycleFindingSurvivesAnExplicitBodyAnalysisFailure`, and
 `AnnotatedMemberDocument_HonorsACalleeNodeBudget` gate the positive and empty
 bounded cases.
 

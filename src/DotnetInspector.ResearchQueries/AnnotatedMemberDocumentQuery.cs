@@ -48,6 +48,7 @@ public enum AnnotatedCallGraphCycleLimit
     IncompleteCorrespondence = 2,
     WitnessBudget = 4,
     PathBudget = 8,
+    AnalysisFailure = 16,
 }
 
 /// <summary>
@@ -305,6 +306,11 @@ public static class CallGraphCycleFindings
         {
             limits |=
                 AnnotatedCallGraphCycleLimit.TraversalBoundary;
+        }
+        if (projection.HasAnalysisFailureBoundary)
+        {
+            limits |=
+                AnnotatedCallGraphCycleLimit.AnalysisFailure;
         }
         if (graphView.Diagnostics.IsIncomplete)
         {

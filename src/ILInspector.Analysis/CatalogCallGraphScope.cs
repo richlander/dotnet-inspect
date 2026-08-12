@@ -500,6 +500,17 @@ public sealed class CatalogCallGraphScope : IDisposable
             foreach (CatalogCallGraphParticipant participant
                 in participants)
             {
+                HashSet<int> bodyTokens =
+                [
+                    .. participant.Index.Methods.Select(
+                        method => method.MetadataToken),
+                ];
+                Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+                    participant.Index.Diagnostics
+                        .GroupBy(diagnostic => diagnostic.MethodToken)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group.First());
                 foreach (MethodIdentity method
                     in participant.Index.DeclaredMethods)
                 {
@@ -521,7 +532,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                         method,
                         member,
                         storage,
-                        plan);
+                        plan,
+                        bodyTokens.Contains(method.MetadataToken),
+                        diagnosticsByToken.GetValueOrDefault(
+                            method.MetadataToken));
                     definitions.Add(pending);
                     definitionLocations.Add(
                         (participant.Index, method.MetadataToken),
@@ -577,7 +591,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                         definition.Member,
                         Evidence(
                             definition.Storage,
-                            definition.Plan.Projection!));
+                            definition.Plan.Projection!),
+                        definition.HasBody,
+                        definition.Diagnostic);
                     storedDefinitions.Add(stored);
                     storedDefinitionByPending.Add(definition, stored);
                 }
@@ -827,7 +843,11 @@ public sealed class CatalogCallGraphScope : IDisposable
                     CallTreeStatus leafStatus = depth > 0
                         && definition is null
                             ? CallTreeStatus.External
-                            : CallTreeStatus.Leaf;
+                            : definition?.Diagnostic is not null
+                                ? CallTreeStatus.AnalysisIncomplete
+                                : definition is { HasBody: false }
+                                    ? CallTreeStatus.Bodiless
+                                    : CallTreeStatus.Leaf;
                     return Node(
                         member,
                         kind,
@@ -842,7 +862,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             null,
                             signals,
                             source),
-                        evidence);
+                        evidence,
+                        definition?.Diagnostic);
                 }
 
                 ImmutableArray<StoredEdge> edges = rawEdges
@@ -869,7 +890,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             null,
                             signals,
                             source),
-                        evidence);
+                        evidence,
+                        definition?.Diagnostic);
                 }
                 if (!expanded.Add(identity))
                 {
@@ -887,7 +909,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             null,
                             signals,
                             source),
-                        evidence);
+                        evidence,
+                        definition?.Diagnostic);
                 }
 
                 var children =
@@ -910,11 +933,13 @@ public sealed class CatalogCallGraphScope : IDisposable
                             edge.Call.InLoop));
                 }
 
-                CallTreeStatus status = truncated
-                    ? CallTreeStatus.Truncated
-                    : children.Count == 0
-                        ? CallTreeStatus.Leaf
-                        : CallTreeStatus.Expanded;
+                CallTreeStatus status = definition?.Diagnostic is not null
+                    ? CallTreeStatus.AnalysisIncomplete
+                    : truncated
+                        ? CallTreeStatus.Truncated
+                        : children.Count == 0
+                            ? CallTreeStatus.Leaf
+                            : CallTreeStatus.Expanded;
                 int treeDepth = children.Count == 0
                     ? 1
                     : 1 + children.Max(
@@ -933,7 +958,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         null,
                         signals,
                         source),
-                    evidence);
+                    evidence,
+                    definition?.Diagnostic);
             }
 
             return Build(
@@ -1022,10 +1048,12 @@ public sealed class CatalogCallGraphScope : IDisposable
             CallTreeStatus status,
             ImmutableArray<CallTreeNode> children,
             CallTreePerf perf,
-            GraphNodeEvidence evidence) =>
+            GraphNodeEvidence evidence,
+            AnalysisDiagnostic? diagnostic = null) =>
             new(member, kind, status, children, perf)
             {
                 GraphEvidence = evidence,
+                Diagnostic = diagnostic,
             };
 
         static IOrderedEnumerable<StoredEdge> OrderForwardEdges(
@@ -1075,7 +1103,9 @@ public sealed class CatalogCallGraphScope : IDisposable
             MethodIdentity Method,
             MemberRef Member,
             GraphNodeStorageKey Storage,
-            PlanEntry Plan);
+            PlanEntry Plan,
+            bool HasBody,
+            AnalysisDiagnostic? Diagnostic);
 
         sealed record PendingCallSite(
             CatalogCallGraphParticipant Participant,
@@ -1089,12 +1119,16 @@ public sealed class CatalogCallGraphScope : IDisposable
                 CatalogCallGraphParticipant participant,
                 MethodIdentity method,
                 MemberRef member,
-                GraphNodeEvidence evidence)
+                GraphNodeEvidence evidence,
+                bool hasBody,
+                AnalysisDiagnostic? diagnostic)
             {
                 Participant = participant;
                 Method = method;
                 Member = member;
                 Evidence = evidence;
+                HasBody = hasBody;
+                Diagnostic = diagnostic;
                 Signals = participant.Index.GetMethodSignals()
                     .GetValueOrDefault(
                         method.MetadataToken,
@@ -1105,6 +1139,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal MethodIdentity Method { get; }
             internal MemberRef Member { get; }
             internal GraphNodeEvidence Evidence { get; }
+            internal bool HasBody { get; }
+            internal AnalysisDiagnostic? Diagnostic { get; }
             internal MethodSignals Signals { get; }
         }
 

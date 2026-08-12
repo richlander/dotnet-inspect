@@ -1014,6 +1014,9 @@ public sealed class LibraryBodyIndex
         var callsByCaller = GetDirectCallsByCaller();
 
         var methodMap = MethodMap;
+        var diagnosticsByToken = Diagnostics
+            .GroupBy(diagnostic => diagnostic.MethodToken)
+            .ToDictionary(group => group.Key, group => group.First());
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
@@ -1031,10 +1034,22 @@ public sealed class LibraryBodyIndex
         CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth, bool inLoop = false)
         {
             var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
+            diagnosticsByToken.TryGetValue(token, out AnalysisDiagnostic? diagnostic);
             if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
             {
-                var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+                var leafStatus = token == 0 && depth > 0
+                    ? CallTreeStatus.External
+                    : diagnostic is not null
+                        ? CallTreeStatus.AnalysisIncomplete
+                        : token == rootMethodToken
+                            && root is not null
+                            && !methodMap.ContainsToken(token)
+                            ? CallTreeStatus.Bodiless
+                            : CallTreeStatus.Leaf;
+                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig))
+                {
+                    Diagnostic = diagnostic,
+                };
             }
 
             // True outbound degree (call sites), independent of how far the bounded
@@ -1043,10 +1058,20 @@ public sealed class LibraryBodyIndex
             // fan-out instead of reading like leaves.
             var fanout = edges.Length;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+            {
+                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig))
+                {
+                    Diagnostic = diagnostic,
+                };
+            }
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
+            {
+                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig))
+                {
+                    Diagnostic = diagnostic,
+                };
+            }
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -1063,10 +1088,15 @@ public sealed class LibraryBodyIndex
 
             var status = truncated
                 ? CallTreeStatus.Truncated
-                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
+                : diagnostic is not null
+                    ? CallTreeStatus.AnalysisIncomplete
+                    : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
             var fanin = incomingCounts.TryGetValue(token, out var count) ? count : 0;
-            return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig));
+            return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig))
+            {
+                Diagnostic = diagnostic,
+            };
         }
 
         return Build(rootMember, null, rootMethodToken, 0);
