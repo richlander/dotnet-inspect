@@ -1117,6 +1117,82 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
+    /// A malformed <c>packageSourceMapping</c> reaches the adapter as an
+    /// exception from the configuration reader. The seam's contract is a typed
+    /// answer, so it becomes a denial rather than escaping into a caller — and
+    /// the reader's message quotes the offending config text and path, so the
+    /// denial states the rule instead of reproducing it.
+    /// </summary>
+    [Theory]
+    [InlineData("""    <packageSource key="feed" />""")]
+    [InlineData("""    <packageSource><package pattern="Contoso.*" /></packageSource>""")]
+    [InlineData("""    <packageSource key="feed"><package /></packageSource>""")]
+    [InlineData("""    <packageSource key="feed"><package pattern="Con*oso" /></packageSource>""")]
+    public void SourcePolicyAuthorization_WithMalformedMapping_DeniesTyped(
+        string mappingBody)
+    {
+        using var config = new TempNuGetConfig(
+            [("feed", IndexUrl)],
+            rawMapping: mappingBody);
+        var authorization = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        PackageSourceAuthorization denied =
+            authorization.AuthorizeSourcesFor("contoso.package");
+
+        Assert.Empty(denied.Sources);
+        Assert.NotNull(denied.DenialReason);
+        Assert.Contains(
+            "malformed",
+            denied.DenialReason,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            config.Path,
+            denied.DenialReason,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Contoso",
+            denied.DenialReason,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same malformed configuration reaches the coordinate resolver as a
+    /// typed unavailable rather than an unhandled exception.
+    /// </summary>
+    [Fact]
+    public async Task SourcePolicyResolution_WithMalformedMapping_IsUnavailable()
+    {
+        using var config = new TempNuGetConfig(
+            [("feed", IndexUrl)],
+            rawMapping: """    <packageSource key="feed" />""");
+        using var client = new HttpClient(new ThrowingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
+                client,
+                new PackageCoordinate("contoso.package", "1.0.0"),
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+        Assert.Contains(
+            "malformed",
+            unavailable.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                $"Malformed configuration reached the network: {request.RequestUri}");
+    }
+
+    /// <summary>
     /// The nuget.org shortcut answers from the well-known search endpoint without reading a
     /// service index. It must therefore key on the canonical service index URL and not merely on a
     /// nuget.org host: another path on that host is a different endpoint the user named
@@ -1160,7 +1236,8 @@ public class NuGetSearchSourcesTests
             IReadOnlyList<(string Name, string Url)> sources,
             string? credentialedSource = null,
             IReadOnlyList<(string Source, string Pattern)>? mappings = null,
-            IReadOnlyList<string>? disabledSources = null)
+            IReadOnlyList<string>? disabledSources = null,
+            string? rawMapping = null)
         {
             string adds = string.Join(
                 Environment.NewLine,
@@ -1174,7 +1251,12 @@ public class NuGetSearchSourcesTests
                     </{credentialedSource}>
                   </packageSourceCredentials>
                 """;
-            string mapping = mappings is null ? "" : $"""
+            string mapping = rawMapping is not null ? $"""
+                  <packageSourceMapping>
+                {rawMapping}
+                  </packageSourceMapping>
+                """
+                : mappings is null ? "" : $"""
                   <packageSourceMapping>
                 {string.Join(
                     Environment.NewLine,

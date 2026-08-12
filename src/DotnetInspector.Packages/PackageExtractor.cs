@@ -637,12 +637,13 @@ public static class PackageExtractor
     /// Gets the download URL for a package from a specific source.
     /// </summary>
     /// <remarks>
-    /// The id and version are escaped as URI path components. A coordinate that
-    /// reached this point has already passed
-    /// <see cref="PackageCoordinateResolver.IsCanonicalPackageId"/>, whose
-    /// grammar leaves every legal id and normalized version unchanged by
-    /// escaping; the escape is the defense-in-depth that keeps a caller which
-    /// forgets that validation from being able to change the shape of the URL.
+    /// The base address is feed-declared metadata and the id and version are
+    /// product-validated coordinate components, so the URL is composed by
+    /// <see cref="PackageResourceUrl.Combine"/> rather than by concatenation:
+    /// it appends escaped path segments to the base's path and preserves any
+    /// query the base carries. A base address that is not a usable absolute
+    /// HTTP(S) URL yields null, which the caller treats as this source failing
+    /// to serve the coordinate.
     /// </remarks>
     public static async Task<string?> GetPackageDownloadUrlAsync(
         HttpClient client,
@@ -652,14 +653,17 @@ public static class PackageExtractor
         Action<string>? log,
         CancellationToken cancellationToken = default)
     {
-        string escapedName = Uri.EscapeDataString(packageName);
-        string escapedVersion = Uri.EscapeDataString(version);
+        string fileName = $"{packageName}.{version}.nupkg";
 
         // Check for well-known flat-container URL (nuget.org optimization)
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
-            return $"{flatContainerUrl}/{escapedName}/{escapedVersion}/{escapedName}.{escapedVersion}.nupkg";
+            return PackageResourceUrl.Combine(
+                flatContainerUrl,
+                packageName,
+                version,
+                fileName);
         }
 
         // Query V3 service index to discover PackageBaseAddress (flat-container) endpoint
@@ -668,21 +672,16 @@ public static class PackageExtractor
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (baseAddress != null)
-        {
-            // Ensure trailing slash
-            if (!baseAddress.EndsWith('/'))
-                baseAddress += "/";
-
-            return $"{baseAddress}{escapedName}/{escapedVersion}/{escapedName}.{escapedVersion}.nupkg";
-        }
-
-        return null;
+        return PackageResourceUrl.Combine(
+            baseAddress,
+            packageName,
+            version,
+            fileName);
     }
 
     /// <summary>
     /// Builds the flat-container URL for a package's .nuspec ({base}/{id}/{version}/{id}.nuspec),
-    /// or null if the source exposes no flat-container endpoint.
+    /// or null if the source exposes no usable flat-container endpoint.
     /// </summary>
     private static async Task<string?> GetNuspecUrlAsync(
         HttpClient client,
@@ -691,19 +690,24 @@ public static class PackageExtractor
         string version,
         Action<string>? log)
     {
+        string fileName = $"{packageName}.nuspec";
+
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
-            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.nuspec";
-
-        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
-        if (baseAddress != null)
         {
-            if (!baseAddress.EndsWith('/'))
-                baseAddress += "/";
-            return $"{baseAddress}{packageName}/{version}/{packageName}.nuspec";
+            return PackageResourceUrl.Combine(
+                flatContainerUrl,
+                packageName,
+                version,
+                fileName);
         }
 
-        return null;
+        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
+        return PackageResourceUrl.Combine(
+            baseAddress,
+            packageName,
+            version,
+            fileName);
     }
 
     /// <summary>

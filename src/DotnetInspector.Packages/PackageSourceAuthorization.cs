@@ -178,5 +178,21 @@ public sealed class SourcePolicyPackageSourceAuthorization(
         {
             return PackageSourceAuthorization.Deny(ex.Message);
         }
+        catch (InvalidDataException)
+        {
+            // A malformed <packageSourceMapping> — a source with no key, a
+            // package with no pattern, a pattern that is neither an exact id
+            // nor a prefix — is a configuration defect, not an absent answer.
+            // It arrives as an exception from the config reader, and the seam's
+            // contract is a typed answer, so it becomes a denial here rather
+            // than escaping into the loader as an unhandled failure.
+            //
+            // The reader's message quotes the offending config text and path.
+            // That text is not reproduced: a rule-based denial keeps the
+            // failure attributable to the configuration the user selected
+            // without carrying its contents into a message sink.
+            return PackageSourceAuthorization.Deny(
+                "The NuGet package source mapping configuration is malformed, so no source can be authorized.");
+        }
     }
 }

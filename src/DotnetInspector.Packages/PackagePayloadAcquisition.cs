@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
 using NuGetFetch;
@@ -271,14 +270,17 @@ public static class PackagePayloadAcquisition
                 archive = received;
             }
 
-            if (ValidateArchive(archive, limits, cancellationToken)
-                is { } archiveProblem)
+            if (PackageArchiveValidator.Validate(
+                    archive,
+                    limits,
+                    cancellationToken)
+                is PackageArchiveValidation.Rejected rejection)
             {
                 // The bytes are not a package this host will publish, so this
                 // source failed to serve the coordinate and nothing is
                 // committed. The next authorized source is tried.
                 log?.Invoke(
-                    $"Source {source.Name} did not deliver a usable package payload: {archiveProblem}");
+                    $"Source {source.Name} did not deliver a usable package payload: {rejection.Reason}");
                 return null;
             }
 
@@ -289,20 +291,29 @@ public static class PackagePayloadAcquisition
                 new MemoryStream(archive, writable: false),
                 cancellationToken).ConfigureAwait(false);
         }
+        catch (HttpRequestException ex)
+        {
+            // Transport failure text is the client's own, not the payload's.
+            log?.Invoke(
+                $"Source {source.Name} did not deliver a package payload: {ex.Message}");
+            return null;
+        }
         catch (Exception ex) when (
-            ex is HttpRequestException
-                or IOException
+            ex is IOException
                 or InvalidDataException
+                or NotSupportedException
                 || (ex is OperationCanceledException
                     && !cancellationToken.IsCancellationRequested))
         {
-            // The payload stopped mid-body, timed out, or could not be
-            // persisted. That is this source failing to serve the coordinate,
-            // so the next authorized source is tried; the caller reports every
-            // source that failed if none succeeds. A cancellation the caller
-            // actually requested is not caught here.
+            // The payload stopped mid-body, timed out, is not a readable
+            // archive, uses a feature this runtime cannot decode, or could not
+            // be persisted. That is this source failing to serve the
+            // coordinate, so the next authorized source is tried; the caller
+            // reports every source that failed if none succeeds. A cancellation
+            // the caller actually requested is not caught here. The exception
+            // text is not logged: an archive-derived name can reach it.
             log?.Invoke(
-                $"Source {source.Name} did not deliver a usable package payload: {ex.Message}");
+                $"Source {source.Name} did not deliver a usable package payload.");
             return null;
         }
     }
@@ -336,41 +347,5 @@ public static class PackagePayloadAcquisition
         }
 
         return buffer.ToArray();
-    }
-
-    /// <summary>
-    /// Returns a description of why <paramref name="archive"/> may not be
-    /// published, or null when it is a readable archive within
-    /// <paramref name="limits"/>. The description names limits and counts only:
-    /// no entry name from the archive appears in it.
-    /// </summary>
-    static string? ValidateArchive(
-        byte[] archive,
-        PackagePayloadLimits limits,
-        CancellationToken cancellationToken)
-    {
-        using var buffer = new MemoryStream(archive, writable: false);
-        using var zip = new ZipArchive(buffer, ZipArchiveMode.Read);
-
-        int entryCount = 0;
-        long expandedBytes = 0;
-        foreach (ZipArchiveEntry entry in zip.Entries)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (++entryCount > limits.MaxEntryCount)
-            {
-                return
-                    $"the archive declares more than {limits.MaxEntryCount} entries";
-            }
-
-            expandedBytes += entry.Length;
-            if (expandedBytes > limits.MaxExpandedBytes)
-            {
-                return
-                    $"the archive declares more than {limits.MaxExpandedBytes} bytes of expanded content";
-            }
-        }
-
-        return null;
     }
 }

@@ -651,6 +651,379 @@ public sealed class WorkspaceContextLoaderTests
         }
     }
 
+    /// <summary>
+    /// The other half of the recorded producer. Both feeds are authorized and
+    /// both serve this id and version, with different bytes; the realized
+    /// coordinate names the second, and re-acquiring it must return the second
+    /// feed's bytes rather than the first authorized feed's.
+    /// </summary>
+    [Fact]
+    public async Task RealizedLoad_ReacquiresFromTheRecordedProducer()
+    {
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, PackageId, Version, TargetPackage());
+        handler.Serve(FeedB, PackageId, Version, TargetV2Package());
+        using var client = new HttpClient(handler);
+
+        var pinned = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            Framework,
+            runtimeIdentifier: null);
+
+        using var workspace = new InspectionWorkspace();
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [pinned],
+                Options(
+                    client,
+                    new InMemoryPackageStore(),
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA, FeedB])),
+                TestContext.Current.CancellationToken));
+
+        // The realized coordinate round-trips by value, and the bytes are the
+        // producer's own: the two feeds ship different assembly versions of one
+        // id and version, and the second feed's is what came back.
+        Assert.Equal(pinned, loaded.Members[0].Realized);
+        Assert.Equal(
+            IdentityVersion(TargetV2Path),
+            Assert.Single(loaded.Group.Participants).Assembly.Identity.Version);
+
+        // Exact selection, not preference: the first authorized feed was never
+        // asked, although it is authorized and does serve this coordinate.
+        Assert.NotEmpty(handler.Requests);
+        Assert.All(
+            handler.Requests,
+            url => Assert.DoesNotContain(
+                "a.test",
+                url,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RealizedLoad_WithAnUnauthorizedProducer_FailsTyped()
+    {
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, PackageId, Version, TargetPackage());
+        using var client = new HttpClient(handler);
+        var store = new InMemoryPackageStore();
+
+        // The coordinate was realized somewhere else, from a producer this host
+        // does not authorize for this package. A coordinate confers nothing:
+        // the host's own authorization still governs, and the answer is typed
+        // rather than a quiet fallback to the producer it does authorize.
+        var pinned = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            Framework,
+            runtimeIdentifier: null);
+
+        using var workspace = new InspectionWorkspace();
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [pinned],
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA])),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+
+        // The intersection is empty, so the member ends before any discovery,
+        // cache read, or download for it.
+        Assert.Empty(handler.Requests);
+    }
+
+    /// <summary>
+    /// Pinning holds through a discovery failure. The recorded producer is
+    /// authorized here, but its service index advertises no package resource,
+    /// so the coordinate cannot be re-acquired from it. That is the producer
+    /// failing, not the package being unavailable in general — and it is not an
+    /// invitation to ask the other authorized producer, which does serve this
+    /// coordinate.
+    /// </summary>
+    [Fact]
+    public async Task RealizedLoad_WhenTheProducerCannotDiscoverTheResource_FailsTyped()
+    {
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, PackageId, Version, TargetPackage());
+        handler.WithoutFlatContainer(FeedB);
+        using var client = new HttpClient(handler);
+
+        var pinned = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            Framework,
+            runtimeIdentifier: null);
+
+        using var workspace = new InspectionWorkspace();
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [pinned],
+                Options(
+                    client,
+                    new InMemoryPackageStore(),
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA, FeedB])),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+
+        // No fallback producer was contacted, although one is authorized and
+        // does serve this exact coordinate.
+        Assert.NotEmpty(handler.Requests);
+        Assert.All(
+            handler.Requests,
+            url => Assert.DoesNotContain(
+                "a.test",
+                url,
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The same shape one step later: the producer's resource is discoverable
+    /// but it does not serve this coordinate's payload.
+    /// </summary>
+    [Fact]
+    public async Task RealizedLoad_WhenTheProducerDoesNotServeThePayload_FailsTyped()
+    {
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, PackageId, Version, TargetPackage());
+        using var client = new HttpClient(handler);
+
+        var pinned = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            Framework,
+            runtimeIdentifier: null);
+
+        using var workspace = new InspectionWorkspace();
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [pinned],
+                Options(
+                    client,
+                    new InMemoryPackageStore(),
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA, FeedB])),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.All(
+            handler.Requests,
+            url => Assert.DoesNotContain(
+                "a.test",
+                url,
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Pinning reaches the cache too: a warm entry committed by another
+    /// authorized producer is not this coordinate's bytes, so it is not served.
+    /// </summary>
+    [Fact]
+    public async Task RealizedLoad_IgnoresACachedEntryFromAnotherProducer()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            Producer(FeedA),
+            new MemoryStream(TargetPackage()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new NotFoundHandler());
+
+        var pinned = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            Framework,
+            runtimeIdentifier: null);
+
+        using var workspace = new InspectionWorkspace();
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [pinned],
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA, FeedB])),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task RealizedLoad_WithACachedProducerEntry_AnswersWithoutNetworkWork()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            new MemoryStream(TargetPackage()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        var pinned = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            Producer(FeedB),
+            Framework,
+            runtimeIdentifier: null);
+
+        using var workspace = new InspectionWorkspace();
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [pinned],
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization:
+                        new UniformPackageSourceAuthorization([FeedA, FeedB])),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(pinned, loaded.Members[0].Realized);
+    }
+
+    /// <summary>
+    /// A whole context round-trips: what <c>LoadAsync</c> realized is what
+    /// <c>LoadRealizedAsync</c> re-acquires, member for member, including an
+    /// embedded member whose bytes never came from a feed.
+    /// </summary>
+    [Fact]
+    public async Task RealizedLoad_RoundTripsAWholeContext()
+    {
+        byte[] embedded = File.ReadAllBytes(EmbeddedPath);
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+        var provider = new StubEmbeddedContent(embedded);
+
+        using var first = new InspectionWorkspace();
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                first,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        PackageMember(Version),
+                        EmbeddedMember(embedded),
+                    ],
+                },
+                Options(client, store, provider),
+                TestContext.Current.CancellationToken));
+
+        ImmutableArray<RealizedMemberCoordinate> realized =
+        [
+            .. loaded.Members
+                .Select(member => member.Realized)
+                .Distinct(),
+        ];
+
+        using var second = new InspectionWorkspace();
+        var reloaded = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                second,
+                realized,
+                Options(client, store, provider),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            loaded.Group.Participants.Length,
+            reloaded.Group.Participants.Length);
+        Assert.Equal(
+            loaded.Members.Select(member => member.Realized),
+            reloaded.Members.Select(member => member.Realized));
+        Assert.Equal(Framework, reloaded.Framework);
+        Assert.Equal(
+            loaded.Group.Participants
+                .Select(participant => participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal),
+            reloaded.Group.Participants
+                .Select(participant => participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task RealizedLoad_WithConflictingTargets_CreatesNoGroup()
+    {
+        IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Package(
+                        PackageId,
+                        Version,
+                        Producer(NuGetOrg),
+                        Framework,
+                        runtimeIdentifier: null),
+                    new RealizedMemberCoordinate.Package(
+                        "other.package",
+                        Version,
+                        Producer(NuGetOrg),
+                        "net8.0",
+                        runtimeIdentifier: null),
+                ],
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.ConflictingAcquisitionTarget,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task RealizedLoad_WithNoMembers_CreatesNoGroup()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [],
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.EmptyContext,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
     [Theory]
     [InlineData("net10.0\u0007", null, null, null)]
     [InlineData(null, "browser-wasm\u0007", null, null)]
@@ -1478,6 +1851,8 @@ public sealed class WorkspaceContextLoaderTests
     {
         readonly Dictionary<string, byte[]> _payloads =
             new(StringComparer.Ordinal);
+        readonly HashSet<string> _withoutFlatContainer =
+            new(StringComparer.Ordinal);
         readonly List<string> _requests = [];
 
         internal IReadOnlyList<string> Requests
@@ -1496,6 +1871,13 @@ public sealed class WorkspaceContextLoaderTests
             byte[] nupkg) =>
             _payloads[NupkgUrl(feed, packageId, version)] = nupkg;
 
+        /// <summary>
+        /// Answers this feed's service index without a flat-container resource,
+        /// so its package resources cannot be discovered at all.
+        /// </summary>
+        internal void WithoutFlatContainer(PackageSource feed) =>
+            _withoutFlatContainer.Add(feed.Url);
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -1508,12 +1890,15 @@ public sealed class WorkspaceContextLoaderTests
             {
                 if (url.Equals(feed.Url, StringComparison.Ordinal))
                 {
+                    string resources = _withoutFlatContainer.Contains(feed.Url)
+                        ? ""
+                        : $$"""{"@id":"{{FlatContainer(feed)}}","@type":"PackageBaseAddress/3.0.0"}""";
                     return Task.FromResult(
                         new HttpResponseMessage(HttpStatusCode.OK)
                         {
                             Content = new StringContent(
                                 $$"""
-                                {"resources":[{"@id":"{{FlatContainer(feed)}}","@type":"PackageBaseAddress/3.0.0"}]}
+                                {"resources":[{{resources}}]}
                                 """),
                         });
                 }

@@ -5,6 +5,119 @@ namespace NuGetFetch.Tests;
 
 public class TfmResolverTests
 {
+    // --- Version-aware framework compatibility ---
+
+    /// <summary>
+    /// .NET Standard is a contract several unrelated framework lines implement,
+    /// so its acceptance is decided by the support matrix rather than by
+    /// comparing two families' priority numbers as if they measured one age.
+    /// </summary>
+    [Theory]
+    // .NET Framework implements .NET Standard up to the version it shipped with.
+    [InlineData("netstandard2.0", "net472", true)]
+    [InlineData("netstandard2.0", "net481", true)]
+    [InlineData("netstandard2.0", "net461", true)]
+    [InlineData("netstandard2.0", "net46", false)]
+    [InlineData("netstandard1.3", "net46", true)]
+    [InlineData("netstandard1.1", "net45", true)]
+    [InlineData("netstandard1.3", "net45", false)]
+    // .NET Core stops where its own release stopped.
+    [InlineData("netstandard2.1", "netcoreapp1.0", false)]
+    [InlineData("netstandard1.6", "netcoreapp1.0", true)]
+    [InlineData("netstandard2.0", "netcoreapp2.0", true)]
+    [InlineData("netstandard2.1", "netcoreapp2.0", false)]
+    [InlineData("netstandard2.1", "netcoreapp3.0", true)]
+    [InlineData("netstandard2.1", "net8.0", true)]
+    // Within one lineage the candidate may not be newer than the target.
+    [InlineData("net6.0", "net8.0", true)]
+    [InlineData("net8.0", "net6.0", false)]
+    [InlineData("netcoreapp3.1", "net8.0", true)]
+    [InlineData("net472", "net481", true)]
+    [InlineData("net481", "net472", false)]
+    // Unrelated lineages never pair.
+    [InlineData("net8.0", "net481", false)]
+    [InlineData("net481", "net8.0", false)]
+    [InlineData("net8.0", "netcoreapp3.1", false)]
+    [InlineData("netstandard2.1", "netstandard2.0", false)]
+    [InlineData("netstandard2.0", "netstandard2.1", true)]
+    public void IsFrameworkCompatible_IsVersionAndFamilyAware(
+        string candidate,
+        string target,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            TfmResolver.IsFrameworkCompatible(candidate, target));
+    }
+
+    [Theory]
+    [InlineData("net10.0", TfmFamily.NetModern, 10, 0, 0)]
+    [InlineData("net5.0", TfmFamily.NetModern, 5, 0, 0)]
+    [InlineData("netcoreapp3.1", TfmFamily.NetCore, 3, 1, 0)]
+    [InlineData("netstandard2.0", TfmFamily.NetStandard, 2, 0, 0)]
+    [InlineData("net45", TfmFamily.NetFramework, 4, 5, 0)]
+    [InlineData("net472", TfmFamily.NetFramework, 4, 7, 2)]
+    [InlineData("net481", TfmFamily.NetFramework, 4, 8, 1)]
+    public void TryGetFrameworkIdentity_ParsesRealMonikers(
+        string tfm,
+        TfmFamily family,
+        int major,
+        int minor,
+        int build)
+    {
+        Assert.True(
+            TfmResolver.TryGetFrameworkIdentity(
+                tfm,
+                out TfmResolver.FrameworkIdentity identity));
+        Assert.Equal(family, identity.Family);
+        Assert.Equal(new Version(major, minor, build), identity.Version);
+    }
+
+    [Theory]
+    [InlineData("uap10.0")]
+    [InlineData("netmf")]
+    [InlineData("")]
+    [InlineData("net")]
+    [InlineData("notaframework")]
+    public void TryGetFrameworkIdentity_RefusesToInventAVersion(string tfm)
+    {
+        Assert.False(TfmResolver.TryGetFrameworkIdentity(tfm, out _));
+    }
+
+    [Theory]
+    [InlineData("net8.0", "net8.0", 2)]
+    [InlineData("net6.0", "net8.0", 2)]
+    [InlineData("netcoreapp3.1", "net8.0", 2)]
+    [InlineData("netstandard2.0", "net8.0", 1)]
+    [InlineData("netstandard2.0", "net472", 1)]
+    [InlineData("netstandard2.0", "netstandard2.1", 2)]
+    [InlineData("netstandard2.1", "netcoreapp1.0", 0)]
+    [InlineData("net481", "net8.0", 0)]
+    public void GetFrameworkFallbackRank_PrefersTheTargetsOwnLineage(
+        string candidate,
+        string target,
+        int expected)
+    {
+        Assert.Equal(
+            expected,
+            TfmResolver.GetFrameworkFallbackRank(candidate, target));
+    }
+
+    /// <summary>
+    /// An unmodelled moniker keeps the permissive family-level answer rather
+    /// than being assigned a version this resolver would have to guess.
+    /// </summary>
+    [Fact]
+    public void IsFrameworkCompatible_UnrecognizedMoniker_FallsBackToFamilyRule()
+    {
+        Assert.Equal(
+            TfmResolver.IsTfmCompatible("netstandard2.0", "uap10.0"),
+            TfmResolver.IsFrameworkCompatible("netstandard2.0", "uap10.0"));
+        Assert.Equal(
+            TfmResolver.IsTfmCompatible("uap10.0", "net8.0"),
+            TfmResolver.IsFrameworkCompatible("uap10.0", "net8.0"));
+    }
+
     // --- GetTfmPriority ordering (inspired by NuGet.Client CompatibilityTests) ---
 
     [Theory]

@@ -282,21 +282,67 @@ public static class PackageCoordinateResolver
     }
 
     /// <summary>
-    /// True when <paramref name="value"/> can be an acquisition target — a
-    /// framework or runtime identifier — in canonical form: non-empty, without
-    /// surrounding whitespace, and carrying no control character.
+    /// The longest acquisition target text this product accepts. A framework or
+    /// runtime identifier is a short moniker; anything longer is not one.
+    /// </summary>
+    public const int MaxAcquisitionTargetLength = 128;
+
+    /// <summary>
+    /// True when <paramref name="value"/> is an acquisition target — a
+    /// framework or runtime identifier — in canonical form.
     /// </summary>
     /// <remarks>
-    /// Every layer that accepts a target text shares this predicate, so a value
-    /// a front door admits is exactly a value the canonical realized coordinate
-    /// will hold. The spelling itself stays open, because the framework and
-    /// runtime-identifier vocabularies are owned elsewhere and grow.
+    /// <para>
+    /// The grammar is a bounded ASCII allow list: letters and digits, joined by
+    /// single <c>.</c>, <c>-</c>, or <c>+</c> separators, starting and ending on
+    /// a letter or digit, at most
+    /// <see cref="MaxAcquisitionTargetLength"/> characters. That admits every
+    /// real spelling this product consumes — <c>net10.0</c>,
+    /// <c>net8.0-windows10.0.19041.0</c>, <c>netstandard2.0</c>, <c>net481</c>,
+    /// <c>uap10.0</c>, portable profiles such as
+    /// <c>portable-net45+win8+wpa81</c>, and runtime identifiers such as
+    /// <c>browser-wasm</c>, <c>linux-musl-arm64</c>, and <c>osx.13-arm64</c>.
+    /// </para>
+    /// <para>
+    /// It is an allow list rather than a deny list because the hostile set is
+    /// open: a Unicode bidirectional override (<c>U+202E</c>) is not a control
+    /// character, so a control-character test admits it, and it reorders every
+    /// message and coordinate it later appears in. Nothing outside ASCII
+    /// letters, digits, and three separators names a framework or a runtime, so
+    /// the whole class is excluded by construction rather than enumerated.
+    /// </para>
+    /// <para>
+    /// Every layer that accepts target text shares this predicate, so a value a
+    /// front door admits is exactly a value the canonical realized coordinate
+    /// will hold.
+    /// </para>
     /// </remarks>
-    public static bool IsAcquisitionTargetText(string? value) =>
-        value is { Length: > 0 }
-        && !string.IsNullOrWhiteSpace(value)
-        && string.Equals(value, value.Trim(), StringComparison.Ordinal)
-        && !value.Any(char.IsControl);
+    public static bool IsAcquisitionTargetText(string? value)
+    {
+        if (value is not { Length: > 0 } target
+            || target.Length > MaxAcquisitionTargetLength)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < target.Length; index++)
+        {
+            char character = target[index];
+            if (char.IsAsciiLetterOrDigit(character))
+                continue;
+
+            if (character is not ('.' or '-' or '+')
+                || index == 0
+                || index == target.Length - 1
+                || !char.IsAsciiLetterOrDigit(target[index - 1])
+                || !char.IsAsciiLetterOrDigit(target[index + 1]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     static PackageCoordinateResolution.Invalid? ValidateCoordinate(
         PackageCoordinate coordinate,
@@ -317,13 +363,13 @@ public static class PackageCoordinateResolver
         if (InvalidOptionalTarget(coordinate.Framework))
         {
             return new PackageCoordinateResolution.Invalid(
-                "A package coordinate framework cannot be empty, have surrounding whitespace, or carry a control character.");
+                "A package coordinate framework must be a moniker of ASCII letters and digits joined by single '.', '-', or '+' separators.");
         }
 
         if (InvalidOptionalTarget(coordinate.RuntimeIdentifier))
         {
             return new PackageCoordinateResolution.Invalid(
-                "A package coordinate runtime identifier cannot be empty, have surrounding whitespace, or carry a control character.");
+                "A package coordinate runtime identifier must be a moniker of ASCII letters and digits joined by single '.', '-', or '+' separators.");
         }
 
         if (coordinate.Version is not { } version)
@@ -339,8 +385,12 @@ public static class PackageCoordinateResolver
             || version.Contains('+', StringComparison.Ordinal)
             || !NuGetVersion.TryParse(version, out exactVersion))
         {
+            // The rejected spelling is not quoted. It is the value that just
+            // failed a grammar, so it is the most hostile string this method
+            // has seen, and a message is a sink like any other: naming the rule
+            // keeps the failure attributable without reopening that channel.
             return new PackageCoordinateResolution.Invalid(
-                $"Package version '{version}' is not an exact normalized version.");
+                "A package coordinate version must be one exact normalized NuGet version, without build metadata, whitespace, a range, or a wildcard.");
         }
 
         return null;

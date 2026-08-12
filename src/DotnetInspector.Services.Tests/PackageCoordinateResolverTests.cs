@@ -277,6 +277,141 @@ public sealed class PackageCoordinateResolverTests
         Assert.IsType<PackageCoordinateResolution.Invalid>(resolution);
     }
 
+    /// <summary>
+    /// A bidirectional override is not a control character, so a
+    /// control-character test admits it and it then reorders every message and
+    /// coordinate it appears in. The target grammar is an allow list, so the
+    /// whole non-ASCII class is outside it by construction.
+    /// </summary>
+    [Theory]
+    [InlineData("net10.0\u202e")]
+    [InlineData("\u202enet10.0")]
+    [InlineData("net10.0\u200b")]
+    [InlineData("net10.0\u2066x")]
+    [InlineData("net\u00a010.0")]
+    [InlineData("nét10.0")]
+    [InlineData("net 10.0")]
+    [InlineData("net10.0/../etc")]
+    [InlineData("net10.0\\x")]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("-net10.0")]
+    [InlineData("net10.0-")]
+    [InlineData(".net10.0")]
+    [InlineData("net10..0")]
+    [InlineData("net10.-0")]
+    [InlineData("net10.0?x=1")]
+    [InlineData("net10.0#x")]
+    [InlineData("")]
+    [InlineData(" net10.0")]
+    [InlineData("net10.0 ")]
+    public async Task Coordinate_RejectsATargetOutsideTheGrammar(string target)
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        Assert.False(PackageCoordinateResolver.IsAcquisitionTargetText(target));
+        Assert.IsType<PackageCoordinateResolution.Invalid>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example", "1.0.0", target),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.IsType<PackageCoordinateResolution.Invalid>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example", "1.0.0", "net10.0", target),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void Coordinate_RejectsATargetAboveTheLengthBound()
+    {
+        Assert.False(
+            PackageCoordinateResolver.IsAcquisitionTargetText(
+                new string(
+                    'a',
+                    PackageCoordinateResolver.MaxAcquisitionTargetLength + 1)));
+        Assert.True(
+            PackageCoordinateResolver.IsAcquisitionTargetText(
+                new string(
+                    'a',
+                    PackageCoordinateResolver.MaxAcquisitionTargetLength)));
+    }
+
+    /// <summary>
+    /// The close positive for the grammar: it is a bound on shape, not a
+    /// narrowing of the frameworks and runtimes this product consumes.
+    /// </summary>
+    [Theory]
+    [InlineData("net10.0")]
+    [InlineData("net8.0")]
+    [InlineData("netstandard2.0")]
+    [InlineData("netcoreapp3.1")]
+    [InlineData("net481")]
+    [InlineData("net8.0-windows")]
+    [InlineData("net8.0-windows10.0.19041.0")]
+    [InlineData("net9.0-android34.0")]
+    [InlineData("net8.0-ios17.2")]
+    [InlineData("uap10.0")]
+    [InlineData("xamarin.ios")]
+    [InlineData("monoandroid12.0")]
+    [InlineData("portable-net45+win8+wpa81")]
+    [InlineData("browser-wasm")]
+    [InlineData("linux-x64")]
+    [InlineData("linux-musl-arm64")]
+    [InlineData("osx.13-arm64")]
+    [InlineData("win10-x64")]
+    [InlineData("alpine.3.18-x64")]
+    [InlineData("tizen.6.0.0-armel")]
+    [InlineData("any")]
+    public async Task Coordinate_AcceptsRealTargetSpellings(string target)
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        Assert.True(PackageCoordinateResolver.IsAcquisitionTargetText(target));
+        var resolved = Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example", "1.0.0", target, target),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(target, resolved.Coordinate.Framework);
+        Assert.Equal(target, resolved.Coordinate.RuntimeIdentifier);
+    }
+
+    /// <summary>
+    /// The rejected version text is the value that just failed a grammar, so it
+    /// is the most hostile string the resolver has seen. Quoting it into the
+    /// message reopens on the error path the channel the check just closed.
+    /// </summary>
+    [Theory]
+    [InlineData("1.0.0\u001b[31m")]
+    [InlineData("\u202e1.0.0")]
+    [InlineData("latest")]
+    [InlineData("1.0.*")]
+    [InlineData("[1.0.0]")]
+    public async Task InvalidVersion_MessageDoesNotQuoteTheRejectedText(
+        string version)
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        var invalid = Assert.IsType<PackageCoordinateResolution.Invalid>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example", version),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain(version, invalid.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u001b', invalid.Message);
+        Assert.DoesNotContain('\u202e', invalid.Message);
+    }
+
     [Theory]
     [InlineData("", null)]
     [InlineData(" net10.0", null)]

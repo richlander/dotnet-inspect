@@ -161,6 +161,12 @@ public enum WorkspaceContextLoadFailureKind
     /// <summary>No authorized source supplied the package payload.</summary>
     PackageUnavailable,
 
+    /// <summary>
+    /// The producer a realized coordinate names is not one this host authorizes
+    /// for that package, or did not serve it.
+    /// </summary>
+    PackageProducerUnavailable,
+
     /// <summary>The package carries no assembly assets for the acquisition target.</summary>
     PackageAssetUnavailable,
 

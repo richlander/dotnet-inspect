@@ -215,6 +215,130 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.IsType<PackagePayloadResult.Unavailable>(result);
     }
 
+    /// <summary>
+    /// The finding, end to end: an archive whose entry escapes its root is
+    /// refused by the in-memory store's path just as the filesystem store would
+    /// refuse it at extraction, nothing is cached under the source that served
+    /// it, and the next authorized source still serves the coordinate.
+    /// </summary>
+    [Fact]
+    public async Task TraversingArchiveFromOneSource_IsRejectedAndNotCached()
+    {
+        byte[] hostile = ArchiveWithNames(
+            ("../ignored.txt", "escaped"u8.ToArray()),
+            ("lib/net10.0/Sample.dll", [1, 2, 3]));
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var store = new InMemoryPackageStore();
+        using var client = new HttpClient(
+            new TwoSourceHandler(
+                primaryContent: hostile,
+                nuGetOrgContent: nupkg));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary, NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        AcquiredPackagePayload payload = Acquired(result);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            payload.ProducerKey);
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(Primary.Url)]));
+    }
+
+    /// <summary>
+    /// An entry compressed with a method this runtime cannot decode declares an
+    /// ordinary length, so only opening it finds the problem. Publishing first
+    /// would credit the source, poison the cache, and move the failure to a
+    /// consumer that can no longer try another source.
+    /// </summary>
+    [Fact]
+    public async Task ArchiveWithUnsupportedCompression_IsRejectedBeforePublication()
+    {
+        byte[] undecodable = WithCompressionMethod(
+            TestPackageArchive.Create("lib/net10.0/Sample.dll"),
+            method: 99);
+        var store = new InMemoryPackageStore();
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() => new ByteArrayContent(undecodable)));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
+    }
+
+    /// <summary>
+    /// A pre-signed flat-container base keeps its query, and the package path
+    /// is appended to the path rather than to the query value.
+    /// </summary>
+    [Fact]
+    public async Task SignedFlatContainerBase_ComposesThePackagePath()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var handler = new ServiceIndexHandler(
+            baseAddress: "https://primary.test/flat?sig=abc",
+            nupkgUrl:
+                $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?sig=abc",
+            nupkg);
+        using var client = new HttpClient(handler);
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary),
+                new InMemoryPackageStore(),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Acquired>(result);
+        Assert.Contains(
+            handler.Requests,
+            url => url.EndsWith(
+                $"{PackageId}.{Version}.nupkg?sig=abc",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("/relative/flat")]
+    [InlineData("ftp://primary.test/flat")]
+    [InlineData("not a url at all")]
+    public async Task MalformedFlatContainerBase_IsATypedSourceFailure(
+        string baseAddress)
+    {
+        var handler = new ServiceIndexHandler(
+            baseAddress,
+            nupkgUrl: "https://primary.test/never",
+            nupkg: []);
+        using var client = new HttpClient(handler);
+
+        // The malformed resource metadata ends this source rather than
+        // throwing out of acquisition, so the coordinate's remaining sources
+        // are still consulted.
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary),
+                new InMemoryPackageStore(),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+    }
+
     [Fact]
     public async Task InvalidArchiveFromOneSource_LetsTheNextSourceServe()
     {
@@ -325,6 +449,66 @@ public sealed class PackagePayloadAcquisitionTests
                 [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
     }
 
+    /// <summary>
+    /// Content disguised as a directory entry is refused before publication
+    /// too, and the next authorized source still serves the coordinate.
+    /// </summary>
+    [Fact]
+    public async Task ArchiveHidingContentInADirectoryEntry_IsRejectedAndNotCached()
+    {
+        byte[] hostile = ArchiveWithNames(("lib/", new byte[8192]));
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var store = new InMemoryPackageStore();
+        using var client = new HttpClient(
+            new TwoSourceHandler(
+                primaryContent: hostile,
+                nuGetOrgContent: nupkg));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary, NuGetOrg),
+                store,
+                limits: new PackagePayloadLimits { MaxExpandedBytes = 16 },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        AcquiredPackagePayload payload = Acquired(result);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            payload.ProducerKey);
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(Primary.Url)]));
+    }
+
+    /// <summary>
+    /// Rejection happens before publication, so no store of any kind is asked
+    /// to commit the payload. That is what keeps the in-memory and filesystem
+    /// stores from disagreeing about what a package is: neither is consulted.
+    /// </summary>
+    [Fact]
+    public async Task RejectedPayload_ReachesNoStoreCommit()
+    {
+        byte[] hostile = ArchiveWithNames(
+            ("../ignored.txt", "escaped"u8.ToArray()),
+            ("lib/net10.0/Sample.dll", [1, 2, 3]));
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() => new ByteArrayContent(hostile)));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.Equal(0, store.Commits);
+    }
+
     static AcquiredPackagePayload Acquired(PackagePayloadResult result)
         => Assert.IsType<PackagePayloadResult.Acquired>(result).Payload;
 
@@ -375,6 +559,143 @@ public sealed class PackagePayloadAcquisitionTests
             CancellationToken cancellationToken) =>
             Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    /// <summary>
+    /// A private feed whose service index declares an arbitrary
+    /// <c>PackageBaseAddress</c>, so a test can shape the resource metadata the
+    /// URL is composed from.
+    /// </summary>
+    sealed class ServiceIndexHandler(
+        string baseAddress,
+        string nupkgUrl,
+        byte[] nupkg) : HttpMessageHandler
+    {
+        readonly List<string> _requests = [];
+
+        internal IReadOnlyList<string> Requests
+        {
+            get
+            {
+                lock (_requests)
+                    return [.. _requests];
+            }
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            lock (_requests)
+                _requests.Add(url);
+
+            if (url.Equals(Primary.Url, StringComparison.Ordinal))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            $$"""
+                            {"resources":[{"@id":"{{baseAddress}}","@type":"PackageBaseAddress/3.0.0"}]}
+                            """),
+                    });
+            }
+
+            return Task.FromResult(
+                url.Equals(nupkgUrl, StringComparison.Ordinal)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(nupkg),
+                    }
+                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
+    /// <summary>
+    /// Builds an archive with entry names a compliant writer would refuse to
+    /// produce, which is what an adversarial feed can serve.
+    /// </summary>
+    static byte[] ArchiveWithNames(
+        params (string Name, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(
+            buffer,
+            System.IO.Compression.ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            foreach ((string name, byte[] content) in entries)
+            {
+                using Stream stream = archive.CreateEntry(name).Open();
+                stream.Write(content, 0, content.Length);
+            }
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] WithCompressionMethod(byte[] archive, ushort method)
+    {
+        byte[] rewritten = (byte[])archive.Clone();
+        for (int offset = 0; offset + 4 <= rewritten.Length; offset++)
+        {
+            uint signature =
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(
+                    rewritten.AsSpan(offset));
+            if (signature == 0x04034B50)
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(
+                    rewritten.AsSpan(offset + 8),
+                    method);
+            }
+            else if (signature == 0x02014B50)
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(
+                    rewritten.AsSpan(offset + 10),
+                    method);
+            }
+        }
+
+        return rewritten;
+    }
+
+    /// <summary>
+    /// Counts commits so a test can prove a rejected payload was never offered
+    /// to a store, whichever store the host supplies.
+    /// </summary>
+    sealed class CountingPackageStore(IPackageStore inner) : IPackageStore
+    {
+        int _commits;
+
+        internal int Commits => Volatile.Read(ref _commits);
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => inner.TryGetCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log);
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _commits);
+            return inner.CommitAsync(
+                packageName,
+                version,
+                sourceKey,
+                nupkg,
+                cancellationToken);
+        }
     }
 
     /// <summary>

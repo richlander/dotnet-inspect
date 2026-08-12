@@ -131,6 +131,9 @@ public sealed record WorkspaceContextLoadOptions
 /// for package-specific authorization,
 /// <c>RealizedCoordinate_NamesTheProducerThatServedTheBytes</c> for
 /// producer-bound realized identity,
+/// <c>RealizedLoad_ReacquiresFromTheRecordedProducer</c> and
+/// <c>RealizedLoad_WithAnUnauthorizedProducer_FailsTyped</c> for
+/// producer-pinned re-acquisition,
 /// <c>InvalidTargetText_IsRejectedBeforeAnyAcquisition</c> and
 /// <c>InvalidPackageId_IsRejectedBeforeAnyAcquisition</c> for the front door,
 /// and the embedded digest, name, absence, and malformed-image cases for the
@@ -206,6 +209,210 @@ public static class WorkspaceContextLoader
             }
         }
 
+        return CreateGroup(workspace, realized, options, framework, rid);
+    }
+
+    /// <summary>
+    /// Re-acquires an already-realized context: each member is loaded from the
+    /// exact producer its realized coordinate names, or the context fails.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the other half of
+    /// <see cref="RealizedMemberCoordinate.Package.Producer"/>. A realized
+    /// coordinate exists so a consumer can carry it across a transport boundary
+    /// and get the same bytes back; lowering it to a declared coordinate and
+    /// calling <see cref="LoadAsync"/> would drop the producer, so two feeds
+    /// serving one id and version would be free to answer for each other. Here
+    /// the recorded producer is <em>intersected</em> with what this host
+    /// authorizes for that package id, and exactly the surviving producer is
+    /// consulted — never a preference among several.
+    /// </para>
+    /// <para>
+    /// Authorization still governs. A coordinate realized elsewhere confers
+    /// nothing: if this host does not authorize that producer for that package,
+    /// the member is a typed
+    /// <see cref="WorkspaceContextLoadFailureKind.PackageProducerUnavailable"/>
+    /// rather than a fallback to whichever producer this host does authorize.
+    /// The coordinate stays credential-free in transport — it names an opaque
+    /// producer key, and the source object, URL, and credential are supplied by
+    /// the receiving host's own authorization.
+    /// </para>
+    /// <para>
+    /// Gated by
+    /// <c>WorkspaceContextLoaderTests.RealizedLoad_ReacquiresFromTheRecordedProducer</c>,
+    /// <c>RealizedLoad_WithAnUnauthorizedProducer_FailsTyped</c>, and
+    /// <c>RealizedLoad_RoundTripsTheRealizedCoordinate</c>.
+    /// </para>
+    /// </remarks>
+    public static async Task<WorkspaceContextLoadOutcome> LoadRealizedAsync(
+        InspectionWorkspace workspace,
+        IReadOnlyList<RealizedMemberCoordinate> members,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.HttpClient);
+        ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
+        ArgumentNullException.ThrowIfNull(options.PackageStore);
+        ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxEmbeddedContentBytes);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ImmutableArray<WorkspaceContextLoadFailure> rejections =
+            ValidateRealized(members, out string? framework, out string? rid);
+        if (!rejections.IsEmpty)
+            return new WorkspaceContextLoadOutcome.Failed(rejections);
+
+        var realized = ImmutableArray.CreateBuilder<RealizedMember>();
+        foreach (RealizedMemberCoordinate coordinate in members)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            WorkspaceMemberCoordinate declared = Declare(coordinate);
+            MemberRealization realization = coordinate switch
+            {
+                RealizedMemberCoordinate.Package package =>
+                    await RealizePinnedPackageAsync(
+                        package,
+                        declared,
+                        options,
+                        cancellationToken).ConfigureAwait(false),
+                RealizedMemberCoordinate.Embedded =>
+                    RealizeEmbedded(
+                        (WorkspaceMemberCoordinate.EmbeddedMember)declared,
+                        options,
+                        cancellationToken),
+                _ => new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        declared,
+                        "The realized coordinate kind is not supported.")),
+            };
+
+            if (realization.Failure is { } failure)
+                return new WorkspaceContextLoadOutcome.Failed([failure]);
+
+            foreach (ResolvedAssemblyReference assembly
+                in realization.Assemblies)
+            {
+                realized.Add(
+                    new RealizedMember(
+                        declared,
+                        realization.Realized!,
+                        assembly));
+            }
+        }
+
+        return CreateGroup(workspace, realized, options, framework, rid);
+    }
+
+    /// <summary>
+    /// The declared coordinate that names exactly what a realized coordinate
+    /// already resolved to, so a re-acquired member reports the same shape as a
+    /// declared one.
+    /// </summary>
+    static WorkspaceMemberCoordinate Declare(
+        RealizedMemberCoordinate coordinate) =>
+        coordinate switch
+        {
+            RealizedMemberCoordinate.Package package =>
+                WorkspaceMemberCoordinate.Package(
+                    package.PackageId,
+                    package.Version,
+                    package.Framework,
+                    package.RuntimeIdentifier),
+            RealizedMemberCoordinate.Embedded embedded =>
+                WorkspaceMemberCoordinate.Embedded(
+                    embedded.ContentRef,
+                    embedded.Digest,
+                    embedded.DeclaredName),
+            _ => throw new ArgumentOutOfRangeException(nameof(coordinate)),
+        };
+
+    static ImmutableArray<WorkspaceContextLoadFailure> ValidateRealized(
+        IReadOnlyList<RealizedMemberCoordinate> members,
+        out string? framework,
+        out string? runtimeIdentifier)
+    {
+        framework = null;
+        runtimeIdentifier = null;
+        var failures =
+            ImmutableArray.CreateBuilder<WorkspaceContextLoadFailure>();
+        if (members.Count == 0)
+        {
+            failures.Add(
+                Failure(
+                    WorkspaceContextLoadFailureKind.EmptyContext,
+                    member: null,
+                    "A workspace context declares at least one member."));
+            return failures.ToImmutable();
+        }
+
+        List<string> frameworks = [];
+        List<string> rids = [];
+        foreach (RealizedMemberCoordinate coordinate in members)
+        {
+            if (coordinate is null)
+            {
+                failures.Add(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        member: null,
+                        "A workspace context member cannot be absent."));
+                continue;
+            }
+
+            if (coordinate is not RealizedMemberCoordinate.Package package)
+                continue;
+
+            AddTarget(frameworks, package.Framework);
+            AddTarget(rids, package.RuntimeIdentifier);
+        }
+
+        if (frameworks.Count > 1 || rids.Count > 1)
+        {
+            failures.Add(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .ConflictingAcquisitionTarget,
+                    member: null,
+                    "A workspace context lowers to one acquisition target, and its realized members disagree."));
+        }
+
+        if (failures.Count == 0)
+        {
+            framework = frameworks.Count == 1 ? frameworks[0] : null;
+            runtimeIdentifier = rids.Count == 1 ? rids[0] : null;
+        }
+
+        return failures.ToImmutable();
+    }
+
+    static void AddTarget(List<string> targets, string? value)
+    {
+        if (value is null || IsBlankOrPadded(value))
+            return;
+
+        if (!targets.Any(target => string.Equals(
+                target,
+                value,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            targets.Add(value);
+        }
+    }
+
+    static WorkspaceContextLoadOutcome CreateGroup(
+        InspectionWorkspace workspace,
+        ImmutableArray<RealizedMember>.Builder realized,
+        WorkspaceContextLoadOptions options,
+        string? framework,
+        string? runtimeIdentifier)
+    {
         var groupPolicy = new SourceRelativeAssemblyGroupBindingPolicy(
             realized.Select(static entry =>
                 (entry.Assembly,
@@ -239,7 +446,7 @@ public static class WorkspaceContextLoader
             group,
             members.MoveToImmutable(),
             framework,
-            rid);
+            runtimeIdentifier);
     }
 
     static ImmutableArray<WorkspaceContextLoadFailure> Validate(
@@ -366,20 +573,6 @@ public static class WorkspaceContextLoader
         }
 
         return failures.ToImmutable();
-
-        static void AddTarget(List<string> targets, string? value)
-        {
-            if (value is null || IsBlankOrPadded(value))
-                return;
-
-            if (!targets.Any(target => string.Equals(
-                    target,
-                    value,
-                    StringComparison.OrdinalIgnoreCase)))
-            {
-                targets.Add(value!);
-            }
-        }
     }
 
     static WorkspaceContextLoadFailure? ValidateEmbedded(
@@ -488,6 +681,138 @@ public static class WorkspaceContextLoader
 
         AcquiredPackagePayload acquired =
             ((PackagePayloadResult.Acquired)payload).Payload;
+        return RealizeAcquiredPackage(
+            member,
+            acquired,
+            framework,
+            runtimeIdentifier,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Re-acquires one package member from exactly the producer its realized
+    /// coordinate names, after intersecting that producer with what this host
+    /// authorizes for the package id.
+    /// </summary>
+    static async Task<MemberRealization> RealizePinnedPackageAsync(
+        RealizedMemberCoordinate.Package pinned,
+        WorkspaceMemberCoordinate declared,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken)
+    {
+        PackageSourceAuthorization authorization =
+            options.SourceAuthorization.AuthorizeSourcesFor(pinned.PackageId);
+
+        // The intersection, not a preference: only the source whose producer
+        // key is the recorded one may answer, so a host that authorizes several
+        // producers for this id still re-acquires the bytes the coordinate was
+        // realized from.
+        PackageSource? producer = authorization.Sources.FirstOrDefault(
+            source => string.Equals(
+                NuGetCache.GetSourceKey(source.Url),
+                pinned.Producer,
+                StringComparison.Ordinal));
+        if (producer is null)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+                    declared,
+                    authorization.DenialReason
+                    ?? $"The producer recorded for package '{pinned.PackageId}' is not authorized by this host."));
+        }
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                options.HttpClient,
+                new PackageCoordinate(
+                    pinned.PackageId,
+                    pinned.Version,
+                    pinned.Framework,
+                    pinned.RuntimeIdentifier),
+                [producer],
+                options.Log,
+                options.IncludePrerelease,
+                options.UseVersionCache,
+                cancellationToken).ConfigureAwait(false);
+        switch (resolution)
+        {
+            case PackageCoordinateResolution.Invalid invalid:
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        declared,
+                        invalid.Message));
+            case PackageCoordinateResolution.Unavailable unavailable:
+                // Authorization has already narrowed to the one recorded
+                // producer, so an unavailable resolution here is that producer
+                // failing to answer for this coordinate — not the package being
+                // unavailable in general, which is what a caller would read
+                // PackageUnavailable to mean.
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind
+                            .PackageProducerUnavailable,
+                        declared,
+                        unavailable.Message));
+        }
+
+        PackagePayloadResult payload =
+            await PackagePayloadAcquisition.AcquireAsync(
+                options.HttpClient,
+                ((PackageCoordinateResolution.Resolved)resolution).Coordinate,
+                options.PackageStore,
+                options.Log,
+                options.PayloadLimits,
+                cancellationToken).ConfigureAwait(false);
+        if (payload is PackagePayloadResult.Unavailable payloadFailure)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+                    declared,
+                    payloadFailure.Message));
+        }
+
+        AcquiredPackagePayload acquired =
+            ((PackagePayloadResult.Acquired)payload).Payload;
+        if (!string.Equals(
+                acquired.ProducerKey,
+                pinned.Producer,
+                StringComparison.Ordinal))
+        {
+            // Acquisition was given one source, so this cannot normally
+            // happen; it is checked because the alternative to checking is
+            // silently binding another producer's bytes to this coordinate.
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+                    declared,
+                    $"Package '{pinned.PackageId}' was served by a producer other than the one its realized coordinate names."));
+        }
+
+        MemberRealization realization = RealizeAcquiredPackage(
+            declared,
+            acquired,
+            pinned.Framework,
+            pinned.RuntimeIdentifier,
+            cancellationToken);
+
+        // A re-acquired member reports the coordinate it was asked for, so a
+        // caller can compare the round trip by value.
+        return realization.Failure is null
+            ? new MemberRealization(pinned, realization.Assemblies)
+            : realization;
+    }
+
+    static MemberRealization RealizeAcquiredPackage(
+        WorkspaceMemberCoordinate member,
+        AcquiredPackagePayload acquired,
+        string framework,
+        string? runtimeIdentifier,
+        CancellationToken cancellationToken)
+    {
+        ResolvedPackageCoordinate coordinate = acquired.Coordinate;
         IPackageContent content = acquired.Content;
         PackageAssetSelection selection = PackageAssetSelector.Select(
             content,

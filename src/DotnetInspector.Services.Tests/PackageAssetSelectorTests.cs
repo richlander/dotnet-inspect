@@ -48,6 +48,77 @@ public sealed class PackageAssetSelectorTests
         Assert.IsType<PackageAssetSelection.NoMatch>(selection);
     }
 
+    /// <summary>
+    /// .NET Standard is the contract .NET Framework implements, so a
+    /// netstandard2.0 asset is the right answer for a net472 or net481 target.
+    /// Ordering the two by a single cross-family priority number rejects it,
+    /// because netstandard2.0 scores "newer" than every .NET Framework version.
+    /// </summary>
+    [Theory]
+    [InlineData("net472")]
+    [InlineData("net481")]
+    [InlineData("net461")]
+    public void Select_NetFrameworkTargetAcceptsASupportedNetStandardAsset(
+        string targetFramework)
+    {
+        PackageAssetSelection selection = Select(
+            targetFramework,
+            null,
+            "lib/netstandard2.0/Sample.dll");
+
+        Assert.Equal("netstandard2.0", Selected(selection).TargetFramework);
+    }
+
+    [Fact]
+    public void Select_NetFrameworkTargetRejectsAnUnsupportedNetStandardAsset()
+    {
+        // net46 implements netstandard1.3, not 2.0.
+        PackageAssetSelection selection = Select(
+            "net46",
+            null,
+            "lib/netstandard2.0/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
+    public void Select_NetCoreApp1TargetRejectsANetStandard21Asset()
+    {
+        // netstandard2.1 arrived with netcoreapp3.0. A lower priority number
+        // than netcoreapp1.0's does not make it consumable there.
+        PackageAssetSelection selection = Select(
+            "netcoreapp1.0",
+            null,
+            "lib/netstandard2.1/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
+    public void Select_PrefersTheTargetsOwnLineageOverNetStandard()
+    {
+        PackageAssetSelection selection = Select(
+            "net472",
+            null,
+            "lib/netstandard2.0/Sample.dll",
+            "lib/net472/Sample.dll");
+
+        Assert.Equal("net472", Selected(selection).TargetFramework);
+    }
+
+    [Fact]
+    public void Select_NetCoreAppTargetTakesItsHighestSupportedNetStandard()
+    {
+        PackageAssetSelection selection = Select(
+            "netcoreapp2.0",
+            null,
+            "lib/netstandard1.6/Sample.dll",
+            "lib/netstandard2.0/Sample.dll",
+            "lib/netstandard2.1/Sample.dll");
+
+        Assert.Equal("netstandard2.0", Selected(selection).TargetFramework);
+    }
+
     [Fact]
     public void Select_IncludesEveryAssemblyInTheSelectedFolder()
     {

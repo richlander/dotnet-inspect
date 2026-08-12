@@ -906,7 +906,39 @@ resolution, acquisition, and asset-selection owners. It supplies:
   `InvalidArchiveFromOneSource_LetsTheNextSourceServe`, and
   `Acquisition_ObservesCancellationDuringDownload`, so a payload is bounded and
   validated before it enters a store and an unusable one stays a typed
-  single-source failure.
+  single-source failure;
+- an archive-admission gate — `PackageArchiveValidatorTests`, which refuses a
+  traversing, rooted, backslash-bearing, control-bearing, or overlong entry
+  path under the same rules both stores apply, streams every entry — including
+  the directory-shaped ones, which no store reads and which therefore hid
+  content from every budget while they were skipped — so an undecodable
+  compression method or a lying declared size is caught before publication
+  rather than after it, and refuses an oversized declared directory before the
+  archive is opened, with
+  `PackagePayloadAcquisitionTests.TraversingArchiveFromOneSource_IsRejectedAndNotCached`,
+  `ArchiveHidingContentInADirectoryEntry_IsRejectedAndNotCached`, and
+  `ArchiveWithUnsupportedCompression_IsRejectedBeforePublication` proving
+  the same end to end;
+- a producer-pinned re-acquisition gate —
+  `WorkspaceContextLoaderTests.RealizedLoad_ReacquiresFromTheRecordedProducer`,
+  `RealizedLoad_WithAnUnauthorizedProducer_FailsTyped`,
+  `RealizedLoad_WhenTheProducerCannotDiscoverTheResource_FailsTyped`,
+  `RealizedLoad_IgnoresACachedEntryFromAnotherProducer`, and
+  `RealizedLoad_RoundTripsAWholeContext`, so a transported realized coordinate
+  re-acquires the producer's own bytes, the host's authorization still governs
+  which producers may answer, and a coordinate the host cannot honour is typed
+  rather than silently served by another producer;
+- a framework-reduction gate — `TfmResolverTests.IsFrameworkCompatible_IsVersionAndFamilyAware`
+  with `PackageAssetSelectorTests.Select_NetFrameworkTargetAcceptsASupportedNetStandardAsset`,
+  `Select_NetCoreApp1TargetRejectsANetStandard21Asset`, and
+  `Select_PrefersTheTargetsOwnLineageOverNetStandard`, so .NET Standard
+  applicability follows the support matrix rather than a cross-family age
+  comparison; and
+- a resource-URL gate — `PackageResourceUrlTests` with
+  `PackagePayloadAcquisitionTests.SignedFlatContainerBase_ComposesThePackagePath`
+  and `MalformedFlatContainerBase_IsATypedSourceFailure`, so a feed-declared
+  base address is parsed rather than concatenated onto, a signed query survives,
+  and unusable resource metadata ends one source instead of the acquisition.
 
 Nothing else on the list above exists yet. There is no record schema or
 serializer, no group catalog or grammar, no packet projection, no `platform`,

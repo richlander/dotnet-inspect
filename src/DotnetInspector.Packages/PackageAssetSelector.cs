@@ -262,7 +262,8 @@ public static class PackageAssetSelector
                 $"The package carries no assembly assets applicable to '{targetFramework}'.");
         }
 
-        (int BasePriority, int PlatformRank) bestRank = applicable.Max(Rank);
+        (int FallbackRank, Version Version, int PlatformRank) bestRank =
+            applicable.Max(Rank);
         List<string> best =
         [
             .. applicable
@@ -346,29 +347,44 @@ public static class PackageAssetSelector
                 runtimeIdentifier,
                 assets));
 
-        static (int BasePriority, int PlatformRank) Rank(string tfm)
+        (int FallbackRank, Version Version, int PlatformRank) Rank(string tfm)
         {
             FrameworkFolder folder = FrameworkFolder.Parse(tfm);
+            Version version =
+                TfmResolver.TryGetFrameworkIdentity(
+                    folder.BaseFramework,
+                    out TfmResolver.FrameworkIdentity identity)
+                    ? identity.Version
+                    : EmptyVersion;
             return (
-                TfmResolver.GetTfmPriority(folder.BaseFramework),
+                TfmResolver.GetFrameworkFallbackRank(
+                    folder.BaseFramework,
+                    target.BaseFramework),
+                version,
                 folder.Platform is null ? 0 : 1);
         }
     }
 
+    static readonly Version EmptyVersion = new(0, 0, 0);
+
     /// <summary>
     /// True when a candidate asset folder may serve <paramref name="target"/>:
-    /// its base framework is a recognized, compatible framework no newer than
-    /// the target's, and its platform is either absent or exactly the target's.
+    /// its base framework is one the target's own framework can consume, and
+    /// its platform is either absent or exactly the target's.
     /// </summary>
+    /// <remarks>
+    /// Framework applicability is delegated whole to
+    /// <see cref="TfmResolver.IsFrameworkCompatible"/>, which is version aware
+    /// within a family lineage and consults the .NET Standard support matrix
+    /// across lineages. This selector deliberately holds no second compatibility
+    /// model and does no cross-family numeric comparison of its own; it adds
+    /// only the platform rule, which the framework resolver does not express.
+    /// </remarks>
     static bool IsApplicable(FrameworkFolder candidate, FrameworkFolder target)
     {
-        int candidatePriority =
-            TfmResolver.GetTfmPriority(candidate.BaseFramework);
-        int targetPriority = TfmResolver.GetTfmPriority(target.BaseFramework);
-        if (candidatePriority <= 0
-            || targetPriority <= 0
-            || candidatePriority > targetPriority
-            || !TfmResolver.IsTfmCompatible(
+        if (!TfmResolver.TryGetFrameworkIdentity(candidate.BaseFramework, out _)
+            || !TfmResolver.TryGetFrameworkIdentity(target.BaseFramework, out _)
+            || !TfmResolver.IsFrameworkCompatible(
                 candidate.BaseFramework,
                 target.BaseFramework))
         {
