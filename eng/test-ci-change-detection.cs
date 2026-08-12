@@ -48,21 +48,34 @@ AssertAll(
         outputs,
         resolutionSucceeds: false),
     "true");
-foreach ((string name, string json) in new[]
+foreach ((string json, string count) in new[]
 {
-    ("non-object", """[null]"""),
-    ("missing filename", """[{"status":"modified"}]"""),
-    ("empty filename", """[{"status":"modified","filename":""}]"""),
-    ("missing status", """[{"filename":"src/missing-status.cs"}]"""),
-    ("empty status", """[{"status":"","filename":"src/empty-status.cs"}]"""),
-    ("renamed without previous filename",
-        """[{"status":"renamed","filename":"Directory.Build.props.moved"}]"""),
-    ("renamed with empty previous filename",
-        """[{"status":"renamed","previous_filename":"","filename":"src/new.cs"}]"""),
-    ("non-string previous filename",
-        """[{"status":"modified","previous_filename":1,"filename":"README.md"}]"""),
-    ("empty non-rename previous filename",
-        """[{"status":"modified","previous_filename":"","filename":"README.md"}]"""),
+    ("[null]", "1"),
+    ("[{\"status\":\"modified\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":[\"src/a.cs\"]}]", "1"),
+    ("[" +
+        "{\"status\":\"modified\",\"filename\":\"README.md\"}," +
+        "{\"status\":\"modified\",\"filename\":\"\"}" +
+        "]", "2"),
+    ("[{\"filename\":\"src/missing-status.cs\"}]", "1"),
+    ("[{\"status\":\"\",\"filename\":\"src/empty-status.cs\"}]", "1"),
+    ("[{\"status\":\"renamed\",\"filename\":\"Directory.Build.props.moved\"}]",
+        "1"),
+    ("[{" +
+        "\"status\":\"renamed\"," +
+        "\"previous_filename\":\"\"," +
+        "\"filename\":\"src/new.cs\"" +
+        "}]", "1"),
+    ("[{" +
+        "\"status\":\"modified\"," +
+        "\"previous_filename\":1," +
+        "\"filename\":\"README.md\"" +
+        "}]", "1"),
+    ("[{" +
+        "\"status\":\"modified\"," +
+        "\"previous_filename\":\"\"," +
+        "\"filename\":\"README.md\"" +
+        "}]", "1"),
 })
 {
     Dictionary<string, string> malformed = RunDetection(
@@ -71,6 +84,7 @@ foreach ((string name, string json) in new[]
         "pull_request",
         "README.md",
         outputs,
+        reportedChangedFileCount: count,
         malformedFileRecordJson: json);
     AssertAll(malformed, "true");
 }
@@ -208,6 +222,12 @@ Dictionary<string, string> ilRoundtrip = RunDetection(
     "eng/restore-ilassembler.sh",
     outputs);
 AssertRouting(ilRoundtrip, selected: "ilroundtrip", notSelected: "docs");
+if (ilRoundtrip["code"] != "true")
+{
+    throw new InvalidOperationException(
+        $"IL round-trip canary did not start its containing test job: " +
+        FormatValues(ilRoundtrip));
+}
 
 Dictionary<string, string> packaging = RunDetection(
     repository,
@@ -567,6 +587,19 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
         aggregate,
         "continue-on-error",
         "jobs.ci-required");
+    YamlMappingNode aggregateEnvironment = GetRequiredMapping(
+        aggregate,
+        "env",
+        "jobs.ci-required");
+    RequireExactKeys(
+        aggregateEnvironment,
+        ["RESULT_FILTER"],
+        "jobs.ci-required.env");
+    RequireScalarSha256(
+        aggregateEnvironment,
+        "RESULT_FILTER",
+        "D074F21341F3416A1D7FE48A0374CB69C59F52313ADF61FF732E930CFF0AEF29",
+        "jobs.ci-required.env");
     YamlSequenceNode needs = GetRequiredSequence(
         aggregate,
         "needs",
@@ -587,26 +620,48 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
         aggregate,
         "steps",
         "jobs.ci-required");
-    List<YamlMappingNode> checks = [];
+    var namedSteps = new Dictionary<string, (int Index, YamlMappingNode Step)>(
+        StringComparer.Ordinal);
+    int stepIndex = 0;
     foreach (YamlNode stepNode in steps.Children)
     {
         YamlMappingNode step = RequireMapping(
             stepNode,
             "jobs.ci-required step");
-        if (GetOptionalScalar(step, "name") ==
-            "Verify this gate depends on every other job")
+        string? name = GetOptionalScalar(step, "name");
+        if (name is not null &&
+            !namedSteps.TryAdd(name, (stepIndex, step)))
         {
-            checks.Add(step);
+            throw new InvalidOperationException(
+                $"jobs.ci-required contains duplicate step name: {name}.");
+        }
+        stepIndex++;
+    }
+
+    string[] requiredStepNames =
+    [
+        "Verify this gate depends on every other job",
+        "Self-test the result filter",
+        "Verify no required job failed or was cancelled",
+    ];
+    foreach (string name in requiredStepNames)
+    {
+        if (!namedSteps.ContainsKey(name))
+        {
+            throw new InvalidOperationException(
+                $"jobs.ci-required is missing step: {name}.");
         }
     }
-
-    if (checks.Count != 1)
+    if (!(namedSteps[requiredStepNames[0]].Index <
+          namedSteps[requiredStepNames[1]].Index &&
+          namedSteps[requiredStepNames[1]].Index <
+          namedSteps[requiredStepNames[2]].Index))
     {
         throw new InvalidOperationException(
-            "Expected one ci-required structural check.");
+            "jobs.ci-required enforcement steps are out of order.");
     }
 
-    YamlMappingNode check = checks[0];
+    YamlMappingNode check = namedSteps[requiredStepNames[0]].Step;
     RequireExactKeys(
         check,
         ["name", "env", "run"],
@@ -631,6 +686,38 @@ static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
         "run",
         "2DE85E60935EDA6C488053ACD405D02C4842F620AA0E0307E6E64166AF1A7DF8",
         "ci-required structural check");
+
+    YamlMappingNode filterSelfTest = namedSteps[requiredStepNames[1]].Step;
+    RequireExactKeys(
+        filterSelfTest,
+        ["name", "run"],
+        "ci-required result-filter self-test");
+    RequireScalarSha256(
+        filterSelfTest,
+        "run",
+        "7BE0D6B90EB8A915BB17ED8BC6B6DA3371197D69E5F98262D854330985E7E5BD",
+        "ci-required result-filter self-test");
+
+    YamlMappingNode resultCheck = namedSteps[requiredStepNames[2]].Step;
+    RequireExactKeys(
+        resultCheck,
+        ["name", "env", "run"],
+        "ci-required result check");
+    RequireExactScalarValues(
+        GetRequiredMapping(
+            resultCheck,
+            "env",
+            "ci-required result check"),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["NEEDS"] = "${{ toJSON(needs) }}",
+        },
+        "ci-required result check.env");
+    RequireScalarSha256(
+        resultCheck,
+        "run",
+        "8A91AD84EA333837F96705184446A0E7815286B01B21FA41C7998D6CCAFAC648",
+        "ci-required result check");
 }
 
 static YamlMappingNode GetRequiredMapping(
@@ -846,7 +933,7 @@ static Dictionary<string, string> RunDetection(
               records=$(
                 if [ "$OBJECT_SHAPED_FILE_PAGE" = "true" ]; then
                   printf '%s\n' \
-                    '{"status":"modified","filename":"README.md"}'
+                    '{"a":{"status":"modified","filename":"README.md"}}'
                 elif [ -n "$MALFORMED_FILE_RECORD_JSON" ]; then
                   printf '%s\n' "$MALFORMED_FILE_RECORD_JSON"
                 elif [ "$NUL_FILE_RECORD" = "true" ]; then
