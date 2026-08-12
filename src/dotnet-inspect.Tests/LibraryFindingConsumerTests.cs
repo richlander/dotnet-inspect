@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -9,8 +10,10 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Views;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
@@ -125,6 +128,59 @@ public class LibraryFindingConsumerTests
         Assert.Same(MetadataFindings.ResourceDescriptor, finding.Descriptor);
         Assert.True(finding.Payload.IsEmbedded);
         Assert.True(row.Size > 0);
+    }
+
+    [Fact]
+    public void TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(AssemblyInspectionSession).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            TypeForwardersQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.TypeForwarderInspection.Findings(),
+            finding => finding.Payload.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+        var row = Assert.Single(
+            inspection.TypeForwarders!,
+            forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+
+        Assert.Same(MetadataFindings.TypeForwarderDescriptor, finding.Descriptor);
+        Assert.Equal("ILInspector.MetadataPrimitives", finding.Payload.TargetAssembly);
+        Assert.Equal(finding.Payload, row);
+    }
+
+    [Fact]
+    public void TypeForwardersQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string TypeName = "Sample.\u001b[31mForged";
+        const string TargetAssembly = "Target\nError: forged";
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new TypeForwardersResult.Available(
+                ImmutableArray.Create(
+                    new TypeForwarderInfo(TypeName, TargetAssembly))));
+
+        TypeForwarderInfo payload = Assert.Single(
+            inspection.TypeForwarderInspection.Findings()).Payload;
+        TypeForwarderRow row = Assert.Single(
+            new LibraryInspectionView(inspection).TypeForwardersSection!);
+
+        Assert.Equal(TypeName, payload.TypeName);
+        Assert.Equal(TargetAssembly, payload.TargetAssembly);
+        Assert.NotEqual(TypeName, row.TypeName);
+        Assert.NotEqual(TargetAssembly, row.TargetAssembly);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TypeName));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TargetAssembly));
     }
 
     [Fact]
@@ -249,7 +305,12 @@ public class LibraryFindingConsumerTests
             logger,
             new ResourcesResult.Failed(
                 new FileNotFoundException("Resource input was not found.", missingPath)));
-        inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            missingPath,
+            inspection,
+            logger,
+            new TypeForwardersResult.Failed(
+                new FileNotFoundException("Type forwarder input was not found.", missingPath)));
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
