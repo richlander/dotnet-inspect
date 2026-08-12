@@ -824,6 +824,7 @@ static class AuthoredCorpusExitContract
     /// </summary>
     internal static readonly ImmutableArray<string> DispatchModes =
     [
+        "--structural-review",
         "--fixture-source-inventory",
         "--history-card",
         "--generated-fixtures",

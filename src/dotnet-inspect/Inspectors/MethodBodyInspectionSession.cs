@@ -364,24 +364,8 @@ public sealed class MethodBodyInspectionSession
         {
             IAssemblyBindingPolicy policy => policy,
             not null => new AssemblyReferenceBindingPolicy(resolver),
-            null => MissingAssemblyBindingPolicy.Instance,
+            null => NoResolverAssemblyBindingPolicy.Instance,
         };
-
-    sealed class MissingAssemblyBindingPolicy : IAssemblyBindingPolicy
-    {
-        internal static MissingAssemblyBindingPolicy Instance { get; } =
-            new();
-
-        public AssemblyBindingPolicyVersion Version { get; } = new();
-
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
-                ? AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.UnsupportedScope))
-                : AssemblyBindingSelection.NotFound();
-    }
 }
 
 /// <summary>An inbound call edge targeting a selected member, tagged with its originating assembly.</summary>

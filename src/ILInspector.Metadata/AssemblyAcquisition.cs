@@ -34,6 +34,12 @@ public abstract record AssemblyResolutionProvenance
     public static AssemblyResolutionProvenance Local(string resolverSource) =>
         new LocalAsset(resolverSource);
 
+    public static AssemblyResolutionProvenance Embedded(
+        string contentRef,
+        string digest,
+        string declaredName) =>
+        new EmbeddedAsset(contentRef, digest, declaredName);
+
     public sealed record PackageAsset : AssemblyResolutionProvenance
     {
         public PackageAsset(
@@ -106,6 +112,27 @@ public abstract record AssemblyResolutionProvenance
 
         private protected override int Discriminator => 3;
         public string ResolverSource { get; }
+    }
+
+    public sealed record EmbeddedAsset : AssemblyResolutionProvenance
+    {
+        public EmbeddedAsset(
+            string contentRef,
+            string digest,
+            string declaredName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(contentRef);
+            ArgumentException.ThrowIfNullOrWhiteSpace(digest);
+            ArgumentException.ThrowIfNullOrWhiteSpace(declaredName);
+            ContentRef = contentRef;
+            Digest = digest;
+            DeclaredName = declaredName;
+        }
+
+        private protected override int Discriminator => 4;
+        public string ContentRef { get; }
+        public string Digest { get; }
+        public string DeclaredName { get; }
     }
 }
 
