@@ -5,6 +5,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
@@ -17,7 +18,8 @@ public sealed record AnnotatedMemberDocumentInput(
     MetadataSource Source,
     MemberCallGraphView CallGraph,
     AnnotationStage Stage = AnnotationStage.Raised,
-    PrinterOptions? PrinterOptions = null);
+    PrinterOptions? PrinterOptions = null,
+    CallGraphCycleSearchOptions? CycleSearchOptions = null);
 
 /// <summary>
 /// One physical call occurrence joined to both a stable graph edge row and a
@@ -34,11 +36,38 @@ public readonly record struct AnnotatedCallGraphOccurrence(
     CallKind Kind,
     bool InLoop);
 
+/// <summary>
+/// Reasons an annotated cycle census cannot prove that no other focus cycle
+/// exists. Positive findings remain valid under every limit.
+/// </summary>
+[Flags]
+public enum AnnotatedCallGraphCycleLimit
+{
+    None = 0,
+    TraversalBoundary = 1,
+    IncompleteCorrespondence = 2,
+    WitnessBudget = 4,
+    PathBudget = 8,
+    AnalysisFailure = 16,
+}
+
+/// <summary>
+/// Focus-member cycle findings and the independent completeness state of the
+/// operation that produced them.
+/// </summary>
+public sealed record AnnotatedCallGraphCycleInspection(
+    ImmutableArray<Finding<CallGraphCycleWitness>> Findings,
+    AnnotatedCallGraphCycleLimit Limits)
+{
+    public bool IsComplete => Limits == AnnotatedCallGraphCycleLimit.None;
+}
+
 /// <summary>One bounded graph layer attached to an annotated source document.</summary>
 public sealed record AnnotatedCallGraphOverlay(
     CallGraphTier Tier,
     CallGraphProjection Projection,
     ImmutableArray<AnnotatedCallGraphOccurrence> Occurrences,
+    AnnotatedCallGraphCycleInspection Cycles,
     CatalogCallGraphDiagnostics Diagnostics);
 
 /// <summary>
@@ -102,6 +131,11 @@ public static class AnnotatedMemberDocumentQuery
         CallGraphProjection projection = CallGraphProjection.Create(
             graphView.CallerRoot,
             graphView.CalleeRoot);
+        AnnotatedCallGraphCycleInspection cycles =
+            CallGraphCycleFindings.Inspect(
+                graphView,
+                projection,
+                input.CycleSearchOptions);
         var mappedCalls =
             ImmutableArray.CreateBuilder<(
                 DirectCall Call,
@@ -199,6 +233,7 @@ public static class AnnotatedMemberDocumentQuery
                     graphView.Tier,
                     projection,
                     occurrences.MoveToImmutable(),
+                    cycles,
                     graphView.Diagnostics)));
     }
 
@@ -208,4 +243,165 @@ public static class AnnotatedMemberDocumentQuery
             DecompilerResult.Failure(
                 DiagnosticIds.InternalError,
                 message));
+}
+
+/// <summary>
+/// Composes projection-owned cycle witnesses as one-version Findings without
+/// acquiring or rebuilding graph or Analysis state.
+/// </summary>
+public static class CallGraphCycleFindings
+{
+    public static FindingDescriptor Descriptor { get; } =
+        new("call.cycle", "Call cycle");
+
+    public static AnnotatedCallGraphCycleInspection Inspect(
+        MemberCallGraphView graphView,
+        CallGraphProjection projection,
+        CallGraphCycleSearchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(graphView);
+        ArgumentNullException.ThrowIfNull(projection);
+
+        CallGraphCycleSearchResult search =
+            projection.FindFocusCycles(options);
+        var subject = new FindingSubject(
+            $"{graphView.FocusModuleVersionId:N}|{graphView.FocusMethodToken:X8}",
+            projection.Focus.Label);
+        string[] nodeKeys =
+        [
+            .. projection.Nodes.Select(NodeKey),
+        ];
+        HashSet<string> duplicateKeys =
+        [
+            .. nodeKeys
+                .GroupBy(
+                    static key => key,
+                    StringComparer.Ordinal)
+                .Where(static group => group.Count() > 1)
+                .Select(static group => group.Key),
+        ];
+        Dictionary<int, CallGraphRow> rowsByNumber =
+            projection.Rows.ToDictionary(
+                static row => row.Number);
+        ImmutableArray<Finding<CallGraphCycleWitness>> findings =
+        [
+            .. search.Witnesses.Select(
+                (witness, ordinal) =>
+                    new Finding<CallGraphCycleWitness>(
+                        subject,
+                        Descriptor,
+                        CycleKey(
+                            projection,
+                            witness,
+                            nodeKeys,
+                            duplicateKeys,
+                            rowsByNumber),
+                        witness,
+                        Ordinal: ordinal)),
+        ];
+
+        AnnotatedCallGraphCycleLimit limits =
+            SearchLimits(search.Limits);
+        if (projection.HasUnexploredTraversalBoundary)
+        {
+            limits |=
+                AnnotatedCallGraphCycleLimit.TraversalBoundary;
+        }
+        if (projection.HasAnalysisFailureBoundary)
+        {
+            limits |=
+                AnnotatedCallGraphCycleLimit.AnalysisFailure;
+        }
+        if (graphView.Diagnostics.IsIncomplete)
+        {
+            limits |=
+                AnnotatedCallGraphCycleLimit.IncompleteCorrespondence;
+        }
+
+        return new AnnotatedCallGraphCycleInspection(
+            findings,
+            limits);
+    }
+
+    static FindingKey CycleKey(
+        CallGraphProjection projection,
+        CallGraphCycleWitness witness,
+        string[] nodeKeys,
+        HashSet<string> duplicateKeys,
+        IReadOnlyDictionary<int, CallGraphRow> rowsByNumber)
+    {
+        int current = projection.Focus.Id;
+        var path = new List<string>(witness.EdgeRows.Length);
+        foreach (int rowNumber in witness.EdgeRows)
+        {
+            CallGraphRow row = rowsByNumber[rowNumber];
+            if (row.Edge.From != current)
+            {
+                throw new InvalidOperationException(
+                    "A cycle witness does not form one directed graph path.");
+            }
+
+            current = row.Edge.To;
+            string key = nodeKeys[current];
+            path.Add(
+                duplicateKeys.Contains(key)
+                    ? $"{key}|{PhysicalKey(projection.Nodes[current])}"
+                    : key);
+        }
+        if (current != projection.Focus.Id)
+        {
+            throw new InvalidOperationException(
+                "A cycle witness does not return to the selected member.");
+        }
+
+        return new FindingKey(
+            $"cycle:{string.Join(">", path.Select(LengthPrefixed))}");
+    }
+
+    static string NodeKey(CallGraphNode node)
+    {
+        ResearchSubjectKey subject =
+            ResearchMemberIdentity.SubjectFromMember(
+                node.Member);
+        return $"{node.Member.DeclaringType.Assembly}|{subject.Id}";
+    }
+
+    static string PhysicalKey(CallGraphNode node) =>
+        string.Join(
+            ";",
+            node.GraphEvidence
+                .Select(static evidence => evidence.Storage)
+                .OrderBy(static storage => storage.ModuleVersionId)
+                .ThenBy(static storage => storage.Kind)
+                .ThenBy(static storage => storage.MethodToken)
+                .ThenBy(static storage => storage.ILOffset)
+                .ThenBy(static storage => storage.OperandToken)
+                .Select(static storage =>
+                    $"{storage.ModuleVersionId:N}:"
+                    + $"{(int)storage.Kind}:"
+                    + $"{storage.MethodToken:X8}:"
+                    + $"{storage.ILOffset:X8}:"
+                    + $"{storage.OperandToken:X8}"));
+
+    static string LengthPrefixed(string value) =>
+        $"{value.Length}:{value}";
+
+    static AnnotatedCallGraphCycleLimit SearchLimits(
+        CallGraphCycleSearchLimit limits)
+    {
+        AnnotatedCallGraphCycleLimit result =
+            AnnotatedCallGraphCycleLimit.None;
+        if (limits.HasFlag(
+                CallGraphCycleSearchLimit.WitnessBudget))
+        {
+            result |= AnnotatedCallGraphCycleLimit.WitnessBudget;
+        }
+        if (limits.HasFlag(
+                CallGraphCycleSearchLimit.PathBudget))
+        {
+            result |= AnnotatedCallGraphCycleLimit.PathBudget;
+        }
+        return result;
+    }
+
 }
