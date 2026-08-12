@@ -267,6 +267,7 @@ identity rather than deriving a path from the requested name. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
 and the sibling/platform/culture/failure-state tests in that class,
 `AssemblyDependencyResolverTests.Select_UnreadableSiblingDoesNotFallThroughToTpa`,
+`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsTpa`,
 `AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`,
 `AssemblyReferenceResolverTests.SiblingResolver_BareOwnerPathUsesCurrentDirectory`,
 `AssemblyReferenceResolverTests.SiblingResolver_AssemblyReferenceNameCannotEscapeDirectory`,

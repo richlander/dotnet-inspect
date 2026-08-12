@@ -98,6 +98,54 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void Select_ReadableMismatchingSiblingShadowsTpa()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(
+                Path.Combine(root, "System.Runtime.dll"),
+                BuildAssembly("System.Runtime", [1, 2, 3]));
+            string platformPath = (AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(
+                    Path.PathSeparator,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Single(path => Path.GetFileName(path).Equals(
+                    "System.Runtime.dll",
+                    StringComparison.OrdinalIgnoreCase));
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            Assert.IsType<AssemblyBindingSelection.Missing>(
+                resolver.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(platformIdentity),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Any)));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate()
     {
         string root = Directory.CreateTempSubdirectory(

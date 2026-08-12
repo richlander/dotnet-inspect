@@ -324,7 +324,7 @@ internal static class LibraryMetadataService
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
             if (collectReferenceTree
-                && inspection.AssemblyReferenceIdentities is { } referenceIdentities)
+                && inspection.AssemblyReferenceIdentities is { Count: > 0 } referenceIdentities)
             {
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(

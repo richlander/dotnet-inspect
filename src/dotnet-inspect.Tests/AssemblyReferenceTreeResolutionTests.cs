@@ -152,6 +152,48 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public async Task EmptyReferenceSet_DoesNotMaterializeTransitiveReferences()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(ownerPath, BuildAssembly("Owner"));
+
+            using var httpClient = new HttpClient();
+            LibraryInspection? inspection =
+                await LibraryMetadataService.InspectAsync(
+                    ownerPath,
+                    new LibraryOptions
+                    {
+                        CollectReferenceTree = true,
+                        ReferenceTreeDepth = 1,
+                    },
+                    new VerboseLogger(enabled: false),
+                    packageName: null,
+                    packageVersion: null,
+                    httpClient);
+
+            LibraryInspection resolvedInspection =
+                Assert.IsType<LibraryInspection>(inspection);
+            Assert.Null(
+                resolvedInspection.AssemblyInfo?.TransitiveReferences);
+            string json = JsonSerializer.Serialize(
+                resolvedInspection,
+                JsonContext.Default.LibraryInspection);
+            Assert.DoesNotContain(
+                "\"transitive_references\"",
+                json,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void PlatformSignedSibling_PreservesSiblingFirstResolution()
     {
         string root = Directory.CreateTempSubdirectory(

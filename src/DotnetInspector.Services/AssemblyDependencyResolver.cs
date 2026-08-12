@@ -257,12 +257,15 @@ public sealed class AssemblyDependencyResolver :
 
             CandidateTier tier = TierFor(dependency.Provenance);
             if (activeTier is { } previousTier
-                && tier != previousTier
-                && candidateUnavailable)
+                && tier != previousTier)
             {
-                return new AssemblyResolutionAttempt(
-                    Assembly: null,
-                    CandidateUnavailable: true);
+                if (candidateUnavailable
+                    || scope != AssemblyResolutionScope.Platform)
+                {
+                    return new AssemblyResolutionAttempt(
+                        Assembly: null,
+                        candidateUnavailable);
+                }
             }
             activeTier = tier;
 
