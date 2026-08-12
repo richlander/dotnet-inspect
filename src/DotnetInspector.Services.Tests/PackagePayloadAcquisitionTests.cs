@@ -72,6 +72,33 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task CacheHit_IsRevalidatedAgainstCurrentPayloadLimits()
+    {
+        byte[] nupkg = TestPackageArchive.Create(
+            "lib/net10.0/One.dll",
+            "lib/net10.0/Two.dll",
+            "lib/net10.0/Three.dll");
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            new MemoryStream(nupkg),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new NotFoundHandler());
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                limits: new PackagePayloadLimits { MaxEntryCount = 2 },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+    }
+
+    [Fact]
     public async Task CachedContentOfAnUnauthorizedProducer_IsNotServed()
     {
         byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
@@ -89,6 +116,33 @@ public sealed class PackagePayloadAcquisitionTests
                 client,
                 Coordinate(NuGetOrg),
                 store,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+    }
+
+    [Fact]
+    public async Task CommitThatLosesToInadmissibleCachedContent_IsNotServed()
+    {
+        byte[] valid = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        byte[] inadmissible = TestPackageArchive.Create(
+            "lib/net10.0/One.dll",
+            "lib/net10.0/Two.dll",
+            "lib/net10.0/Three.dll");
+        string producerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        var store = new CommitWinnerStore(
+            new InMemoryPackageContent(
+                inadmissible,
+                fromCache: true,
+                producerKey));
+        using var client = new HttpClient(new NuGetOrgPayloadHandler(valid));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                limits: new PackagePayloadLimits { MaxEntryCount = 2 },
                 cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.IsType<PackagePayloadResult.Unavailable>(result);
@@ -927,6 +981,24 @@ public sealed class PackagePayloadAcquisitionTests
                 nupkg,
                 cancellationToken);
         }
+    }
+
+    sealed class CommitWinnerStore(IPackageContent winner) : IPackageStore
+    {
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(winner);
     }
 
     /// <summary>

@@ -63,7 +63,8 @@ internal static class SearchRequestUri
         // with the query and fragment removed, so the query can be rebuilt
         // deliberately instead of extended by accident.
         string root = parsed.GetLeftPart(UriPartial.Path);
-        string existing = parsed.Query.TrimStart('?');
+        string existing =
+            parsed.Query.Length == 0 ? "" : parsed.Query[1..];
         string query = existing.Length == 0
             ? appended
             : appended.Length == 0

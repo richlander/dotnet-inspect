@@ -308,6 +308,31 @@ public sealed class PackageArchiveValidatorTests
     }
 
     [Fact]
+    public void Validate_RejectsTheSameTrailingDirectoryRecordTheDecoderWouldRead()
+    {
+        byte[] archive = WithEarlierDecoyEndRecord(
+            TestPackageArchive.Create(
+                "lib/net10.0/One.dll",
+                "lib/net10.0/Two.dll",
+                "lib/net10.0/Three.dll"));
+
+        var rejected = Assert.IsType<PackageArchiveValidation.Rejected>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxEntryCount = 2 },
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "does not account for the payload tail",
+            rejected.Reason,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "archive contains",
+            rejected.Reason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Validate_RejectsAMultiDiskArchive()
     {
         byte[] archive = TestPackageArchive.Create("lib/net10.0/Sample.dll");
@@ -478,6 +503,25 @@ public sealed class PackageArchiveValidatorTests
         BinaryPrimitives.WriteUInt16LittleEndian(
             rewritten.AsSpan(end + 10),
             declared);
+        return rewritten;
+    }
+
+    static byte[] WithEarlierDecoyEndRecord(byte[] archive)
+    {
+        int end = EndOfCentralDirectory(archive);
+        var rewritten = new byte[archive.Length + 25];
+        archive.AsSpan(0, end).CopyTo(rewritten);
+
+        Span<byte> decoy = rewritten.AsSpan(end, 22);
+        BinaryPrimitives.WriteUInt32LittleEndian(decoy, 0x06054B50);
+        BinaryPrimitives.WriteUInt16LittleEndian(decoy[8..], 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(decoy[10..], 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(decoy[20..], 25);
+
+        archive.AsSpan(end, 22).CopyTo(rewritten.AsSpan(end + 22));
+        rewritten[^3] = 1;
+        rewritten[^2] = 2;
+        rewritten[^1] = 3;
         return rewritten;
     }
 

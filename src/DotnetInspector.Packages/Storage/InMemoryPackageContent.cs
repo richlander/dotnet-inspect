@@ -42,6 +42,13 @@ public sealed class InMemoryPackageContent : IPackageContent
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
+    {
+        stream = new MemoryStream(_nupkgBytes, writable: false);
+        return true;
+    }
+
+    /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
     {
         ArgumentException.ThrowIfNullOrEmpty(relativePath);

@@ -82,6 +82,22 @@ public class SearchRequestUriTests
     }
 
     [Fact]
+    public void TryCompose_RemovesOnlyTheQueryDelimiter()
+    {
+        const string endpoint = "https://feed.test/v3/query??sig=x";
+
+        Assert.True(
+            SearchRequestUri.TryCompose(
+                endpoint,
+                [("q", "sample")],
+                out string url));
+
+        Assert.Equal(
+            "https://feed.test/v3/query??sig=x&q=sample",
+            url);
+    }
+
+    [Fact]
     public void TryCompose_EscapesTheParametersItContributes()
     {
         Assert.True(

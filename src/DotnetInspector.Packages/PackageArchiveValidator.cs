@@ -92,6 +92,9 @@ public abstract record PackageArchiveValidation
 /// <para>
 /// Gated by <c>PackageArchiveValidatorTests</c> and, end to end, by
 /// <c>PackagePayloadAcquisitionTests</c>.
+/// <c>Validate_RejectsTheSameTrailingDirectoryRecordTheDecoderWouldRead</c>
+/// keeps the allocation-free preflight on the same EOCD record as
+/// <see cref="ZipArchive"/>.
 /// </para>
 /// </remarks>
 public static class PackageArchiveValidator
@@ -328,9 +331,10 @@ static class ZipDirectoryPreflight
         if (archive.Length < EndOfCentralDirectorySize)
             return "the payload is too small to be an archive";
 
-        // The comment is arbitrary bytes and may itself contain the signature,
-        // so a candidate is only the record when its declared comment length
-        // accounts for exactly the rest of the payload.
+        // ZipArchive uses the first signature found while scanning backwards.
+        // Use that same record or reject it: continuing to an earlier signature
+        // would let the preflight approve a decoy while the decoder opens a
+        // later directory and materializes a different entry count.
         int earliest = Math.Max(
             0,
             archive.Length - EndOfCentralDirectorySize - MaxCommentLength);
@@ -344,7 +348,9 @@ static class ZipDirectoryPreflight
 
             ushort commentLength = ReadUInt16(record, 20);
             if (end + EndOfCentralDirectorySize + commentLength != archive.Length)
-                continue;
+            {
+                return "the archive directory record does not account for the payload tail";
+            }
 
             return ReadRecord(archive, end, out declaredEntries);
         }

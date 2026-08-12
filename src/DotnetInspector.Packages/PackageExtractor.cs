@@ -505,7 +505,18 @@ public static class PackageExtractor
                     $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
             }
 
-            log?.Invoke($"Package downloaded successfully from {successfulSource.Name}.");
+            log?.Invoke(
+                $"Package downloaded successfully from {PackageSourceDisplay.ForDiagnostics(successfulSource)}.");
+
+            byte[] archive = await File.ReadAllBytesAsync(nupkgPath)
+                .ConfigureAwait(false);
+            if (PackageArchiveValidator.Validate(archive)
+                is PackageArchiveValidation.Rejected rejection)
+            {
+                return PackageExtractionOutcome.Error(
+                    $"Package '{packageName}@{version}' was rejected before caching: "
+                    + rejection.Reason);
+            }
 
             // Persist the downloaded nupkg through the package store. The
             // filesystem store extracts and transactionally commits it to the
@@ -885,7 +896,8 @@ public static class PackageExtractor
                     out JsonElement resources)
                 || resources.ValueKind != JsonValueKind.Array)
             {
-                log?.Invoke($"Invalid service index from '{source.Name}': missing resources array.");
+                log?.Invoke(
+                    $"Invalid service index from '{PackageSourceDisplay.ForDiagnostics(source)}': missing resources array.");
                 return null;
             }
             var result = new List<ServiceResource>();
@@ -945,7 +957,8 @@ public static class PackageExtractor
                     else
                     {
                         log?.Invoke(
-                            $"Ignoring invalid {type} resource URL from '{source.Name}'.");
+                            $"Ignoring invalid {new InertString(TextPolicy.Field, type)} resource URL from "
+                            + $"'{PackageSourceDisplay.ForDiagnostics(source)}'.");
                     }
                 }
             }
@@ -954,7 +967,9 @@ public static class PackageExtractor
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            log?.Invoke($"Invalid service index from '{source.Name}': {ex.Message}");
+            log?.Invoke(
+                $"Invalid service index from '{PackageSourceDisplay.ForDiagnostics(source)}': "
+                + "the document could not be read.");
             return null;
         }
     }
@@ -2280,8 +2295,9 @@ public static class PackageExtractor
     /// <remarks>
     /// Configured sources have useful names, while a source named on the command line that matches
     /// nothing in configuration uses its URL as the mapping alias. A label must stay short and
-    /// distinguish feeds, so a configured name is used when present, the host is used for literal
-    /// URL aliases, and the full URL is used when even that would collide.
+    /// distinguish feeds, so a configured name is used when present and a
+    /// redacted URL-shaped alias is used otherwise. Collisions gain a short
+    /// credential-free producer-key suffix rather than exposing the raw URL.
     /// </remarks>
     private static Dictionary<string, string> BuildFeedLabels(List<NuGetSource> sources)
     {
@@ -2290,13 +2306,18 @@ public static class PackageExtractor
             if (!string.IsNullOrEmpty(source.Name)
                 && !string.Equals(source.Name, source.Url, StringComparison.Ordinal))
             {
-                return source.Name;
+                return PackageSourceDisplay.ForDiagnostics(source).ToString();
             }
 
             if (source.IsNuGetOrg)
                 return "nuget.org";
 
-            return Uri.TryCreate(source.Url, UriKind.Absolute, out var uri) ? uri.Host : source.Url;
+            return Uri.TryCreate(
+                    source.Url,
+                    UriKind.Absolute,
+                    out Uri? uri)
+                ? new InertString(TextPolicy.Field, uri.Host).ToString()
+                : PackageSourceDisplay.ForDiagnostics(source).ToString();
         }
 
         var byUrl = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -2315,7 +2336,10 @@ public static class PackageExtractor
         foreach (var source in sources)
         {
             if (byUrl.TryGetValue(source.Url, out var candidate) && counts[candidate] > 1)
-                byUrl[source.Url] = source.Url;
+            {
+                string sourceKey = NuGetCache.GetSourceKey(source.Url);
+                byUrl[source.Url] = $"{candidate} [{sourceKey[..8]}]";
+            }
         }
 
         return byUrl;

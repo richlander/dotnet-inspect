@@ -40,6 +40,13 @@ public interface IPackageContent
     string ProducerKey { get; }
 
     /// <summary>
+    /// Opens the retained package archive so a caller can apply its current
+    /// admission limits. Returns <c>false</c> when the cache entry has no
+    /// retained archive and therefore cannot prove those limits.
+    /// </summary>
+    bool TryOpenArchive([NotNullWhen(true)] out Stream? stream);
+
+    /// <summary>
     /// Opens a package entry addressed by its <c>/</c>-separated, package-root
     /// relative path (for example <c>lib/net8.0/Foo.dll</c>). Returns
     /// <c>false</c> when no such entry exists.

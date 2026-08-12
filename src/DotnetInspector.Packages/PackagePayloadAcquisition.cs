@@ -94,6 +94,9 @@ public abstract record PackagePayloadResult
 /// Gated by <c>PackagePayloadAcquisitionTests</c>:
 /// <c>CachedContentOfAnUnauthorizedProducer_IsNotServed</c> for the rule that a
 /// cache fulfills only an authorized producer,
+/// <c>CacheHit_IsRevalidatedAgainstCurrentPayloadLimits</c> and
+/// <c>CommitThatLosesToInadmissibleCachedContent_IsNotServed</c> for
+/// admission at both cache-return seams,
 /// <c>SourcesAreTriedInOrderUntilOneServesThePayload</c> for source order and
 /// provenance, <c>CacheHit_AnswersWithoutNetworkWork</c> for the no-network
 /// cache path, <c>UnboundedChunkedPayload_IsRejectedWithoutContentLength</c>,
@@ -148,7 +151,17 @@ public static class PackagePayloadAcquisition
                 log)
             is { } cached)
         {
-            return Result(cached, PackagePayloadOrigin.Cache);
+            if (await IsAdmissibleCachedContentAsync(
+                    cached,
+                    limits,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                return Result(cached, PackagePayloadOrigin.Cache);
+            }
+
+            log?.Invoke(
+                $"Cached content for package '{coordinate.PackageId}' version "
+                + $"'{coordinate.Version}' does not satisfy the current payload limits.");
         }
 
         List<string> failedSources = [];
@@ -197,6 +210,30 @@ public static class PackagePayloadAcquisition
                     content,
                     content.ProducerKey,
                     origin));
+        }
+    }
+
+    static async Task<bool> IsAdmissibleCachedContentAsync(
+        IPackageContent content,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken)
+    {
+        if (!content.TryOpenArchive(out Stream? archiveStream))
+            return false;
+
+        await using (archiveStream.ConfigureAwait(false))
+        {
+            byte[]? archive = await ReadBoundedAsync(
+                    archiveStream,
+                    limits.MaxArchiveBytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return archive is not null
+                && PackageArchiveValidator.Validate(
+                    archive,
+                    limits,
+                    cancellationToken)
+                is PackageArchiveValidation.Valid;
         }
     }
 
@@ -284,12 +321,23 @@ public static class PackagePayloadAcquisition
                 return null;
             }
 
-            return await store.CommitAsync(
+            IPackageContent committed = await store.CommitAsync(
                 coordinate.PackageId,
                 coordinate.Version,
                 NuGetCache.GetSourceKey(source.Url),
                 new MemoryStream(archive, writable: false),
                 cancellationToken).ConfigureAwait(false);
+            if (!await IsAdmissibleCachedContentAsync(
+                    committed,
+                    limits,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                log?.Invoke(
+                    $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not publish content satisfying the current payload limits.");
+                return null;
+            }
+
+            return committed;
         }
         catch (HttpRequestException ex)
         {

@@ -40,6 +40,19 @@ public sealed class FileSystemPackageContent : IPackageContent
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
+    {
+        if (NupkgPath is null || !File.Exists(NupkgPath))
+        {
+            stream = null;
+            return false;
+        }
+
+        stream = File.OpenRead(NupkgPath);
+        return true;
+    }
+
+    /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
     {
         var path = ResolveEntryPath(relativePath);
