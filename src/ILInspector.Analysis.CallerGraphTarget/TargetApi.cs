@@ -18,6 +18,12 @@ namespace Target
         public static void Ping(string value)
         {
         }
+
+        public static void Forward() => Leaf();
+
+        public static void Leaf()
+        {
+        }
     }
 
     // Generic target surfaces (#1339). A cross-assembly caller graph rooted at the open

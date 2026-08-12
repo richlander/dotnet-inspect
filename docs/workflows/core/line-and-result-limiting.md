@@ -24,7 +24,7 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-dotnet-inspect System.CommandLine -v:q
+dotnet-inspect System.CommandLine@2.0.3 -v:q
 ```
 
 ## 1. Limit output lines
@@ -46,16 +46,16 @@ dotnet-inspect System.Text.Json -n 4
 ## Library Info
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 wc -l | tr -d ' '
 ```
 
 ```expect
 4
-```
-
-```expect-not
-Tips:
 ```
 
 ### 1b. Using `-N` shorthand
@@ -69,16 +69,16 @@ dotnet-inspect System.Text.Json -6
 ## Library Info
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 wc -l | tr -d ' '
 ```
 
 ```expect
 6
-```
-
-```expect-not
-Tips:
 ```
 
 ## 2. Limit table rows
@@ -93,12 +93,11 @@ dotnet-inspect System.Private.CoreLib -S "Async*" --rows 6
 ```expect
 ## Async Methods
 | Name | Declaring Type | Kind | Signature |
-DisposeAsync
 WriteAsync
 ```
 
 ```query
-grep -c '^| .* | .* | .* | .* |$'
+grep '^|' | tail -n +3 | wc -l | tr -d ' '
 ```
 
 ```expect
@@ -120,13 +119,19 @@ dotnet-inspect type System.Text.Json -t 3 --tips q
 ```
 
 ```expect
-Types:
-JsonNamingPolicy
-JsonCommentHandling
+# System.Text.Json
 ```
 
 ```expect-not
 Tips:
+```
+
+```query
+grep -c '^| `'
+```
+
+```expect
+3
 ```
 
 ## 4. Filter types by glob
@@ -164,16 +169,16 @@ dotnet-inspect find "Json*" -t 3 -v:q
 JsonContent
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 grep -c '^| Json'
 ```
 
 ```expect
 3
-```
-
-```expect-not
-Tips:
 ```
 
 ## 6. Limit member results
@@ -183,7 +188,7 @@ Tips:
 ### 6a. Using `member -m N`
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer -m 3
+dotnet-inspect member System.Text.Json JsonSerializer -m 3 --tips q
 ```
 
 ```expect
@@ -226,10 +231,8 @@ Tips:
 dotnet-inspect System.CommandLine --versions 3
 ```
 
-```expect
-2.0.8
-2.0.7
-2.0.6
+```expect-not
+Tips:
 ```
 
 ```query
@@ -238,10 +241,6 @@ wc -l | tr -d ' '
 
 ```expect
 3
-```
-
-```expect-not
-Tips:
 ```
 
 ## 9. Count rows in a section
@@ -258,18 +257,18 @@ How many async methods are in System.Text.Json?
 dotnet-inspect System.Text.Json -S "Async*" --count
 ```
 
+```expect-not
+#
+|
+Tips:
+```
+
 ```query
 awk '/^[0-9]+$/ && $1 > 0 { print "positive" }'
 ```
 
 ```expect
 positive
-```
-
-```expect-not
-#
-|
-Tips:
 ```
 
 ### 9b. Count requires one selected section
@@ -279,5 +278,5 @@ dotnet-inspect System.Text.Json --count
 ```
 
 ```expect-error
---count requires -S/--select to match exactly one section
+--count requires -S/--select to match at least one section.
 ```

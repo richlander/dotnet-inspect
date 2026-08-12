@@ -33,6 +33,8 @@ internal sealed class ApiMemberAnalysisInspection
     bool _callerScopesResolved;
     List<MethodBodyInspectionSession>? _graphScopes;
     bool _graphScopesResolved;
+    List<MethodBodyInspectionSession>? _calleeScopes;
+    bool _calleeScopesResolved;
     Analysis.CatalogCallGraphDiagnostics _callGraphDiagnostics =
         Analysis.CatalogCallGraphDiagnostics.Empty;
 
@@ -98,6 +100,19 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal Analysis.CallTreeNode BuildCallTree(int methodToken) =>
         BodyIndex.BuildCallTree(methodToken);
+
+    internal ILInspector.CallGraph.CallGraphProjection BuildCallGraph(
+        int methodToken)
+    {
+        ILInspector.CallGraph.CallGraphProjection projection =
+            Session.CallGraph(
+                methodToken,
+                CallerScopes(_includeAllocations, methodToken),
+                CalleeScopes(),
+                out Analysis.CatalogCallGraphDiagnostics diagnostics);
+        _callGraphDiagnostics = diagnostics;
+        return projection;
+    }
 
     internal Analysis.CallTreeNode BuildCallerTree(int methodToken)
     {
@@ -230,6 +245,114 @@ internal sealed class ApiMemberAnalysisInspection
 
         cached = opened;
         return cached;
+    }
+
+    internal IReadOnlyList<MethodBodyInspectionSession>? CalleeScopes()
+    {
+        if (_calleeScopesResolved)
+            return _calleeScopes;
+
+        _calleeScopesResolved = true;
+        if (_callerScopeAssemblies is not { Count: > 0 })
+            return null;
+
+        List<MethodBodyInspectionSession> opened =
+            OpenScopes(ForwardScopeCandidates(), _includeAllocations);
+        if (opened.Count == 0)
+            return null;
+
+        _calleeScopes = opened;
+        return _calleeScopes;
+    }
+
+    IReadOnlyList<ResolvedAssemblyReference> ForwardScopeCandidates()
+    {
+        var byName = ScopeCandidates
+            .GroupBy(
+                candidate => candidate.Identity.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+        var selected = new HashSet<AssemblyAcquisitionRegistration>(
+            ReferenceEqualityComparer.Instance);
+        var pending = new Queue<ResolvedAssemblyReference>();
+
+        if (!TryReferenceNames(
+                TargetAssembly,
+                out IReadOnlyList<string>? references))
+        {
+            return ScopeCandidates;
+        }
+
+        Enqueue(references);
+        while (pending.TryDequeue(out ResolvedAssemblyReference? candidate))
+        {
+            if (!selected.Add(candidate.Registration))
+                continue;
+
+            if (!TryReferenceNames(
+                    candidate,
+                    out IReadOnlyList<string>? candidateReferences))
+            {
+                return ScopeCandidates;
+            }
+
+            Enqueue(candidateReferences);
+        }
+
+        return
+        [
+            .. ScopeCandidates.Where(candidate =>
+                selected.Contains(candidate.Registration)),
+        ];
+
+        void Enqueue(IReadOnlyList<string> names)
+        {
+            foreach (string name in names)
+            {
+                if (!byName.TryGetValue(
+                        name,
+                        out ResolvedAssemblyReference[]? matches))
+                {
+                    continue;
+                }
+
+                foreach (ResolvedAssemblyReference match in matches)
+                    pending.Enqueue(match);
+            }
+        }
+    }
+
+    static bool TryReferenceNames(
+        ResolvedAssemblyReference assembly,
+        [NotNullWhen(true)]
+        out IReadOnlyList<string>? references)
+    {
+        if (assembly.Path is null)
+        {
+            references = null;
+            return false;
+        }
+
+        try
+        {
+            AssemblyIdentityNames names =
+                AssemblyIdentityScanner.Scan(assembly.Path);
+            references = names.ReferenceNames;
+            return names.ReferencesComplete;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException
+                or NotSupportedException)
+        {
+            references = null;
+            return false;
+        }
     }
 
     internal IReadOnlyList<MethodBodyInspectionSession>? DirectCallerScopes(
