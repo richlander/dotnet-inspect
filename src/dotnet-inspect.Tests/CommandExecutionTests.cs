@@ -15784,7 +15784,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, ambiguousExit);
             Assert.Empty(ambiguousOutput);
-            Assert.Contains("2 printable rows", ambiguousError, StringComparison.Ordinal);
+            Assert.Contains("2 rows", ambiguousError, StringComparison.Ordinal);
 
             var (exit, output, _) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--row", "2", "--bare");
