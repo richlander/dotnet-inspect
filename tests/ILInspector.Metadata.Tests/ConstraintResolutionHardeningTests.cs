@@ -117,6 +117,119 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void CyclicTypeSpecificationBaseFailsClosed()
+    {
+        byte[] image = BuildCyclicTypeSpecificationBase();
+        using var pe = Reader(image);
+
+        TypeDeclarationResult.Defined declaration =
+            Assert.IsType<TypeDeclarationResult.Defined>(
+                MetadataTypeDeclarationProbe.Probe(
+                    pe.GetMetadataReader(),
+                    Name("Derived")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Unknown,
+            declaration.Kind);
+    }
+
+    [Fact]
+    public void SharedAcyclicTypeSpecificationDependencyIsAccepted()
+    {
+        byte[] image =
+            BuildSharedAcyclicTypeSpecificationBase();
+        using var pe = Reader(image);
+
+        TypeDeclarationResult.Defined declaration =
+            Assert.IsType<TypeDeclarationResult.Defined>(
+                MetadataTypeDeclarationProbe.Probe(
+                    pe.GetMetadataReader(),
+                    Name("Derived")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            declaration.Kind);
+    }
+
+    [Fact]
+    public void InvalidGenericParameterNumberingCannotAuthenticateKind()
+    {
+        byte[] dependencyImage =
+            BuildGenericType("Dependency", "Base`1");
+        byte[] middleImage =
+            BuildInvalidlyNumberedInterfaceWithExternalBase();
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Middle",
+                "Middle`2",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference middle = Descriptor(middleImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(middle, dependency));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+    }
+
+    [Fact]
+    public void DeclarationIndexReusesAssemblyReferenceProjection()
+    {
+        const int Count = 64;
+        byte[] image =
+            BuildTypesWithSharedExternalBase(
+                Count,
+                [1, 2, 3, 4, 5, 6, 7, 8]);
+        using var pe = Reader(image);
+        MetadataTypeDeclarationProbe.Index index =
+            MetadataTypeDeclarationProbe.CreateIndex(
+                pe.GetMetadataReader());
+        AssemblyReferenceIdentity? first = null;
+
+        for (int i = 0; i < Count; i++)
+        {
+            TypeDeclarationResult.Defined declaration =
+                Assert.IsType<TypeDeclarationResult.Defined>(
+                    index.Probe(Name($"Derived{i}")));
+            AssemblyReferenceIdentity reference =
+                Assert.IsType<DefinitionKindDependency>(
+                    declaration.KindDependency)
+                    .Reference;
+            if (first is null)
+                first = reference;
+            else
+                Assert.Same(first, reference);
+        }
+    }
+
+    [Fact]
+    public void InvalidAssemblyReferenceTokenLengthIsRejected()
+    {
+        byte[] image =
+            BuildTypesWithSharedExternalBase(
+                count: 1,
+                new byte[1024]);
+        using var pe = Reader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+
+        Assert.Throws<BadImageFormatException>(
+            () => AssemblyReferenceIdentity.From(
+                reader,
+                Assert.Single(reader.AssemblyReferences)));
+    }
+
+    [Fact]
     public void DeepConstructedBaseAuthenticationUsesBoundedStack()
     {
         const int Count = 1_000;
@@ -771,6 +884,132 @@ public class ConstraintResolutionHardeningTests
             "Derived",
             metadata.AddTypeSpecification(
                 metadata.GetOrAddBlob(signature)));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCyclicTypeSpecificationBase()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("CyclicTypeSpecification");
+        AddModule(metadata);
+        TypeDefinitionHandle root =
+            AddType(metadata, "Base`1");
+        AddGenericParameter(metadata, root);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            EncodeTypeDefOrRef(root));
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x1f);
+        signature.WriteCompressedInteger(
+            EncodeTypeDefOrRef(
+                MetadataTokens.TypeSpecificationHandle(1)));
+        signature.WriteByte(0x08);
+        TypeSpecificationHandle specification =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        AddType(metadata, "Derived", specification);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSharedAcyclicTypeSpecificationBase()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("SharedTypeSpecification");
+        AddModule(metadata);
+        TypeDefinitionHandle root =
+            AddType(metadata, "Base`2");
+        AddGenericParameter(metadata, root);
+        metadata.AddGenericParameter(
+            root,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            1);
+        var dependency = new BlobBuilder();
+        dependency.WriteByte(0x08);
+        metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(dependency));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            EncodeTypeDefOrRef(root));
+        signature.WriteCompressedInteger(2);
+        for (int i = 0; i < 2; i++)
+        {
+            signature.WriteByte(0x1f);
+            signature.WriteCompressedInteger(
+                EncodeTypeDefOrRef(
+                    MetadataTokens.TypeSpecificationHandle(1)));
+            signature.WriteByte(0x08);
+        }
+
+        TypeSpecificationHandle specification =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        AddType(metadata, "Derived", specification);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildInvalidlyNumberedInterfaceWithExternalBase()
+    {
+        MetadataBuilder metadata = NewMetadata("Middle");
+        AssemblyReferenceHandle dependency =
+            AddReference(metadata, "Dependency");
+        TypeReferenceHandle root =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+        TypeDefinitionHandle definition =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Middle`2"),
+                AddConstructedClass(metadata, root),
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            definition,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            1);
+        metadata.AddGenericParameter(
+            definition,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTypesWithSharedExternalBase(
+        int count,
+        byte[] token)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("SharedAssemblyReference");
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(token),
+                default,
+                default);
+        TypeReferenceHandle root =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+        TypeSpecificationHandle baseType =
+            AddConstructedClass(metadata, root);
+        for (int i = 0; i < count; i++)
+            AddType(metadata, $"Derived{i}", baseType);
         return Serialize(metadata);
     }
 

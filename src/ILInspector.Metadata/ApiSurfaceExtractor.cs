@@ -92,7 +92,8 @@ public static class ApiSurfaceExtractor
         {
             AddInspectionFailure(
                 surface,
-                "resolve generic parameter constraints",
+                ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation,
                 default,
                 budgetFailure);
         }
@@ -102,7 +103,8 @@ public static class ApiSurfaceExtractor
         {
             AddInspectionFailure(
                 surface,
-                "resolve generic parameter constraints",
+                ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation,
                 default,
                 resolutionFailure);
         }

@@ -110,22 +110,39 @@ internal readonly record struct TypeSpecificationRoot(
             MetadataReader reader,
             TypeSpecificationHandle root)
         {
-            var pending = new Stack<TypeSpecificationHandle>();
-            var visited = new HashSet<TypeSpecificationHandle>();
+            var pending = new Stack<ValidationFrame>();
+            var states =
+                new Dictionary<
+                    TypeSpecificationHandle,
+                    ValidationState>();
             int cumulativeBytes = 0;
-            pending.Push(root);
+            pending.Push(new ValidationFrame(root, IsExit: false));
             try
             {
-                while (pending.TryPop(out TypeSpecificationHandle handle))
+                while (pending.TryPop(out ValidationFrame frame))
                 {
-                    if (!visited.Add(handle))
+                    if (frame.IsExit)
+                    {
+                        states[frame.Handle] =
+                            ValidationState.Complete;
                         continue;
+                    }
+
+                    if (states.TryGetValue(
+                            frame.Handle,
+                            out ValidationState state))
+                    {
+                        if (state == ValidationState.Active)
+                            return false;
+                        continue;
+                    }
 
                     BlobHandle signature =
-                        reader.GetTypeSpecification(handle).Signature;
+                        reader.GetTypeSpecification(frame.Handle)
+                            .Signature;
                     int blobLength =
                         reader.GetBlobReader(signature).Length;
-                    if (visited.Count > TypeSpecGuard.MaxDepth
+                    if (states.Count >= TypeSpecGuard.MaxDepth
                         || blobLength
                             > TypeSpecGuard.MaxCumulativeBytes
                                 - cumulativeBytes)
@@ -133,6 +150,9 @@ internal readonly record struct TypeSpecificationRoot(
                         return false;
                     }
 
+                    states.Add(
+                        frame.Handle,
+                        ValidationState.Active);
                     cumulativeBytes += blobLength;
                     if (!SignatureBlobGuard
                             .IsCompleteTypeSpecification(
@@ -142,12 +162,26 @@ internal readonly record struct TypeSpecificationRoot(
                         return false;
                     }
 
+                    var dependencies =
+                        new Stack<TypeSpecificationHandle>();
                     GuardedProviderDecode.TypeSpec(
                         reader,
-                        handle,
+                        frame.Handle,
                         Instance,
-                        pending,
+                        dependencies,
                         fallback: (byte)0);
+                    pending.Push(
+                        new ValidationFrame(
+                            frame.Handle,
+                            IsExit: true));
+                    while (dependencies.TryPop(
+                        out TypeSpecificationHandle dependency))
+                    {
+                        pending.Push(
+                            new ValidationFrame(
+                                dependency,
+                                IsExit: false));
+                    }
                 }
 
                 return true;
@@ -159,6 +193,16 @@ internal readonly record struct TypeSpecificationRoot(
                 return false;
             }
         }
+
+        enum ValidationState
+        {
+            Active,
+            Complete,
+        }
+
+        readonly record struct ValidationFrame(
+            TypeSpecificationHandle Handle,
+            bool IsExit);
 
         public byte GetArrayType(byte elementType, ArrayShape shape) => 0;
 

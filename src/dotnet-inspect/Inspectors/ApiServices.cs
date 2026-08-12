@@ -289,21 +289,11 @@ internal static class ApiServices
                 if (targetApi == null)
                     continue;
 
-                foreach (var type in targetApi.Types)
-                {
-                    if (type.DefinitionName is not null
-                        && group.Types.Contains(type.DefinitionName))
-                    {
-                        type.IsForwarded = true;
-                        type.SourceAssemblyPath = group.Assembly.Path;
-                        api.Types.Add(type);
-                        api.PublicMethodCount += type.Members.Count(DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
-                        api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
-                        api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
-                        api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
-                        resolvedCount++;
-                    }
-                }
+                resolvedCount += MergeForwardedTypes(
+                    api,
+                    targetApi,
+                    group.Types,
+                    group.Assembly);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -349,5 +339,60 @@ internal static class ApiServices
             api.Types = api.Types.OrderBy(t => t.FullName).ToList();
             logger.Log($"Resolved {resolvedCount} types from forwarded libraries.");
         }
+    }
+
+    internal static int MergeForwardedTypes(
+        ApiSurface api,
+        ApiSurface targetApi,
+        IReadOnlySet<MetadataTypeDefinitionName> forwardedTypes,
+        ResolvedAssemblyReference targetAssembly)
+    {
+        int copiedCount = 0;
+        foreach (ApiType type in targetApi.Types)
+        {
+            if (type.DefinitionName is null
+                || !forwardedTypes.Contains(type.DefinitionName))
+            {
+                continue;
+            }
+
+            type.IsForwarded = true;
+            type.SourceAssemblyPath = targetAssembly.Path;
+            api.Types.Add(type);
+            api.PublicMethodCount +=
+                type.Members.Count(
+                    DotnetInspector.Sections
+                        .ApiMemberSectionDescriptors.IsMethodLike);
+            api.PublicPropertyCount +=
+                type.Members.Count(
+                    static member => member.Kind == "property");
+            api.PublicEventCount +=
+                type.Members.Count(
+                    static member => member.Kind == "event");
+            api.PublicFieldCount +=
+                type.Members.Count(
+                    static member => member.Kind == "field");
+            copiedCount++;
+        }
+
+        if (copiedCount == 0)
+            return 0;
+
+        var knownFailures =
+            new HashSet<ApiSurfaceInspectionFailure>(
+                api.InspectionFailures);
+        foreach (ApiSurfaceInspectionFailure failure
+            in targetApi.InspectionFailures)
+        {
+            if (failure.Operation
+                    == ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                && knownFailures.Add(failure))
+            {
+                api.InspectionFailures.Add(failure);
+            }
+        }
+
+        return copiedCount;
     }
 }

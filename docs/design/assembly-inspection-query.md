@@ -304,8 +304,10 @@ copied base identity and accepts `Class` only from the defining image when the c
 argument count exactly matches a contiguous definition generic-parameter set. The same
 arity check applies when a constructed constraint or base names a TypeDef in its own image;
 `ConstructedConstraintRequiresMatchingExternalArity` and
-`ConstructedConstraintRequiresMatchingSameImageArity` gate both paths. Constructed
-TypeRefs without a resolution context remain unclassified
+`ConstructedConstraintRequiresMatchingSameImageArity` gate both paths. Invalid generic
+parameter numbering cannot reopen kind authentication after the arity check fails;
+`InvalidGenericParameterNumberingCannotAuthenticateKind` gates that fail-closed boundary.
+Constructed TypeRefs without a resolution context remain unclassified
 (`ConstructedCoreConstraintWithoutResolutionStaysUndetermined`).
 Authentication walks both external dependency graphs and same-image TypeSpec base chains
 with explicit bounded worklists rather than process recursion.
@@ -315,7 +317,15 @@ with explicit bounded worklists rather than process recursion.
 `SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack` gate bounded native-stack
 use across TypeSpec handles, while
 `NestedTypeSpecificationDepthBoundaryUsesBoundedStack` gates both sides of the structural
-depth limit for one signature blob before SRM's recursive decoder runs; and
+depth limit for one signature blob before SRM's recursive decoder runs.
+Cross-handle TypeSpec traversal distinguishes active nodes from completed nodes, so cycles
+fail closed while shared acyclic dependencies remain valid;
+`CyclicTypeSpecificationBaseFailsClosed` and
+`SharedAcyclicTypeSpecificationDependencyIsAccepted` gate both outcomes. AssemblyRef
+identity projection is shared by the retained declaration index, and an unflagged token
+must contain exactly eight bytes before it is converted to hex;
+`DeclarationIndexReusesAssemblyReferenceProjection` and
+`InvalidAssemblyReferenceTokenLengthIsRejected` gate the retained-allocation bound. Finally,
 `ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
 Authentic `System.ValueType` and `System.Enum` roots never confer class identity even when
 hostile metadata labels them `CLASS`; `AuthenticCoreValueTypeRootsDoNotAuthenticateAsClass`
@@ -346,7 +356,9 @@ evidence survives multiple kind-authentication hops
 (`MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity`). The builder defensively
 withholds kind-incomplete resolutions from catalog promotion; this cache-hygiene property is
 not independently observable because candidate failures are memoized per registration. An
-extraction lease keeps retained
+API surface that copies a resolved forwarded type also carries that target surface's bounded,
+deduplicated generic-constraint failure instead of presenting `Undetermined` without its
+cause (`ApiServices_PreservesForwardedConstraintFailures`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open

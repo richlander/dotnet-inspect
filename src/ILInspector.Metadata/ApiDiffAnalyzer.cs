@@ -346,7 +346,8 @@ public static class ApiDiffAnalyzer
         surface.InspectionFailures.Any(
             static failure =>
                 failure.Operation
-                    != "resolve generic parameter constraints");
+                    != ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation);
 
     private static Dictionary<string, ApiType> BuildTypeLookup(ApiSurface surface)
     {

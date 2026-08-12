@@ -185,7 +185,12 @@ public sealed record ApiSurfaceInspectionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail);
+    string Detail)
+{
+    public const string
+        GenericParameterConstraintResolutionOperation =
+            "resolve generic parameter constraints";
+}
 
 /// <summary>
 /// Represents a type forwarded to another assembly.

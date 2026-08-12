@@ -16,6 +16,8 @@ public static class MetadataTypeDeclarationProbe
         var candidates = new List<PendingCandidate>();
         var forwarders =
             new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
+        var referenceProjection =
+            new AssemblyReferenceProjectionCache(reader);
         bool declaresCoreLibraryRoot = false;
         bool canDeclareCoreLibraryRoot =
             reader.AssemblyReferences.Count == 0;
@@ -73,6 +75,7 @@ public static class MetadataTypeDeclarationProbe
             if (!TryReadExportedCandidate(
                     reader,
                     handle,
+                    referenceProjection,
                     out TypeDeclarationCandidate? candidate,
                     out failure))
             {
@@ -85,6 +88,7 @@ public static class MetadataTypeDeclarationProbe
         return Complete(
             reader,
             candidates,
+            referenceProjection,
             declaresCoreLibraryRoot);
     }
 
@@ -102,10 +106,14 @@ public static class MetadataTypeDeclarationProbe
                 new(StringComparer.Ordinal);
         readonly MetadataTypeNameFailure? _failure;
         readonly bool _declaresCoreLibraryRoot;
+        readonly AssemblyReferenceProjectionCache
+            _assemblyReferenceProjection;
 
         internal Index(MetadataReader reader)
         {
             _reader = reader;
+            _assemblyReferenceProjection =
+                new AssemblyReferenceProjectionCache(reader);
             bool canDeclareCoreLibraryRoot =
                 reader.AssemblyReferences.Count == 0;
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
@@ -222,6 +230,7 @@ public static class MetadataTypeDeclarationProbe
                     if (!TryReadExportedCandidate(
                             _reader,
                             handle,
+                            _assemblyReferenceProjection,
                             out TypeDeclarationCandidate? candidate,
                             out failure))
                     {
@@ -239,6 +248,7 @@ public static class MetadataTypeDeclarationProbe
             return Complete(
                 _reader,
                 candidates,
+                _assemblyReferenceProjection,
                 _declaresCoreLibraryRoot);
         }
 
@@ -273,6 +283,7 @@ public static class MetadataTypeDeclarationProbe
     static bool TryReadExportedCandidate(
         MetadataReader reader,
         ExportedTypeHandle handle,
+        AssemblyReferenceProjectionCache referenceProjection,
         out TypeDeclarationCandidate? candidate,
         out MetadataTypeNameFailure? failure)
     {
@@ -313,8 +324,8 @@ public static class MetadataTypeDeclarationProbe
 
                     AssemblyReferenceIdentity target =
                         AssemblyReferenceIdentity.From(
-                            reader,
-                            (AssemblyReferenceHandle)chain.Terminal);
+                            (AssemblyReferenceHandle)chain.Terminal,
+                            referenceProjection);
                     if (string.IsNullOrEmpty(target.Name))
                     {
                         failure = MetadataTypeNameFailure.Malformed(
@@ -396,6 +407,7 @@ public static class MetadataTypeDeclarationProbe
     static TypeDeclarationResult Complete(
         MetadataReader reader,
         List<PendingCandidate> pending,
+        AssemblyReferenceProjectionCache referenceProjection,
         bool declaringAssemblyDefinesCoreLibraryRoot)
     {
         if (pending.Count == 0)
@@ -405,6 +417,7 @@ public static class MetadataTypeDeclarationProbe
             [.. pending.Select(
                 candidate => candidate.Materialize(
                     reader,
+                    referenceProjection,
                     declaringAssemblyDefinesCoreLibraryRoot))];
         if (candidates.Length > 1)
         {
@@ -438,6 +451,7 @@ public static class MetadataTypeDeclarationProbe
     {
         internal abstract TypeDeclarationCandidate Materialize(
             MetadataReader reader,
+            AssemblyReferenceProjectionCache referenceProjection,
             bool declaringAssemblyDefinesCoreLibraryRoot);
     }
 
@@ -445,6 +459,7 @@ public static class MetadataTypeDeclarationProbe
     {
         internal override TypeDeclarationCandidate Materialize(
             MetadataReader reader,
+            AssemblyReferenceProjectionCache referenceProjection,
             bool declaringAssemblyDefinesCoreLibraryRoot) =>
             value;
     }
@@ -455,6 +470,7 @@ public static class MetadataTypeDeclarationProbe
     {
         internal override TypeDeclarationCandidate Materialize(
             MetadataReader reader,
+            AssemblyReferenceProjectionCache referenceProjection,
             bool declaringAssemblyDefinesCoreLibraryRoot)
         {
             MetadataTypeDefinitionKind kind =
@@ -462,10 +478,12 @@ public static class MetadataTypeDeclarationProbe
                     reader,
                     handle,
                     declaringAssemblyDefinesCoreLibraryRoot);
-            if (!TryGetGenericParameterCount(
+            bool hasValidGenericParameters =
+                TryGetGenericParameterCount(
                     reader,
                     handle,
-                    out int genericParameterCount))
+                    out int genericParameterCount);
+            if (!hasValidGenericParameters)
             {
                 kind = MetadataTypeDefinitionKind.Unknown;
             }
@@ -474,8 +492,12 @@ public static class MetadataTypeDeclarationProbe
                 token,
                 kind,
                 genericParameterCount,
-                kind == MetadataTypeDefinitionKind.Unknown
-                    ? ReadDefinitionKindDependency(reader, handle)
+                hasValidGenericParameters
+                    && kind == MetadataTypeDefinitionKind.Unknown
+                    ? ReadDefinitionKindDependency(
+                        reader,
+                        handle,
+                        referenceProjection)
                     : null);
         }
     }
@@ -504,6 +526,7 @@ public static class MetadataTypeDeclarationProbe
 
         internal override TypeDeclarationCandidate Materialize(
             MetadataReader reader,
+            AssemblyReferenceProjectionCache referenceProjection,
             bool declaringAssemblyDefinesCoreLibraryRoot) =>
             new TypeDeclarationCandidate.Forwarder(
                 [.. declarations],
@@ -698,7 +721,8 @@ public static class MetadataTypeDeclarationProbe
 
     static DefinitionKindDependency? ReadDefinitionKindDependency(
         MetadataReader reader,
-        TypeDefinitionHandle handle)
+        TypeDefinitionHandle handle,
+        AssemblyReferenceProjectionCache referenceProjection)
     {
         try
         {
@@ -737,8 +761,8 @@ public static class MetadataTypeDeclarationProbe
 
             AssemblyReferenceIdentity reference =
                 AssemblyReferenceIdentity.From(
-                    reader,
-                    (AssemblyReferenceHandle)terminal);
+                    (AssemblyReferenceHandle)terminal,
+                    referenceProjection);
             AssemblyResolutionScope scope =
                 PlatformKeys.IsPlatform(reference.PublicKeyToken)
                     ? AssemblyResolutionScope.Platform

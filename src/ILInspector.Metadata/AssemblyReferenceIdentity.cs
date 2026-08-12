@@ -69,6 +69,13 @@ public sealed record AssemblyReferenceIdentity(
         if (handle.IsNil)
             return null;
 
+        if (!isPublicKey
+            && reader.GetBlobReader(handle).Length != 8)
+        {
+            throw new BadImageFormatException(
+                "An assembly-reference public-key token must contain exactly 8 bytes.");
+        }
+
         var bytes = reader.GetBlobBytes(handle);
         return isPublicKey
             ? ComputePublicKeyToken(bytes)
