@@ -144,9 +144,12 @@ The projection owns everything a host must not re-invent in JavaScript:
   unsealed type is also an outbound boundary: runtime dispatch can select an
   override that the static operand tree does not contain. This fact belongs to
   the occurrence rather than the collapsed member identity, so a direct
-  occurrence of the same member cannot mask it. Nonvirtual methods and final
-  overrides remain complete; ordinary nonvirtual instance calls emitted as
-  `callvirt` do not acquire a false boundary.
+  occurrence of the same member cannot mask it. Catalog tree lowering ORs the
+  fact across physical call sites before selecting one representative edge for
+  a collapsed callee, including when loop evidence selects a direct-call
+  representative. Nonvirtual methods and final overrides remain complete;
+  ordinary nonvirtual instance calls emitted as `callvirt` do not acquire a
+  false boundary.
   `CycleCompletenessCollapsesBoundariesWithinOneDirection`,
   `CallerLeafDoesNotHideAnOutboundTraversalBoundary`,
   `AlreadyShownDoesNotHideATruncatedPrimaryOccurrence`,
@@ -155,7 +158,8 @@ The projection owns everything a host must not re-invent in JavaScript:
   `UnresolvedVirtualDispatchKeepsAnEmptyCycleCensusIncomplete`, and
   `CycleWitnessSurvivesUnresolvedVirtualDispatch` gate the projection
   distinctions. `BuildCallTree_ClassifiesSameAssemblyBodilessCallee`,
-  `BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved`, and
+  `BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved`,
+  `CatalogCallTree_PreservesDispatchAcrossCalleeCollapse`, and
   `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gate the
   Analysis-to-tree wiring for both assembly-local and catalog traversals,
   including the diagnostic-plus-budget precedence.

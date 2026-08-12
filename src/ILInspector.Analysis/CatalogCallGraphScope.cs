@@ -820,7 +820,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 GraphNodeEvidence evidence,
                 CallKind? kind,
                 int depth,
-                bool inLoop)
+                bool inLoop,
+                bool hasVirtualDispatchOccurrence)
             {
                 GraphNodeIdentity identity = evidence.Identity;
                 StoredDefinition? definition = DefinitionFor(identity);
@@ -838,8 +839,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 string? loopHint = inLoop ? "loop" : null;
                 int fanin = _incoming.GetValueOrDefault(identity);
                 bool hasUnresolvedDispatch =
-                    kind is CallKind.CallVirtual
-                        or CallKind.LoadVirtualFunction
+                    hasVirtualDispatchOccurrence
                     && definition?.Method.IsVirtualDispatchOpen == true;
 
                 if (!_forward.TryGetValue(identity, out var rawEdges))
@@ -871,12 +871,18 @@ public sealed class CatalogCallGraphScope : IDisposable
                         hasUnresolvedDispatch);
                 }
 
-                ImmutableArray<StoredEdge> edges = rawEdges
+                var edges = rawEdges
                     .GroupBy(edge => edge.Callee.Evidence.Identity)
                     .Select(group =>
-                        group.FirstOrDefault(
-                            edge => edge.Call.InLoop,
-                            group.First()))
+                        (
+                            Edge: group.FirstOrDefault(
+                                edge => edge.Call.InLoop,
+                                group.First()),
+                            HasVirtualDispatch:
+                                group.Any(edge =>
+                                    edge.Call.Kind
+                                        is CallKind.CallVirtual
+                                            or CallKind.LoadVirtualFunction)))
                     .ToImmutableArray();
                 int fanout = rawEdges.Length;
                 if (depth >= maxDepth)
@@ -923,7 +929,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 var children =
                     ImmutableArray.CreateBuilder<CallTreeNode>();
                 bool truncated = false;
-                foreach (StoredEdge edge in edges)
+                foreach (var edgeGroup in edges)
                 {
                     if (created >= budget)
                     {
@@ -931,13 +937,15 @@ public sealed class CatalogCallGraphScope : IDisposable
                         break;
                     }
                     created++;
+                    StoredEdge edge = edgeGroup.Edge;
                     children.Add(
                         Build(
                             edge.Callee.Call.Callee,
                             edge.Callee.Evidence,
                             edge.Call.Kind,
                             depth + 1,
-                            edge.Call.InLoop));
+                            edge.Call.InLoop,
+                            edgeGroup.HasVirtualDispatch));
                 }
 
                 CallTreeStatus status = truncated
@@ -975,7 +983,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 Evidence,
                 kind: null,
                 depth: 0,
-                inLoop: false);
+                inLoop: false,
+                hasVirtualDispatchOccurrence: false);
         }
 
         public void Dispose() => _context.Dispose();

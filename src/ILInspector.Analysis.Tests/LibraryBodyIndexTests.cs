@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -850,6 +851,76 @@ public class LibraryBodyIndexTests
             Assert.Equal(
                 expectedUnresolved,
                 catalogChild.HasUnresolvedDispatch);
+        }
+    }
+
+    [Fact]
+    public void CatalogCallTree_PreservesDispatchAcrossCalleeCollapse()
+    {
+        var index =
+            LibraryBodyIndex.Open(
+                typeof(VirtualDispatchDerived).Assembly.Location);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                index.Path,
+                AssemblyResolutionProvenance.Local(
+                    "collapsed virtual-dispatch call-tree test"));
+        using var catalog =
+            new CatalogCallGraphScope(
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        index.Path)),
+                [new CatalogCallGraphParticipant(index, assembly)]);
+
+        AssertMixedDispatch(
+            nameof(
+                VirtualDispatchDerived
+                    .CallsBaseThenVirtual),
+            expectedRepresentativeInLoop: false);
+        AssertMixedDispatch(
+            nameof(
+                VirtualDispatchDerived
+                    .CallsVirtualThenBaseInLoop),
+            expectedRepresentativeInLoop: true);
+
+        void AssertMixedDispatch(
+            string methodName,
+            bool expectedRepresentativeInLoop)
+        {
+            int token = typeof(VirtualDispatchDerived)
+                .GetMethod(methodName)!
+                .MetadataToken;
+            CallTreeNode local =
+                index.BuildCallTree(
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 10);
+            CallTreeNode catalogTree =
+                catalog.BuildCallTree(
+                    index,
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 10);
+
+            Assert.Equal(2, local.Children.Length);
+            Assert.Contains(
+                local.Children,
+                child => child.HasUnresolvedDispatch);
+            CallTreeNode collapsed =
+                Assert.Single(
+                    catalogTree.Children);
+            Assert.Equal(
+                CallKind.Call,
+                collapsed.Kind);
+            Assert.Equal(
+                expectedRepresentativeInLoop,
+                collapsed.Perf?.InLoop);
+            Assert.True(
+                collapsed.HasUnresolvedDispatch);
+            Assert.True(
+                CallGraphProjection
+                    .FromCallees(catalogTree)
+                    .HasUnexploredTraversalBoundary);
         }
     }
 
@@ -6432,6 +6503,20 @@ public class VirtualDispatchBase
 public sealed class VirtualDispatchDerived : VirtualDispatchBase
 {
     public override int Work() => 2;
+
+    public int CallsBaseThenVirtual(
+        VirtualDispatchBase value) =>
+        base.Work() + value.Work();
+
+    public int CallsVirtualThenBaseInLoop(
+        VirtualDispatchBase value,
+        int count)
+    {
+        int result = value.Work();
+        for (int i = 0; i < count; i++)
+            result += base.Work();
+        return result;
+    }
 }
 
 public class FinalVirtualDispatchDerived : VirtualDispatchBase
