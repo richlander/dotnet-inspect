@@ -150,8 +150,9 @@ the method signature line here too, for the same reason.
 
 <!--
 For a change that alters rendered syntax kinds, generate this section from the
-two direct Annotated Source Document JSON payloads rather than hand-annotating
-the code:
+two direct, snake-case Annotated Source Document JSON payloads rather than
+hand-annotating the code. The normal interleaved payload is accepted; the
+comparison projects its C# plane before matching:
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --annotated-source-diff before.json after.json

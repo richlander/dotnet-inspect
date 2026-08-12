@@ -22,6 +22,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;

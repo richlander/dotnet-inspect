@@ -476,6 +476,11 @@ from the stable kind vocabulary, selected text, ordered context, and region
 roles, while retaining each side's local IDs and spans for presentation. Its
 Added/Removed/Changed/Moved result is the sole input to both structural caret
 overlays and the structural table; renderers never rematch nodes independently.
+Direct tool payloads keep their interleaved IL plane.
+`AnnotatedSourceDocumentProjection.CSharpOnly` is the product-owned boundary
+that removes those IL lines and rebases nodes, regions, and fact targets before
+comparison, so the query remains C#-only without asking a harness to reconstruct
+source.
 
 **One coordinate currency: the absolute span.** `AnnotatedSourceSpan(int Start,
 int Length)` is an end-exclusive range of **UTF-16 code units** over the decoded

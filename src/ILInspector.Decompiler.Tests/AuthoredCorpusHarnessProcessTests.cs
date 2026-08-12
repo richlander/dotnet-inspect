@@ -1,4 +1,6 @@
 using ILInspector.DecompilerHarness;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -163,12 +165,20 @@ public class AuthoredCorpusHarnessProcessTests
         string afterPath = Path.Combine(Path.GetTempPath(), $"annotated-after-{Guid.NewGuid():N}.json");
         try
         {
-            File.WriteAllText(beforePath, JsonSerializer.Serialize(Document("return;", "ReturnStatement")));
-            File.WriteAllText(afterPath, JsonSerializer.Serialize(Document("break;", "BreakStatement")));
+            File.WriteAllText(
+                beforePath,
+                JsonSerializer.Serialize(
+                    Document("return;", "ReturnStatement"),
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+            File.WriteAllText(
+                afterPath,
+                JsonSerializer.Serialize(
+                    Document("break;", "BreakStatement"),
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
 
             var run = RunHarness("--annotated-source-diff", beforePath, afterPath);
 
-            Assert.Equal(0, run.ExitCode);
+            Assert.True(run.ExitCode == 0, run.Output);
             Assert.Contains("## Before", run.Output, StringComparison.Ordinal);
             Assert.Contains("ReturnStatement -> BreakStatement", run.Output, StringComparison.Ordinal);
             Assert.Contains(
@@ -198,6 +208,73 @@ public class AuthoredCorpusHarnessProcessTests
                 [],
                 [],
                 []);
+        }
+    }
+
+    [Fact]
+    public void Harness_ConsumesProductAnnotatedSourceDocumentJson()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        AnnotatedSourceDocument Project(string method)
+        {
+            var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(CfgSampleClass).FullName!,
+                method,
+                SourceDocument: true));
+            return Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
+        }
+
+        var before = Project(nameof(CfgSampleClass.ForeachLoop));
+        var after = Project(nameof(CfgSampleClass.LengthOf));
+        Assert.Contains(before.Nodes, node => node.Medium == SourceLineKind.Il);
+        Assert.Contains(after.Nodes, node => node.Medium == SourceLineKind.Il);
+        Assert.NotEmpty(before.Regions);
+        Assert.NotEmpty(before.Facts);
+        Assert.NotEmpty(before.Targets);
+
+        string beforePath = Path.Combine(
+            Path.GetTempPath(),
+            $"annotated-product-before-{Guid.NewGuid():N}.json");
+        string afterPath = Path.Combine(
+            Path.GetTempPath(),
+            $"annotated-product-after-{Guid.NewGuid():N}.json");
+        try
+        {
+            string beforeJson = JsonSerializer.Serialize(
+                before,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
+            string afterJson = JsonSerializer.Serialize(
+                after,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
+            Assert.Contains("\"source_offset\"", beforeJson, StringComparison.Ordinal);
+            Assert.Contains("\"fact_id\"", beforeJson, StringComparison.Ordinal);
+            File.WriteAllText(beforePath, beforeJson);
+            File.WriteAllText(afterPath, afterJson);
+
+            var run = RunHarness("--annotated-source-diff", beforePath, afterPath);
+
+            Assert.True(run.ExitCode == 0, run.Output);
+            Assert.Contains("## Before", run.Output, StringComparison.Ordinal);
+            AssertRendered(AnnotatedSourceDocumentProjection.CSharpOnly(before));
+            AssertRendered(AnnotatedSourceDocumentProjection.CSharpOnly(after));
+            Assert.DoesNotContain("No structural changes.", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("IL_", run.Output, StringComparison.Ordinal);
+
+            void AssertRendered(AnnotatedSourceDocument document)
+            {
+                foreach (var line in new AnnotatedSourceTextMap(document.Text).Lines
+                    .Where(line => line.Text.Length > 0))
+                {
+                    Assert.Contains(line.Text, run.Output, StringComparison.Ordinal);
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(beforePath);
+            File.Delete(afterPath);
         }
     }
 

@@ -1917,7 +1917,7 @@ public static class ApiOutputFormatter
                 "json",
                 JsonSerializer.Serialize(
                     sourceDocument,
-                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+                    Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
             return true;
         }
         if (failure is not null)

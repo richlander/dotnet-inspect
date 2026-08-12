@@ -1,4 +1,5 @@
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Annotations;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -198,21 +199,175 @@ public class AnnotatedSourceComparisonTests
     }
 
     [Fact]
-    public void CompareRejectsIlDocuments()
+    public void CompareUsesRegionContextToDisambiguateDuplicateNodes()
     {
-        const string text = "IL_0000: ret";
-        var document = Document(
-            text,
-            [new AnnotatedSourceNode(
-                0,
-                AnnotatedSourceNode.InstructionKind,
-                SourceLineKind.Il,
-                [new AnnotatedSourceSpan(0, text.Length)],
-                IlOffset: 0)]);
+        const string beforeText = "if (ready) { return; } else { return; }";
+        const string afterText = "if (ready) { } else { return; }";
+        int first = beforeText.IndexOf("return;", StringComparison.Ordinal);
+        int second = beforeText.LastIndexOf("return;", StringComparison.Ordinal);
+        int surviving = afterText.IndexOf("return;", StringComparison.Ordinal);
+        var before = Document(
+            beforeText,
+            [
+                NodeAt(0, "ReturnStatement", first, "return;".Length),
+                NodeAt(1, "ReturnStatement", second, "return;".Length),
+            ],
+            [
+                Region(PrintedRegionRole.Body, first, "return;".Length),
+                Region(PrintedRegionRole.Else, second, "return;".Length),
+            ]);
+        var after = Document(
+            afterText,
+            [NodeAt(0, "ReturnStatement", surviving, "return;".Length)],
+            [Region(PrintedRegionRole.Else, surviving, "return;".Length)]);
 
-        var exception = Assert.Throws<ArgumentException>(
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Removed, change.Kind);
+        Assert.Equal(first, change.Before!.Spans[0].Start);
+        Assert.Equal("Body", change.Before.RegionPath);
+    }
+
+    [Fact]
+    public void CompareReportsRegionOnlyChange()
+    {
+        const string text = "return;";
+        var before = Document(
+            text,
+            [NodeAt(0, "ReturnStatement", 0, text.Length)],
+            [Region(PrintedRegionRole.Body, 0, text.Length)]);
+        var after = Document(
+            text,
+            [NodeAt(0, "ReturnStatement", 0, text.Length)],
+            [Region(PrintedRegionRole.Else, 0, text.Length)]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Changed, change.Kind);
+        Assert.Equal("Body", change.Before!.RegionPath);
+        Assert.Equal("Else", change.After!.RegionPath);
+    }
+
+    [Fact]
+    public void CompareUsesRegionTextToDisambiguateRepeatedRegionRoles()
+    {
+        const string beforeText = "case 0:\n    return;\ncase 1:\n    return;";
+        const string afterText = "case 1:\n    return;";
+        int first = beforeText.IndexOf("return;", StringComparison.Ordinal);
+        int second = beforeText.LastIndexOf("return;", StringComparison.Ordinal);
+        int surviving = afterText.IndexOf("return;", StringComparison.Ordinal);
+        var before = Document(
+            beforeText,
+            [
+                NodeAt(0, "ReturnStatement", first, "return;".Length),
+                NodeAt(1, "ReturnStatement", second, "return;".Length),
+            ],
+            [
+                Region(
+                    PrintedRegionRole.Case,
+                    beforeText.IndexOf("case 0:", StringComparison.Ordinal),
+                    first + "return;".Length),
+                Region(
+                    PrintedRegionRole.Case,
+                    beforeText.IndexOf("case 1:", StringComparison.Ordinal),
+                    second + "return;".Length
+                        - beforeText.IndexOf("case 1:", StringComparison.Ordinal)),
+            ]);
+        var after = Document(
+            afterText,
+            [NodeAt(0, "ReturnStatement", surviving, "return;".Length)],
+            [Region(PrintedRegionRole.Case, 0, afterText.Length)]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Removed, change.Kind);
+        Assert.Equal(first, change.Before!.Spans[0].Start);
+    }
+
+    [Fact]
+    public void RegionDisambiguationDoesNotChangeUneditedDuplicateNodes()
+    {
+        const string beforeText = "case 0:\n    Log();\n    return;\ncase 1:\n    return;";
+        const string afterText = "case 0:\n    return;\ncase 1:\n    return;";
+        int log = beforeText.IndexOf("Log();", StringComparison.Ordinal);
+        int firstBefore = beforeText.IndexOf("return;", StringComparison.Ordinal);
+        int secondBefore = beforeText.LastIndexOf("return;", StringComparison.Ordinal);
+        int firstAfter = afterText.IndexOf("return;", StringComparison.Ordinal);
+        int secondAfter = afterText.LastIndexOf("return;", StringComparison.Ordinal);
+        var before = Document(
+            beforeText,
+            [
+                NodeAt(0, "ExpressionStatement", log, "Log();".Length),
+                NodeAt(1, "ReturnStatement", firstBefore, "return;".Length),
+                NodeAt(2, "ReturnStatement", secondBefore, "return;".Length),
+            ],
+            [
+                Region(PrintedRegionRole.Case, 0, firstBefore + "return;".Length),
+                Region(
+                    PrintedRegionRole.Case,
+                    beforeText.IndexOf("case 1:", StringComparison.Ordinal),
+                    beforeText.Length - beforeText.IndexOf("case 1:", StringComparison.Ordinal)),
+            ]);
+        var after = Document(
+            afterText,
+            [
+                NodeAt(0, "ReturnStatement", firstAfter, "return;".Length),
+                NodeAt(1, "ReturnStatement", secondAfter, "return;".Length),
+            ],
+            [
+                Region(PrintedRegionRole.Case, 0, firstAfter + "return;".Length),
+                Region(
+                    PrintedRegionRole.Case,
+                    afterText.IndexOf("case 1:", StringComparison.Ordinal),
+                    afterText.Length - afterText.IndexOf("case 1:", StringComparison.Ordinal)),
+            ]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Removed, change.Kind);
+        Assert.Equal("ExpressionStatement", change.Before!.Kind);
+    }
+
+    [Fact]
+    public void CompareProjectsInterleavedDocumentsToCSharp()
+    {
+        var before = InterleavedDocument("return;", "IL_0000: ret", "ReturnStatement");
+        var after = InterleavedDocument("break;", "IL_0000: br", "BreakStatement");
+
+        var result = AnnotatedSourceComparer.Compare(before, after);
+
+        var change = Assert.Single(result.Changes);
+        Assert.Equal(AnnotatedSourceChangeKind.Changed, change.Kind);
+        Assert.Equal("return;", result.Before.Text);
+        Assert.Equal("break;", result.After.Text);
+        Assert.All(result.Before.Nodes, node => Assert.Equal(SourceLineKind.CSharp, node.Medium));
+        Assert.Single(result.Before.Facts);
+        Assert.Equal(new AnnotatedSourceTarget(0, 0), Assert.Single(result.Before.Targets));
+    }
+
+    [Fact]
+    public void CompareRejectsAnIlNodeThatDoesNotOwnItsWholeLine()
+    {
+        const string text = "return;\nIL_0000: ret and unclassified text";
+        var document = new AnnotatedSourceDocument(
+            text,
+            [
+                NodeAt(0, "ReturnStatement", 0, "return;".Length),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNode.InstructionKind,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan("return;\n".Length, "IL_0000: ret".Length)],
+                    IlOffset: 0),
+            ],
+            [],
+            [],
+            []);
+
+        var exception = Assert.Throws<InvalidOperationException>(
             () => AnnotatedSourceComparer.Compare(document, document));
-        Assert.Contains("C#-only", exception.Message);
+
+        Assert.Contains("unclassified", exception.Message);
     }
 
     static AnnotatedSourceDocument Document(
@@ -236,6 +391,54 @@ public class AnnotatedSourceComparisonTests
                 Assert.True(start >= 0, $"Selection '{selection}' was not found.");
                 return new AnnotatedSourceSpan(start, selection.Length);
             })]);
+
+    static AnnotatedSourceNode NodeAt(int id, string kind, int start, int length)
+        => new(
+            id,
+            kind,
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(start, length)]);
+
+    static AnnotatedSourceRegion Region(
+        PrintedRegionRole role,
+        int start,
+        int length)
+        => new(role, [new AnnotatedSourceSpan(start, length)]);
+
+    static AnnotatedSourceDocument InterleavedDocument(
+        string csharp,
+        string il,
+        string kind)
+    {
+        string text = $"{csharp}\n{il}";
+        var fact = new AnnotatedSourceFact(
+            0,
+            "test.fact",
+            "Test",
+            AnnotationConditionality.Always,
+            Detail: null,
+            SourceOffset: 0,
+            AnnotatedSourceFactOrigin.Body);
+        var ilOnlyFact = fact with { Id = 1, Descriptor = "test.il-only" };
+        return new AnnotatedSourceDocument(
+            text,
+            [
+                NodeAt(0, kind, 0, csharp.Length),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNode.InstructionKind,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(csharp.Length + 1, il.Length)],
+                    IlOffset: 0),
+            ],
+            [],
+            [fact, ilOnlyFact],
+            [
+                new AnnotatedSourceTarget(0, 0),
+                new AnnotatedSourceTarget(0, 1),
+                new AnnotatedSourceTarget(1, 1),
+            ]);
+    }
 
     static AnnotatedSourceRegion CaseRegion(
         string text,

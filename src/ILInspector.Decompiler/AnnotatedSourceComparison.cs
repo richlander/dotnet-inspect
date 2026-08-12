@@ -52,6 +52,8 @@ public sealed record AnnotatedSourceNodeSnapshot
     public ImmutableArray<AnnotatedSourceSpan> Spans { get; }
     public string SelectedText { get; }
     public string RegionPath { get; }
+    internal string RegionFingerprint { get; init; } = "";
+    internal string RegionOrdinalPath { get; init; } = "";
 }
 
 /// <summary>One added, removed, changed, or moved rendered-syntax node.</summary>
@@ -103,15 +105,25 @@ public sealed record AnnotatedSourceComparisonResult
         this.Changes = Changes;
     }
 
+    /// <summary>
+    /// The projected C# document whose text and node IDs define every
+    /// <see cref="AnnotatedSourceNodeChange.Before"/> coordinate.
+    /// </summary>
     public AnnotatedSourceDocument Before { get; }
+
+    /// <summary>
+    /// The projected C# document whose text and node IDs define every
+    /// <see cref="AnnotatedSourceNodeChange.After"/> coordinate.
+    /// </summary>
     public AnnotatedSourceDocument After { get; }
     public ImmutableArray<AnnotatedSourceNodeChange> Changes { get; }
 }
 
 /// <summary>
-/// Compares the rendered-syntax node streams of two C# annotated-source
-/// documents. Node IDs remain document-local; correspondence is established
-/// from stable kind identity, selected text, order, and structural context.
+/// Compares the C# rendered-syntax node streams of two annotated-source
+/// documents. Interleaved IL is projected out before matching. Node IDs remain
+/// document-local; correspondence is established from stable kind identity,
+/// selected text, order, and structural context.
 /// </summary>
 public static class AnnotatedSourceComparer
 {
@@ -121,14 +133,15 @@ public static class AnnotatedSourceComparer
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
-        EnsureCSharp(before, nameof(before));
-        EnsureCSharp(after, nameof(after));
+        before = AnnotatedSourceDocumentProjection.CSharpOnly(before);
+        after = AnnotatedSourceDocumentProjection.CSharpOnly(after);
 
         var beforeNodes = Snapshots(before);
         var afterNodes = Snapshots(after);
+        var (beforeKeys, afterKeys) = Keys(beforeNodes, afterNodes, includeText: true);
         var match = FindingMatcher.Match(
-            beforeNodes.Select(Key),
-            afterNodes.Select(Key),
+            beforeKeys,
+            afterKeys,
             new FindingMatchOptions(MinMoveRunLength: 1));
 
         var pairedBefore = new bool[beforeNodes.Length];
@@ -202,9 +215,12 @@ public static class AnnotatedSourceComparer
             .Where(index => !pairedAfter[index])
             .ToArray();
 
+        var oldNodes = oldResidual.Select(index => before[index]).ToImmutableArray();
+        var newNodes = newResidual.Select(index => after[index]).ToImmutableArray();
+        var (oldKeys, newKeys) = Keys(oldNodes, newNodes, includeText: false);
         var kindMatches = FindingMatcher.Match(
-            oldResidual.Select(index => new FindingKey(before[index].Kind)),
-            newResidual.Select(index => new FindingKey(after[index].Kind)),
+            oldKeys,
+            newKeys,
             new FindingMatchOptions(MinMoveRunLength: int.MaxValue));
         foreach (var edge in kindMatches.Edges.Where(edge => edge.Kind == FindingEdgeKind.Matched))
         {
@@ -252,32 +268,51 @@ public static class AnnotatedSourceComparer
     }
 
     static ImmutableArray<AnnotatedSourceNodeSnapshot> Snapshots(AnnotatedSourceDocument document)
-        => [.. document.Nodes
+    {
+        var regions = DescribeRegions(document);
+        return [.. document.Nodes
             .OrderBy(node => node.Spans[0].Start)
             .ThenByDescending(node => node.Spans.Sum(span => span.Length))
             .ThenBy(node => node.Kind, StringComparer.Ordinal)
             .ThenBy(node => node.Id)
-            .Select(node => Snapshot(document, node))];
+            .Select(node => Snapshot(document, node, regions))];
+    }
 
     static AnnotatedSourceNodeSnapshot Snapshot(
         AnnotatedSourceDocument document,
-        AnnotatedSourceNode node)
+        AnnotatedSourceNode node,
+        ImmutableArray<RegionDescriptor> regions)
     {
         string selectedText = string.Concat(node.Spans.Select(
             span => document.Text.Substring(span.Start, span.Length)));
+        RegionDescriptor[] containing =
+        [
+            .. regions.Where(region => Contains(region.Region.Spans, node.Spans)),
+        ];
         string regionPath = string.Join(
             " > ",
-            document.Regions
-                .Where(region => Contains(region.Spans, node.Spans))
-                .OrderByDescending(region => region.Spans.Sum(span => span.Length))
-                .ThenBy(region => region.Spans[0].Start)
-                .Select(region => region.Role.ToString()));
-        return new AnnotatedSourceNodeSnapshot(
+            containing.Select(region => region.Region.Role.ToString()));
+        var snapshot = new AnnotatedSourceNodeSnapshot(
             node.Id,
             node.Kind,
             [.. node.Spans],
             selectedText,
             regionPath);
+        if (containing.Length == 0)
+            return snapshot;
+
+        var innermost = containing[^1];
+        return snapshot with
+        {
+            RegionFingerprint = TextExcept(
+                document.Text,
+                innermost.Region.Spans,
+                node.Spans),
+            RegionOrdinalPath = string.Join(
+                " > ",
+                containing.Select(region =>
+                    $"{region.Region.Role}[{region.SiblingOrdinal}]")),
+        };
     }
 
     static bool Contains(
@@ -287,21 +322,177 @@ public static class AnnotatedSourceComparer
             region.Start <= node.Start
             && region.Start + region.Length >= node.Start + node.Length));
 
-    static FindingKey Key(AnnotatedSourceNodeSnapshot node)
-        => new(
-            $"{node.Kind.Length}:{node.Kind}{node.SelectedText}",
-            node.RegionPath.Length == 0 ? null : node.RegionPath);
+    static (
+        ImmutableArray<FindingKey> Before,
+        ImmutableArray<FindingKey> After) Keys(
+            ImmutableArray<AnnotatedSourceNodeSnapshot> before,
+            ImmutableArray<AnnotatedSourceNodeSnapshot> after,
+            bool includeText)
+    {
+        string Base(AnnotatedSourceNodeSnapshot node)
+            => Part(node.Kind)
+                + (includeText ? Part(node.SelectedText) : "")
+                + Part(node.RegionPath);
+
+        string[] oldIdentities = [.. before.Select(Base)];
+        string[] newIdentities = [.. after.Select(Base)];
+        (oldIdentities, newIdentities) = EnrichSafely(
+            oldIdentities,
+            newIdentities,
+            before,
+            after,
+            node => node.RegionFingerprint);
+        (oldIdentities, newIdentities) = EnrichSafely(
+            oldIdentities,
+            newIdentities,
+            before,
+            after,
+            node => node.RegionOrdinalPath);
+
+        FindingKey Key(AnnotatedSourceNodeSnapshot node, string identity)
+            => new(
+                identity,
+                node.RegionPath.Length == 0 ? null : node.RegionPath);
+
+        return (
+            [.. before.Select((node, index) => Key(node, oldIdentities[index]))],
+            [.. after.Select((node, index) => Key(node, newIdentities[index]))]);
+    }
+
+    static (string[] Before, string[] After) EnrichSafely(
+        string[] beforeIdentities,
+        string[] afterIdentities,
+        ImmutableArray<AnnotatedSourceNodeSnapshot> before,
+        ImmutableArray<AnnotatedSourceNodeSnapshot> after,
+        Func<AnnotatedSourceNodeSnapshot, string> discriminator)
+    {
+        var identities = beforeIdentities
+            .Concat(afterIdentities)
+            .Distinct(StringComparer.Ordinal);
+        var enrichable = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string identity in identities)
+        {
+            int[] oldIndices = Enumerable.Range(0, beforeIdentities.Length)
+                .Where(index => beforeIdentities[index] == identity)
+                .ToArray();
+            int[] newIndices = Enumerable.Range(0, afterIdentities.Length)
+                .Where(index => afterIdentities[index] == identity)
+                .ToArray();
+            if (oldIndices.Length <= 1 && newIndices.Length <= 1)
+                continue;
+
+            int pairCapacity = oldIndices
+                .Select(index => discriminator(before[index]))
+                .Concat(newIndices.Select(index => discriminator(after[index])))
+                .Distinct(StringComparer.Ordinal)
+                .Sum(value => Math.Min(
+                    oldIndices.Count(index => discriminator(before[index]) == value),
+                    newIndices.Count(index => discriminator(after[index]) == value)));
+            if (pairCapacity == Math.Min(oldIndices.Length, newIndices.Length))
+                enrichable.Add(identity);
+        }
+
+        string Enrich(
+            string identity,
+            AnnotatedSourceNodeSnapshot node)
+            => enrichable.Contains(identity)
+                ? identity + Part(discriminator(node))
+                : identity;
+
+        return (
+            [.. before.Select((node, index) => Enrich(beforeIdentities[index], node))],
+            [.. after.Select((node, index) => Enrich(afterIdentities[index], node))]);
+    }
+
+    static string Part(string value) => $"{value.Length}:{value}";
+
+    static ImmutableArray<RegionDescriptor> DescribeRegions(AnnotatedSourceDocument document)
+    {
+        var ordered = document.Regions
+            .Select((region, index) => new
+            {
+                Region = region,
+                OriginalIndex = index,
+                Length = region.Spans.Sum(span => span.Length),
+                Start = region.Spans[0].Start,
+            })
+            .OrderByDescending(item => item.Length)
+            .ThenBy(item => item.Start)
+            .ThenBy(item => item.Region.Role)
+            .ThenBy(item => item.OriginalIndex)
+            .ToArray();
+        var descriptors = ImmutableArray.CreateBuilder<RegionDescriptor>(ordered.Length);
+        foreach (var item in ordered)
+        {
+            int parent = -1;
+            int parentLength = int.MaxValue;
+            for (int index = 0; index < descriptors.Count; index++)
+            {
+                var candidate = descriptors[index];
+                int candidateLength = candidate.Region.Spans.Sum(span => span.Length);
+                if (candidateLength < parentLength
+                    && !candidate.Region.Spans.SequenceEqual(item.Region.Spans)
+                    && Contains(candidate.Region.Spans, item.Region.Spans))
+                {
+                    parent = index;
+                    parentLength = candidateLength;
+                }
+            }
+
+            descriptors.Add(new RegionDescriptor(item.Region, parent, SiblingOrdinal: 0));
+        }
+        var result = ImmutableArray.CreateBuilder<RegionDescriptor>(descriptors.Count);
+        for (int index = 0; index < descriptors.Count; index++)
+        {
+            var descriptor = descriptors[index];
+            int start = descriptor.Region.Spans[0].Start;
+            int siblingOrdinal = descriptors
+                .Select((candidate, candidateIndex) => (candidate, candidateIndex))
+                .Count(item =>
+                    item.candidate.Parent == descriptor.Parent
+                    && item.candidate.Region.Role == descriptor.Region.Role
+                    && (item.candidate.Region.Spans[0].Start < start
+                        || item.candidate.Region.Spans[0].Start == start
+                            && item.candidateIndex < index));
+            result.Add(descriptor with { SiblingOrdinal = siblingOrdinal });
+        }
+        return result.ToImmutable();
+    }
+
+    static string TextExcept(
+        string text,
+        IReadOnlyList<AnnotatedSourceSpan> source,
+        IReadOnlyList<AnnotatedSourceSpan> excluded)
+    {
+        var result = new System.Text.StringBuilder();
+        foreach (var sourceSpan in source)
+        {
+            int cursor = sourceSpan.Start;
+            int sourceEnd = sourceSpan.Start + sourceSpan.Length;
+            foreach (var excludedSpan in excluded)
+            {
+                int excludedEnd = excludedSpan.Start + excludedSpan.Length;
+                if (excludedEnd <= cursor)
+                    continue;
+                if (excludedSpan.Start >= sourceEnd)
+                    break;
+
+                int through = Math.Min(excludedSpan.Start, sourceEnd);
+                if (cursor < through)
+                    result.Append(text, cursor, through - cursor);
+                cursor = Math.Max(cursor, Math.Min(excludedEnd, sourceEnd));
+            }
+            if (cursor < sourceEnd)
+                result.Append(text, cursor, sourceEnd - cursor);
+        }
+        return result.ToString();
+    }
 
     static int ChangeStart(AnnotatedSourceNodeChange change)
         => change.Before?.Spans[0].Start ?? change.After!.Spans[0].Start;
 
-    static void EnsureCSharp(AnnotatedSourceDocument document, string parameterName)
-    {
-        if (document.Nodes.Any(node => node.Medium != SourceLineKind.CSharp))
-        {
-            throw new ArgumentException(
-                "Structural source comparison accepts C#-only annotated-source documents.",
-                parameterName);
-        }
-    }
+    sealed record RegionDescriptor(
+        AnnotatedSourceRegion Region,
+        int Parent,
+        int SiblingOrdinal);
 }

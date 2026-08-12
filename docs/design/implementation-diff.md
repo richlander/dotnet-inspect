@@ -80,12 +80,20 @@ third time.
 
 ## Annotated-source structural comparison
 
-`AnnotatedSourceComparer` accepts two C#-only `AnnotatedSourceDocument`
-payloads. Node IDs and absolute UTF-16 spans remain document-local: equal IDs or
-coordinates never establish correspondence. The comparer instead aligns the
-ordered node streams using stable rendered-syntax kinds, selected text, and
-region context, then emits typed `Added`, `Removed`, `Changed`, and `Moved`
-node changes. Unknown future kinds remain readable labels.
+`AnnotatedSourceComparer` accepts two `AnnotatedSourceDocument` payloads and
+projects each through the product-owned
+`AnnotatedSourceDocumentProjection.CSharpOnly` boundary before comparing it.
+The direct tool payload may contain interleaved IL, but the comparison result,
+carets, and table contain only the rebased C# text and structure. Node IDs and
+absolute UTF-16 spans remain document-local: equal IDs or coordinates never
+establish correspondence. The comparer instead aligns the ordered node streams
+using stable rendered-syntax kinds, selected text, and region context, then
+emits typed `Added`, `Removed`, `Changed`, and `Moved` node changes. Unknown
+future kinds remain readable labels.
+`AnnotatedSourceComparisonTests.CompareProjectsInterleavedDocumentsToCSharp`
+gates the coordinate and target rebasing, and
+`AuthoredCorpusHarnessProcessTests.Harness_ConsumesProductAnnotatedSourceDocumentJson`
+gates the direct producer wire format and interleaved consumer path.
 
 `AnnotatedSourceComparisonRenderer` consumes that one result twice. It renders
 full Before and After C# bodies with label-plus-extent carets, then renders the
@@ -115,9 +123,11 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   --annotated-source-diff before.json after.json
 ```
 
-Both files are direct Annotated Source Document JSON payloads produced by the
-base and head tool revisions. This mode consumes no assembly and performs no IL
-inspection.
+Both files are direct, snake-case Annotated Source Document JSON payloads
+produced by the base and head tool revisions. They may contain the normal
+interleaved IL plane; the product projection removes it and remaps C# nodes,
+regions, and targets before correspondence. This mode consumes no assembly and
+performs no IL comparison or inspection.
 
 ## Row currency contract
 

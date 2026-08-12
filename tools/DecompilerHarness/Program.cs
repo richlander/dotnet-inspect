@@ -2075,7 +2075,8 @@ static class Program
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
           --annotated-source-diff <before.json> <after.json>
-                                compare two C# Annotated Source Document payloads;
+                                compare the C# planes of two direct Annotated
+                                Source Document payloads;
                                 print full Before/After bodies with structural
                                 carets plus the shared typed structural diff.
           --idempotence-check     run the IR pipeline twice and report methods the
