@@ -747,8 +747,13 @@ public class ApiCommand
     /// null when no PDB can be obtained (offline, Windows PDB, no symbols).
     /// </summary>
     internal static async Task<string?> TryAcquirePdbPathAsync(
-        string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+        string dllPath,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var service = SourceLinkService.Open(dllPath, logger.Log);
@@ -760,9 +765,14 @@ public class ApiCommand
                     : (null, null);
                 await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
                     isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                    sourceOptions: options.SourceOptions);
+                    sourceOptions: options.SourceOptions,
+                    cancellationToken: cancellationToken);
             }
             return context.PortablePdbPath;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {

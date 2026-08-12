@@ -11,8 +11,9 @@ namespace NuGetFetch.Plugins;
 public interface ICredentialSource
 {
     /// <summary>
-    /// Whether any credential source is available. When false the handler stays out of the way
-    /// entirely, so a machine with no plugins installed pays nothing.
+    /// Whether a credential source may be available. A lazy source may return true until its
+    /// first credential request determines that no source is installed. When false the handler
+    /// stays out of the way entirely.
     /// </summary>
     bool HasCredentialSources { get; }
 

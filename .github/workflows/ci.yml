@@ -27,9 +27,6 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # Preview 7 breaks the repository's union-enabled C# sources (#4042).
-  # Keep CI on the last known-good preview until the compiler-shape fix lands.
-  DOTNET_SDK_VERSION: '11.0.100-preview.6.26359.118'
 
 # Cancel superseded PR runs (e.g. when an agent pushes again to the same branch)
 # so only the latest commit of a PR consumes a full CI run. Pushes to main are
@@ -75,7 +72,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
 
       # Trend rows are reproducible evidence only when their recorded commit
       # landed on main and its source declared the recorded methodology. This
@@ -610,7 +607,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -786,7 +784,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -865,7 +864,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -936,7 +936,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
       # here. The completeness check compares a discovery listing against XML
@@ -1056,7 +1057,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -1156,7 +1158,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -1259,7 +1262,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Pack pointer package
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
@@ -1267,7 +1271,9 @@ jobs:
         # tools/netX.0/any/. This makes the pointer TFM-agnostic: any SDK that
         # understands RID-specific tools can read it, regardless of TFM. The
         # pointer carries no implementation, so SelfContained pulls in no runtime.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+        # RID-specific packages are built by their dedicated steps; disabling
+        # inner RID packs keeps this step pointer-only on .NET 11 Preview 7+.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
