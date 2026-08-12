@@ -22,6 +22,413 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "RoundTrip")]
 public class ReturnToSenderPrototypeTests
 {
+    [Theory]
+    [InlineData("Derived", "public override int Value()")]
+    [InlineData("SealedDerived", "public sealed override int Value()")]
+    [InlineData("InternalDerived", "internal override int Value()")]
+    [InlineData("PrivateProtectedDerived", "private protected override int Value()")]
+    public void CompileBackTargets_PreservesProductOwnedOverrideDeclaration(
+        string typeName,
+        string expectedDeclaration)
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value() => 1;
+            }
+
+            public class Derived : Base
+            {
+                public override int Value() => 2;
+
+                public int Call() => Value();
+            }
+
+            public class SealedDerived : Base
+            {
+                public sealed override int Value() => 3;
+
+                public int Call() => Value();
+            }
+
+            public class InternalBase
+            {
+                internal virtual int Value() => 4;
+            }
+
+            public class InternalDerived : InternalBase
+            {
+                internal override int Value() => 5;
+            }
+
+            public class PrivateProtectedBase
+            {
+                private protected virtual int Value() => 6;
+            }
+
+            public class PrivateProtectedDerived : PrivateProtectedBase
+            {
+                private protected override int Value() => 7;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(typeName, "Value", 0)]));
+
+            Assert.Contains(expectedDeclaration, result.Source, StringComparison.Ordinal);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullPreservesUnrelatedOverrideDeclaration()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value() => 1;
+            }
+
+            public class Derived : Base
+            {
+                public override int Value() => 2;
+
+                public int Call() => Value();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Call", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.Contains("public override int Value()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullDoesNotIntroduceFilteredGenericOverrideObligation()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Base
+            {
+                public abstract T Echo<T>(T value);
+            }
+
+            public class Derived : Base
+            {
+                public override T Echo<T>(T value) => value;
+
+                public int Call() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Call", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.DoesNotContain("abstract T Echo<T>", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS0534", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullDoesNotIntroduceFilteredIndexerOverrideObligation()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Base
+            {
+                public abstract int this[int index] { get; }
+            }
+
+            public class Derived : Base
+            {
+                public override int this[int index] => index;
+
+                public int Call() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Call", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.DoesNotContain("abstract int this[", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS0534", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullPreservesNestedOverrideDeclaration()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value() => 1;
+            }
+
+            public class Outer
+            {
+                public class Nested : Base
+                {
+                    public override int Value() => 2;
+
+                    public int Call() => Value();
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Outer.Nested", "Call", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public override int Value()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public virtual int Value()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS0115", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesPropertyOverrideAndBaseSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value => 1;
+            }
+
+            public class Derived : Base
+            {
+                public override int Value => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "get_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public override int Value", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public virtual int Value", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesEventOverrideAndBaseSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class Derived : Base
+            {
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public override event Action Changed", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public virtual event Action Changed", result.Source, StringComparison.Ordinal);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesOverrideAcrossIntermediateBase()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value() => 1;
+            }
+
+            public class Middle : Base
+            {
+            }
+
+            public class Derived : Middle
+            {
+                public override int Value() => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public class Derived : Middle", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public class Middle : Base", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public virtual int Value()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_MatchesRenamedGenericMethodParametersByPosition()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual T Echo<T>(T value) => value;
+            }
+
+            public class Derived : Base
+            {
+                public override U Echo<U>(U value) => value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Echo", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public override U Echo<U>(U value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public virtual T Echo<T>(T value)", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverrideWhenGenericShellDropsBase()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value() => 1;
+            }
+
+            public class Derived<T> : Base
+            {
+                public sealed override int Value() => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived`1", "Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain("override int Value()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("sealed", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(": Base", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverrideWhenExternalBaseIsNotReconstructed()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var dependencyPath = CompileFixture("""
+            namespace External;
+
+            public class Base
+            {
+                public virtual int Value() => 1;
+            }
+            """, directory, "ExternalLib");
+        var assemblyPath = CompileFixture("""
+            public class Derived : External.Base
+            {
+                public override int Value() => 2;
+            }
+            """, directory, "Fixture", [MetadataReference.CreateFromFile(dependencyPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain("override int Value()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(": External.Base", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_AllFullReconstructsUnrelatedExplicitInterfaceEventAccessors()
     {
@@ -8524,7 +8931,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
+    public void CompileBackTargets_PreservesOverrideWithAbstractBaseSlot()
     {
         var assemblyPath = CompileFixture("""
             public abstract class BaseNode
@@ -8544,8 +8951,8 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("DerivedNode", "Describe", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            Assert.Contains("public string Describe()", result.Source);
-            Assert.DoesNotContain("override string Describe", result.Source);
+            Assert.Contains("public override string Describe()", result.Source);
+            Assert.Contains("public abstract string Describe();", result.Source);
         }
         finally
         {

@@ -273,6 +273,10 @@ public enum CompileBackAccessibility
 {
     Public,
     Protected,
+    Internal,
+    PrivateProtected,
+    ProtectedInternal,
+    Private,
 }
 
 public enum CompileBackTypeSignatureKind
@@ -1160,7 +1164,14 @@ public static class CompileBackSourceComposer
                     : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
                 propertyDeclaration.Attributes,
                 MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes,
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName)
+                IsAbstract: IsAbstractMethod(getter),
+                IsVirtual: IsVirtualMethod(getter),
+                IsOverride: propertyDeclaration.IsOverride,
+                IsSealed: propertyDeclaration.IsSealed,
+                Accessibility: DeclarationAccessibility(propertyDeclaration.Accessibility),
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                GetterToken: MetadataTokens.GetToken(targetGetter),
+                SetterToken: accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter))
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -2600,7 +2611,14 @@ public static class CompileBackSourceComposer
                         new CompileBackFact("metadata", "auto-property", propertyName)
                     ]
                     : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))],
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName)
+                IsAbstract: IsAbstractMethod(setter),
+                IsVirtual: IsVirtualMethod(setter),
+                IsOverride: propertyDeclaration.IsOverride,
+                IsSealed: propertyDeclaration.IsSealed,
+                Accessibility: DeclarationAccessibility(propertyDeclaration.Accessibility),
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                GetterToken: property.GetAccessors().Getter.IsNil ? null : MetadataTokens.GetToken(property.GetAccessors().Getter),
+                SetterToken: MetadataTokens.GetToken(targetSetter))
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -2669,6 +2687,11 @@ public static class CompileBackSourceComposer
             reader,
             accessor,
             GenericContext.ForMethod(reader, targetTypeDef, accessor));
+        var accessorDeclaration = MetadataDeclarationQuery.GetMethod(
+            reader,
+            targetTypeDef,
+            accessor,
+            signature);
         var parameters = MethodParameters(reader, accessor, signature);
         if (parameters.Count != 1)
             throw new InvalidOperationException("Event accessors must have exactly one value parameter.");
@@ -2710,9 +2733,16 @@ public static class CompileBackSourceComposer
                 targetBody,
                 [new CompileBackFact("metadata", "target-event-accessor", reader.GetString(accessor.Name))],
                 MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
+                IsAbstract: IsAbstractMethod(accessor),
+                IsVirtual: IsVirtualMethod(accessor),
+                IsOverride: accessorDeclaration.IsOverride,
+                IsSealed: accessorDeclaration.IsSealed,
+                Accessibility: DeclarationAccessibility(accessorDeclaration.Accessibility),
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
                 ExplicitInterfaceMemberName: explicitEvent?.QualifiedName,
-                SiblingTargetBody: siblingAccessorBody)
+                SiblingTargetBody: siblingAccessorBody,
+                AdderToken: accessors.Adder.IsNil ? null : MetadataTokens.GetToken(accessors.Adder),
+                RemoverToken: accessors.Remover.IsNil ? null : MetadataTokens.GetToken(accessors.Remover))
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -2792,6 +2822,13 @@ public static class CompileBackSourceComposer
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
         var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, targetTypeDef, method));
+        bool isSourceMethodDeclaration =
+            function.MethodKind is not (IrMethodKind.Constructor or IrMethodKind.StaticConstructor)
+            && (!method.Attributes.HasFlag(MethodAttributes.SpecialName)
+                || reader.GetString(method.Name).StartsWith("op_", StringComparison.Ordinal));
+        var methodDeclaration = isSourceMethodDeclaration
+            ? MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, method, signature)
+            : null;
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
         bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
@@ -2866,16 +2903,21 @@ public static class CompileBackSourceComposer
                 [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
                 isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
                 isConstructor ? null : MethodReturnAttributes(reader, method),
-                IsAbstract: !isConstructor && IsAbstractMethod(method),
-                IsVirtual: !isConstructor && IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false,
+                IsAbstract: isSourceMethodDeclaration && IsAbstractMethod(method),
+                IsVirtual: isSourceMethodDeclaration && IsVirtualMethod(method),
+                IsOverride: methodDeclaration?.IsOverride ?? false,
+                IsSealed: methodDeclaration?.IsSealed ?? false,
                 IsAsync: !isConstructor
                     && (function.RequiresAsyncBodyModifier
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
+                Accessibility: methodDeclaration is null
+                    ? MethodAccessibility(method)
+                    : DeclarationAccessibility(methodDeclaration.Accessibility),
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
-                RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
+                DeclarationSignature: explicitInterfaceDeclarationSignature,
+                RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
+                MetadataToken: MetadataTokens.GetToken(targetMethod))
         ];
         if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
         {
@@ -3242,6 +3284,7 @@ public static class CompileBackSourceComposer
             var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             if (!OperatorSignaturesMatch(targetSignature, signature))
                 continue;
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
@@ -3257,8 +3300,9 @@ public static class CompileBackSourceComposer
                 MethodReturnAttributes(reader, method),
                 IsAbstract: IsAbstractMethod(method),
                 IsVirtual: IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false);
+                IsOverride: methodDeclaration.IsOverride,
+                IsSealed: methodDeclaration.IsSealed,
+                MetadataToken: MetadataTokens.GetToken(methodHandle));
         }
 
         return null;
@@ -3288,6 +3332,7 @@ public static class CompileBackSourceComposer
             var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             if (!OperatorSignaturesMatch(targetSignature, signature))
                 continue;
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
@@ -3303,8 +3348,9 @@ public static class CompileBackSourceComposer
                 MethodReturnAttributes(reader, method),
                 IsAbstract: IsAbstractMethod(method),
                 IsVirtual: IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false);
+                IsOverride: methodDeclaration.IsOverride,
+                IsSealed: methodDeclaration.IsSealed,
+                MetadataToken: MetadataTokens.GetToken(methodHandle));
         }
 
         return null;
@@ -3468,6 +3514,7 @@ public static class CompileBackSourceComposer
             {
                 continue;
             }
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, "Equals", 0, MethodSignatureText("Equals", signature)),
@@ -3483,8 +3530,9 @@ public static class CompileBackSourceComposer
                 MethodReturnAttributes(reader, method),
                 IsAbstract: IsAbstractMethod(method),
                 IsVirtual: IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false);
+                IsOverride: methodDeclaration.IsOverride,
+                IsSealed: methodDeclaration.IsSealed,
+                MetadataToken: MetadataTokens.GetToken(methodHandle));
         }
 
         return null;
@@ -3529,16 +3577,24 @@ public static class CompileBackSourceComposer
         => $"{signature.ReturnType} {name}({string.Join(", ", signature.ParameterTypes)})";
 
     static bool IsAbstractMethod(MethodDefinition method)
-        => MetadataDeclarationQuery.IsAbstractMethod(method);
+        => MetadataDeclarationQuery.IsSourceDeclarableAbstractMethod(method);
 
     static bool IsVirtualMethod(MethodDefinition method)
-        => MetadataDeclarationQuery.IsVirtualMethod(method);
-
-    static bool IsProtectedMethod(MethodDefinition method)
-        => MetadataDeclarationQuery.AccessibilityKeyword(method) is "protected" or "protected internal";
+        => MetadataDeclarationQuery.IsSourceDeclarableVirtualMethod(method);
 
     static CompileBackAccessibility MethodAccessibility(MethodDefinition method)
-        => IsProtectedMethod(method) ? CompileBackAccessibility.Protected : CompileBackAccessibility.Public;
+        => DeclarationAccessibility(MetadataDeclarationQuery.AccessibilityKeyword(method));
+
+    static CompileBackAccessibility DeclarationAccessibility(string accessibility)
+        => accessibility switch
+        {
+            "protected" => CompileBackAccessibility.Protected,
+            "internal" => CompileBackAccessibility.Internal,
+            "private protected" => CompileBackAccessibility.PrivateProtected,
+            "protected internal" => CompileBackAccessibility.ProtectedInternal,
+            "private" => CompileBackAccessibility.Private,
+            _ => CompileBackAccessibility.Public,
+        };
 
     static IReadOnlyList<string> MemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => MetadataDeclarationQuery.RenderMemberAttributes(reader, attributes);
@@ -4325,6 +4381,8 @@ public static class CompileBackSourceComposer
             IReadOnlyList<CompileBackTypeRequirement> requirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
+            var overrideExpansion = AddSameAssemblyOverrideSlots(reader, requirements);
+            requirements = overrideExpansion.Requirements;
             var requests = new List<CSharpTypePrintRequest>();
             var producedRequirements = new List<CompileBackTypeRequirement>();
             var requirementsByMetadataName = requirements.ToDictionary(
@@ -4361,12 +4419,405 @@ public static class CompileBackSourceComposer
                     rootHandle,
                     rootRequirement,
                     requirementsByMetadataName,
+                    overrideExpansion.MaterializedOverrideSlots,
                     producedRequirements,
                     diagnostics);
                 requests.Add(TypeShellProducer.BuildPrintRequest(reader, rootSpec));
             }
 
             return new TypeProduction(requests, producedRequirements);
+        }
+
+        sealed record OverrideSlotExpansion(
+            IReadOnlyList<CompileBackTypeRequirement> Requirements,
+            IReadOnlyDictionary<MethodDefinitionHandle, MethodDefinitionHandle> MaterializedOverrideSlots);
+
+        static OverrideSlotExpansion AddSameAssemblyOverrideSlots(
+            MetadataReader reader,
+            IReadOnlyList<CompileBackTypeRequirement> requirements)
+        {
+            var expanded = requirements.ToList();
+            var byName = expanded.ToDictionary(
+                requirement => requirement.Type.MetadataFullName,
+                requirement => requirement,
+                StringComparer.Ordinal);
+            var pending = new Queue<MethodDefinitionHandle>();
+            var visited = new HashSet<MethodDefinitionHandle>();
+            var surfaceScans = new HashSet<(TypeDefinitionHandle Type, bool IncludeMemberSurface)>();
+            var materializedOverrideSlots =
+                new Dictionary<MethodDefinitionHandle, MethodDefinitionHandle>();
+
+            foreach (var requirement in expanded.ToArray())
+            {
+                if (FindType(reader, requirement.Type.MetadataFullName) is not { } typeHandle)
+                    continue;
+
+                QueueOverrideMembers(requirement);
+                QueueSurfaceOverrideMembers(typeHandle, requirement.IncludeMemberSurface);
+            }
+
+            while (pending.TryDequeue(out var methodHandle))
+            {
+                if (!visited.Add(methodHandle))
+                    continue;
+
+                var method = reader.GetMethodDefinition(methodHandle);
+                var declaringTypeHandle = method.GetDeclaringType();
+                if (IsIntrinsicObjectOverride(reader, declaringTypeHandle, methodHandle)
+                    || MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                        reader,
+                        declaringTypeHandle,
+                        methodHandle) is not { } slot
+                    || !CanReconstructOverridePath(
+                        reader,
+                        declaringTypeHandle,
+                        slot.DeclaringType,
+                        byName))
+                {
+                    continue;
+                }
+
+                var baseMember = RequirementForMethodHandle(
+                    reader,
+                    slot.DeclaringType,
+                    slot.Method,
+                    "override-base-slot");
+                if (baseMember is null)
+                {
+                    continue;
+                }
+
+                EnsureBaseRequirements(declaringTypeHandle, slot.DeclaringType);
+                var baseTypeDef = reader.GetTypeDefinition(slot.DeclaringType);
+                var baseIdentity = CompileBackTypeIdentity.FromDefinition(reader, baseTypeDef);
+                var baseRequirement = byName[baseIdentity.MetadataFullName];
+                var requiredMembers = baseRequirement.RequiredMembers.ToList();
+                int existingIndex = requiredMembers.FindIndex(existing =>
+                    SameSourceDeclaration(existing, baseMember));
+                if (existingIndex >= 0)
+                {
+                    var existing = requiredMembers[existingIndex];
+                    requiredMembers[existingIndex] = existing with
+                    {
+                        MetadataToken = existing.MetadataToken ?? baseMember.MetadataToken,
+                        GetterToken = existing.GetterToken ?? baseMember.GetterToken,
+                        SetterToken = existing.SetterToken ?? baseMember.SetterToken,
+                        AdderToken = existing.AdderToken ?? baseMember.AdderToken,
+                        RemoverToken = existing.RemoverToken ?? baseMember.RemoverToken,
+                    };
+                }
+                else
+                {
+                    requiredMembers.Add(baseMember);
+                }
+
+                baseRequirement = baseRequirement with { RequiredMembers = requiredMembers };
+                byName[baseIdentity.MetadataFullName] = baseRequirement;
+                expanded[expanded.FindIndex(requirement =>
+                    requirement.Type.MetadataFullName == baseIdentity.MetadataFullName)] = baseRequirement;
+                materializedOverrideSlots[methodHandle] = slot.Method;
+                QueueOverrideMembers(baseRequirement);
+            }
+
+            return new OverrideSlotExpansion(expanded, materializedOverrideSlots);
+
+            void QueueOverrideMembers(CompileBackTypeRequirement requirement)
+            {
+                foreach (var member in requirement.RequiredMembers.Where(member => member.IsOverride))
+                {
+                    foreach (var token in MemberMethodTokens(member))
+                    {
+                        var handle = MetadataTokens.EntityHandle(token);
+                        if (handle.Kind == HandleKind.MethodDefinition)
+                            pending.Enqueue((MethodDefinitionHandle)handle);
+                    }
+                }
+            }
+
+            void QueueSurfaceOverrideMembers(
+                TypeDefinitionHandle typeHandle,
+                bool includeMemberSurface)
+            {
+                if (!surfaceScans.Add((typeHandle, includeMemberSurface)))
+                    return;
+
+                var typeDef = reader.GetTypeDefinition(typeHandle);
+                if (includeMemberSurface)
+                {
+                    foreach (var methodHandle in typeDef.GetMethods())
+                    {
+                        var method = reader.GetMethodDefinition(methodHandle);
+                        if ((method.Attributes & MethodAttributes.Virtual) != 0
+                            && (method.Attributes & MethodAttributes.NewSlot) == 0
+                            && CanIncludeClosureOverrideMember(reader, typeDef, methodHandle))
+                        {
+                            pending.Enqueue(methodHandle);
+                        }
+                    }
+                }
+
+                foreach (var nestedHandle in typeDef.GetNestedTypes())
+                {
+                    var nested = reader.GetTypeDefinition(nestedHandle);
+                    var nestedIdentity = CompileBackTypeIdentity.FromDefinition(reader, nested);
+                    bool includeNestedSurface = includeMemberSurface
+                        || byName.TryGetValue(nestedIdentity.MetadataFullName, out var nestedRequirement)
+                            && nestedRequirement.IncludeMemberSurface
+                        || IsGeneratedMetadataName(reader.GetString(nested.Name));
+                    QueueSurfaceOverrideMembers(nestedHandle, includeNestedSurface);
+                }
+            }
+
+            static bool CanIncludeClosureOverrideMember(
+                MetadataReader reader,
+                TypeDefinition typeDef,
+                MethodDefinitionHandle methodHandle)
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (method.GetGenericParameters().Count != 0)
+                    return false;
+
+                foreach (var propertyHandle in typeDef.GetProperties())
+                {
+                    var property = reader.GetPropertyDefinition(propertyHandle);
+                    var accessors = property.GetAccessors();
+                    if (accessors.Getter != methodHandle && accessors.Setter != methodHandle)
+                        continue;
+
+                    try
+                    {
+                        return MetadataDeclarationQuery.GetProperty(reader, typeDef, property)
+                            .Signature.Parameters.Count == 0;
+                    }
+                    catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            void EnsureBaseRequirements(
+                TypeDefinitionHandle derivedTypeHandle,
+                TypeDefinitionHandle slotDeclaringType)
+            {
+                var currentHandle = derivedTypeHandle;
+                while (currentHandle != slotDeclaringType)
+                {
+                    var current = reader.GetTypeDefinition(currentHandle);
+                    if (current.BaseType.Kind != HandleKind.TypeDefinition)
+                        return;
+
+                    var baseHandle = (TypeDefinitionHandle)current.BaseType;
+                    var baseType = reader.GetTypeDefinition(baseHandle);
+                    var baseIdentity = CompileBackTypeIdentity.FromDefinition(reader, baseType);
+                    if (!byName.ContainsKey(baseIdentity.MetadataFullName))
+                    {
+                        var requirement = new CompileBackTypeRequirement(
+                            baseIdentity,
+                            ShellKind(reader, baseType),
+                            RequiredMembers: [],
+                            PrimaryConstructor: null,
+                            SourceFacts: [new CompileBackFact("metadata", "override-base-type", baseIdentity.FullName)]);
+                        expanded.Add(requirement);
+                        byName.Add(baseIdentity.MetadataFullName, requirement);
+                    }
+
+                    currentHandle = baseHandle;
+                }
+            }
+        }
+
+        static bool SameSourceDeclaration(
+            CompileBackMemberRequirement left,
+            CompileBackMemberRequirement right)
+        {
+            bool sameKind = left.Kind == right.Kind
+                || left.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                    && right.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                || left.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
+                    && right.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove;
+            return sameKind
+                && left.Identity.Type == right.Identity.Type
+                && left.Identity.Method == right.Identity.Method
+                && left.Identity.Signature == right.Identity.Signature
+                && SameParameters(left.Parameters, right.Parameters);
+        }
+
+        static void NormalizeOverrideMembers(
+            MetadataReader reader,
+            IReadOnlyDictionary<MethodDefinitionHandle, MethodDefinitionHandle> materializedOverrideSlots,
+            List<CompileBackMemberRequirement> members)
+        {
+            for (int i = 0; i < members.Count; i++)
+            {
+                var member = members[i];
+                if (!member.IsOverride)
+                    continue;
+
+                var methodHandles = MemberMethodTokens(member)
+                    .Select(MetadataTokens.EntityHandle)
+                    .Where(handle => handle.Kind == HandleKind.MethodDefinition)
+                    .Select(handle => (MethodDefinitionHandle)handle)
+                    .ToArray();
+                bool canEmitOverride = methodHandles.Length != 0
+                    && methodHandles.All(methodHandle => CanEmitOverride(methodHandle, []));
+
+                if (!canEmitOverride)
+                {
+                    members[i] = member with
+                    {
+                        IsOverride = false,
+                        IsSealed = false,
+                    };
+                }
+            }
+
+            bool CanEmitOverride(
+                MethodDefinitionHandle methodHandle,
+                HashSet<MethodDefinitionHandle> visited)
+            {
+                if (!visited.Add(methodHandle))
+                    return false;
+
+                var method = reader.GetMethodDefinition(methodHandle);
+                var declaringType = method.GetDeclaringType();
+                if (IsIntrinsicObjectOverride(reader, declaringType, methodHandle))
+                    return true;
+                if (!materializedOverrideSlots.TryGetValue(methodHandle, out var slotHandle))
+                    return false;
+
+                var slot = reader.GetMethodDefinition(slotHandle);
+                return (slot.Attributes & MethodAttributes.NewSlot) != 0
+                    || CanEmitOverride(slotHandle, visited);
+            }
+        }
+
+        static bool CanReconstructOverridePath(
+            MetadataReader reader,
+            TypeDefinitionHandle derivedType,
+            TypeDefinitionHandle slotDeclaringType,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName)
+        {
+            var current = derivedType;
+            var visited = new HashSet<TypeDefinitionHandle>();
+            while (current != slotDeclaringType && visited.Add(current))
+            {
+                var type = reader.GetTypeDefinition(current);
+                var identity = CompileBackTypeIdentity.FromDefinition(reader, type);
+                var kind = requirementsByMetadataName.TryGetValue(
+                    identity.MetadataFullName,
+                    out var requirement)
+                    ? requirement.RequiredKind
+                    : ShellKind(reader, type);
+                if (kind != CompileBackTypeKind.Class
+                    || TypeShellProducer.ReconstructedBaseTypeDisplay(
+                        reader,
+                        type,
+                        isClass: true) is null
+                    || type.BaseType.Kind != HandleKind.TypeDefinition)
+                {
+                    return false;
+                }
+
+                current = (TypeDefinitionHandle)type.BaseType;
+            }
+
+            return current == slotDeclaringType;
+        }
+
+        static bool IsIntrinsicObjectOverride(
+            MetadataReader reader,
+            TypeDefinitionHandle declaringTypeHandle,
+            MethodDefinitionHandle methodHandle)
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if ((method.Attributes & MethodAttributes.Static) != 0
+                || method.GetGenericParameters().Count != 0)
+            {
+                return false;
+            }
+
+            var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+            MethodSignature<string> signature;
+            try
+            {
+                signature = GuardedSignatureText.MethodText(
+                    reader,
+                    method,
+                    GenericContext.ForMethod(reader, declaringType, method));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return false;
+            }
+
+            return reader.GetString(method.Name) switch
+            {
+                "ToString" => signature.ReturnType == "string"
+                    && signature.ParameterTypes.Length == 0,
+                "GetHashCode" => signature.ReturnType == "int"
+                    && signature.ParameterTypes.Length == 0,
+                "Equals" => signature.ReturnType == "bool"
+                    && signature.ParameterTypes is ["object"],
+                _ => false,
+            };
+        }
+
+        static IEnumerable<int> MemberMethodTokens(CompileBackMemberRequirement member)
+        {
+            if (member.MetadataToken is { } methodToken)
+                yield return methodToken;
+            if (member.GetterToken is { } getterToken)
+                yield return getterToken;
+            if (member.SetterToken is { } setterToken)
+                yield return setterToken;
+            if (member.AdderToken is { } adderToken)
+                yield return adderToken;
+            if (member.RemoverToken is { } removerToken)
+                yield return removerToken;
+        }
+
+        static CompileBackMemberRequirement? RequirementForMethodHandle(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            MethodDefinitionHandle methodHandle,
+            string factId)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            foreach (var propertyHandle in typeDef.GetProperties())
+            {
+                var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+                if (accessors.Getter == methodHandle || accessors.Setter == methodHandle)
+                {
+                    return PropertyRequirement(
+                        reader,
+                        typeDef,
+                        identity,
+                        propertyHandle,
+                        reader.GetString(reader.GetMethodDefinition(methodHandle).Name),
+                        factId);
+                }
+            }
+
+            foreach (var eventHandle in typeDef.GetEvents())
+            {
+                var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+                if (accessors.Adder == methodHandle || accessors.Remover == methodHandle)
+                {
+                    return EventRequirement(
+                        reader,
+                        typeDef,
+                        identity,
+                        eventHandle,
+                        reader.GetString(reader.GetMethodDefinition(methodHandle).Name),
+                        factId);
+                }
+            }
+
+            return MethodRequirement(reader, typeDef, identity, methodHandle, factId);
         }
 
         public sealed record TypeProduction(
@@ -4488,7 +4939,7 @@ public static class CompileBackSourceComposer
             bool isAutoProperty = hasGetter
                 && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
             bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
-            bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
+            bool isAbstractAccessor = !accessor.IsNil && IsAbstractMethod(accessorMethod);
             var noBodyProperty = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstractAccessor;
             var stubBody = PropertyStubBody(
                 hasGetter,
@@ -4509,8 +4960,13 @@ public static class CompileBackSourceComposer
                 propertyDeclaration.Attributes,
                 propertyDeclaration.Signature.ReturnAttributes,
                 IsAbstract: isAbstractAccessor,
-                IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual,
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName);
+                IsVirtual: !accessor.IsNil && IsVirtualMethod(accessorMethod),
+                IsOverride: !accessor.IsNil && propertyDeclaration.IsOverride,
+                IsSealed: !accessor.IsNil && propertyDeclaration.IsSealed,
+                Accessibility: DeclarationAccessibility(propertyDeclaration.Accessibility),
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                GetterToken: accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
+                SetterToken: accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter));
         }
 
         static CompileBackStubBodyKind PropertyStubBody(
@@ -4594,8 +5050,8 @@ public static class CompileBackSourceComposer
                 return null;
 
             string eventName = Identifier(reader.GetString(eventDefinition.Name));
-            bool isAbstract = IsAbstractMethod(accessor);
-            bool hasNoBody = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstract;
+            var accessorDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, accessor, signature);
+            bool hasNoBody = (typeDef.Attributes & TypeAttributes.Interface) != 0 || IsAbstractMethod(accessor);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(
                     typeIdentity.FullName,
@@ -4613,8 +5069,13 @@ public static class CompileBackSourceComposer
                 null,
                 [new CompileBackFact("metadata", factId, accessorName)],
                 MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
-                IsAbstract: isAbstract,
-                IsVirtual: IsVirtualMethod(accessor));
+                IsAbstract: IsAbstractMethod(accessor),
+                IsVirtual: IsVirtualMethod(accessor),
+                IsOverride: accessorDeclaration.IsOverride,
+                IsSealed: accessorDeclaration.IsSealed,
+                Accessibility: DeclarationAccessibility(accessorDeclaration.Accessibility),
+                AdderToken: accessors.Adder.IsNil ? null : MetadataTokens.GetToken(accessors.Adder),
+                RemoverToken: accessors.Remover.IsNil ? null : MetadataTokens.GetToken(accessors.Remover));
         }
 
         internal static CompileBackMemberRequirement? MethodRequirement(
@@ -4684,9 +5145,11 @@ public static class CompileBackSourceComposer
                 isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false,
-                IsExtension: IsExtensionMethod(reader, typeDef, method));
+                IsOverride: methodDeclaration?.IsOverride ?? false,
+                IsSealed: methodDeclaration?.IsSealed ?? false,
+                IsExtension: IsExtensionMethod(reader, typeDef, method),
+                Accessibility: MethodAccessibility(method),
+                MetadataToken: MetadataTokens.GetToken(methodHandle));
         }
 
         static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
@@ -4716,6 +5179,7 @@ public static class CompileBackSourceComposer
             TypeDefinitionHandle handle,
             CompileBackTypeRequirement requirement,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
+            IReadOnlyDictionary<MethodDefinitionHandle, MethodDefinitionHandle> materializedOverrideSlots,
             List<CompileBackTypeRequirement> producedRequirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
@@ -4736,6 +5200,10 @@ public static class CompileBackSourceComposer
                     requirementsByMetadataName,
                     members);
             }
+            NormalizeOverrideMembers(
+                reader,
+                materializedOverrideSlots,
+                members);
             // When this class is reconstructed as the base of another shell type, a
             // derived stub constructor emits an implicit `: base()`. If the class has
             // only parameterized constructors (no accessible parameterless one), that
@@ -4775,6 +5243,7 @@ public static class CompileBackSourceComposer
                     reader,
                     typeDef,
                     requirementsByMetadataName,
+                    materializedOverrideSlots,
                     includeMemberSurface,
                     producedRequirements,
                     diagnostics));
@@ -4966,14 +5435,13 @@ public static class CompileBackSourceComposer
         }
 
         static List<CompileBackMemberRequirement> RequiredMemberRequirements(CompileBackTypeRequirement requirement)
-            => requirement.RequiredMembers
-                .Select(member => member with { Accessibility = CompileBackAccessibility.Public })
-                .ToList();
+            => requirement.RequiredMembers.ToList();
 
         static IReadOnlyList<CSharpTypeShellSpec> NestedSpecs(
             MetadataReader reader,
             TypeDefinition typeDef,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
+            IReadOnlyDictionary<MethodDefinitionHandle, MethodDefinitionHandle> materializedOverrideSlots,
             bool includeMemberSurface,
             List<CompileBackTypeRequirement> producedRequirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
@@ -5008,6 +5476,7 @@ public static class CompileBackSourceComposer
                     nestedHandle,
                     nestedRequirement,
                     requirementsByMetadataName,
+                    materializedOverrideSlots,
                     producedRequirements,
                     diagnostics));
             }
@@ -5031,6 +5500,7 @@ public static class CompileBackSourceComposer
                             PrimaryConstructor: null,
                             SourceFacts: [new CompileBackFact("metadata", "generated-dynamic-delegate", identity.FullName)]),
                         requirementsByMetadataName,
+                        materializedOverrideSlots,
                         producedRequirements,
                         diagnostics));
                 }
@@ -5325,7 +5795,7 @@ public static class CompileBackSourceComposer
                 bool isAutoProperty = hasGetter
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
                 bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
-                bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
+                bool isAbstractAccessor = !accessor.IsNil && IsAbstractMethod(accessorMethod);
                 var noBodyProperty = requirement.RequiredKind == CompileBackTypeKind.Interface || isAbstractAccessor;
                 var stubBody = PropertyStubBody(
                     hasGetter,
@@ -5346,7 +5816,9 @@ public static class CompileBackSourceComposer
                     propertyDeclaration.Attributes,
                     propertyDeclaration.Signature.ReturnAttributes,
                     IsAbstract: isAbstractAccessor,
-                    IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual,
+                    IsVirtual: !accessor.IsNil && IsVirtualMethod(accessorMethod),
+                    IsOverride: !accessor.IsNil && propertyDeclaration.IsOverride,
+                    IsSealed: !accessor.IsNil && propertyDeclaration.IsSealed,
                     Accessibility: accessor.IsNil
                         ? CompileBackAccessibility.Public
                         : MethodAccessibility(accessorMethod),
@@ -5490,8 +5962,8 @@ public static class CompileBackSourceComposer
                     isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                     IsAbstract: !isConstructor && IsAbstractMethod(method),
                     IsVirtual: !isConstructor && IsVirtualMethod(method),
-                    IsOverride: false,
-                    IsSealed: false,
+                    IsOverride: methodDeclaration?.IsOverride ?? false,
+                    IsSealed: methodDeclaration?.IsSealed ?? false,
                     Accessibility: MethodAccessibility(method),
                     MetadataToken: MetadataTokens.GetToken(methodHandle)));
             }

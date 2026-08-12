@@ -55,6 +55,13 @@ public sealed record MetadataFieldDeclaration(
 }
 
 /// <summary>
+/// A same-assembly virtual slot inherited by an overriding method.
+/// </summary>
+public sealed record MetadataOverrideSlot(
+    TypeDefinitionHandle DeclaringType,
+    MethodDefinitionHandle Method);
+
+/// <summary>
 /// Handle-based declaration questions over SRM metadata. This layer is safe for
 /// NativeAOT and compile-back source composition: it does not load inspected
 /// assemblies and does not depend on Roslyn or the decompiler.
@@ -367,9 +374,14 @@ public static class MetadataDeclarationQuery
         var attributes = method.Attributes;
         var access = attributes & MethodAttributes.MemberAccessMask;
         var isPublicOrProtected = IsPublicOrProtected(access);
+        var isSourceDeclarable = IsSourceDeclarableAccessibility(access);
         var isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
-        var isOverride = isVirtual && !isNewSlot;
+        var isOverride = isSourceDeclarable
+            && isVirtual
+            && !isNewSlot
+            && (attributes & MethodAttributes.Static) == 0
+            && (typeDef.Attributes & TypeAttributes.Interface) == 0;
         var typeParameters = MethodTypeParameters(reader, typeDef, method);
         var csharpName = SanitizeIdentifier(name);
         var methodName = typeParameters.Count == 0
@@ -382,8 +394,8 @@ public static class MetadataDeclarationQuery
             AccessibilityKeyword(access),
             isPublicOrProtected,
             (attributes & MethodAttributes.Static) != 0,
-            isPublicOrProtected && (attributes & MethodAttributes.Abstract) != 0,
-            isPublicOrProtected
+            isSourceDeclarable && (attributes & MethodAttributes.Abstract) != 0,
+            isSourceDeclarable
                 && isVirtual
                 && (attributes & MethodAttributes.Abstract) == 0
                 && (attributes & MethodAttributes.Final) == 0
@@ -400,6 +412,99 @@ public static class MetadataDeclarationQuery
             },
             RenderMemberAttributes(reader, method.GetCustomAttributes()));
     }
+
+    /// <summary>
+    /// Locates the nearest same-assembly virtual slot reused by
+    /// <paramref name="methodHandle"/>, or returns <see langword="null"/> for a
+    /// new slot or a base outside this metadata reader.
+    /// </summary>
+    public static MetadataOverrideSlot? GetSameAssemblyOverrideSlot(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        MethodDefinitionHandle methodHandle)
+    {
+        var method = reader.GetMethodDefinition(methodHandle);
+        if ((method.Attributes & MethodAttributes.Static) != 0
+            || (method.Attributes & MethodAttributes.Virtual) == 0
+            || (method.Attributes & MethodAttributes.NewSlot) != 0)
+        {
+            return null;
+        }
+
+        var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+        if ((declaringType.Attributes & TypeAttributes.Interface) != 0
+            || !IsSourceDeclarableAccessibility(method.Attributes & MethodAttributes.MemberAccessMask))
+        {
+            return null;
+        }
+
+        var methodName = reader.GetString(method.Name);
+        var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+        if (!GuardedSignatureText.MethodText(
+            reader,
+            method,
+            PositionalGenericContext(declaringType, method))
+            .TryGetValue(out var methodSignature))
+        {
+            return null;
+        }
+
+        var baseTypeHandle = declaringType.BaseType;
+        var visited = new HashSet<TypeDefinitionHandle>();
+        while (baseTypeHandle.Kind == HandleKind.TypeDefinition
+            && visited.Add((TypeDefinitionHandle)baseTypeHandle))
+        {
+            var baseDefinitionHandle = (TypeDefinitionHandle)baseTypeHandle;
+            var baseDefinition = reader.GetTypeDefinition(baseDefinitionHandle);
+            foreach (var candidateHandle in baseDefinition.GetMethods())
+            {
+                var candidate = reader.GetMethodDefinition(candidateHandle);
+                if (reader.GetString(candidate.Name) != methodName
+                    || (candidate.Attributes & MethodAttributes.Virtual) == 0
+                    || (candidate.Attributes & MethodAttributes.Final) != 0
+                    || (candidate.Attributes & MethodAttributes.MemberAccessMask) != methodAccess
+                    || !IsSourceDeclarableAccessibility(candidate.Attributes & MethodAttributes.MemberAccessMask)
+                    || candidate.GetGenericParameters().Count != method.GetGenericParameters().Count)
+                {
+                    continue;
+                }
+
+                if (!GuardedSignatureText.MethodText(
+                    reader,
+                    candidate,
+                    PositionalGenericContext(baseDefinition, candidate))
+                    .TryGetValue(out var candidateSignature))
+                {
+                    continue;
+                }
+
+                // Return types intentionally do not participate: C# permits
+                // covariant returns while the parameter and generic arities
+                // continue to identify the reused virtual slot.
+                if (candidateSignature.ParameterTypes.SequenceEqual(
+                    methodSignature.ParameterTypes,
+                    StringComparer.Ordinal))
+                {
+                    return new MetadataOverrideSlot(baseDefinitionHandle, candidateHandle);
+                }
+            }
+
+            baseTypeHandle = baseDefinition.BaseType;
+        }
+
+        return null;
+    }
+
+    static GenericContext PositionalGenericContext(
+        TypeDefinition type,
+        MethodDefinition method)
+        => new(
+            Enumerable.Range(0, type.GetGenericParameters().Count)
+                .Select(index => $"!{index}")
+                .ToArray(),
+            Enumerable.Range(0, method.GetGenericParameters().Count)
+                .Select(index => $"!!{index}")
+                .ToArray());
 
     public static MetadataPropertyDeclaration GetProperty(
         MetadataReader reader,
@@ -434,7 +539,12 @@ public static class MetadataDeclarationQuery
             : default;
         var isVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
         var isNewSlot = (accessorAttributes & MethodAttributes.NewSlot) != 0;
-        var isOverride = isVirtual && !isNewSlot;
+        var isSourceDeclarable = IsSourceDeclarableAccessibility(bestAccess);
+        var isOverride = isSourceDeclarable
+            && isVirtual
+            && !isNewSlot
+            && (accessorAttributes & MethodAttributes.Static) == 0
+            && (typeDef.Attributes & TypeAttributes.Interface) == 0;
         var isPublicOrProtected = IsPublicOrProtected(bestAccess);
 
         var accessorParameters = !accessors.Getter.IsNil
@@ -476,8 +586,8 @@ public static class MetadataDeclarationQuery
             !accessors.Getter.IsNil || !accessors.Setter.IsNil
                 ? (accessorAttributes & MethodAttributes.Static) != 0
                 : false,
-            isPublicOrProtected && (accessorAttributes & MethodAttributes.Abstract) != 0,
-            isPublicOrProtected
+            isSourceDeclarable && (accessorAttributes & MethodAttributes.Abstract) != 0,
+            isSourceDeclarable
                 && isVirtual
                 && (accessorAttributes & MethodAttributes.Abstract) == 0
                 && (accessorAttributes & MethodAttributes.Final) == 0
@@ -670,6 +780,25 @@ public static class MetadataDeclarationQuery
 
     public static bool IsVirtualMethod(MethodDefinition method)
         => IsPublicOrProtected(method)
+            && (method.Attributes & MethodAttributes.Virtual) != 0
+            && (method.Attributes & MethodAttributes.Abstract) == 0
+            && (method.Attributes & MethodAttributes.Final) == 0
+            && (method.Attributes & MethodAttributes.NewSlot) != 0;
+
+    /// <summary>
+    /// True when the method flags can be represented by a C# abstract member
+    /// declaration, including non-API internal accessibility.
+    /// </summary>
+    public static bool IsSourceDeclarableAbstractMethod(MethodDefinition method)
+        => IsSourceDeclarableAccessibility(method.Attributes & MethodAttributes.MemberAccessMask)
+            && (method.Attributes & MethodAttributes.Abstract) != 0;
+
+    /// <summary>
+    /// True when the method flags can be represented by a C# new-slot virtual
+    /// declaration, including non-API internal accessibility.
+    /// </summary>
+    public static bool IsSourceDeclarableVirtualMethod(MethodDefinition method)
+        => IsSourceDeclarableAccessibility(method.Attributes & MethodAttributes.MemberAccessMask)
             && (method.Attributes & MethodAttributes.Virtual) != 0
             && (method.Attributes & MethodAttributes.Abstract) == 0
             && (method.Attributes & MethodAttributes.Final) == 0
@@ -942,6 +1071,10 @@ public static class MetadataDeclarationQuery
 
     static bool IsPublicOrProtected(MethodAttributes access)
         => access is MethodAttributes.Public or MethodAttributes.Family or MethodAttributes.FamORAssem;
+
+    static bool IsSourceDeclarableAccessibility(MethodAttributes access)
+        => access is not MethodAttributes.Private
+            and not MethodAttributes.PrivateScope;
 
     static MethodAttributes BestAccessorAccess(
         MethodDefinition getter,

@@ -104,6 +104,129 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void SameAssemblyOverrideSlot_PreservesNonPublicSourceDeclarationFacts()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.OverrideDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+        var method = Reader.GetMethodDefinition(methodHandle);
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var slot = MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            Reader,
+            derivedHandle,
+            methodHandle);
+
+        Assert.NotNull(slot);
+        var resolvedSlot = slot!;
+        Assert.Equal("internal", declaration.Accessibility);
+        Assert.True(declaration.IsOverride);
+        Assert.False(declaration.IsVirtual);
+        Assert.False(MetadataDeclarationQuery.IsSourceDeclarableVirtualMethod(method));
+        Assert.Equal(
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.OverrideBase)),
+            resolvedSlot.DeclaringType);
+        Assert.Equal(
+            "Value",
+            Reader.GetString(Reader.GetMethodDefinition(resolvedSlot.Method).Name));
+
+        var baseMethod = Reader.GetMethodDefinition(resolvedSlot.Method);
+        Assert.True(MetadataDeclarationQuery.GetMethod(
+            Reader,
+            Reader.GetTypeDefinition(resolvedSlot.DeclaringType),
+            baseMethod).IsVirtual);
+        Assert.True(MetadataDeclarationQuery.IsSourceDeclarableVirtualMethod(baseMethod));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesNewVirtualSlot()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.NewSlotDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+
+        Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            Reader,
+            derivedHandle,
+            methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesExternalBase()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.ExternalOverride));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, nameof(object.ToString));
+
+        Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            Reader,
+            derivedHandle,
+            methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesAccessibilityChangingOverride()
+    {
+        string path = EmitAccessibilityChangingOverride();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var derivedHandle = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "AccessDerived");
+            var derived = reader.GetTypeDefinition(derivedHandle);
+            var methodHandle = derived.GetMethods().Single(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+
+            Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_UsesNearestReintroducedSlot()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.OverrideLeaf));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.OverrideMiddle)),
+            slot.DeclaringType);
+    }
+
+    [Fact]
+    public void StaticAbstractInterfaceMethod_IsNotClassifiedAsOverride()
+    {
+        var type = GetTypeDefinition(
+            typeof(MetadataDeclarationQueryFixtures.IStaticContract));
+        var method = GetMethod(type, "Create");
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+
+        Assert.True(declaration.IsAbstract);
+        Assert.False(declaration.IsOverride);
+        Assert.False(declaration.IsSealed);
+    }
+
+    [Fact]
     public void TypeSurface_IncludesNonPublicMembersWhenRequested()
     {
         var handle = GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures));
@@ -346,6 +469,43 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitAccessibilityChangingOverride()
+    {
+        var assemblyName = new AssemblyName("AccessibilityChangingOverride");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var baseType = module.DefineType("AccessBase", TypeAttributes.Public);
+        var baseMethod = baseType.DefineMethod(
+            "Value",
+            MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        var baseIl = baseMethod.GetILGenerator();
+        baseIl.Emit(OpCodes.Ldc_I4_1);
+        baseIl.Emit(OpCodes.Ret);
+        var createdBase = baseType.CreateType();
+
+        var derivedType = module.DefineType(
+            "AccessDerived",
+            TypeAttributes.Public,
+            createdBase);
+        var derivedMethod = derivedType.DefineMethod(
+            "Value",
+            MethodAttributes.Public | MethodAttributes.Virtual,
+            typeof(int),
+            Type.EmptyTypes);
+        var derivedIl = derivedMethod.GetILGenerator();
+        derivedIl.Emit(OpCodes.Ldc_I4_2);
+        derivedIl.Emit(OpCodes.Ret);
+        derivedType.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"AccessibilityChangingOverride-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -364,12 +524,15 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     static MethodDefinition GetMethod(TypeDefinition type, string name)
+        => Reader.GetMethodDefinition(GetMethodHandle(type, name));
+
+    static MethodDefinitionHandle GetMethodHandle(TypeDefinition type, string name)
     {
         foreach (var handle in type.GetMethods())
         {
             var method = Reader.GetMethodDefinition(handle);
             if (Reader.GetString(method.Name) == name)
-                return method;
+                return handle;
         }
 
         throw new InvalidOperationException($"Method '{name}' was not found.");
@@ -465,6 +628,46 @@ public class MetadataDeclarationQueryFixtures
     public abstract class AbstractBase
     {
         protected abstract string Name { get; set; }
+    }
+
+    public class OverrideBase
+    {
+        internal virtual int Value() => 1;
+    }
+
+    public class OverrideDerived : OverrideBase
+    {
+        internal override int Value() => 2;
+    }
+
+    public class NewSlotDerived : OverrideBase
+    {
+        internal new virtual int Value() => 3;
+    }
+
+    public class ExternalOverride : Exception
+    {
+        public override string ToString() => nameof(ExternalOverride);
+    }
+
+    public class OverrideGrandBase
+    {
+        internal virtual int Value() => 1;
+    }
+
+    public class OverrideMiddle : OverrideGrandBase
+    {
+        internal new virtual int Value() => 2;
+    }
+
+    public class OverrideLeaf : OverrideMiddle
+    {
+        internal override int Value() => 3;
+    }
+
+    public interface IStaticContract
+    {
+        static abstract int Create();
     }
 
     public class Container<T>
