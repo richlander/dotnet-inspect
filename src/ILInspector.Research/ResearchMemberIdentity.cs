@@ -39,6 +39,23 @@ public static class ResearchMemberIdentity
             identity.MemberName);
     }
 
+    public static ResearchSubjectKey SubjectFromMember(MemberRef member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        BodyMemberIdentity identity =
+            BodyIdentityFromMember(member);
+        string displayParameters = string.Join(
+            ", ",
+            member.ParameterTypes.Select(
+                type => type.ToQualifiedDisplayString()));
+        return new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            identity.StableSelector,
+            $"{identity.TypeName}.{identity.MemberName}({displayParameters})",
+            identity.TypeName,
+            identity.MemberName);
+    }
+
     public static bool TryAddTargetIdentity(ResolvedMemberTarget target, ISet<string> identities)
     {
         var member = target.ApiMember.Member;
@@ -61,6 +78,26 @@ public static class ResearchMemberIdentity
             // identity agree for conversion operators (issue #2440 / regression from #2433).
             ApiMemberIdentity.IsConversionOperator(method.Name)
                 ? $"~{BodyTypeName(method.ReturnType)}"
+                : "");
+
+    static BodyMemberIdentity BodyIdentityFromMember(MemberRef member)
+        => CreateBodyIdentity(
+            ApiMemberIdentity.GetMemberSelectorName(
+                member.Name,
+                isExtensionMethod: false),
+            BodyTypeName(
+                GenericMemberIdentity.OpenDeclaringType(
+                    member.DeclaringType)),
+            member.Name == ".ctor" ? "#ctor" : member.Name,
+            member.GenericArity == 0
+                ? ""
+                : $"<{string.Join(",", Enumerable.Range(
+                    0,
+                    member.GenericArity).Select(
+                        static index => $"!!{index}"))}>",
+            $"({string.Join(",", member.OpenSignatureParameters.Select(BodyTypeName))})",
+            ApiMemberIdentity.IsConversionOperator(member.Name)
+                ? $"~{BodyTypeName(member.OpenSignatureReturn)}"
                 : "");
 
     static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
