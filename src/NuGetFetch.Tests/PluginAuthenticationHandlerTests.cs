@@ -59,6 +59,29 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task SuccessfulReplayTransfersTheFinalRequestToTheResponse()
+    {
+        var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
+        var transport = new ScriptedTransport(request =>
+            request.Authorization is null
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = Client(source, transport);
+
+        using var response = await client.GetAsync(
+            "https://feed.example/index.json",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, transport.Messages.Count);
+        Assert.Throws<ObjectDisposedException>(() =>
+            transport.Messages[0].RequestUri = new Uri("https://after.example/"));
+        HttpRequestMessage finalRequest = Assert.IsType<HttpRequestMessage>(response.RequestMessage);
+        Assert.Same(transport.Messages[1], finalRequest);
+        finalRequest.RequestUri = new Uri("https://after.example/");
+        Assert.Equal("after.example", finalRequest.RequestUri.Host);
+    }
+
+    [Fact]
     public async Task FirstAcquisitionIsNotARetry_AndTheNextOneIs()
     {
         // Always rejecting forces repeated acquisition, which is what exposes the IsRetry flag.
@@ -114,6 +137,85 @@ public sealed class PluginAuthenticationHandlerTests
         Assert.Equal(2, source.Calls);
         Assert.Null(transport.Requests[2].Authorization);
         Assert.Equal(["https://one.example", "https://two.example"], source.Uris.Select(u => u.GetLeftPart(UriPartial.Authority)));
+    }
+
+    [Fact]
+    public async Task RedirectedChallengeAcquiresForAndReplaysTheOriginalSource()
+    {
+        var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
+        var transport = new RedirectedSourceTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "https://feed.example/resource",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "REAL-RESOURCE",
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "https://feed.example/resource",
+            response.RequestMessage?.RequestUri?.AbsoluteUri);
+        Assert.Equal(
+            ["https://feed.example/resource"],
+            source.Uris.Select(uri => uri.AbsoluteUri));
+        Assert.Equal(
+            [
+                ("https://feed.example/resource", (string?)null),
+                ("https://feed.example/resource", Basic("user", "token").Parameter),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
+    public async Task RedirectedChallengeReusesTheOriginalSourcesCachedCredential()
+    {
+        var source = new OneShotCredentialSource();
+        var transport = new RedirectedSourceTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage first = await client.GetAsync(
+            "https://feed.example/resource",
+            TestContext.Current.CancellationToken);
+        using HttpResponseMessage second = await client.GetAsync(
+            "https://feed.example/resource",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(
+            [
+                ("https://feed.example/resource", (string?)null),
+                ("https://feed.example/resource", Basic("user", "token").Parameter),
+                ("https://feed.example/resource", Basic("user", "token").Parameter),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
+    public async Task RedirectTargetCannotChooseCredentialScopeOrSuccessfulBody()
+    {
+        var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
+        var transport = new CrossOriginRedirectSourceTransport();
+        using var client = Client(source, transport);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "https://origin.example/resource",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "REAL-RESOURCE",
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            ["https://origin.example/resource"],
+            source.Uris.Select(uri => uri.AbsoluteUri));
+        Assert.DoesNotContain(
+            transport.Requests,
+            entry => entry.Uri == "https://challenger.example/login"
+                && entry.Authorization is not null);
     }
 
     [Fact]
@@ -438,19 +540,119 @@ public sealed class PluginAuthenticationHandlerTests
         }
     }
 
+    private sealed class OneShotCredentialSource : ICredentialSource
+    {
+        private int _calls;
+
+        public bool HasCredentialSources => true;
+
+        public int Calls => _calls;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            int call = Interlocked.Increment(ref _calls);
+            return Task.FromResult<PackageSourceCredential?>(
+                call == 1
+                    ? new PackageSourceCredential("user", "token")
+                    : null);
+        }
+    }
+
     /// <summary>A transport whose reply is a pure function of the request's Authorization header.</summary>
     private sealed class ScriptedTransport(Func<HttpRequestHeaders, HttpResponseMessage> respond) : HttpMessageHandler
     {
         public List<HttpRequestHeaders> Requests { get; } = [];
+        public List<HttpRequestMessage> Messages { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             lock (Requests)
             {
                 Requests.Add(request.Headers);
+                Messages.Add(request);
             }
 
-            return Task.FromResult(respond(request.Headers));
+            HttpResponseMessage response = respond(request.Headers);
+            response.RequestMessage = request;
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class RedirectedSourceTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
+
+            if (request.Headers.Authorization is null)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = new HttpRequestMessage(
+                        request.Method,
+                        "https://feed.example/challenge"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent("REAL-RESOURCE"),
+            });
+        }
+    }
+
+    private sealed class CrossOriginRedirectSourceTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.Parameter));
+
+            if (string.Equals(
+                    request.RequestUri.Host,
+                    "origin.example",
+                    StringComparison.Ordinal)
+                && request.Headers.Authorization is null)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = new HttpRequestMessage(
+                        request.Method,
+                        "https://challenger.example/login"),
+                });
+            }
+
+            if (string.Equals(
+                    request.RequestUri.Host,
+                    "origin.example",
+                    StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = request,
+                    Content = new StringContent("REAL-RESOURCE"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(
+                request.Headers.Authorization is null
+                    ? HttpStatusCode.Unauthorized
+                    : HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent("LOGIN-PAGE"),
+            });
         }
     }
 }
