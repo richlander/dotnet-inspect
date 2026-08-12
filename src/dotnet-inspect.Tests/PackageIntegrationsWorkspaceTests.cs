@@ -294,36 +294,62 @@ public sealed class PackageIntegrationsWorkspaceTests
     [Fact]
     public async Task UseAssemblyAsync_ReleasesParticipantBeforeAdvancing()
     {
-        string first =
-            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        string second = typeof(PdbContext).Assembly.Location;
-        using var workspace = PackageIntegrationsWorkspace.Create(
-            [
-                new(first, "net11.0"),
-                new(second, "net11.0"),
-            ],
-            "Test.Package",
-            "1.0.0");
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-release-").FullName;
+        try
+        {
+            string first = Path.Combine(directory, "First.dll");
+            string second = Path.Combine(directory, "Second.dll");
+            File.Copy(
+                typeof(PackageIntegrationsWorkspaceTests)
+                    .Assembly.Location,
+                first);
+            File.Copy(typeof(PdbContext).Assembly.Location, second);
+            using var workspace = PackageIntegrationsWorkspace.Create(
+                [
+                    new(first, "net11.0"),
+                    new(second, "net11.0"),
+                ],
+                "Test.Package",
+                "1.0.0");
 
-        await workspace.UseAssemblyAsync(
-            first,
-            (retained, _, _) =>
-            {
-                Assert.NotNull(retained);
-                Assert.True(workspace.RetainedImageBytes > 0);
-                return Task.FromResult(true);
-            });
-        Assert.Equal(0, workspace.RetainedImageBytes);
+            await workspace.UseAssemblyAsync(
+                first,
+                (retained, _, _) =>
+                {
+                    Assert.NotNull(retained);
+                    Assert.True(workspace.RetainedImageBytes > 0);
+                    return Task.FromResult(true);
+                });
+            Assert.Equal(0, workspace.RetainedImageBytes);
 
-        await workspace.UseAssemblyAsync(
-            second,
-            (retained, _, _) =>
-            {
-                Assert.NotNull(retained);
-                Assert.True(workspace.RetainedImageBytes > 0);
-                return Task.FromResult(true);
-            });
-        Assert.Equal(0, workspace.RetainedImageBytes);
+            File.Delete(first);
+            int reacquisitionCallbacks = 0;
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                () => workspace.UseAssemblyAsync(
+                    first,
+                    (_, _, _) =>
+                    {
+                        reacquisitionCallbacks++;
+                        return Task.FromResult(true);
+                    }));
+            Assert.Equal(0, reacquisitionCallbacks);
+            Assert.Equal(0, workspace.RetainedImageBytes);
+
+            await workspace.UseAssemblyAsync(
+                second,
+                (retained, _, _) =>
+                {
+                    Assert.NotNull(retained);
+                    Assert.True(workspace.RetainedImageBytes > 0);
+                    return Task.FromResult(true);
+                });
+            Assert.Equal(0, workspace.RetainedImageBytes);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Theory]

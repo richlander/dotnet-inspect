@@ -319,6 +319,18 @@ public static class OutputFormatter
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
 
+    public static void WritePackageResultsCount(
+        IReadOnlyList<InspectionResult> results,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        var renderOptions = options with { Count = false, JsonOutput = false };
+        CountOutput.WriteCount(
+            results.Sum(result => CountOutput.CountMarkdownTableRows(
+                FormatResult(result, renderOptions, pipeline))),
+            options.OutputPath);
+    }
+
     /// <summary>
     /// Renders one package section as tabular output (TSV/JSONL/pretty table). The caller has
     /// already narrowed <paramref name="options"/> to a single section, so the rendered text is a
