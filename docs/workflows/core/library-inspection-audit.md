@@ -334,6 +334,7 @@ rm -rf artifacts/workflows/library-inspection-resources
 ```bash
 dotnet-inspect library --package System.CommandLine@2.0.3 \
   --extract-resources artifacts/workflows/library-inspection-resources
+test -f artifacts/workflows/library-inspection-resources/System.CommandLine.Properties.Resources.resources
 ```
 
 ```expect

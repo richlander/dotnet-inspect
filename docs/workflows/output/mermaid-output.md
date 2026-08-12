@@ -263,8 +263,12 @@ graph TD
 classDef markoutFocus
 ```
 
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
 ```expect-not
-```mermaid
+mermaid-fence
 ```
 
 ### 5d. Mermaid embedded in Markdown
@@ -285,9 +289,14 @@ dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --markdown --
 ## Call Graph
 ```
 
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+grep -Fx 'graph TD' | sed 's/.*/mermaid-graph/'
+```
+
 ```expect
-```mermaid
-graph TD
+mermaid-fence
+mermaid-graph
 ```
 
 ### 5e. TSV edge rows

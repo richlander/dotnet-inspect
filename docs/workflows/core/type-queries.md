@@ -133,8 +133,11 @@ Tips:
 ```
 
 ```query
-grep -oE 'Types: [0-9]+'
-grep -oE 'Source: [A-Za-z]+'
+grep -Eq 'Types: [1-9][0-9]*' && echo type-count-positive
+```
+
+```expect
+type-count-positive
 ```
 
 ## 3. Filter types by pattern

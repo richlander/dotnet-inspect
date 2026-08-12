@@ -292,6 +292,13 @@ public void SetAction
 ## IL
 ```
 
+```expect
+// IL_0000: ldarg.1
+alloc.new(
+IL_0015: call
+System.CommandLine.Command::set_Action
+```
+
 ```expect-not
 Tips:
 ```

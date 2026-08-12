@@ -14,6 +14,8 @@ areas: [routing, resolution, output, discovery, inspection, source]
 ```bash
 export DOTNET_INSPECT_ISOLATED=lap-around
 dotnet-inspect cache clear
+dotnet build src/ILInspector.Metadata/ILInspector.Metadata.csproj \
+  -c Release --nologo --verbosity quiet
 dotnet-inspect Microsoft.Azure.SignalR@1.33.1 -v:q
 dotnet-inspect Newtonsoft.Json@13.0.4 -v:q
 dotnet-inspect Microsoft.Extensions.AI@10.8.3 -v:q

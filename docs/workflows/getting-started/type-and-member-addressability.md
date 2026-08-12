@@ -1,3 +1,10 @@
+---
+id: type-and-member-addressability
+description: Addressing types and members across platform and NuGet sources
+commands: [type, member]
+areas: [routing, resolution, type, member]
+---
+
 # Type and Member Addressability
 
 > How to address types and members across platform and NuGet sources. The tool provides a progressive addressing model: start with an assembly, narrow to a type, then to a member. Fully qualified type names are also supported as a shortcut for platform types.
