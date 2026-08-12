@@ -371,9 +371,18 @@ public static class HttpRetryHelper
     /// payload without buffering it. Uses
     /// <see cref="HttpCompletionOption.ResponseHeadersRead"/>. The caller owns
     /// the returned response and must dispose it. Returns null if the request
-    /// ultimately failed. Throws if the advertised size exceeds the cap.
+    /// ultimately failed. Throws if the advertised size exceeds
+    /// <paramref name="maxAdvertisedContentLength"/>.
     /// Note: a failure that occurs mid-body (after headers) is not retried.
     /// </summary>
+    /// <param name="maxAdvertisedContentLength">
+    /// The advertised body size above which this helper throws. A caller that
+    /// bounds the payload itself — and must keep an oversized payload a typed
+    /// failure rather than an exception — raises this so the decision stays
+    /// where the typed result is produced. The advertised length is a claim by
+    /// the remote, so raising this never removes a bound from a caller that
+    /// counts the bytes it actually received.
+    /// </param>
     public static async Task<HttpResponseMessage?> GetStreamedWithRetryAsync(
         HttpClient client,
         string url,
@@ -381,7 +390,8 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        long maxAdvertisedContentLength = MaxDownloadSize)
     {
         var result = await ExecuteWithRetryAsync(
             client,
@@ -404,7 +414,7 @@ public static class HttpRetryHelper
         if (response == null)
             return null;
 
-        if (response.Content.Headers.ContentLength is > MaxDownloadSize)
+        if (response.Content.Headers.ContentLength > maxAdvertisedContentLength)
         {
             response.Dispose();
             throw new InvalidOperationException(

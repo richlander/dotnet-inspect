@@ -160,7 +160,20 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
-    public void Select_ReportsEquallyApplicableFoldersAsAmbiguous()
+    public void Select_NeutralTargetRejectsAPlatformSpecificFolder()
+    {
+        // A neutral target never asked for a platform, so a platform-specific
+        // universe is not a fallback for it — it is a different target.
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            null,
+            "lib/net10.0-windows/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
+    public void Select_NeutralTargetPrefersTheNeutralFolder()
     {
         PackageAssetSelection selection = Select(
             "net10.0",
@@ -168,7 +181,111 @@ public sealed class PackageAssetSelectorTests
             "lib/net10.0/Sample.dll",
             "lib/net10.0-windows/Sample.dll");
 
-        Assert.IsType<PackageAssetSelection.Ambiguous>(selection);
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net10.0", universe.TargetFramework);
+        Assert.Equal(
+            "lib/net10.0/Sample.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void Select_PlatformTargetPrefersTheExactPlatformFolder()
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0-windows",
+            null,
+            "lib/net10.0/Sample.dll",
+            "lib/net10.0-windows/Sample.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net10.0-windows", universe.TargetFramework);
+        Assert.Equal(
+            "lib/net10.0-windows/Sample.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void Select_PlatformTargetFallsBackToTheNeutralFolder()
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0-windows",
+            null,
+            "lib/net10.0/Sample.dll");
+
+        Assert.Equal("net10.0", Selected(selection).TargetFramework);
+    }
+
+    [Fact]
+    public void Select_PlatformTargetRejectsAnotherPlatform()
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0-ios",
+            null,
+            "lib/net10.0-windows/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
+    public void Select_PlatformTargetSelectsTheExactVersionedPlatformFolder()
+    {
+        PackageAssetSelection selection = Select(
+            "net8.0-windows10.0.19041",
+            null,
+            "lib/netstandard2.0/Sample.dll",
+            "lib/net8.0/Sample.dll",
+            "lib/net8.0-windows10.0.19041/Sample.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net8.0-windows10.0.19041", universe.TargetFramework);
+        Assert.Equal(
+            "lib/net8.0-windows10.0.19041/Sample.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void Select_PlatformTargetRejectsADifferentPlatformVersionSpelling()
+    {
+        // Conservative by design: the product owns no platform-version
+        // reduction table, so a differently spelled platform version is a
+        // different platform and the neutral fallback is what remains.
+        PackageAssetSelection selection = Select(
+            "net8.0-windows10.0.19041",
+            null,
+            "lib/net8.0/Sample.dll",
+            "lib/net8.0-windows/Sample.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net8.0", universe.TargetFramework);
+        Assert.Equal(
+            "lib/net8.0/Sample.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void Select_PlatformTargetWithoutAnyApplicableFolderIsNoMatch()
+    {
+        PackageAssetSelection selection = Select(
+            "net8.0-windows10.0.19041",
+            null,
+            "lib/net8.0-windows/Sample.dll",
+            "lib/net10.0/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
+    public void Select_PrefersAHigherBaseFrameworkOverAPlatformMatch()
+    {
+        // Base framework decides first, so the fallback order stays
+        // deterministic when platform specificity and framework level disagree.
+        PackageAssetSelection selection = Select(
+            "net10.0-windows",
+            null,
+            "lib/net8.0-windows/Sample.dll",
+            "lib/net10.0/Sample.dll");
+
+        Assert.Equal("net10.0", Selected(selection).TargetFramework);
     }
 
     [Theory]
@@ -198,13 +315,91 @@ public sealed class PackageAssetSelectorTests
         string[] entries =
         [
             "runtimes/linux-x64/lib/net10.0/Sample.dll",
-            "runtimes/LINUX-X64/lib/NET10.0/sample.dll",
+            "runtimes/linux-x64/lib/NET10.0/sample.dll",
         ];
         if (reverse)
             Array.Reverse(entries);
 
         Assert.IsType<PackageAssetSelection.Ambiguous>(
             Select("net10.0", "linux-x64", entries));
+    }
+
+    [Fact]
+    public void Select_IgnoresARuntimeFolderMatchingTheRidOnlyByCase()
+    {
+        // Runtime identifiers are canonically lowercase, so a differently
+        // cased folder is another name rather than another spelling of the
+        // requested one. Folding them would let a package direct a request at
+        // a folder its own manifest never named.
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            "linux-x64",
+            "runtimes/LINUX-X64/lib/net10.0/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
+    public void Select_AmbiguityNamesOnlyTheRequestedFramework()
+    {
+        // The selected folder is archive-controlled text. The message names
+        // the framework the caller asked for and nothing read out of the
+        // package.
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            null,
+            "lib/NETSTANDARD2.0/Sample.dll",
+            "lib/netstandard2.0/sample.dll");
+
+        var ambiguous =
+            Assert.IsType<PackageAssetSelection.Ambiguous>(selection);
+        Assert.Contains("net10.0", ambiguous.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "netstandard",
+            ambiguous.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("lib/net10.0/Sam\u0007ple.dll")]
+    [InlineData("lib/net\u000110.0/Sample.dll")]
+    public void Select_RejectsAControlBearingCandidateEntryPath(
+        string entryPath)
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            null,
+            "lib/net10.0/Sample.dll",
+            entryPath);
+
+        var invalid =
+            Assert.IsType<PackageAssetSelection.Invalid>(selection);
+        Assert.DoesNotContain(entryPath, invalid.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u0007', invalid.Message);
+        Assert.DoesNotContain('\u0001', invalid.Message);
+    }
+
+    [Fact]
+    public void Select_KeepsABidiBearingEntryOutOfTheFailureMessage()
+    {
+        // A bidi override is not a control character, so it is not rejected on
+        // that ground. What protects the message is that no scalar read out of
+        // the archive is ever quoted into one: this layout does produce a
+        // failure, and the failure names none of it.
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            null,
+            "lib/net10.0/\u202eSample.dll",
+            "lib/NET10.0/\u202esample.dll");
+
+        var ambiguous =
+            Assert.IsType<PackageAssetSelection.Ambiguous>(selection);
+        Assert.DoesNotContain('\u202e', ambiguous.Message);
+        Assert.DoesNotContain(
+            "Sample",
+            ambiguous.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("net10.0", ambiguous.Message, StringComparison.Ordinal);
     }
 
     [Fact]

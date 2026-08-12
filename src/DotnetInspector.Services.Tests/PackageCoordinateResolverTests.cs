@@ -163,6 +163,121 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
+    [InlineData("../../admin")]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("../")]
+    [InlineData("sample/nested")]
+    [InlineData("sample\\nested")]
+    [InlineData("sample?version=1")]
+    [InlineData("sample#fragment")]
+    [InlineData("sample%2e%2e")]
+    [InlineData("sample:1")]
+    [InlineData("sample@feed")]
+    [InlineData("https://feed.test/sample")]
+    [InlineData("sample\u0007package")]
+    [InlineData("sample\u0000package")]
+    [InlineData("sample\npackage")]
+    [InlineData("sample package")]
+    [InlineData(".sample")]
+    [InlineData("sample.")]
+    [InlineData("-sample")]
+    [InlineData("sample-")]
+    [InlineData("sample..package")]
+    [InlineData("sample.-package")]
+    [InlineData("sämple")]
+    public async Task Coordinate_RejectsAPackageIdOutsideTheGrammar(
+        string packageId)
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        // Exact and floating alike: the grammar decides before any source,
+        // cache, or network step, and the throwing handler proves it.
+        Assert.IsType<PackageCoordinateResolution.Invalid>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(packageId, "1.0.0"),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.IsType<PackageCoordinateResolution.Invalid>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(packageId),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.NotNull(
+            PackageCoordinateResolver.Validate(
+                new PackageCoordinate(packageId)));
+    }
+
+    [Fact]
+    public async Task Coordinate_RejectsAPackageIdAboveTheLengthBound()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        string tooLong = new(
+            'a',
+            PackageCoordinateResolver.MaxPackageIdLength + 1);
+
+        Assert.IsType<PackageCoordinateResolution.Invalid>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(tooLong, "1.0.0"),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Null(
+            PackageCoordinateResolver.Validate(
+                new PackageCoordinate(
+                    tooLong[..PackageCoordinateResolver.MaxPackageIdLength],
+                    "1.0.0")));
+    }
+
+    [Theory]
+    [InlineData("a")]
+    [InlineData("Newtonsoft.Json")]
+    [InlineData("Microsoft.Extensions.DependencyInjection.Abstractions")]
+    [InlineData("runtime.win-x64.Microsoft.NETCore.App")]
+    [InlineData("xunit.v3")]
+    [InlineData("NETStandard.Library")]
+    [InlineData("Foo_Bar")]
+    [InlineData("a_.b-c")]
+    public void Coordinate_AcceptsRealPackageIds(string packageId)
+    {
+        // The close negative for the grammar: it is a bound on shape, not a
+        // narrowing of the ids NuGet actually publishes.
+        Assert.True(PackageCoordinateResolver.IsCanonicalPackageId(packageId));
+        Assert.Null(
+            PackageCoordinateResolver.Validate(
+                new PackageCoordinate(packageId, "1.0.0")));
+    }
+
+    [Theory]
+    [InlineData("net10.0\u0007", null)]
+    [InlineData(null, "browser-wasm\u0001")]
+    public async Task Coordinate_RejectsAControlBearingTarget(
+        string? framework,
+        string? runtimeIdentifier)
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(
+                    "Example",
+                    "1.0.0",
+                    framework,
+                    runtimeIdentifier),
+                [NuGetOrg],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackageCoordinateResolution.Invalid>(resolution);
+    }
+
+    [Theory]
     [InlineData("", null)]
     [InlineData(" net10.0", null)]
     [InlineData(null, "")]

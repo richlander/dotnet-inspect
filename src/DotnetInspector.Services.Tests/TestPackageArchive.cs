@@ -29,4 +29,12 @@ internal static class TestPackageArchive
 
     internal static byte[] Create(params string[] entryPaths)
         => Create([.. entryPaths.Select(path => (path, new byte[] { 1, 2, 3 }))]);
+
+    /// <summary>
+    /// Builds an archive from explicit entry content, for a test that needs the
+    /// declared expanded size to differ sharply from the archive's own size.
+    /// </summary>
+    internal static byte[] CreateWithContent(
+        params (string EntryPath, byte[] Content)[] entries)
+        => Create(entries);
 }

@@ -880,7 +880,33 @@ resolution, acquisition, and asset-selection owners. It supplies:
   `WorkspaceContextLoaderTests.PackageMember_RealizesEveryManagedAssemblyInOneGroup`
   and `Group_BindsAnInContextReferenceToItsOwnDescriptor`, with the embedded
   digest, declared-name, absence, and malformed-image cases proving a rejected
-  member creates no partial group.
+  member creates no partial group;
+- a package-specific authorization gate —
+  `WorkspaceContextLoaderTests.PerPackageAuthorization_KeepsEachPackageOnItsOwnProducer`,
+  `PerPackageAuthorization_RefusesAProducerAuthorizedForAnotherPackage`, and
+  `PerPackageAuthorization_WithNoProducer_IsTypedUnavailable`, so a producer
+  authorized for one package id cannot serve another, from a feed or from the
+  content cache;
+- a producer-bound realized identity gate —
+  `WorkspaceContextLoaderTests.RealizedCoordinate_NamesTheProducerThatServedTheBytes`
+  and `RealizedCoordinate_IsCanonicalAndStructurallyEquatable`, so one id,
+  version, and target served as different bytes by two feeds realizes two
+  distinct coordinates, each naming a credential-free producer identity;
+- a front-door validation gate —
+  `PackageCoordinateResolverTests.Coordinate_RejectsAPackageIdOutsideTheGrammar`
+  with its `Coordinate_AcceptsRealPackageIds` close negative, plus
+  `WorkspaceContextLoaderTests.InvalidPackageId_IsRejectedBeforeAnyAcquisition`
+  and `InvalidTargetText_IsRejectedBeforeAnyAcquisition`, which prove the
+  rejection precedes every source, cache, and network step for both store
+  kinds; and
+- a bounded-publication gate —
+  `PackagePayloadAcquisitionTests.UnboundedChunkedPayload_IsRejectedWithoutContentLength`,
+  `ArchiveDeclaringTooManyEntries_IsRejected`,
+  `ArchiveDeclaringTooMuchExpandedContent_IsRejected`,
+  `InvalidArchiveFromOneSource_LetsTheNextSourceServe`, and
+  `Acquisition_ObservesCancellationDuringDownload`, so a payload is bounded and
+  validated before it enters a store and an unusable one stays a typed
+  single-source failure.
 
 Nothing else on the list above exists yet. There is no record schema or
 serializer, no group catalog or grammar, no packet projection, no `platform`,

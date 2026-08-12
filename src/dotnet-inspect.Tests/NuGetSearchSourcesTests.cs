@@ -1081,6 +1081,42 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
+    /// The desktop authorization adapter answers per package id: it composes
+    /// the same mapping and credential policy the CLI uses, rather than handing
+    /// one union of every configured source to a caller that would then let any
+    /// of them serve any package. A mapping failure keeps its own message
+    /// instead of degrading to an unexplained empty set.
+    /// </summary>
+    [Fact]
+    public void SourcePolicyAuthorization_AnswersOneProducerSetPerPackageId()
+    {
+        const string sourceA = "https://a.example/v3/index.json";
+        const string sourceB = "https://b.example/v3/index.json";
+        using var config = new TempNuGetConfig(
+            [("a", sourceA), ("b", sourceB)],
+            mappings: [("a", "Contoso.*"), ("b", "Other.*")]);
+        var authorization = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Equal(
+            ["a"],
+            authorization.AuthorizeSourcesFor("contoso.package")
+                .Sources.Select(source => source.Name));
+        Assert.Equal(
+            ["b"],
+            authorization.AuthorizeSourcesFor("other.package")
+                .Sources.Select(source => source.Name));
+
+        PackageSourceAuthorization denied =
+            authorization.AuthorizeSourcesFor("unmapped.package");
+        Assert.Empty(denied.Sources);
+        Assert.Contains(
+            "no pattern",
+            denied.DenialReason!,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The nuget.org shortcut answers from the well-known search endpoint without reading a
     /// service index. It must therefore key on the canonical service index URL and not merely on a
     /// nuget.org host: another path on that host is a different endpoint the user named

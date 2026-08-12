@@ -14,9 +14,11 @@ namespace DotnetInspector.Queries;
 /// <remarks>
 /// Every acquisition capability is passed in, so the loader reads no ambient
 /// source configuration and depends on no filesystem cache. A browser host
-/// supplies its own <see cref="System.Net.Http.HttpClient"/>, the sources it
-/// has already authorized, and an <see cref="InMemoryPackageStore"/>; a desktop
-/// host resolves its sources through the normal source policy first and may
+/// supplies its own <see cref="System.Net.Http.HttpClient"/>, a
+/// <see cref="UniformPackageSourceAuthorization"/> over the feeds it has
+/// already authorized, and an <see cref="InMemoryPackageStore"/>; a desktop
+/// host supplies <see cref="SourcePolicyPackageSourceAuthorization"/>, which
+/// answers from the normal source and package-source-mapping policy, and may
 /// supply <see cref="FileSystemPackageStore"/>.
 /// </remarks>
 public sealed record WorkspaceContextLoadOptions
@@ -25,10 +27,20 @@ public sealed record WorkspaceContextLoadOptions
     public required HttpClient HttpClient { get; init; }
 
     /// <summary>
-    /// The sources already authorized to serve this context's packages, in
-    /// consultation order. The loader neither discovers nor widens them.
+    /// The host's decision about which producers may serve each package id.
     /// </summary>
-    public required IReadOnlyList<PackageSource> AuthorizedSources { get; init; }
+    /// <remarks>
+    /// It is consulted once per package member, with that member's own id,
+    /// before any discovery, cache read, or download for that member. A single
+    /// union of every source the context might use would be the wrong shape:
+    /// NuGet authorizes producers per package id, so a union would let one
+    /// member's private feed answer for another member's package. The loader
+    /// neither discovers nor widens what this returns, and an authorization
+    /// naming no producer is a typed
+    /// <see cref="WorkspaceContextLoadFailureKind.PackageUnavailable"/> rather
+    /// than a fallback to a default feed.
+    /// </remarks>
+    public required IPackageSourceAuthorization SourceAuthorization { get; init; }
 
     /// <summary>Where acquired package payloads are cached and read back.</summary>
     public required IPackageStore PackageStore { get; init; }
@@ -52,6 +64,13 @@ public sealed record WorkspaceContextLoadOptions
     /// </summary>
     public bool UseVersionCache { get; init; }
 
+    /// <summary>
+    /// The bounds a downloaded package payload must respect before it may be
+    /// published into <see cref="PackageStore"/>.
+    /// </summary>
+    public PackagePayloadLimits PayloadLimits { get; init; } =
+        PackagePayloadLimits.Default;
+
     /// <summary>The created group's cumulative retained-image budget.</summary>
     public long MaxRetainedImageBytes { get; init; } =
         AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
@@ -72,12 +91,14 @@ public sealed record WorkspaceContextLoadOptions
 /// <para>
 /// The loader is the only place a coordinate becomes provenance. It validates
 /// every coordinate and the context's single acquisition target before
-/// acquiring anything, resolves floating package coordinates through the
-/// product's listing-aware source and version policy while exact pins bypass
-/// discovery entirely, acquires payloads through the caller's package store,
-/// and selects one asset universe per package. A package coordinate names no
-/// assembly, so it realizes every managed non-resource assembly in that
-/// universe, matching how the existing package workspaces treat a package.
+/// acquiring anything, asks the host which producers may serve each package id
+/// before doing any work for that member, resolves floating package coordinates
+/// through the product's listing-aware source and version policy while exact
+/// pins bypass discovery entirely, acquires payloads through the caller's
+/// package store, and selects one asset universe per package. A package
+/// coordinate names no assembly, so it realizes every managed non-resource
+/// assembly in that universe, matching how the existing package workspaces
+/// treat a package.
 /// </para>
 /// <para>
 /// Expected failures — an unauthorized or unavailable source, a package
@@ -104,8 +125,16 @@ public sealed record WorkspaceContextLoadOptions
 /// <c>PackageMemberWithoutAFramework_ReportsAMissingTarget</c> for target
 /// consistency, <c>FloatingMember_UsesTheListingAwareVersionPolicy</c> and
 /// <c>ExactPin_SelectsAnUnlistedVersionWithoutDiscovery</c> for the version
-/// policy, and the embedded digest, name, absence, and malformed-image cases
-/// for the no-partial-group rule.
+/// policy,
+/// <c>PerPackageAuthorization_KeepsEachPackageOnItsOwnProducer</c> and
+/// <c>PerPackageAuthorization_RefusesAProducerAuthorizedForAnotherPackage</c>
+/// for package-specific authorization,
+/// <c>RealizedCoordinate_NamesTheProducerThatServedTheBytes</c> for
+/// producer-bound realized identity,
+/// <c>InvalidTargetText_IsRejectedBeforeAnyAcquisition</c> and
+/// <c>InvalidPackageId_IsRejectedBeforeAnyAcquisition</c> for the front door,
+/// and the embedded digest, name, absence, and malformed-image cases for the
+/// no-partial-group rule.
 /// </para>
 /// </remarks>
 public static class WorkspaceContextLoader
@@ -125,8 +154,9 @@ public static class WorkspaceContextLoader
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.HttpClient);
-        ArgumentNullException.ThrowIfNull(options.AuthorizedSources);
+        ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
         ArgumentNullException.ThrowIfNull(options.PackageStore);
+        ArgumentNullException.ThrowIfNull(options.PayloadLimits);
         ArgumentOutOfRangeException.ThrowIfNegative(
             options.MaxEmbeddedContentBytes);
         cancellationToken.ThrowIfCancellationRequested();
@@ -239,7 +269,7 @@ public static class WorkspaceContextLoader
                 Failure(
                     WorkspaceContextLoadFailureKind.InvalidCoordinate,
                     member: null,
-                    "A context acquisition target cannot be empty or have surrounding whitespace."));
+                    "A context acquisition target cannot be empty, have surrounding whitespace, or carry a control character."));
         }
 
         List<string> frameworks = [];
@@ -391,6 +421,23 @@ public static class WorkspaceContextLoader
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        // Authorization is resolved for this member's own id, and before any
+        // discovery, cache read, or download for it. The canonical id is what
+        // the host is asked about, so one package has one authorization answer
+        // regardless of how the context spelled it.
+        PackageSourceAuthorization authorization =
+            options.SourceAuthorization.AuthorizeSourcesFor(
+                member.PackageId.ToLowerInvariant());
+        if (authorization.Sources.Count == 0)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageUnavailable,
+                    member,
+                    authorization.DenialReason
+                    ?? $"No source is authorized to provide package '{member.PackageId}'."));
+        }
+
         PackageCoordinateResolution resolution =
             await PackageCoordinateResolver.ResolveAsync(
                 options.HttpClient,
@@ -399,7 +446,7 @@ public static class WorkspaceContextLoader
                     member.Version,
                     framework,
                     runtimeIdentifier),
-                options.AuthorizedSources,
+                authorization.Sources,
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
@@ -428,6 +475,7 @@ public static class WorkspaceContextLoader
                 coordinate,
                 options.PackageStore,
                 options.Log,
+                options.PayloadLimits,
                 cancellationToken).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
@@ -438,8 +486,9 @@ public static class WorkspaceContextLoader
                     payloadFailure.Message));
         }
 
-        IPackageContent content =
-            ((PackagePayloadResult.Acquired)payload).Payload.Content;
+        AcquiredPackagePayload acquired =
+            ((PackagePayloadResult.Acquired)payload).Payload;
+        IPackageContent content = acquired.Content;
         PackageAssetSelection selection = PackageAssetSelector.Select(
             content,
             framework,
@@ -531,6 +580,7 @@ public static class WorkspaceContextLoader
             new RealizedMemberCoordinate.Package(
                 coordinate.PackageId,
                 coordinate.Version,
+                acquired.ProducerKey,
                 framework,
                 runtimeIdentifier),
             assemblies.ToImmutable());
@@ -687,9 +737,7 @@ public static class WorkspaceContextLoader
         new(kind, member, message);
 
     static bool IsBlankOrPadded(string? value) =>
-        value is null
-        || string.IsNullOrWhiteSpace(value)
-        || !string.Equals(value, value.Trim(), StringComparison.Ordinal);
+        !PackageCoordinateResolver.IsAcquisitionTargetText(value);
 
     static bool IsInvalidOptionalTarget(string? value) =>
         value is not null && IsBlankOrPadded(value);

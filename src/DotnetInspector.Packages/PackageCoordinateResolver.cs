@@ -85,12 +85,21 @@ public abstract record PackageCoordinateResolution
 /// <c>FloatingCoordinate_SelectsLatestListedStableVersion</c> for the
 /// listing-aware floating path,
 /// <c>ExactCoordinate_PreservesUnlistedVersionWithoutDiscovery</c> for exact
-/// pins bypassing discovery, and
+/// pins bypassing discovery,
 /// <c>Coordinate_WithNoAuthorizedSource_IsUnavailable</c> for the rule that
-/// this overload reads no ambient configuration.
+/// this overload reads no ambient configuration, and
+/// <c>Coordinate_RejectsAPackageIdOutsideTheGrammar</c> plus
+/// <c>FloatingCoordinate_OutsideTheGrammar_IsRejectedWithoutNetworkWork</c>
+/// for the id grammar preceding every source, cache, and network step.
 /// </remarks>
 public static class PackageCoordinateResolver
 {
+    /// <summary>
+    /// The largest package id NuGet accepts. An id longer than this cannot name
+    /// a real package, so it is rejected before any source is consulted.
+    /// </summary>
+    public const int MaxPackageIdLength = 100;
+
     /// <summary>
     /// Resolves a coordinate against an already-authorized source set. This
     /// overload performs no source-configuration discovery. Candidate caching
@@ -193,38 +202,25 @@ public static class PackageCoordinateResolver
             return invalid;
         }
 
-        if (sourceOptions?.ConfigFile is { } configFile
-            && NuGetSourceResolver.DescribeConfigProblem(configFile)
-                is string configProblem)
+        // One owner for the desktop composition of config validity, sources,
+        // mapping, and credentials: the same adapter a host passes to the
+        // workspace loader.
+        PackageSourceAuthorization authorization =
+            new SourcePolicyPackageSourceAuthorization(sourceOptions)
+                .AuthorizeSourcesFor(coordinate.PackageId);
+        if (authorization.DenialReason is { } denial)
         {
-            return new PackageCoordinateResolution.Unavailable(configProblem);
+            return new PackageCoordinateResolution.Unavailable(denial);
         }
 
-        try
-        {
-            List<PackageSource> sources =
-                NuGetSourceResolver.ResolveSourcesForPackage(
-                    sourceOptions,
-                    coordinate.PackageId);
-            IReadOnlyList<PackageSource> authorizedSources =
-                NuGetSourceResolver.ResolveAuthorizedSources(
-                    sourceOptions,
-                    sources);
-            return await ResolveAsync(
-                client,
-                coordinate,
-                authorizedSources,
-                log,
-                includePrerelease,
-                useVersionCache,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (
-            ex is PackageSourceMappingException
-                or UnsupportedSourceException)
-        {
-            return new PackageCoordinateResolution.Unavailable(ex.Message);
-        }
+        return await ResolveAsync(
+            client,
+            coordinate,
+            authorization.Sources,
+            log,
+            includePrerelease,
+            useVersionCache,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -240,31 +236,94 @@ public static class PackageCoordinateResolver
         return ValidateCoordinate(coordinate, out _);
     }
 
+    /// <summary>
+    /// True when <paramref name="value"/> is a package id NuGet could publish:
+    /// at most <see cref="MaxPackageIdLength"/> characters of ASCII letters,
+    /// digits, and underscore, separated by single <c>.</c> or <c>-</c>
+    /// characters.
+    /// </summary>
+    /// <remarks>
+    /// This is the single owner of the id grammar. It is a bounded allow list
+    /// rather than a deny list of dangerous spellings, so URL syntax
+    /// (<c>?</c>, <c>#</c>, <c>%</c>, <c>@</c>, <c>:</c>), path separators,
+    /// traversal segments, non-ASCII text, and control characters are all
+    /// outside it by construction rather than by enumeration. An id is
+    /// substituted into feed URLs and cache paths, so a caller holding a
+    /// validated id knows those substitutions cannot change the shape of what
+    /// they build.
+    /// </remarks>
+    public static bool IsCanonicalPackageId(string? value)
+    {
+        if (value is not { Length: > 0 } id || id.Length > MaxPackageIdLength)
+            return false;
+
+        for (int index = 0; index < id.Length; index++)
+        {
+            char character = id[index];
+            if (IsIdWordCharacter(character))
+                continue;
+
+            // A separator is legal only between two word characters, so no id
+            // starts or ends with one and no two are adjacent.
+            if (character is not ('.' or '-')
+                || index == 0
+                || index == id.Length - 1
+                || !IsIdWordCharacter(id[index - 1])
+                || !IsIdWordCharacter(id[index + 1]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+
+        static bool IsIdWordCharacter(char value) =>
+            char.IsAsciiLetterOrDigit(value) || value == '_';
+    }
+
+    /// <summary>
+    /// True when <paramref name="value"/> can be an acquisition target — a
+    /// framework or runtime identifier — in canonical form: non-empty, without
+    /// surrounding whitespace, and carrying no control character.
+    /// </summary>
+    /// <remarks>
+    /// Every layer that accepts a target text shares this predicate, so a value
+    /// a front door admits is exactly a value the canonical realized coordinate
+    /// will hold. The spelling itself stays open, because the framework and
+    /// runtime-identifier vocabularies are owned elsewhere and grow.
+    /// </remarks>
+    public static bool IsAcquisitionTargetText(string? value) =>
+        value is { Length: > 0 }
+        && !string.IsNullOrWhiteSpace(value)
+        && string.Equals(value, value.Trim(), StringComparison.Ordinal)
+        && !value.Any(char.IsControl);
+
     static PackageCoordinateResolution.Invalid? ValidateCoordinate(
         PackageCoordinate coordinate,
         out NuGetVersion? exactVersion)
     {
         exactVersion = null;
-        if (string.IsNullOrWhiteSpace(coordinate.PackageId)
-            || !string.Equals(
-                coordinate.PackageId,
-                coordinate.PackageId.Trim(),
-                StringComparison.Ordinal))
+        if (!IsCanonicalPackageId(coordinate.PackageId))
         {
+            // The rejected spelling is caller-supplied, but it is also the
+            // value that failed a URL- and path-substitution grammar, so it is
+            // described rather than echoed.
             return new PackageCoordinateResolution.Invalid(
-                "A package coordinate requires a non-empty package id without surrounding whitespace.");
+                "A package coordinate requires a package id of at most "
+                + $"{MaxPackageIdLength} characters of ASCII letters, digits, and underscore, "
+                + "separated by single '.' or '-' characters.");
         }
 
         if (InvalidOptionalTarget(coordinate.Framework))
         {
             return new PackageCoordinateResolution.Invalid(
-                "A package coordinate framework cannot be empty or have surrounding whitespace.");
+                "A package coordinate framework cannot be empty, have surrounding whitespace, or carry a control character.");
         }
 
         if (InvalidOptionalTarget(coordinate.RuntimeIdentifier))
         {
             return new PackageCoordinateResolution.Invalid(
-                "A package coordinate runtime identifier cannot be empty or have surrounding whitespace.");
+                "A package coordinate runtime identifier cannot be empty, have surrounding whitespace, or carry a control character.");
         }
 
         if (coordinate.Version is not { } version)
@@ -288,12 +347,7 @@ public static class PackageCoordinateResolver
     }
 
     static bool InvalidOptionalTarget(string? value) =>
-        value is not null
-        && (string.IsNullOrWhiteSpace(value)
-            || !string.Equals(
-                value,
-                value.Trim(),
-                StringComparison.Ordinal));
+        value is not null && !IsAcquisitionTargetText(value);
 
     static PackageCoordinateResolution.Unavailable NoAuthorizedSource(
         string packageId) =>

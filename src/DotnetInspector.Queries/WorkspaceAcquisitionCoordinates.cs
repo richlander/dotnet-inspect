@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using DotnetInspector.Packages;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Queries;
@@ -220,10 +221,12 @@ public abstract record RealizedMemberCoordinate
     private protected abstract int Discriminator { get; }
 
     /// <summary>
-    /// One exact package acquisition: a normalized package id and version,
-    /// plus the effective acquisition target the context resolved to.
+    /// One exact package acquisition: a normalized package id and version, the
+    /// producer that actually served the bytes, and the effective acquisition
+    /// target the context resolved to.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Every participant realized from one package member carries this same
     /// coordinate. It states the acquisition request that produced them, not
     /// the asset folder any single image came from; that physical detail stays
@@ -232,15 +235,34 @@ public abstract record RealizedMemberCoordinate
     /// Canonical normalization is owned by
     /// <see cref="DotnetInspector.Packages.PackageCoordinateResolver"/>; this
     /// type only refuses to hold a value that owner would not have produced.
+    /// </para>
+    /// <para>
+    /// <see cref="Producer"/> is part of the identity because id, version,
+    /// framework, and runtime identifier do not determine bytes: two feeds may
+    /// each serve a package by that name and version, and a coordinate that
+    /// could not tell them apart would claim re-acquirability it does not have.
+    /// It is the content cache's own producer key — an opaque, bounded,
+    /// credential-free token — so the coordinate stays a portable value and
+    /// carries no source object, URL, or credential across a transport
+    /// boundary.
+    /// </para>
     /// </remarks>
     public sealed record Package : RealizedMemberCoordinate
     {
         public Package(
             string packageId,
             string version,
+            string producer,
             string framework,
-            string? runtimeIdentifier = null)
+            string? runtimeIdentifier)
         {
+            if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+            {
+                throw new ArgumentException(
+                    "A realized package id is a canonical NuGet package id.",
+                    nameof(packageId));
+            }
+
             PackageId = Canonical(packageId, nameof(packageId), lowercase: true);
             Version = Canonical(version, nameof(version), lowercase: true);
             if (Version.Contains('+', StringComparison.Ordinal)
@@ -255,6 +277,14 @@ public abstract record RealizedMemberCoordinate
                     nameof(version));
             }
 
+            if (!IsCanonicalProducer(producer))
+            {
+                throw new ArgumentException(
+                    "A realized package producer is a canonical content-cache producer key.",
+                    nameof(producer));
+            }
+
+            Producer = producer;
             Framework = Canonical(framework, nameof(framework), lowercase: false);
             RuntimeIdentifier = runtimeIdentifier is null
                 ? null
@@ -271,6 +301,18 @@ public abstract record RealizedMemberCoordinate
 
         /// <summary>The exact normalized version that was acquired.</summary>
         public string Version { get; }
+
+        /// <summary>
+        /// The content cache's identity for the producer that served these
+        /// bytes.
+        /// </summary>
+        /// <remarks>
+        /// An opaque token, not a locator: it names which feed answered without
+        /// disclosing the feed's URL, credentials, or configuration. Two
+        /// producers serving one id and version therefore realize two distinct
+        /// coordinates.
+        /// </remarks>
+        public string Producer { get; }
 
         /// <summary>The context's effective acquisition framework.</summary>
         public string Framework { get; }
@@ -373,6 +415,23 @@ public abstract record RealizedMemberCoordinate
             || character is >= 'a' and <= 'f');
 
     /// <summary>
+    /// True when <paramref name="value"/> can be a content-cache producer key:
+    /// a short, lowercase, opaque token of ASCII letters, digits, and hyphens.
+    /// </summary>
+    /// <remarks>
+    /// The grammar is what makes a producer safe to carry in a portable value.
+    /// A URL, a credential, a user-info segment, and a filesystem path each
+    /// contain a character this rejects, so a caller cannot smuggle a locator
+    /// or a secret into a coordinate by passing one where a key belongs.
+    /// </remarks>
+    public static bool IsCanonicalProducer(string? value) =>
+        value is { Length: > 0 and <= 64 }
+        && value.All(static character =>
+            char.IsAsciiDigit(character)
+            || character is >= 'a' and <= 'z'
+            || character is '-');
+
+    /// <summary>
     /// True when <paramref name="value"/> can be an assembly simple name. Any
     /// legal Unicode identifier text is accepted; only empty, padded, control,
     /// and assembly-display-name punctuation are refused.
@@ -387,12 +446,12 @@ public abstract record RealizedMemberCoordinate
 
     static string Canonical(string value, string name, bool lowercase)
     {
-        if (string.IsNullOrWhiteSpace(value)
-            || !string.Equals(value, value.Trim(), StringComparison.Ordinal)
-            || value.Any(char.IsControl))
+        // The same predicate every front door uses, so a target this
+        // constructor would refuse can never pass validation upstream.
+        if (!PackageCoordinateResolver.IsAcquisitionTargetText(value))
         {
             throw new ArgumentException(
-                $"A realized coordinate requires a non-empty '{name}' without surrounding whitespace.",
+                $"A realized coordinate requires a non-empty '{name}' without surrounding whitespace or control characters.",
                 name);
         }
 

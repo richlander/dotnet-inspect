@@ -25,6 +25,12 @@ public sealed class WorkspaceContextLoaderTests
     const string Version = "1.0.0";
 
     static readonly PackageSource NuGetOrg = PackageSource.NuGetOrg;
+    static readonly PackageSource Private =
+        new("private", "https://private.test/v3/index.json");
+    static readonly PackageSource FeedA =
+        new("feed-a", "https://a.test/v3/index.json");
+    static readonly PackageSource FeedB =
+        new("feed-b", "https://b.test/v3/index.json");
     static readonly string CallerPath =
         FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
     static readonly string TargetPath =
@@ -402,7 +408,9 @@ public sealed class WorkspaceContextLoaderTests
             new RealizedMemberCoordinate.Package(
                 PackageId,
                 "2.0.0",
-                Framework),
+                Producer(NuGetOrg),
+                Framework,
+                runtimeIdentifier: null),
             loaded.Members[0].Realized);
     }
 
@@ -444,6 +452,336 @@ public sealed class WorkspaceContextLoaderTests
                 loaded.Group.UseAssemblyImage(
                     participant.Assembly,
                     static view => view.Content.Length)));
+    }
+
+    [Fact]
+    public async Task PerPackageAuthorization_KeepsEachPackageOnItsOwnProducer()
+    {
+        var handler = new PerFeedHandler();
+        handler.Serve(FeedA, "alpha.package", "1.0.0", CallerPackage());
+        handler.Serve(FeedB, "bravo.package", "1.0.0", TargetPackage());
+        using var client = new HttpClient(handler);
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            "alpha.package",
+                            "1.0.0"),
+                        WorkspaceMemberCoordinate.Package(
+                            "bravo.package",
+                            "1.0.0"),
+                    ],
+                },
+                Options(
+                    client,
+                    new InMemoryPackageStore(),
+                    sourceAuthorization: new PerPackageAuthorization
+                    {
+                        ["alpha.package"] = [FeedA],
+                        ["bravo.package"] = [FeedB],
+                    }),
+                TestContext.Current.CancellationToken));
+
+        // Each package was realized from the one producer its own id
+        // authorizes, and the realized coordinate names that producer.
+        Assert.Equal(
+            Producer(FeedA),
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized).Producer);
+        Assert.Equal(
+            Producer(FeedB),
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[1].Realized).Producer);
+
+        // A union of both members' sources would have let either feed answer
+        // for either package. No request crosses.
+        Assert.NotEmpty(handler.Requests);
+        Assert.All(
+            handler.Requests.Where(url =>
+                url.Contains("a.test", StringComparison.Ordinal)),
+            url => Assert.DoesNotContain(
+                "bravo.package",
+                url,
+                StringComparison.Ordinal));
+        Assert.All(
+            handler.Requests.Where(url =>
+                url.Contains("b.test", StringComparison.Ordinal)),
+            url => Assert.DoesNotContain(
+                "alpha.package",
+                url,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PerPackageAuthorization_RefusesAProducerAuthorizedForAnotherPackage()
+    {
+        byte[] nupkg = CallerPackage();
+        var handler = new PerFeedHandler();
+
+        // Only the feed this package is *not* authorized for can serve it, and
+        // that feed's cache slot is already warm. A union of the context's
+        // sources would succeed here; per-package authorization must not.
+        handler.Serve(FeedB, "alpha.package", "1.0.0", nupkg);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            "alpha.package",
+            "1.0.0",
+            Producer(FeedB),
+            new MemoryStream(nupkg),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(handler);
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            "alpha.package",
+                            "1.0.0"),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: new PerPackageAuthorization
+                    {
+                        ["alpha.package"] = [FeedA],
+                        ["bravo.package"] = [FeedB],
+                    }),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.All(
+            handler.Requests,
+            url => Assert.DoesNotContain(
+                "b.test",
+                url,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PerPackageAuthorization_WithNoProducer_IsTypedUnavailable()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: new PerPackageAuthorization()),
+                TestContext.Current.CancellationToken);
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(Failed(outcome).Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageUnavailable,
+            failure.Kind);
+        Assert.Equal(0, GroupCount(workspace));
+
+        // An empty authorization ends the member: no cache read, no download,
+        // and no fallback to a default feed the throwing client would reveal.
+        Assert.Equal(0, store.Interactions);
+    }
+
+    [Fact]
+    public async Task RealizedCoordinate_NamesTheProducerThatServedTheBytes()
+    {
+        var handler = new PerFeedHandler();
+
+        // One id, one version, one target — two feeds, two different payloads.
+        handler.Serve(FeedA, PackageId, Version, LibraryPackage());
+        handler.Serve(FeedB, PackageId, Version, TargetV2Package());
+        using var client = new HttpClient(handler);
+
+        RealizedMemberCoordinate.Package fromA = await RealizeAsync(FeedA);
+        RealizedMemberCoordinate.Package fromB = await RealizeAsync(FeedB);
+
+        Assert.Equal(fromA.PackageId, fromB.PackageId);
+        Assert.Equal(fromA.Version, fromB.Version);
+        Assert.Equal(fromA.Framework, fromB.Framework);
+        Assert.Equal(fromA.RuntimeIdentifier, fromB.RuntimeIdentifier);
+        Assert.Equal(Producer(FeedA), fromA.Producer);
+        Assert.Equal(Producer(FeedB), fromB.Producer);
+        Assert.NotEqual(fromA, fromB);
+
+        async Task<RealizedMemberCoordinate.Package> RealizeAsync(
+            PackageSource feed)
+        {
+            using var workspace = new InspectionWorkspace();
+            var loaded = Loaded(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(
+                        client,
+                        new InMemoryPackageStore(),
+                        sourceAuthorization:
+                            new UniformPackageSourceAuthorization([feed])),
+                    TestContext.Current.CancellationToken));
+            return Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized);
+        }
+    }
+
+    [Theory]
+    [InlineData("net10.0\u0007", null, null, null)]
+    [InlineData(null, "browser-wasm\u0007", null, null)]
+    [InlineData("net10.0", null, "net10.0\u200b\u0000", null)]
+    [InlineData("net10.0", null, null, "browser\u0001wasm")]
+    public async Task InvalidTargetText_IsRejectedBeforeAnyAcquisition(
+        string? contextFramework,
+        string? contextRid,
+        string? memberFramework,
+        string? memberRid)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = contextFramework ?? Framework,
+                    RuntimeIdentifier = contextRid,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            PackageId,
+                            Version,
+                            memberFramework,
+                            memberRid),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            Failed(outcome).Failures,
+            failure => failure.Kind
+                == WorkspaceContextLoadFailureKind.InvalidCoordinate);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.Equal(0, store.Interactions);
+    }
+
+    [Theory]
+    [InlineData("../../admin")]
+    [InlineData("sample?version=1")]
+    [InlineData("sample#fragment")]
+    [InlineData("sample/nested")]
+    [InlineData("sample\\nested")]
+    [InlineData("sample\u0007package")]
+    [InlineData("..")]
+    [InlineData(".hidden")]
+    [InlineData("sample..package")]
+    [InlineData("https://feed.test/sample")]
+    public async Task InvalidPackageId_IsRejectedBeforeAnyAcquisition(
+        string packageId)
+    {
+        foreach (IPackageStore inner in
+            new IPackageStore[]
+            {
+                new InMemoryPackageStore(),
+                new FileSystemPackageStore(),
+            })
+        {
+            using var client = new HttpClient(new FailingHandler());
+            var store = new CountingPackageStore(inner);
+            using var workspace = new InspectionWorkspace();
+
+            WorkspaceContextLoadOutcome outcome =
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Package(
+                                packageId,
+                                Version),
+                        ],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken);
+
+            // Both store kinds see the same typed rejection, because neither
+            // is reached: the grammar decides before any source, cache, or
+            // network step.
+            WorkspaceContextLoadFailure failure =
+                Assert.Single(Failed(outcome).Failures);
+            Assert.Equal(
+                WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                failure.Kind);
+            Assert.DoesNotContain(
+                packageId,
+                failure.Message,
+                StringComparison.Ordinal);
+            Assert.Equal(0, GroupCount(workspace));
+            Assert.Equal(0, store.Interactions);
+        }
+    }
+
+    [Fact]
+    public async Task OversizedPackagePayload_CreatesNoGroupAndDoesNotCache()
+    {
+        byte[] nupkg = LibraryPackage();
+        var store = new InMemoryPackageStore();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(new PayloadHandler(nupkg, Version));
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(
+                    client,
+                    store,
+                    payloadLimits: new PackagePayloadLimits
+                    {
+                        MaxArchiveBytes = 1024,
+                    }),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PackageUnavailable,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.Null(
+            store.TryGetCached(PackageId, Version, [Producer(NuGetOrg)]));
     }
 
     [Fact]
@@ -806,25 +1144,72 @@ public sealed class WorkspaceContextLoaderTests
         var first = new RealizedMemberCoordinate.Package(
             PackageId,
             Version,
+            Producer(NuGetOrg),
             Framework,
             "browser-wasm");
         var second = new RealizedMemberCoordinate.Package(
             PackageId,
             Version,
+            Producer(NuGetOrg),
             Framework,
             "browser-wasm");
 
         Assert.Equal(first, second);
+
+        // The producer is part of the identity: the same id, version, target,
+        // and runtime identifier served by another feed is another coordinate,
+        // because it is not the same bytes.
+        Assert.NotEqual(
+            first,
+            new RealizedMemberCoordinate.Package(
+                PackageId,
+                Version,
+                Producer(Private),
+                Framework,
+                "browser-wasm"));
+
         Assert.Throws<ArgumentException>(
             () => new RealizedMemberCoordinate.Package(
                 PackageId,
                 "1.0",
-                Framework));
+                Producer(NuGetOrg),
+                Framework,
+                runtimeIdentifier: null));
         Assert.Throws<ArgumentException>(
             () => new RealizedMemberCoordinate.Package(
                 "Workspace.Sample",
                 Version,
-                Framework));
+                Producer(NuGetOrg),
+                Framework,
+                runtimeIdentifier: null));
+        Assert.Throws<ArgumentException>(
+            () => new RealizedMemberCoordinate.Package(
+                "../../admin",
+                Version,
+                Producer(NuGetOrg),
+                Framework,
+                runtimeIdentifier: null));
+        Assert.Throws<ArgumentException>(
+            () => new RealizedMemberCoordinate.Package(
+                PackageId,
+                Version,
+                Framework,
+                Framework,
+                runtimeIdentifier: null));
+        Assert.Throws<ArgumentException>(
+            () => new RealizedMemberCoordinate.Package(
+                PackageId,
+                Version,
+                "https://user:secret@feed.test/v3/index.json",
+                Framework,
+                runtimeIdentifier: null));
+        Assert.Throws<ArgumentException>(
+            () => new RealizedMemberCoordinate.Package(
+                PackageId,
+                Version,
+                Producer(NuGetOrg),
+                "net10.0\u0007",
+                runtimeIdentifier: null));
     }
 
     [Fact]
@@ -850,14 +1235,21 @@ public sealed class WorkspaceContextLoaderTests
     static WorkspaceContextLoadOptions Options(
         HttpClient client,
         IPackageStore store,
-        IEmbeddedContentProvider? embeddedContent = null) =>
+        IEmbeddedContentProvider? embeddedContent = null,
+        IPackageSourceAuthorization? sourceAuthorization = null,
+        PackagePayloadLimits? payloadLimits = null) =>
         new()
         {
             HttpClient = client,
-            AuthorizedSources = [NuGetOrg],
+            SourceAuthorization = sourceAuthorization
+                ?? new UniformPackageSourceAuthorization([NuGetOrg]),
             PackageStore = store,
             EmbeddedContent = embeddedContent,
+            PayloadLimits = payloadLimits ?? PackagePayloadLimits.Default,
         };
+
+    static string Producer(PackageSource source) =>
+        NuGetCache.GetSourceKey(source.Url);
 
     static WorkspaceMemberCoordinate PackageMember(string? version) =>
         WorkspaceMemberCoordinate.Package(PackageId, version);
@@ -894,6 +1286,21 @@ public sealed class WorkspaceContextLoaderTests
             ($"lib/{Framework}/de/{Path.GetFileNameWithoutExtension(TargetPath)}.resources.dll",
                 File.ReadAllBytes(TargetPath)),
             ("build/Sample.props", "<Project />"u8.ToArray()));
+
+    static byte[] CallerPackage() =>
+        Archive(
+            ($"lib/{Framework}/{Path.GetFileName(CallerPath)}",
+                File.ReadAllBytes(CallerPath)));
+
+    static byte[] TargetPackage() =>
+        Archive(
+            ($"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+                File.ReadAllBytes(TargetPath)));
+
+    static byte[] TargetV2Package() =>
+        Archive(
+            ($"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+                File.ReadAllBytes(TargetV2Path)));
 
     static byte[] RuntimeSpecificPackage() =>
         Archive(
@@ -1059,6 +1466,138 @@ public sealed class WorkspaceContextLoaderTests
             CancellationToken cancellationToken) =>
             Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    /// <summary>
+    /// Two independent private feeds, each with its own service index and flat
+    /// container, that serve only the payloads registered for them. Every
+    /// request URL is recorded, so a test can assert which feed was asked about
+    /// which package rather than only which answer came back.
+    /// </summary>
+    sealed class PerFeedHandler : HttpMessageHandler
+    {
+        readonly Dictionary<string, byte[]> _payloads =
+            new(StringComparer.Ordinal);
+        readonly List<string> _requests = [];
+
+        internal IReadOnlyList<string> Requests
+        {
+            get
+            {
+                lock (_requests)
+                    return [.. _requests];
+            }
+        }
+
+        internal void Serve(
+            PackageSource feed,
+            string packageId,
+            string version,
+            byte[] nupkg) =>
+            _payloads[NupkgUrl(feed, packageId, version)] = nupkg;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            lock (_requests)
+                _requests.Add(url);
+
+            foreach (PackageSource feed in new[] { FeedA, FeedB })
+            {
+                if (url.Equals(feed.Url, StringComparison.Ordinal))
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = new StringContent(
+                                $$"""
+                                {"resources":[{"@id":"{{FlatContainer(feed)}}","@type":"PackageBaseAddress/3.0.0"}]}
+                                """),
+                        });
+                }
+            }
+
+            return Task.FromResult(
+                _payloads.TryGetValue(url, out byte[]? nupkg)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(nupkg),
+                    }
+                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+
+        static string FlatContainer(PackageSource feed) =>
+            $"{new Uri(feed.Url).GetLeftPart(UriPartial.Authority)}/flat/";
+
+        static string NupkgUrl(
+            PackageSource feed,
+            string packageId,
+            string version) =>
+            $"{FlatContainer(feed)}{packageId}/{version}/{packageId}.{version}.nupkg";
+    }
+
+    /// <summary>
+    /// A host policy that authorizes a different producer set for each package
+    /// id, the shape NuGet package source mapping produces. An id it never
+    /// heard of is authorized for nothing.
+    /// </summary>
+    sealed class PerPackageAuthorization
+        : Dictionary<string, PackageSource[]>, IPackageSourceAuthorization
+    {
+        internal PerPackageAuthorization()
+            : base(StringComparer.Ordinal)
+        {
+        }
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(string packageId)
+            => TryGetValue(packageId, out PackageSource[]? sources)
+                ? PackageSourceAuthorization.Authorize(sources)
+                : PackageSourceAuthorization.Deny(
+                    "No source is authorized for this package.");
+    }
+
+    /// <summary>
+    /// Counts every call that reaches a store, so a test can prove a rejection
+    /// happened before any cache read or commit rather than only that it
+    /// happened.
+    /// </summary>
+    sealed class CountingPackageStore(IPackageStore inner) : IPackageStore
+    {
+        int _interactions;
+
+        internal int Interactions => Volatile.Read(ref _interactions);
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+        {
+            Interlocked.Increment(ref _interactions);
+            return inner.TryGetCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log);
+        }
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _interactions);
+            return inner.CommitAsync(
+                packageName,
+                version,
+                sourceKey,
+                nupkg,
+                cancellationToken);
+        }
     }
 
     sealed class FailingHandler : HttpMessageHandler

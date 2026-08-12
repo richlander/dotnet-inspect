@@ -636,6 +636,14 @@ public static class PackageExtractor
     /// <summary>
     /// Gets the download URL for a package from a specific source.
     /// </summary>
+    /// <remarks>
+    /// The id and version are escaped as URI path components. A coordinate that
+    /// reached this point has already passed
+    /// <see cref="PackageCoordinateResolver.IsCanonicalPackageId"/>, whose
+    /// grammar leaves every legal id and normalized version unchanged by
+    /// escaping; the escape is the defense-in-depth that keeps a caller which
+    /// forgets that validation from being able to change the shape of the URL.
+    /// </remarks>
     public static async Task<string?> GetPackageDownloadUrlAsync(
         HttpClient client,
         NuGetSource source,
@@ -644,11 +652,14 @@ public static class PackageExtractor
         Action<string>? log,
         CancellationToken cancellationToken = default)
     {
+        string escapedName = Uri.EscapeDataString(packageName);
+        string escapedVersion = Uri.EscapeDataString(version);
+
         // Check for well-known flat-container URL (nuget.org optimization)
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
-            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.{version}.nupkg";
+            return $"{flatContainerUrl}/{escapedName}/{escapedVersion}/{escapedName}.{escapedVersion}.nupkg";
         }
 
         // Query V3 service index to discover PackageBaseAddress (flat-container) endpoint
@@ -663,7 +674,7 @@ public static class PackageExtractor
             if (!baseAddress.EndsWith('/'))
                 baseAddress += "/";
 
-            return $"{baseAddress}{packageName}/{version}/{packageName}.{version}.nupkg";
+            return $"{baseAddress}{escapedName}/{escapedVersion}/{escapedName}.{escapedVersion}.nupkg";
         }
 
         return null;
