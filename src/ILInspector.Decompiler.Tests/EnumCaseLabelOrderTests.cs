@@ -196,6 +196,18 @@ public class EnumCaseLabelOrderTests
         Assert.DoesNotContain(alphabetical.Decisions, d => d.RuleId == "enum-case-label-order");
     }
 
+    [Fact]
+    public void NestedLocalFunction_WithOwnScope_ReportsOrderingDecision()
+    {
+        var function = SyntheticNestedLocalFunction();
+
+        var result = CSharpPrinter.Print(function, PrinterOptions.Default);
+
+        AssertBefore(result.Output!, "OrderKind.Alpha", "OrderKind.Zulu");
+        var decision = Assert.Single(result.Decisions, d => d.RuleId == "enum-case-label-order");
+        Assert.Equal("Local", decision.Subject);
+    }
+
     static DecompilerResult RenderCompiled(PrinterOptions options)
     {
         using var source = MetadataSource.Open(typeof(EnumCaseLabelOrderSpecimen).Assembly.Location);
@@ -258,6 +270,62 @@ public class EnumCaseLabelOrderTests
             EnumMembers = members is null
                 ? new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>()
                 : new Dictionary<TypeRef, IReadOnlyDictionary<long, string>> { [EnumType] = members },
+        };
+    }
+
+    static IrFunction SyntheticNestedLocalFunction()
+    {
+        var sectionBlock = new Block();
+        sectionBlock.Add(new Return(new Constant(1, Int32)));
+        var sectionBody = new BlockContainer();
+        sectionBody.Add(sectionBlock);
+
+        var localBlock = new Block();
+        localBlock.Add(new Switch(
+            new LoadArgument(0, "kind", EnumType),
+            [new SwitchSection(
+                [new Constant(2, Int32), new Constant(1, Int32)],
+                isDefault: true,
+                sectionBody)]));
+        var localBody = new BlockContainer();
+        localBody.Add(localBlock);
+
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            Int32,
+            [new Parameter("kind", EnumType)],
+            isStatic: true,
+            locals: [Int32],
+            localNames: [null],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+        var outerBlock = new Block();
+        outerBlock.Add(localFunction);
+        outerBlock.Add(new Return(null));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+
+        return new IrFunction(
+            "Outer",
+            TypeRef.Definition("Synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [EnumType] = TypeShape.Enum },
+            EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+            {
+                [EnumType] = new Dictionary<long, string>
+                {
+                    [2] = "Zulu",
+                    [1] = "Alpha",
+                },
+            },
         };
     }
 

@@ -54,14 +54,16 @@ public sealed partial class CSharpPrinter
 
     readonly PrinterOptions _options;
     readonly HashSet<string> _reservedScopeNames;
-    readonly List<DecompilerDecision> _decisions = [];
-    readonly HashSet<string> _decisionKeys = [];
+    readonly List<DecompilerDecision> _decisions;
+    readonly HashSet<string> _decisionKeys;
 
     CSharpPrinter(
         IrFunction function,
         PrinterOptions? options = null,
         IEnumerable<string>? reservedScopeNames = null,
-        StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null)
+        StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
+        List<DecompilerDecision>? decisions = null,
+        HashSet<string>? decisionKeys = null)
     {
         _function = function;
         _options = options ?? PrinterOptions.Default;
@@ -71,6 +73,8 @@ public sealed partial class CSharpPrinter
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
         _stackSlotTelemetry = stackSlotTelemetry;
+        _decisions = decisions ?? [];
+        _decisionKeys = decisionKeys ?? [];
     }
 
     // The output-path pass context: stepping off, plus the optional cross-method
@@ -1800,7 +1804,14 @@ public sealed partial class CSharpPrinter
         };
 
         string pad = new(' ', indent * 4);
-        foreach (var line in new CSharpPrinter(function, _options, CurrentScopeNames(), _stackSlotTelemetry).PrintBody(function).TrimEnd().Split("\n"))
+        var nestedPrinter = new CSharpPrinter(
+            function,
+            _options,
+            CurrentScopeNames(),
+            _stackSlotTelemetry,
+            _decisions,
+            _decisionKeys);
+        foreach (var line in nestedPrinter.PrintBody(function).TrimEnd().Split("\n"))
             sb.Append(pad).AppendLf(line);
     }
 
