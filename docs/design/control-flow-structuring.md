@@ -59,8 +59,10 @@ common merge/exit that lies past the region**. Representative methods:
 
 > **Status.** `--gaps` reads ~96% fully raised over CoreLib; the residual is
 > dominated by `structuring: conditional-branch` — this gap.
-> `System.Array::InternalSetValue` still renders nested `if … goto IL_01C0;`
-> with every arm branching to the common exit `IL_01C0`. The forward-branch-to-
+> (2026-08-12: `System.Array::InternalSetValue` and `CopyImpl` now fully
+> structure on `main` — the shared-terminator slices consumed this doc's
+> canonical trace. Judge the shape against the current single-merge exemplars
+> listed in the trigger outcome below.) The forward-branch-to-
 > common-exit shape is sized directly from `--gaps`'s residual-kind docket and,
 > per container, from `StructuringPass`'s own stop reasons (see *Reproducing the
 > measurement*) — not from raw text diffing, which conflates structuring with
@@ -576,6 +578,15 @@ only when the post-dominator machinery is proven.
    This is the largest and riskiest step; it lands last, behind the proven
    machinery and the full check suite.
 
+   *Scope addition (2026-08-12, from
+   [#4063](https://github.com/richlander/dotnet-inspect/issues/4063)):* the
+   join primitive covers back-edge regions from day one — a non-crossing
+   region whose only back-edges target its head raises as `while`/
+   `while(true)` with the postdom-LCA exit as the break target. Loop-specific
+   mechanisms (continue placement, condition hoisting for effectful latches,
+   labeled break, conditional rotated entries) remain follow-on slices on top
+   of this shared core.
+
    *Status: shared-terminator merge slice landed (partial).* The first slice of
    step 4 relaxes the all-or-nothing invariant for one safe case: a shared
    **terminator** (a short `throw`/`return` block) reached past its region can be
@@ -597,7 +608,10 @@ only when the post-dominator machinery is proven.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
-   residuals, **691 contain loop back-edges (out of scope for step 4)**; the
+   residuals, **691 contain loop back-edges** (recorded here as out of scope
+   under the pre-#4063 framing; superseded — non-crossing back-edge regions
+   whose exits reach one post-dominator are now day-one step-4 scope, see the
+   corrected loop entry under *Out of scope*); the
    ~517 acyclic split into (a) shared **terminator** merges — `throw` (recovered
    above) and `return`; and (b) shared **non-terminator** merges (e.g.
    `HashCode::Combine`, where the merge is a computation block with a successor)
@@ -791,8 +805,11 @@ Microsoft.ApplicationInsights 2.23.0 (the `lib/` assembly of each).
    `--structuring-stops` separately reports 618 forward-merge *containers*
    (`cond-target-past-region` 317 + `forward-branch-not-region-exit` 301), 77 loop
    containers, 12 EH, 13 switch. These are different tallies of overlapping
-   populations, not a partition of 693. The step-4-addressable population is the
-   *acyclic* forward-merge containers.
+   populations, not a partition of 693. The step-4-addressable population was
+   defined here as the *acyclic* forward-merge containers; extended 2026-08-12
+   by [#4063](https://github.com/richlander/dotnet-inspect/issues/4063) to
+   include non-crossing back-edge regions whose exits reach one post-dominator
+   (see the corrected loop entry under *Out of scope*).
 
    The corpus table is the headline. The forward-branch-to-common-exit shape —
    exactly what step 4 targets — is **not** a shrinking CoreLib remainder: it runs
@@ -922,17 +939,25 @@ stated decision, not an accident) and the lane is closed with that finding recor
 This keeps step 4 the last and riskiest step while ensuring its start cannot quietly
 become "never."
 
-### Outcome (2026-08-12): both conditions met — the lane is open
+### Outcome (2026-08-12): condition 2 met; condition 1 met by absence — the lane opens on merge
 
 The trigger has been evaluated; the full evidence is on
 [#1175](https://github.com/richlander/dotnet-inspect/issues/1175).
 
-- **Condition 1 (treadmill stalled): met**, read off the PR slope as this doc
-  prescribes — two merged normalizer-family PRs in three weeks, one of them
-  value-flow. Corroboration: the canonical specimen above no longer exhibits
-  the shape — `InternalSetValue` and `CopyImpl` now fully structure on `main`
-  (the shared-terminator slices consumed the trace), which is the stall made
-  visible. Judge single-merge readability against the probe's exemplars
+- **Condition 1 (treadmill stalled): met by absence — an interpretation the
+  maintainer ratifies by merging this PR.** The strict reading requires a
+  qualifying diamond/guard normalizer PR whose measured real-world
+  forward-merge delta is `< ~0.1pp`; no such PR exists in the recent window
+  to measure — the merged normalizer-family work since mid-July is switch
+  family (#3986) and value-flow (#3949), neither in the diamond/guard family
+  — and no per-PR residual delta has been recorded. Supporting observations:
+  the last cheap terminator slice yielded **+3** methods (see the step-4
+  status above), and the canonical specimen has been consumed
+  (`InternalSetValue`/`CopyImpl` now structure on `main`). A zero-attempt
+  slope cannot exceed the threshold; under the strict per-PR-delta reading,
+  condition 1 instead resolves with the next qualifying PR's measured delta,
+  and condition 2's evidence stands independently either way. Judge
+  single-merge readability against the probe's exemplars
   (`StateMachineBox<T>::RentFromCache`, `Number::DiyFp128RoundToUInt128`,
   `NumberFormatInfo::ValidateParseStyleFloatingPoint`), not the stale list.
 - **Condition 2 (readability): met** by a throwaway retained-label probe
