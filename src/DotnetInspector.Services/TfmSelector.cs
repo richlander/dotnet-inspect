@@ -64,12 +64,18 @@ public static class TfmSelector
         if (commaIndex >= 0)
         {
             var frameworkName = value[..commaIndex];
-            var version = value[(commaIndex + 1)..]
+            string[] attributes = value[(commaIndex + 1)..]
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .FirstOrDefault(part => part.StartsWith("Version=", StringComparison.OrdinalIgnoreCase));
+                .ToArray();
+            string? version = AttributeValue(attributes, "Version");
             if (version != null)
             {
-                return NormalizeLongFormTfm(frameworkName, version["Version=".Length..].TrimStart('v', 'V')) ?? value;
+                string? normalized = NormalizeLongFormTfm(
+                    frameworkName,
+                    version.TrimStart('v', 'V'));
+                return normalized is null
+                    ? value
+                    : AppendLongFormQualifiers(normalized, attributes);
             }
         }
 
@@ -83,6 +89,48 @@ public static class TfmSelector
 
         return value;
     }
+
+    private static string? AttributeValue(
+        IEnumerable<string> attributes,
+        string name)
+        => attributes
+            .Select(attribute => attribute.Split('=', 2))
+            .Where(parts => parts.Length == 2)
+            .FirstOrDefault(parts => parts[0].Equals(
+                name,
+                StringComparison.OrdinalIgnoreCase))?[1];
+
+    private static string AppendLongFormQualifiers(
+        string normalized,
+        IEnumerable<string> attributes)
+    {
+        string? profile = AttributeValue(attributes, "Profile");
+        if (!string.IsNullOrWhiteSpace(profile))
+            normalized += "-" + NormalizeQualifier(profile);
+
+        string? platform = AttributeValue(attributes, "Platform");
+        if (!string.IsNullOrWhiteSpace(platform))
+        {
+            normalized += "-" + NormalizeQualifier(platform);
+            string? platformVersion = AttributeValue(
+                attributes,
+                "PlatformVersion");
+            if (!string.IsNullOrWhiteSpace(platformVersion))
+            {
+                normalized += platformVersion
+                    .Trim()
+                    .TrimStart('v', 'V');
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeQualifier(string value)
+        => value
+            .Trim()
+            .Replace(" ", "", StringComparison.Ordinal)
+            .ToLowerInvariant();
 
     private static string? NormalizeLongFormTfm(string frameworkName, string version)
     {

@@ -2,8 +2,9 @@ import {
   assemblyDescriptorForType,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
-  graphTargetNavigationDisposition,
+  dependencyGroupFor,
   dependencyGroupSelectionMessage,
+  graphTargetNavigationDisposition,
   graphMemberSelection,
   lenses,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -1693,8 +1694,15 @@ async function loadPackageDependencies() {
     if (state.packageDependenciesKey === signature) state.packageDependencies = result;
     if (result?.dependencyGroups
       && state.packages.some(pkg => packageIdentityEquals(pkg, packageRequest))) {
-      state.workspaceDependencies[workspaceKey] = result.dependencyGroups;
-      delete state.workspaceDependencyErrors[workspaceKey];
+      state.workspaceDependencies[workspaceKey] = {
+        dependencyGroups: result.dependencyGroups,
+        dependencyGroupError: result.dependencyGroupError || ""
+      };
+      if (result.dependencyGroupError) {
+        state.workspaceDependencyErrors[workspaceKey] = result.dependencyGroupError;
+      } else {
+        delete state.workspaceDependencyErrors[workspaceKey];
+      }
     }
   } catch (error) {
     if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
@@ -1751,11 +1759,21 @@ async function ensureWorkspaceDependencies() {
         assemblyId: item.assemblyId
       });
       if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-      state.workspaceDependencies[key] = result?.dependencyGroups || [];
-      delete state.workspaceDependencyErrors[key];
+      state.workspaceDependencies[key] = {
+        dependencyGroups: result?.dependencyGroups || [],
+        dependencyGroupError: result?.dependencyGroupError || ""
+      };
+      if (result?.dependencyGroupError) {
+        state.workspaceDependencyErrors[key] = result.dependencyGroupError;
+      } else {
+        delete state.workspaceDependencyErrors[key];
+      }
     } catch (error) {
       if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-      state.workspaceDependencies[key] = [];
+      state.workspaceDependencies[key] = {
+        dependencyGroups: [],
+        dependencyGroupError: ""
+      };
       state.workspaceDependencyErrors[key] = String(error?.message || error);
     } finally {
       state.workspaceDependencyLoads.delete(key);
@@ -6230,15 +6248,18 @@ function buildDependencyGraphMermaid(selectedTfm) {
   };
 
   const groupFor = (id, version) => {
+    if (id.toLowerCase() === centerKey) {
+      return dependencyGroupFor(
+        state.packageDependencies,
+        selectedTfm,
+        true);
+    }
+
     const open = openById.get(id.toLowerCase());
-    let groups = open
+    const data = open
       ? state.workspaceDependencies[workspaceDependencyKey(open)]
       : null;
-    if (!groups && id.toLowerCase() === centerKey) groups = state.packageDependencies?.dependencyGroups;
-    if (!groups) return null;
-    return groups.find(group => group.framework === selectedTfm)
-      || groups.find(group => group.isActive)
-      || groups[0];
+    return dependencyGroupFor(data, selectedTfm);
   };
 
   // Callees: walk the centre's dependencies, expanding any dependency that is itself an

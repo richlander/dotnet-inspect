@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Queries;
 
@@ -67,11 +68,13 @@ public static class PackageDependencyGroupsQuery
     public static async Task<PackageDependencyGroupsResult> ExecuteAsync(
         IPackageContent content,
         string packageId,
+        string packageVersion,
         string? requestedTargetFramework = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
 
         try
         {
@@ -110,7 +113,8 @@ public static class PackageDependencyGroupsQuery
             if (string.IsNullOrWhiteSpace(nuspec.PackageName)
                 || !nuspec.PackageName.Equals(
                     packageId,
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase)
+                || !VersionsEqual(nuspec.Version, packageVersion))
             {
                 throw new InvalidDataException(
                     "The package manifest identity does not match the requested package.");
@@ -187,6 +191,12 @@ public static class PackageDependencyGroupsQuery
         [
             .. manifests.Where(path => !path.Contains('/')),
         ];
+        if (roots.Any(path => !PackageEntryPath.IsSafeSegment(path)))
+        {
+            throw new InvalidDataException(
+                "Package manifest paths must be safe package-root entries.");
+        }
+
         return roots.Length switch
         {
             0 => null,
@@ -195,4 +205,15 @@ public static class PackageDependencyGroupsQuery
                 "Package content contains more than one root manifest."),
         };
     }
+
+    static bool VersionsEqual(
+        string? declaredVersion,
+        string requestedVersion)
+        => NuGetVersion.TryParse(declaredVersion, out NuGetVersion? declared)
+            && NuGetVersion.TryParse(
+                requestedVersion,
+                out NuGetVersion? requested)
+            && declared.ToNormalizedString().Equals(
+                requested.ToNormalizedString(),
+                StringComparison.OrdinalIgnoreCase);
 }

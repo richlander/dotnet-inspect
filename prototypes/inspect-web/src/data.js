@@ -149,6 +149,19 @@ export function dependencyGroupSelectionMessage(data) {
   return data?.dependencyGroupError || "";
 }
 
+export function dependencyGroupFor(data, framework, allowDeclaredFallback = false) {
+  const groups = data?.dependencyGroups || [];
+  if (!groups.length || (data?.dependencyGroupError && !allowDeclaredFallback)) {
+    return null;
+  }
+  if (allowDeclaredFallback) {
+    return groups.find(group => group.framework === framework)
+      || groups.find(group => group.isActive)
+      || groups[0];
+  }
+  return groups.find(group => group.isActive) || null;
+}
+
 export function spotlightCandidateKey(pkg, typeId) {
   return `${packageIdentityKey(pkg)}\u0000${typeId}`;
 }

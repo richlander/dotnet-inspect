@@ -380,6 +380,12 @@ public class DependencyResolutionServiceTests
     [InlineData(".NETStandard2.0", "netstandard2.0")]
     [InlineData(".NETFramework4.5", "net45")]
     [InlineData(".NETCoreApp,Version=v8.0", "net8.0")]
+    [InlineData(
+        ".NETFramework,Version=v4.0,Profile=Client",
+        "net40-client")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=Windows,PlatformVersion=7.0",
+        "net8.0-windows7.0")]
     public void SelectDependencyGroup_ExactMode_NormalizesNuGetLongForm(
         string declared,
         string requested)
@@ -397,6 +403,27 @@ public class DependencyResolutionServiceTests
         Assert.True(result.IsSelected);
         Assert.Equal(declared, result.Group?.TargetFramework);
         Assert.Equal(requested, result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_DoesNotConflateFrameworkProfile()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new()
+            {
+                TargetFramework =
+                    ".NETFramework,Version=v4.0,Profile=Client",
+            },
+            new() { TargetFramework = "net40" },
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net40",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal("net40", result.Group?.TargetFramework);
     }
 
     [Theory]

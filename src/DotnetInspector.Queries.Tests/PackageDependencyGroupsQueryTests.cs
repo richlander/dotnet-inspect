@@ -60,6 +60,32 @@ public sealed class PackageDependencyGroupsQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_PreservesImplicitGroupDeclarationPosition()
+    {
+        InMemoryPackageContent content = Content(
+            ("Example.Package.nuspec", Manifest(
+                """
+                <dependency id="Universal.Dependency" version="1.0.0" />
+                <group targetFramework="net8.0">
+                  <dependency id="Framework.Dependency" version="2.0.0" />
+                </group>
+                """)));
+
+        PackageDependencyGroups result = Available(
+            await ExecuteAsync(
+                content,
+                "Example.Package",
+                "net8.0"));
+
+        Assert.Equal(
+            ["any", "net8.0"],
+            result.Groups.Select(group => group.TargetFramework));
+        Assert.Equal(
+            "Universal.Dependency",
+            Assert.Single(result.Groups[0].Dependencies).Id);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_PreservesGroupsWhenExactFrameworkIsAbsent()
     {
         InMemoryPackageContent content = Content(
@@ -106,7 +132,7 @@ public sealed class PackageDependencyGroupsQueryTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_RejectsAmbiguousAndBackslashManifestPaths()
+    public async Task ExecuteAsync_RejectsAmbiguousAndUnsafeManifestPaths()
     {
         PackageDependencyGroupsResult ambiguous =
             await ExecuteAsync(
@@ -119,9 +145,15 @@ public sealed class PackageDependencyGroupsQueryTests
                 Content(
                     ("nested\\Example.Package.nuspec", Manifest(""))),
                 "Example.Package");
+        PackageDependencyGroupsResult volumeQualified =
+            await ExecuteAsync(
+                Content(
+                    ("C:Example.Package.nuspec", Manifest(""))),
+                "Example.Package");
 
         Assert.IsType<InvalidDataException>(Failed(ambiguous));
         Assert.IsType<InvalidDataException>(Failed(backslash));
+        Assert.IsType<InvalidDataException>(Failed(volumeQualified));
     }
 
     [Fact]
@@ -137,6 +169,27 @@ public sealed class PackageDependencyGroupsQueryTests
 
         Assert.IsType<InvalidDataException>(error);
         Assert.DoesNotContain("Different.Package", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ValidatesNormalizedManifestVersion()
+    {
+        PackageDependencyGroupsResult normalized =
+            await ExecuteAsync(
+                Content((
+                    "Example.Package.nuspec",
+                    Manifest("", version: "1.0"))),
+                "Example.Package");
+        Exception mismatch = Failed(
+            await ExecuteAsync(
+                Content((
+                    "Example.Package.nuspec",
+                    Manifest("", version: "2.0.0"))),
+                "Example.Package"));
+
+        Assert.IsType<PackageDependencyGroupsResult.Available>(normalized);
+        Assert.IsType<InvalidDataException>(mismatch);
+        Assert.DoesNotContain("2.0.0", mismatch.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -252,10 +305,12 @@ public sealed class PackageDependencyGroupsQueryTests
     static Task<PackageDependencyGroupsResult> ExecuteAsync(
         IPackageContent content,
         string packageId,
-        string? requestedTargetFramework = null)
+        string? requestedTargetFramework = null,
+        string packageVersion = "1.0.0")
         => PackageDependencyGroupsQuery.ExecuteAsync(
             content,
             packageId,
+            packageVersion,
             requestedTargetFramework,
             TestContext.Current.CancellationToken);
 
@@ -264,12 +319,13 @@ public sealed class PackageDependencyGroupsQueryTests
 
     static string Manifest(
         string dependencies,
-        string packageId = "Example.Package")
+        string packageId = "Example.Package",
+        string version = "1.0.0")
         => $"""
             <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
               <metadata>
                 <id>{packageId}</id>
-                <version>1.0.0</version>
+                <version>{version}</version>
                 <dependencies>
                   {dependencies}
                 </dependencies>

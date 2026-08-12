@@ -285,8 +285,9 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   assets; it does not import the inspecting process's dependency closure.
 - `AssemblyContextReferencesQuery` owns session access for every participant in
   a binding-consistent group. `PackageDependencyGroupsQuery` reads one bounded
-  root manifest through `IPackageContent`, retains its groups as declared, and
-  reports exact-framework absence separately from an empty dependency set.
+  root manifest through `IPackageContent`, validates its package ID and version,
+  retains its groups as declared, and reports exact-framework absence separately
+  from an empty dependency set.
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`

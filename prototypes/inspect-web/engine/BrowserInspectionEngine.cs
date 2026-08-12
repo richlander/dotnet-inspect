@@ -370,6 +370,7 @@ public static partial class BrowserInspectionEngine
             await PackageDependencyGroupsQuery.ExecuteAsync(
                 coordinate.Package.Content,
                 coordinate.PackageId,
+                coordinate.Version,
                 coordinate.Framework);
         PackageDependencyGroups dependencies = dependencyResult switch
         {

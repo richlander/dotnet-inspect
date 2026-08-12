@@ -7,8 +7,9 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
-  graphTargetNavigationDisposition,
+  dependencyGroupFor,
   dependencyGroupSelectionMessage,
+  graphTargetNavigationDisposition,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
@@ -515,6 +516,36 @@ test("dependency selection exposes a missing exact framework", () => {
     }),
     "No exact dependency group.");
   assert.equal(dependencyGroupSelectionMessage({}), "");
+});
+
+test("dependency graph does not infer edges from a missing exact group", () => {
+  const data = {
+    dependencyGroupError: "No exact dependency group.",
+    dependencyGroups: [{
+      framework: "net9.0",
+      isActive: false,
+      dependencies: [{ id: "Wrong.Dependency", versionRange: "1.0.0" }]
+    }]
+  };
+
+  assert.equal(dependencyGroupFor(data, "net8.0"), null);
+  assert.equal(
+    dependencyGroupFor(data, "net9.0", true),
+    data.dependencyGroups[0]);
+});
+
+test("dependency graph uses each cached package's product-selected group", () => {
+  const data = {
+    dependencyGroupError: "",
+    dependencyGroups: [
+      { framework: "net8.0", isActive: false, dependencies: [] },
+      { framework: "net9.0", isActive: true, dependencies: [] }
+    ]
+  };
+
+  assert.equal(
+    dependencyGroupFor(data, "net8.0"),
+    data.dependencyGroups[1]);
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {
