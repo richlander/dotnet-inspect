@@ -312,19 +312,21 @@ public record MemberOptions : ApiOptions
     public bool MemberSourceTooComplex { get; init; }
 
     /// <summary>
-    /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
-    /// selected member, in addition to the member's own assembly. Empty = own assembly only.
+    /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers
+    /// and bidirectional Call Graph traversal, in addition to the member's own assembly.
+    /// Empty = own assembly only.
     /// </summary>
     public string[] CallerScopeDirectories { get; init; } = [];
 
     /// <summary>
-    /// Projects (<c>--project</c>) whose restored dependency assemblies are scanned for inbound
-    /// callers of the selected member, resolved via <c>project.assets.json</c>.
+    /// Projects (<c>--project</c>) whose restored dependency assemblies are scanned for callers
+    /// and bidirectional Call Graph traversal, resolved via <c>project.assets.json</c>.
     /// </summary>
     public string[] CallerScopeProjects { get; init; } = [];
 
     /// <summary>
-    /// Packages (<c>--caller-package</c>) to download and scan for inbound callers.
+    /// Packages (<c>--caller-package</c>) to download and scan for cross-assembly callers and
+    /// bidirectional Call Graph traversal.
     /// </summary>
     public string[] CallerScopePackages { get; init; } = [];
 
