@@ -17,13 +17,15 @@ dnx dotnet-inspect -y -- <command>
 ## Discover before reading
 
 Metadata tables are unbounded and explicit-only: no verbosity or base category
-renders them automatically. Discover the tables present in the image, then
-count or select one:
+renders them automatically. Structural discovery lists the authored metadata
+family without running its producers; add `--effective` to identify the tables
+and heaps that have data for this image:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -D @Metadata
+dnx dotnet-inspect -y -- library MyLib.dll -D @Metadata --effective
 dnx dotnet-inspect -y -- library MyLib.dll -S @Metadata --count
-dnx dotnet-inspect -y -- library MyLib.dll -D "Metadata: TypeDef"
+dnx dotnet-inspect -y -- library MyLib.dll -D "Metadata: TypeDef" --effective
 ```
 
 `Metadata: Image` reports image-level facts. Table sections such as
@@ -33,8 +35,8 @@ handles, ranges, heap values, and flags instead of dumping raw integers.
 ## Query one table
 
 The `#` column is the real metadata row id. `--rows` therefore addresses table
-rows by displayed metadata position, including ranges, rather than by the
-current page:
+rows by displayed, 1-based metadata position rather than by the current page.
+Ranges are inclusive, so `100..199` selects 100 rows:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll \

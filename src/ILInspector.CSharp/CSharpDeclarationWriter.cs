@@ -24,6 +24,13 @@ internal sealed record CSharpDeclarationOptions
     public CSharpTypeNameMode TypeNameMode { get; init; } = CSharpTypeNameMode.Qualified;
     public string? ContainingNamespace { get; init; }
     public IReadOnlyCollection<string> Usings { get; init; } = [];
+    // Fields avoid shifting the MethodDef tokens pinned by AuthoredCorpusHarnessProcessTests.
+    public IReadOnlyCollection<string> AdditionalShadowingNames = [];
+    public IReadOnlyCollection<string> AdditionalRootShadowingNames = [];
+    public IReadOnlyCollection<string> AdditionalUnresolvableRootNames = [];
+    public IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames = [];
+    public IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames = [];
+    public IReadOnlyCollection<string> AdditionalKnownNamespaces = [];
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -63,8 +70,40 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var references = CollectMemberTypeReferences(member, options.IncludeSignatureAttributes);
-        var plan = TypeNamePlan.Create(references, options);
+        ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
+        var attributeReferences = CollectAttributeTypeReferences(member.Attributes, signatureMember)
+            .ToHashSet(StringComparer.Ordinal);
+        var attributeValueReferences = CollectAttributeValueTypeReferences(
+                member.Attributes,
+                signatureMember)
+            .ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = (options.IncludeSignatureAttributes
+                ? CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)
+                : CollectDeclaredAttributeTypeReferences(member.Attributes))
+            .Concat(CollectExplicitInterfaceTypeReferences(member))
+            .ToHashSet(StringComparer.Ordinal);
+        var synthesizedAttributeReferences = member.IsObsolete && options.IncludeObsoleteAttribute
+            ? new HashSet<string>(["System.Obsolete"], StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+        var memberReferences = CollectMemberTypeReferences(
+                member,
+                options.IncludeSignatureAttributes)
+            .ToHashSet(StringComparer.Ordinal);
+        var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
+            .ToHashSet(StringComparer.Ordinal);
+        var references = memberReferences
+            .Concat(attributeReferences)
+            .Concat(explicitInterfaceReferences)
+            .Concat(synthesizedAttributeReferences);
+        var plan = TypeNamePlan.Create(
+            references,
+            options,
+            CollectShadowingNames(type, [member]),
+            CSharpFormatter.StripArity(type.Name),
+            qualificationOnlyAttributeReferences,
+            memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
+            attributeValueReferences,
+            synthesizedAttributeReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
 
@@ -82,8 +121,40 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var references = CollectMemberTypeReferences(member, options.IncludeSignatureAttributes);
-        var plan = TypeNamePlan.Create(references, options);
+        ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
+        var attributeReferences = CollectAttributeTypeReferences(member.Attributes, signatureMember)
+            .ToHashSet(StringComparer.Ordinal);
+        var attributeValueReferences = CollectAttributeValueTypeReferences(
+                member.Attributes,
+                signatureMember)
+            .ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = (options.IncludeSignatureAttributes
+                ? CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)
+                : CollectDeclaredAttributeTypeReferences(member.Attributes))
+            .Concat(CollectExplicitInterfaceTypeReferences(member))
+            .ToHashSet(StringComparer.Ordinal);
+        var synthesizedAttributeReferences = member.IsObsolete && options.IncludeObsoleteAttribute
+            ? new HashSet<string>(["System.Obsolete"], StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+        var memberReferences = CollectMemberTypeReferences(
+                member,
+                options.IncludeSignatureAttributes)
+            .ToHashSet(StringComparer.Ordinal);
+        var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
+            .ToHashSet(StringComparer.Ordinal);
+        var references = memberReferences
+            .Concat(attributeReferences)
+            .Concat(explicitInterfaceReferences)
+            .Concat(synthesizedAttributeReferences);
+        var plan = TypeNamePlan.Create(
+            references,
+            options,
+            CollectShadowingNames(type, [member]),
+            CSharpFormatter.StripArity(type.Name),
+            qualificationOnlyAttributeReferences,
+            memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
+            attributeValueReferences,
+            synthesizedAttributeReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
@@ -94,16 +165,83 @@ internal static class CSharpDeclarationWriter
     public static CSharpRenderedDeclaration RenderTypeUnit(
         ApiType type,
         IEnumerable<ApiMember>? members = null,
-        CSharpDeclarationOptions? options = null)
+        CSharpDeclarationOptions? options = null,
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         options ??= new CSharpDeclarationOptions { NamespaceMode = CSharpNamespaceMode.FileScoped };
         var memberList = members?.ToList() ?? type.Members;
-        var references = CollectTypeReferences(type)
+        var parameters = primaryConstructorParameters ?? [];
+        var attributeReferences = CollectAttributeTypeReferences(type.Attributes)
+            .Concat(memberList.SelectMany(member => CollectAttributeTypeReferences(
+                member.Attributes,
+                options.IncludeSignatureAttributes ? member : null)))
+            .ToHashSet(StringComparer.Ordinal);
+        var attributeValueReferences = CollectAttributeValueTypeReferences(type.Attributes)
             .Concat(memberList.SelectMany(member =>
-                CollectMemberTypeReferences(member, options.IncludeSignatureAttributes)));
-        var plan = TypeNamePlan.Create(references, options);
+                CollectAttributeValueTypeReferences(
+                    member.Attributes,
+                    options.IncludeSignatureAttributes ? member : null)))
+            .Concat(options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectAttributeValueTypeReferences(parameter.Attributes))
+                : [])
+            .ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
+            .Concat(memberList.SelectMany(member =>
+                options.IncludeSignatureAttributes
+                    ? CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)
+                    : CollectDeclaredAttributeTypeReferences(member.Attributes)))
+            .Concat(options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectAttributeArgumentTypeReferences(parameter.Attributes))
+                : [])
+            .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
+            .ToHashSet(StringComparer.Ordinal);
+        var synthesizedAttributeReferences = memberList
+            .Where(member => member.IsObsolete && options.IncludeObsoleteAttribute)
+            .Select(_ => "System.Obsolete")
+            .ToHashSet(StringComparer.Ordinal);
+        var primaryParameterAttributeReferences = (options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectAttributeTypeReferences(parameter.Attributes))
+                : [])
+            .ToHashSet(StringComparer.Ordinal);
+        var primaryParameterDeclaredAttributeReferences = (options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectDeclaredAttributeTypeReferences(parameter.Attributes))
+                : [])
+            .ToHashSet(StringComparer.Ordinal);
+        var shortenableReferences = CollectTypeReferences(type)
+            .Concat(memberList.SelectMany(member =>
+                CollectMemberTypeReferences(member, options.IncludeSignatureAttributes)))
+            .Concat(parameters.SelectMany(parameter =>
+                ExtractTypeNames(parameter.Type)))
+            .ToHashSet(StringComparer.Ordinal);
+        shortenableReferences.ExceptWith(memberList.SelectMany(CollectExplicitInterfaceTypeReferences));
+        var references = shortenableReferences
+            .Concat(parameters.SelectMany(parameter =>
+                CollectParameterTypeReferences(parameter, options.IncludeSignatureAttributes)))
+            .Concat(attributeReferences)
+            .Concat(primaryParameterAttributeReferences)
+            .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
+            .Concat(synthesizedAttributeReferences);
+        var plan = TypeNamePlan.Create(
+            references,
+            options,
+            CollectShadowingNames(type, memberList),
+            CSharpFormatter.StripArity(type.Name),
+            qualificationOnlyAttributeReferences,
+            shortenableReferences,
+            attributeValueReferences,
+            synthesizedAttributeReferences,
+            primaryParameterDeclaredAttributeReferences);
 
-        List<string> lines = [plan.Apply(RenderTypeDeclarationCore(type, options))];
+        string typeDeclaration = AddPrimaryConstructorParameters(
+            type,
+            RenderTypeDeclarationCore(type, options),
+            options,
+            parameters);
+        List<string> lines = [plan.Apply(typeDeclaration)];
         lines.Add("{");
         foreach (var member in memberList)
         {
@@ -127,11 +265,119 @@ internal static class CSharpDeclarationWriter
             ? string.Join('\n', text.Split('\n').Select(line => line.Length == 0 ? line : pad + line))
             : pad + text;
 
-    public static string RenderTypeDeclaration(ApiType type, CSharpDeclarationOptions? options = null)
+    public static string RenderTypeDeclaration(
+        ApiType type,
+        CSharpDeclarationOptions? options = null,
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null,
+        ApiMember? delegateInvoke = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var plan = TypeNamePlan.Create(CollectTypeReferences(type), options);
-        return plan.Apply(RenderTypeDeclarationCore(type, options));
+        var parameters = primaryConstructorParameters ?? [];
+        if (delegateInvoke is not null)
+        {
+            if (delegateInvoke.SignatureModel is not { } signature)
+            {
+                throw new NotSupportedException(
+                    $"Delegate '{type.FullName}' requires a structured Invoke signature.");
+            }
+
+            var delegateAttributeReferences = CollectAttributeTypeReferences(type.Attributes)
+                .Concat(CollectAttributeTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .ToHashSet(StringComparer.Ordinal);
+            var delegateAttributeValueReferences = CollectAttributeValueTypeReferences(type.Attributes)
+                .Concat(CollectAttributeValueTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .ToHashSet(StringComparer.Ordinal);
+            var delegateSignatureReferences = CollectTypeReferences(type)
+                .Concat(CollectMemberTypeReferences(delegateInvoke))
+                .ToHashSet(StringComparer.Ordinal);
+            var delegateQualificationOnlyReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
+                .Concat(CollectDeclaredAttributeTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .ToHashSet(StringComparer.Ordinal);
+            delegateSignatureReferences.ExceptWith(delegateQualificationOnlyReferences);
+            var references = delegateSignatureReferences
+                .Concat(delegateQualificationOnlyReferences)
+                .Concat(delegateAttributeReferences)
+                .ToList();
+            var delegatePlan = TypeNamePlan.Create(
+                references,
+                options,
+                CollectShadowingNames(type, [delegateInvoke]),
+                CSharpFormatter.StripArity(type.Name),
+                delegateQualificationOnlyReferences,
+                delegateSignatureReferences,
+                valueReferences: delegateAttributeValueReferences);
+            string attributes = options.IncludeCustomAttributes && type.Attributes.Count > 0
+                ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
+                : "";
+            string unsafeText = delegateInvoke.IsUnsafe ? " unsafe" : "";
+            string parameterList = CSharpFormatter.FormatParameterList(signature.Parameters);
+            string returnAttributes = signature.ReturnAttributes.Count > 0
+                ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
+                : "";
+            string delegateDeclaration =
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type.Name, type.TypeParameters)}{parameterList}";
+            delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
+            return delegatePlan.Apply(delegateDeclaration + ";");
+        }
+
+        var attributeReferences = CollectAttributeTypeReferences(type.Attributes).ToHashSet(StringComparer.Ordinal);
+        var attributeValueReferences = CollectAttributeValueTypeReferences(type.Attributes)
+            .Concat(parameters.SelectMany(parameter =>
+                CollectAttributeValueTypeReferences(parameter.Attributes)))
+            .ToHashSet(StringComparer.Ordinal);
+        var parameterAttributeReferences = parameters
+            .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
+            .ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
+            .Concat(parameters.SelectMany(parameter =>
+                CollectAttributeArgumentTypeReferences(parameter.Attributes)))
+            .ToHashSet(StringComparer.Ordinal);
+        var shortenableReferences = CollectTypeReferences(type)
+            .Concat(parameters.SelectMany(parameter =>
+                ExtractTypeNames(parameter.Type)))
+            .ToHashSet(StringComparer.Ordinal);
+        var primaryParameterDeclaredAttributeReferences = parameters
+            .SelectMany(parameter => CollectDeclaredAttributeTypeReferences(parameter.Attributes))
+            .ToHashSet(StringComparer.Ordinal);
+        var plan = TypeNamePlan.Create(
+            shortenableReferences
+                .Concat(parameters.SelectMany(parameter =>
+                    CollectParameterTypeReferences(parameter)))
+                .Concat(attributeReferences)
+                .Concat(parameterAttributeReferences),
+            options,
+            CollectShadowingNames(type, []),
+            CSharpFormatter.StripArity(type.Name),
+            qualificationOnlyAttributeReferences,
+            shortenableReferences,
+            attributeValueReferences,
+            attributeNameReferences: primaryParameterDeclaredAttributeReferences);
+        string declaration = AddPrimaryConstructorParameters(
+            type,
+            RenderTypeDeclarationCore(type, options),
+            options,
+            parameters);
+        return plan.Apply(declaration);
+    }
+
+    internal static (
+        IReadOnlyList<string> Attributes,
+        IReadOnlyList<string> Diagnostics) RenderAttributeBodies(
+        IReadOnlyList<string> attributes,
+        CSharpDeclarationOptions options)
+    {
+        var references = CollectAttributeTypeReferences(attributes).ToHashSet(StringComparer.Ordinal);
+        var valueReferences = CollectAttributeValueTypeReferences(attributes).ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyReferences = CollectDeclaredAttributeTypeReferences(attributes)
+            .ToHashSet(StringComparer.Ordinal);
+        var plan = TypeNamePlan.Create(
+            references,
+            options,
+            new HashSet<string>(StringComparer.Ordinal),
+            "",
+            qualificationOnlyReferences,
+            valueReferences: valueReferences);
+        return (attributes.Select(plan.Apply).ToArray(), plan.Diagnostics);
     }
 
     /// <summary>
@@ -140,109 +386,573 @@ internal static class CSharpDeclarationWriter
     /// <paramref name="types"/> (including any nested types the caller flattens in).
     /// A namespace is included only when every simple type name it contributes is
     /// unambiguous across the whole unit: the simple name maps to a single full name
-    /// and does not clash with a type declared in the unit. Importing such a
-    /// namespace and shortening those references therefore cannot introduce an
-    /// ambiguous or shadowed reference. References whose simple name is ambiguous
-    /// stay fully qualified and their namespaces are excluded.
+    /// and is not shadowed by a declaration or visible namespace. Importing such a
+    /// namespace and shortening those references therefore cannot rebind them.
+    /// Ambiguous or shadowed references stay qualified and their namespaces are
+    /// excluded.
     /// </summary>
     public static IReadOnlyList<string> DeriveContextualUsings(IReadOnlyCollection<ApiType> types)
     {
         ArgumentNullException.ThrowIfNull(types);
+        return DeriveTypeNameContext(types.Select(type => (
+            Type: type,
+            Members: (IEnumerable<ApiMember>)type.Members,
+            AdditionalParameters: Enumerable.Empty<ApiParameter>(),
+            DeclaredTypeFullName: string.IsNullOrWhiteSpace(type.Namespace)
+                ? CSharpFormatter.StripArity(type.Name)
+                : $"{type.Namespace}.{CSharpFormatter.StripArity(type.Name)}",
+            CanImportDeclaringNamespace: true)))
+            .SafeUsings;
+    }
 
-        var typeRefs = types
-            .SelectMany(type => CollectTypeReferences(type)
-                .Concat(type.Members.SelectMany(member =>
-                    CollectMemberTypeReferences(member, includeSignatureAttributes: true))))
+    internal static (
+        IReadOnlyList<string> SafeUsings,
+        IReadOnlyList<string> KnownNamespaces,
+        IReadOnlyList<(string Namespace, string SimpleName)> ReferencedTypeNames) DeriveTypeNameContext(
+        IEnumerable<(
+            ApiType Type,
+            IEnumerable<ApiMember> Members,
+            IEnumerable<ApiParameter> AdditionalParameters,
+            string DeclaredTypeFullName,
+            bool CanImportDeclaringNamespace)> scopes,
+        IEnumerable<string>? contextualNamespaces = null,
+        IEnumerable<string>? additionalAttributes = null)
+    {
+        var contextualNamespaceList = (contextualNamespaces ?? []).ToList();
+        var scopeList = scopes
+            .Select(scope => (
+                scope.Type,
+                Members: scope.Members.ToList(),
+                AdditionalParameters: scope.AdditionalParameters.ToList(),
+                scope.DeclaredTypeFullName,
+                scope.CanImportDeclaringNamespace))
+            .ToList();
+        var typeRefs = scopeList
+            .SelectMany(scope => CollectTypeReferences(scope.Type)
+                .Concat(scope.Members.SelectMany(member =>
+                    CollectMemberTypeReferences(
+                        member,
+                        includeSignatureAttributes: scope.Type.Kind != "delegate")))
+                .Concat(scope.AdditionalParameters.SelectMany(parameter =>
+                    ExtractTypeNames(parameter.Type))))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
-
-        var declaredSimpleNames = types
-            .Select(type => CSharpFormatter.StripArity(type.Name))
+        var attributeTypeRefs = scopeList
+            .SelectMany(scope => CollectDeclaredAttributeTypeReferences(scope.Type.Attributes)
+                .Concat(scope.Members.SelectMany(member =>
+                    CollectDeclaredAttributeTypeReferences(member.Attributes, member)))
+                .Concat(scope.Members.SelectMany(CollectExplicitInterfaceTypeReferences))
+                .Concat(scope.AdditionalParameters.SelectMany(parameter =>
+                    CollectDeclaredAttributeTypeReferences(parameter.Attributes)))
+                .Concat(scope.Members
+                    .Where(member => member.IsObsolete)
+                    .Select(_ => "System.Obsolete")))
+            .Concat(CollectDeclaredAttributeTypeReferences(additionalAttributes ?? []))
+            .Select(TypeRef.TryCreate)
+            .Where(r => r is not null)
+            .Select(r => r!)
+            .DistinctBy(r => r.FullName, StringComparer.Ordinal)
+            .ToList();
+        var primaryAttributeTypeRefs = scopeList
+            .SelectMany(scope => scope.AdditionalParameters.SelectMany(parameter =>
+                CollectDeclaredAttributeTypeReferences(parameter.Attributes)))
+            .Select(TypeRef.TryCreate)
+            .Where(r => r is not null)
+            .Select(r => r!)
+            .DistinctBy(r => r.FullName, StringComparer.Ordinal)
+            .ToList();
+        // Dotted signature text does not distinguish namespaces from enclosing types.
+        // Newly planned delegate and primary-constructor surfaces need independent
+        // namespace evidence before they can introduce a using.
+        var existingSurfaceTypeFullNames = scopeList
+            .SelectMany(scope =>
+                scope.Type.Kind == "delegate"
+                    ? []
+                    : CollectTypeReferences(scope.Type)
+                        .Concat(scope.Members.SelectMany(member =>
+                            CollectMemberTypeReferences(
+                                member,
+                                includeSignatureAttributes: true))))
+            .Select(TypeRef.TryCreate)
+            .Where(reference => reference is not null)
+            .Select(reference => reference!.FullName)
             .ToHashSet(StringComparer.Ordinal);
+        var exclusiveImportTypeFullNames = scopeList
+            .SelectMany(scope =>
+                (scope.Type.Kind == "delegate"
+                    ? CollectTypeReferences(scope.Type)
+                        .Concat(scope.Members.SelectMany(member =>
+                            CollectMemberTypeReferences(
+                                member,
+                                includeSignatureAttributes: false)))
+                    : [])
+                .Concat(scope.AdditionalParameters.SelectMany(parameter =>
+                    ExtractTypeNames(parameter.Type))))
+            .Select(TypeRef.TryCreate)
+            .Where(reference => reference is not null)
+            .Select(reference => reference!.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+        exclusiveImportTypeFullNames.ExceptWith(existingSurfaceTypeFullNames);
 
-        // Generic type/method parameters shadow same-named type references within
-        // their scope: importing a namespace and shortening a reference to a simple
-        // name that matches an in-scope type parameter would rebind it to the
-        // parameter. Exclude those namespaces so such references stay qualified.
-        foreach (var type in types)
-        {
-            foreach (var typeParameter in type.TypeParameters)
-                declaredSimpleNames.Add(typeParameter.Name);
-            foreach (var member in type.Members)
+        var knownNamespaces = typeRefs
+            .Select(typeRef => typeRef.Namespace)
+            .Concat(attributeTypeRefs.Select(typeRef => typeRef.Namespace))
+            .Concat(contextualNamespaceList)
+            .Concat(scopeList.Select(scope => scope.Type.Namespace))
+            .Where(ns => !string.IsNullOrWhiteSpace(ns))
+            .Select(ns => ns!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var declaredTypeNames = new HashSet<string>(StringComparer.Ordinal);
+        var uniquelyImportableDeclaredTypeFullNames = scopeList
+            .GroupBy(
+                scope => CSharpFormatter.StripArity(scope.Type.Name),
+                StringComparer.Ordinal)
+            .Where(group =>
             {
-                if (member.SignatureModel is { } signature)
-                {
-                    foreach (var typeParameter in signature.TypeParameters)
-                        declaredSimpleNames.Add(typeParameter.Name);
-                }
-
-                // Members whose signature failed structured decoding fall back to the
-                // raw signature string, whose generic method parameters are not in
-                // SignatureModel. Parse them so they still shadow same-named references.
-                foreach (var name in RawSignatureGenericParameterNames(member))
-                    declaredSimpleNames.Add(name);
+                var identities = group
+                    .Select(scope => scope.DeclaredTypeFullName)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                return identities.Count == 1
+                    && group.All(scope => scope.CanImportDeclaringNamespace);
+            })
+            .Select(group => group.First().DeclaredTypeFullName)
+            .ToHashSet(StringComparer.Ordinal);
+        var shadowingNames = new HashSet<string>(StringComparer.Ordinal);
+        var rootShadowingNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var scope in scopeList)
+        {
+            string declaredTypeName = CSharpFormatter.StripArity(scope.Type.Name);
+            declaredTypeNames.Add(declaredTypeName);
+            rootShadowingNames.Add(declaredTypeName);
+            foreach (var knownNamespace in knownNamespaces)
+            {
+                AddVisibleNamespaceNames(
+                    shadowingNames,
+                    scope.Type.Namespace,
+                    knownNamespace,
+                    rootShadowingNames);
             }
+            var lexicalShadowingNames = CollectShadowingNames(scope.Type, scope.Members);
+            shadowingNames.UnionWith(lexicalShadowingNames);
+            rootShadowingNames.UnionWith(lexicalShadowingNames);
         }
 
         var usings = new SortedSet<string>(StringComparer.Ordinal);
-        var collidingSimpleNames = typeRefs
+        var potentiallyImportedNamespaces = typeRefs
+            .Select(typeRef => typeRef.Namespace)
+            .Concat(contextualNamespaceList)
+            .Concat(scopeList
+                .Select(scope => scope.Type.Namespace)
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .Select(ns => ns!))
+            .ToHashSet(StringComparer.Ordinal);
+        var collidingSimpleNames = CollidingSimpleNames(typeRefs);
+        var unsafePrimaryAttributeNamespaces = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var attributeTypeRef in attributeTypeRefs)
+        {
+            if (!potentiallyImportedNamespaces.Contains(attributeTypeRef.Namespace))
+                continue;
+
+            var collidingTypeNames = new HashSet<string>(StringComparer.Ordinal)
+            {
+                attributeTypeRef.SimpleName
+            };
+            if (!attributeTypeRef.SimpleName.EndsWith("Attribute", StringComparison.Ordinal))
+                collidingTypeNames.Add($"{attributeTypeRef.SimpleName}Attribute");
+            bool collides = typeRefs.Any(typeRef =>
+                typeRef.FullName != attributeTypeRef.FullName
+                && collidingTypeNames.Contains(typeRef.SimpleName));
+            if (collides)
+            {
+                collidingSimpleNames.UnionWith(collidingTypeNames);
+                if (primaryAttributeTypeRefs.Any(primary =>
+                    primary.FullName == attributeTypeRef.FullName))
+                {
+                    unsafePrimaryAttributeNamespaces.Add(attributeTypeRef.Namespace);
+                }
+            }
+        }
+        foreach (var attributeTypeRef in primaryAttributeTypeRefs)
+        {
+            if (!potentiallyImportedNamespaces.Contains(attributeTypeRef.Namespace))
+                continue;
+
+            var lookupNames = AttributeLookupNames(attributeTypeRef);
+            bool collides = attributeTypeRefs.Any(other =>
+                other.FullName != attributeTypeRef.FullName
+                && potentiallyImportedNamespaces.Contains(other.Namespace)
+                && lookupNames.Overlaps(AttributeLookupNames(other)));
+            if (collides)
+                unsafePrimaryAttributeNamespaces.Add(attributeTypeRef.Namespace);
+        }
+        var unsafeNamespaces = UnsafeNamespaces(
+            typeRefs,
+            shadowingNames,
+            collidingSimpleNames,
+            rootShadowingNames,
+            declaredTypeNames,
+            uniquelyImportableDeclaredTypeFullNames,
+            typeRefs.Concat(attributeTypeRefs).ToList());
+        unsafeNamespaces.UnionWith(unsafePrimaryAttributeNamespaces);
+        var establishedNamespaces = contextualNamespaceList
+            .Concat(scopeList
+                .Select(scope => scope.Type.Namespace)
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .Select(ns => ns!))
+            .Concat(typeRefs
+                .Where(typeRef =>
+                    !exclusiveImportTypeFullNames.Contains(typeRef.FullName))
+                .Select(typeRef => typeRef.Namespace))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var exclusiveImportNamespaces = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
+        {
+            if (collidingSimpleNames.Contains(group.Key))
+                continue;
+            if (shadowingNames.Contains(group.Key))
+                continue;
+            bool importsDeclaredType = declaredTypeNames.Contains(group.Key);
+            if (importsDeclaredType
+                && !uniquelyImportableDeclaredTypeFullNames.Contains(group.First().FullName))
+                continue;
+            var ns = group.First().Namespace;
+            if (ns.Length == 0)
+                continue;
+            if (unsafeNamespaces.Contains(ns))
+                continue;
+            bool requiresEstablishedNamespace =
+                exclusiveImportTypeFullNames.Contains(group.First().FullName);
+            if (requiresEstablishedNamespace
+                && !establishedNamespaces.Contains(ns))
+            {
+                continue;
+            }
+            usings.Add(ns);
+            if (importsDeclaredType
+                || requiresEstablishedNamespace)
+            {
+                exclusiveImportNamespaces.Add(ns);
+            }
+        }
+
+        var effectiveImportedNamespaces = usings
+            .Concat(contextualNamespaceList)
+            .Where(ns => !string.IsNullOrWhiteSpace(ns))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var exclusiveNamespace in exclusiveImportNamespaces)
+        {
+            if (effectiveImportedNamespaces.Any(ns =>
+                !string.Equals(ns, exclusiveNamespace, StringComparison.Ordinal)))
+            {
+                usings.Remove(exclusiveNamespace);
+            }
+        }
+
+        var referencedTypeNames = typeRefs
+            .Concat(attributeTypeRefs)
+            .Select(typeRef => (typeRef.Namespace, typeRef.SimpleName))
+            .Distinct()
+            .ToList();
+        return (usings.ToList(), knownNamespaces, referencedTypeNames);
+
+        static HashSet<string> AttributeLookupNames(TypeRef typeRef)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal)
+            {
+                typeRef.SimpleName
+            };
+            if (!typeRef.SimpleName.EndsWith("Attribute", StringComparison.Ordinal))
+                names.Add($"{typeRef.SimpleName}Attribute");
+            return names;
+        }
+    }
+
+    static IEnumerable<string> CollectParameterTypeReferences(
+        ApiParameter parameter,
+        bool includeAttributes = true)
+    {
+        if (!string.IsNullOrWhiteSpace(parameter.Type))
+            foreach (var reference in ExtractTypeNames(parameter.Type))
+                yield return reference;
+        if (includeAttributes)
+            foreach (var attribute in parameter.Attributes)
+                foreach (var reference in ExtractTypeNames(StripAttributeArguments(attribute)))
+                    yield return reference;
+    }
+
+    static IEnumerable<string> CollectAttributeTypeReferences(
+        IEnumerable<string> attributes,
+        ApiMember? member = null)
+        => CollectDeclaredAttributeTypeReferences(attributes, member)
+            .Concat(CollectAttributeValueTypeReferences(attributes, member));
+
+    static IEnumerable<string> CollectDeclaredAttributeTypeReferences(
+        IEnumerable<string> attributes,
+        ApiMember? member = null)
+    {
+        foreach (var attribute in AttributeTexts(attributes, member))
+        {
+            foreach (var reference in ExtractTypeNames(StripAttributeArguments(attribute)))
+                yield return reference;
+            foreach (var reference in CollectAttributeArgumentTypeReferences([attribute]))
+                yield return reference;
+        }
+    }
+
+    static IEnumerable<string> CollectAttributeArgumentTypeReferences(
+        IEnumerable<string> attributes,
+        ApiMember? member = null)
+    {
+        foreach (var attribute in AttributeTexts(attributes, member))
+        {
+            int firstArgumentList = attribute.IndexOf('(', StringComparison.Ordinal);
+            for (var index = 0; index < attribute.Length; index++)
+            {
+                if (IsStringLiteralStart(attribute, index))
+                {
+                    index = SkipStringLiteral(attribute, index) - 1;
+                    continue;
+                }
+                if (attribute[index] == '\'')
+                {
+                    index = SkipCharLiteral(attribute, index) - 1;
+                    continue;
+                }
+
+                bool isTypeOf = attribute.AsSpan(index).StartsWith("typeof(", StringComparison.Ordinal);
+                bool isNestedCast = attribute[index] == '('
+                    && index > firstArgumentList;
+                if (!isTypeOf && !isNestedCast)
+                    continue;
+
+                int open = isTypeOf ? index + "typeof".Length : index;
+                int close = attribute.IndexOf(')', open + 1);
+                if (close < 0)
+                    break;
+                if (isNestedCast)
+                {
+                    int next = close + 1;
+                    while (next < attribute.Length && char.IsWhiteSpace(attribute[next]))
+                        next++;
+                    // A following + or - is ambiguous with a parenthesized value
+                    // expression, so preserve it rather than inventing type evidence.
+                    if (next >= attribute.Length
+                        || !char.IsAsciiDigit(attribute[next]))
+                    {
+                        continue;
+                    }
+                }
+
+                foreach (var reference in ExtractTypeNames(attribute[(open + 1)..close]))
+                    yield return reference;
+                index = close;
+            }
+        }
+    }
+
+    static IEnumerable<string> CollectAttributeValueTypeReferences(
+        IEnumerable<string> attributes,
+        ApiMember? member = null)
+    {
+        foreach (var attribute in AttributeTexts(attributes, member))
+        {
+            int firstArgumentList = attribute.IndexOf('(', StringComparison.Ordinal);
+            if (firstArgumentList < 0)
+                continue;
+            var recognizedReferences = CollectAttributeArgumentTypeReferences([attribute])
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var valueExpression in ExtractTypeNames(
+                attribute[(firstArgumentList + 1)..]))
+            {
+                if (recognizedReferences.Contains(valueExpression))
+                    continue;
+                int memberSeparator = valueExpression.LastIndexOf('.');
+                if (memberSeparator <= 0)
+                    continue;
+                string declaringType = valueExpression[..memberSeparator];
+                if (declaringType.Contains('.', StringComparison.Ordinal))
+                    yield return declaringType;
+            }
+        }
+    }
+
+    static IEnumerable<string> CollectQualificationOnlyAttributeTypeReferences(
+        IEnumerable<string> memberAttributes,
+        ApiMember member)
+    {
+        foreach (var reference in CollectDeclaredAttributeTypeReferences(memberAttributes))
+            yield return reference;
+        if (member.SignatureModel is not { } signature)
+            yield break;
+
+        foreach (var reference in CollectDeclaredAttributeTypeReferences(signature.ReturnAttributes))
+            yield return reference;
+        foreach (var accessor in signature.Accessors)
+            foreach (var reference in CollectDeclaredAttributeTypeReferences(accessor.ReturnAttributes))
+                yield return reference;
+        foreach (var parameter in signature.Parameters)
+            foreach (var reference in CollectAttributeArgumentTypeReferences(parameter.Attributes))
+                yield return reference;
+    }
+
+    static IEnumerable<string> AttributeTexts(
+        IEnumerable<string> attributes,
+        ApiMember? member)
+    {
+        foreach (var attribute in attributes)
+            yield return attribute;
+        if (member?.SignatureModel is not { } signature)
+            yield break;
+
+        foreach (var attribute in signature.ReturnAttributes)
+            yield return attribute;
+        foreach (var parameter in signature.Parameters)
+            foreach (var attribute in parameter.Attributes)
+                yield return attribute;
+        foreach (var accessor in signature.Accessors)
+            foreach (var attribute in accessor.ReturnAttributes)
+                yield return attribute;
+    }
+
+    static string AddPrimaryConstructorParameters(
+        ApiType type,
+        string declaration,
+        CSharpDeclarationOptions options,
+        IReadOnlyList<ApiParameter> parameters)
+    {
+        if (parameters.Count == 0)
+            return declaration;
+        string declarationWithoutAttributes = RenderTypeDeclarationCore(
+            type,
+            options with { IncludeCustomAttributes = false });
+        if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
+        }
+
+        string parameterList = $"({string.Join(", ", parameters.Select(parameter =>
+            FormatParameter(parameter, options.IncludeSignatureAttributes)))})";
+        int constraints = declarationWithoutAttributes.IndexOf(" where ", StringComparison.Ordinal);
+        string head = constraints >= 0
+            ? declarationWithoutAttributes[..constraints]
+            : declarationWithoutAttributes;
+        string tail = constraints >= 0 ? declarationWithoutAttributes[constraints..] : "";
+        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
+        string withParameters = inheritance >= 0
+            ? head[..inheritance] + parameterList + head[inheritance..] + tail
+            : $"{head}{parameterList}{tail}";
+        return declaration[..^declarationWithoutAttributes.Length] + withParameters;
+    }
+
+    static HashSet<string> CollectShadowingNames(
+        ApiType type,
+        IEnumerable<ApiMember> members)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var typeParameter in type.TypeParameters)
+            names.Add(typeParameter.Name);
+        foreach (var member in members)
+        {
+            if (member.SignatureModel is { } signature)
+                foreach (var typeParameter in signature.TypeParameters)
+                    names.Add(typeParameter.Name);
+
+            foreach (var name in RawSignatureGenericParameterNames(member))
+                names.Add(name);
+        }
+        return names;
+    }
+
+    static void AddVisibleNamespaceNames(
+        HashSet<string> names,
+        string? containingNamespace,
+        string? knownNamespace,
+        HashSet<string>? shadowedGlobalRoots = null)
+    {
+        if (string.IsNullOrWhiteSpace(knownNamespace))
+            return;
+        var knownSegments = knownNamespace.Split(
+            '.',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (knownSegments.Length == 0)
+            return;
+        names.Add(knownSegments[0]);
+
+        if (string.IsNullOrWhiteSpace(containingNamespace))
+            return;
+        var containingSegments = containingNamespace.Split(
+            '.',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        int sharedLength = Math.Min(containingSegments.Length, knownSegments.Length - 1);
+        for (var i = 0; i < sharedLength; i++)
+        {
+            if (!string.Equals(
+                containingSegments[i],
+                knownSegments[i],
+                StringComparison.Ordinal))
+            {
+                break;
+            }
+            names.Add(knownSegments[i + 1]);
+            shadowedGlobalRoots?.Add(knownSegments[i + 1]);
+        }
+    }
+
+    static HashSet<string> CollidingSimpleNames(IReadOnlyList<TypeRef> typeRefs)
+        => typeRefs
             .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
             .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
             .Select(g => g.Key)
             .ToHashSet(StringComparer.Ordinal);
 
-        // A nested type referenced as a type (e.g. `System.Environment.SpecialFolder`)
-        // arrives here as a flat dotted string, indistinguishable from a
-        // namespace-qualified reference: TypeRef.TryCreate splits at the last dot and
-        // derives namespace `System.Environment`, which is actually a type. Emitting
-        // `using System.Environment;` is illegal (CS0138). When the enclosing type is
-        // itself referenced in the unit we can detect this — its full name appears as a
-        // derived namespace — and exclude that namespace. (The isolated case, where the
-        // enclosing type is never referenced on its own, is not detectable from the
-        // flattened string alone; a full fix needs nested-type identity from the
-        // metadata layer. The failure mode is safe-visible: the reference stays
-        // qualified and, for a spurious using, RTS records a RecompileFail rather than
-        // miscompiling.)
-        var referencedFullNames = typeRefs
-            .Select(r => r.FullName)
-            .ToHashSet(StringComparer.Ordinal);
+    static string NamespaceRoot(string ns)
+    {
+        int separator = ns.IndexOf('.');
+        return separator < 0 ? ns : ns[..separator];
+    }
 
-        // A namespace contributes a simple name for every reference it owns. Per-type
-        // shortening keys off namespace membership, so importing a namespace shortens
-        // every reference it owns. If any of those simple names is ambiguous unit-wide
-        // or shadowed by a declared type or type parameter, importing the namespace is
-        // unsafe: the shortened reference would become ambiguous or rebind. Exclude the
-        // whole namespace so every reference it owns stays fully qualified.
+    static HashSet<string> UnsafeNamespaces(
+        IReadOnlyList<TypeRef> typeRefs,
+        IReadOnlySet<string> shadowingNames,
+        IReadOnlySet<string> collidingSimpleNames,
+        IReadOnlySet<string> rootShadowingNames,
+        IReadOnlySet<string>? declaredTypeNames = null,
+        IReadOnlySet<string>? uniquelyImportableDeclaredTypeFullNames = null,
+        IReadOnlyList<TypeRef>? bindingEvidence = null)
+    {
+        declaredTypeNames ??= new HashSet<string>(StringComparer.Ordinal);
+        uniquelyImportableDeclaredTypeFullNames ??= new HashSet<string>(StringComparer.Ordinal);
         var unsafeNamespaces = typeRefs
-            .Where(r => collidingSimpleNames.Contains(r.SimpleName) || declaredSimpleNames.Contains(r.SimpleName))
+            .Where(r => collidingSimpleNames.Contains(r.SimpleName)
+                || shadowingNames.Contains(r.SimpleName)
+                || (declaredTypeNames.Contains(r.SimpleName)
+                    && !uniquelyImportableDeclaredTypeFullNames.Contains(r.FullName))
+                || rootShadowingNames.Contains(NamespaceRoot(r.Namespace)))
             .Select(r => r.Namespace)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
-        {
-            if (collidingSimpleNames.Contains(group.Key))
-                continue;
-            if (declaredSimpleNames.Contains(group.Key))
-                continue;
-            var ns = group.First().Namespace;
-            if (unsafeNamespaces.Contains(ns))
-                continue;
-            if (referencedFullNames.Contains(ns))
-                continue;
-            usings.Add(ns);
-        }
+        var referencedFullNames = (bindingEvidence ?? typeRefs)
+            .Select(r => r.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+        unsafeNamespaces.UnionWith(typeRefs
+            .Where(r => referencedFullNames.Contains(r.Namespace))
+            .Select(r => r.Namespace));
 
-        return usings.ToList();
+        return unsafeNamespaces;
     }
 
     static string ComposeUnit(IReadOnlyList<string> bodyLines, IReadOnlyList<string> usings, CSharpDeclarationOptions options)
     {
         var sb = new StringBuilder();
         foreach (var ns in usings)
-            sb.AppendLf($"using {ns};");
+            sb.AppendLf($"using {EscapeNamespace(ns)};");
 
         if (usings.Count > 0)
             sb.AppendLf();
@@ -250,7 +960,7 @@ internal static class CSharpDeclarationWriter
         if (options.NamespaceMode == CSharpNamespaceMode.FileScoped
             && !string.IsNullOrWhiteSpace(options.ContainingNamespace))
         {
-            sb.AppendLf($"namespace {options.ContainingNamespace};");
+            sb.AppendLf($"namespace {EscapeNamespace(options.ContainingNamespace)};");
             sb.AppendLf();
         }
 
@@ -493,14 +1203,20 @@ internal static class CSharpDeclarationWriter
     static IEnumerable<string> CollectTypeReferences(ApiType type)
     {
         if (type.BaseType is { Length: > 0 })
-            yield return type.BaseType;
+        {
+            foreach (var reference in ExtractTypeNames(type.BaseType))
+                yield return reference;
+        }
         foreach (var iface in type.Interfaces)
-            yield return iface;
+        {
+            foreach (var reference in ExtractTypeNames(iface))
+                yield return reference;
+        }
         foreach (var typeParameter in type.TypeParameters)
         {
             foreach (var constraint in typeParameter.Constraints)
             {
-                foreach (var reference in ExtractQualifiedTypeNames(constraint))
+                foreach (var reference in ExtractTypeNames(constraint))
                     yield return reference;
             }
         }
@@ -508,11 +1224,24 @@ internal static class CSharpDeclarationWriter
 
     static IEnumerable<string> CollectMemberTypeReferences(
         ApiMember member,
-        bool includeSignatureAttributes)
+        bool includeSignatureAttributes = true)
     {
         foreach (var expression in MemberTypeExpressions(member, includeSignatureAttributes))
         {
-            foreach (var reference in ExtractQualifiedTypeNames(expression))
+            foreach (var reference in ExtractTypeNames(expression))
+                yield return reference;
+        }
+    }
+
+    static IEnumerable<string> CollectExplicitInterfaceTypeReferences(ApiMember member)
+    {
+        if (member.Kind != "explicit-interface-implementation")
+            yield break;
+
+        int memberSeparator = member.Name.LastIndexOf('.');
+        if (memberSeparator > 0)
+        {
+            foreach (var reference in ExtractTypeNames(member.Name[..memberSeparator]))
                 yield return reference;
         }
     }
@@ -537,7 +1266,7 @@ internal static class CSharpDeclarationWriter
             }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
-                    foreach (var reference in ExtractQualifiedTypeNames(constraint))
+                    foreach (var reference in ExtractTypeNames(constraint))
                         yield return reference;
         }
 
@@ -762,14 +1491,20 @@ internal static class CSharpDeclarationWriter
         return paren < 0 ? attribute : attribute[..paren];
     }
 
-    static IEnumerable<string> ExtractQualifiedTypeNames(string expression)
+    static IEnumerable<string> ExtractTypeNames(string expression)
     {
         foreach (var token in DottedIdentifierTokens(expression))
         {
-            if (token.Contains('.', StringComparison.Ordinal)
-                && !token.StartsWith("global.", StringComparison.Ordinal)
-                && !token.StartsWith("global::", StringComparison.Ordinal))
-                yield return token;
+            if (token.StartsWith("global.", StringComparison.Ordinal)
+                || token.StartsWith("global::", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string normalized = token.StartsWith('@') ? token[1..] : token;
+            yield return normalized
+                .Replace(".@", ".", StringComparison.Ordinal)
+                .Replace("+@", "+", StringComparison.Ordinal);
         }
     }
 
@@ -787,17 +1522,64 @@ internal static class CSharpDeclarationWriter
                 i = SkipCharLiteral(text, i);
                 continue;
             }
-            if (!IsIdentifierStart(text[i]))
+            if (!IsIdentifierStart(text[i])
+                && (text[i] != '@'
+                    || i + 1 >= text.Length
+                    || !IsIdentifierStart(text[i + 1])))
             {
                 i++;
                 continue;
             }
 
-            var start = i++;
-            while (i < text.Length && (IsIdentifierPart(text[i]) || text[i] is '.' or '+'))
-                i++;
-            yield return text[start..i].TrimEnd('.');
+            var token = new StringBuilder();
+            bool yieldedConstructedRoot = false;
+            while (i < text.Length)
+            {
+                int segmentStart = i++;
+                while (i < text.Length && IsIdentifierPart(text[i]))
+                    i++;
+                token.Append(text.AsSpan(segmentStart, i - segmentStart));
+
+                if (i < text.Length && text[i] == '<')
+                {
+                    if (!yieldedConstructedRoot)
+                    {
+                        yield return token.ToString();
+                        yieldedConstructedRoot = true;
+                    }
+                    int close = MatchingAngleBracket(text, i);
+                    if (close < 0)
+                        break;
+                    foreach (string nested in DottedIdentifierTokens(text[(i + 1)..close]))
+                        yield return nested;
+                    i = close + 1;
+                }
+
+                if (i + 1 >= text.Length
+                    || text[i] is not ('.' or '+')
+                    || (!IsIdentifierStart(text[i + 1]) && text[i + 1] != '@'))
+                {
+                    break;
+                }
+
+                token.Append(text[i++]);
+            }
+            if (!yieldedConstructedRoot)
+                yield return token.ToString();
         }
+    }
+
+    static int MatchingAngleBracket(string text, int open)
+    {
+        int depth = 0;
+        for (int i = open; i < text.Length; i++)
+        {
+            if (text[i] == '<')
+                depth++;
+            else if (text[i] == '>' && --depth == 0)
+                return i;
+        }
+        return -1;
     }
 
     /// <summary>
@@ -1299,7 +2081,7 @@ internal static class CSharpDeclarationWriter
         var tick = name.IndexOf('`');
         if (tick >= 0)
             name = name[..tick];
-        name = EscapeQualifiedIdentifier(name);
+        name = ContainQualifiedName(name);
         if (typeParameters.Count > 0)
             name += $"<{string.Join(", ", typeParameters.Select(TypeParameterDisplayName))}>";
         return name;
@@ -1334,8 +2116,8 @@ internal static class CSharpDeclarationWriter
 
     static string FormatObsoleteAttribute(string? message)
         => string.IsNullOrWhiteSpace(message)
-            ? "[Obsolete]"
-            : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
+            ? "[System.Obsolete]"
+            : $"[System.Obsolete(\"{EscapeCSharpString(message)}\")]";
 
     // The Obsolete message is attacker-controlled attribute text rendered inside a
     // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,
@@ -2088,69 +2870,11 @@ internal static class CSharpDeclarationWriter
     }
 
     sealed record TypeNamePlan(
-        IReadOnlyDictionary<string, string> Replacements,
+        IReadOnlyList<KeyValuePair<string, (string Qualified, string? Shortened, string? Diagnostic)>> Replacements,
         ImmutableSortedSet<string> GeneratedUsings,
-        IReadOnlyList<string> Diagnostics)
+        List<string> Diagnostics)
     {
         public string Apply(string text)
-        {
-            foreach (var (qualified, replacement) in Replacements.OrderByDescending(kvp => kvp.Key.Length))
-                text = ReplaceIdentifierToken(text, qualified, replacement);
-            return text;
-        }
-
-        public static TypeNamePlan Create(IEnumerable<string> references, CSharpDeclarationOptions options)
-        {
-            if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
-                return new TypeNamePlan(
-                    new Dictionary<string, string>(),
-                    ImmutableSortedSet.Create<string>(StringComparer.Ordinal),
-                    []);
-
-            var typeRefs = references
-                .Select(TypeRef.TryCreate)
-                .Where(r => r is not null)
-                .Select(r => r!)
-                .DistinctBy(r => r.FullName, StringComparer.Ordinal)
-                .ToList();
-
-            var collisions = typeRefs
-                .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
-                .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
-                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
-
-            var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
-            var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
-            var diagnostics = new List<string>();
-            var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
-
-            foreach (var typeRef in typeRefs)
-            {
-                if (collisions.ContainsKey(typeRef.SimpleName))
-                {
-                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is ambiguous; kept '{typeRef.FullName}' qualified.");
-                    continue;
-                }
-
-                var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
-                    && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
-                var isInContext = isSameNamespace || contextualUsings.Contains(typeRef.Namespace);
-
-                if (options.TypeNameMode == CSharpTypeNameMode.ContextualShort && !isInContext)
-                    continue;
-
-                replacements[typeRef.FullName] = typeRef.SimpleName;
-                if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
-                    generatedUsings.Add(typeRef.Namespace);
-            }
-
-            return new TypeNamePlan(
-                replacements,
-                generatedUsings.ToImmutableSortedSet(StringComparer.Ordinal),
-                diagnostics);
-        }
-
-        static string ReplaceIdentifierToken(string text, string token, string replacement)
         {
             var sb = new StringBuilder(text.Length);
             for (var i = 0; i < text.Length;)
@@ -2169,84 +2893,438 @@ internal static class CSharpDeclarationWriter
                     i = end;
                     continue;
                 }
-                if (i + token.Length <= text.Length
-                    && text.AsSpan(i, token.Length).SequenceEqual(token)
-                    && IsStartBoundary(text, i - 1)
-                    && IsEndBoundary(text, i + token.Length))
+
+                bool matched = false;
+                foreach (var (token, replacements) in Replacements)
                 {
-                    sb.Append(replacement);
+                    if (i + token.Length > text.Length
+                        || !text.AsSpan(i, token.Length).SequenceEqual(token)
+                        || !IsStartBoundary(text, i - 1)
+                        || !IsEndBoundary(text, i + token.Length))
+                    {
+                        continue;
+                    }
+
+                    if (IsWithinGlobalAlias(text, i))
+                    {
+                        string qualified = replacements.Qualified;
+                        sb.Append(qualified.StartsWith("global::", StringComparison.Ordinal)
+                            ? qualified["global::".Length..]
+                            : qualified);
+                        AddDiagnostic(replacements.Diagnostic);
+                    }
+                    else
+                    {
+                        bool preserveQualification = IsAttributeValuePrefix(
+                            text,
+                            i,
+                            i + token.Length);
+                        string replacement = preserveQualification
+                            ? replacements.Qualified
+                            : replacements.Shortened ?? replacements.Qualified;
+                        sb.Append(replacement);
+                        if (replacement == replacements.Qualified)
+                            AddDiagnostic(replacements.Diagnostic);
+                    }
                     i += token.Length;
-                    continue;
+                    matched = true;
+                    break;
                 }
 
-                sb.Append(text[i++]);
+                if (!matched)
+                    sb.Append(text[i++]);
             }
 
             return sb.ToString();
+
+            void AddDiagnostic(string? diagnostic)
+            {
+                if (diagnostic is not null
+                    && !Diagnostics.Contains(diagnostic, StringComparer.Ordinal))
+                {
+                    Diagnostics.Add(diagnostic);
+                }
+            }
+        }
+
+        public static TypeNamePlan Create(
+            IEnumerable<string> references,
+            CSharpDeclarationOptions options,
+            IReadOnlySet<string> shadowingNames,
+            string declaredTypeName,
+            IReadOnlySet<string>? qualificationOnlyReferences = null,
+            IReadOnlySet<string>? shortenableReferences = null,
+            IReadOnlySet<string>? valueReferences = null,
+            IReadOnlySet<string>? preferredSimpleNameReferences = null,
+            IReadOnlySet<string>? attributeNameReferences = null)
+        {
+            var qualificationOnlyFullNames = qualificationOnlyReferences?
+                .Select(TypeRef.TryCreate)
+                .Where(reference => reference is not null)
+                .Select(reference => reference!.FullName)
+                .ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            if (shortenableReferences is not null)
+            {
+                qualificationOnlyFullNames.ExceptWith(shortenableReferences
+                    .Select(TypeRef.TryCreate)
+                    .Where(reference => reference is not null)
+                    .Select(reference => reference!.FullName));
+            }
+            var valueFullNames = valueReferences?
+                .Select(TypeRef.TryCreate)
+                .Where(reference => reference is not null)
+                .Select(reference => reference!.FullName)
+                .ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            var valueOnlyFullNames = valueFullNames.ToHashSet(StringComparer.Ordinal);
+            valueOnlyFullNames.ExceptWith(qualificationOnlyFullNames);
+            if (shortenableReferences is not null)
+            {
+                valueOnlyFullNames.ExceptWith(shortenableReferences
+                    .Select(TypeRef.TryCreate)
+                    .Where(reference => reference is not null)
+                    .Select(reference => reference!.FullName));
+            }
+            var preferredSimpleNameFullNames = preferredSimpleNameReferences?
+                .Select(TypeRef.TryCreate)
+                .Where(reference => reference is not null)
+                .Select(reference => reference!.FullName)
+                .ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            var attributeNameFullNames = attributeNameReferences?
+                .Select(TypeRef.TryCreate)
+                .Where(reference => reference is not null)
+                .Select(reference => reference!.FullName)
+                .ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            var typeRefs = references
+                .Select(TypeRef.TryCreate)
+                .Where(r => r is not null)
+                .Select(r => r!)
+                .DistinctBy(r => r.FullName, StringComparer.Ordinal)
+                .ToList();
+            var bindingTypeRefs = typeRefs
+                .Where(reference => !valueOnlyFullNames.Contains(reference.FullName))
+                .ToList();
+
+            var lexicalShadowingNames = shadowingNames.ToHashSet(StringComparer.Ordinal);
+            lexicalShadowingNames.UnionWith(options.AdditionalShadowingNames);
+            var namespaceShadowingNames = new HashSet<string>(StringComparer.Ordinal);
+            var namespaceRootShadowingNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var typeRef in bindingTypeRefs)
+            {
+                AddVisibleNamespaceNames(
+                    namespaceShadowingNames,
+                    options.ContainingNamespace,
+                    typeRef.Namespace,
+                    namespaceRootShadowingNames);
+            }
+            foreach (var ns in options.Usings)
+            {
+                AddVisibleNamespaceNames(
+                    namespaceShadowingNames,
+                    options.ContainingNamespace,
+                    ns,
+                    namespaceRootShadowingNames);
+            }
+            foreach (var ns in options.AdditionalKnownNamespaces)
+            {
+                AddVisibleNamespaceNames(
+                    namespaceShadowingNames,
+                    options.ContainingNamespace,
+                    ns,
+                    namespaceRootShadowingNames);
+            }
+            AddVisibleNamespaceNames(
+                namespaceShadowingNames,
+                options.ContainingNamespace,
+                options.ContainingNamespace,
+                namespaceRootShadowingNames);
+            if (bindingTypeRefs.Any(r => string.Equals(r.SimpleName, declaredTypeName, StringComparison.Ordinal)
+                && !string.Equals(r.Namespace, options.ContainingNamespace, StringComparison.Ordinal)))
+            {
+                lexicalShadowingNames.Add(declaredTypeName);
+            }
+            var rootShadowingNames = lexicalShadowingNames.ToHashSet(StringComparer.Ordinal);
+            rootShadowingNames.UnionWith(options.AdditionalRootShadowingNames);
+            rootShadowingNames.Add(declaredTypeName);
+            rootShadowingNames.UnionWith(namespaceRootShadowingNames);
+            rootShadowingNames.UnionWith(bindingTypeRefs
+                .Where(typeRef =>
+                {
+                    string containingNamespace = options.ContainingNamespace ?? "";
+                    return typeRef.Namespace.Length <= containingNamespace.Length
+                        && containingNamespace.StartsWith(typeRef.Namespace, StringComparison.Ordinal)
+                        && (typeRef.Namespace.Length == containingNamespace.Length
+                            || typeRef.Namespace.Length == 0
+                            || containingNamespace[typeRef.Namespace.Length] == '.');
+                })
+                .Select(typeRef => typeRef.SimpleName));
+
+            var shorteningTypeRefs = bindingTypeRefs
+                .Where(reference => !qualificationOnlyFullNames.Contains(reference.FullName))
+                .ToList();
+            var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
+            var potentiallyImportedNamespaces = contextualUsings.ToHashSet(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(options.ContainingNamespace))
+                potentiallyImportedNamespaces.Add(options.ContainingNamespace);
+            if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings)
+                potentiallyImportedNamespaces.UnionWith(shorteningTypeRefs.Select(reference => reference.Namespace));
+            var collisionEvidence = bindingTypeRefs
+                .Where(reference => reference.Namespace.Length == 0
+                    || potentiallyImportedNamespaces.Contains(reference.Namespace))
+                .ToList();
+            var collisions = CollidingSimpleNames(collisionEvidence);
+            var allShadowingNames = lexicalShadowingNames
+                .Concat(namespaceShadowingNames)
+                .ToHashSet(StringComparer.Ordinal);
+            var unsafeNamespaces = UnsafeNamespaces(
+                shorteningTypeRefs,
+                allShadowingNames,
+                collisions,
+                rootShadowingNames,
+                bindingEvidence: bindingTypeRefs);
+            var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
+            var diagnostics = new List<string>();
+            var replacements = new Dictionary<string, (string Qualified, string? Shortened, string? Diagnostic)>(
+                StringComparer.Ordinal);
+            void ReplaceQualifiedName(
+                TypeRef typeRef,
+                string qualifiedReplacement,
+                string? shortenedReplacement = null,
+                string? diagnostic = null)
+            {
+                var plan = (qualifiedReplacement, shortenedReplacement, diagnostic);
+                Add(typeRef.FullName);
+                Add(EscapeQualifiedKeywordSegments(typeRef.FullName));
+                Add(EscapeNamespace(typeRef.FullName));
+
+                void Add(string key)
+                {
+                    replacements[key] = plan;
+                }
+            }
+            string ResolvableQualifiedName(TypeRef typeRef)
+            {
+                string root = NamespaceRoot(typeRef.Namespace);
+                string escapedFullName = EscapeNamespace(typeRef.FullName);
+                return rootShadowingNames.Contains(root)
+                    ? $"global::{escapedFullName}"
+                    : escapedFullName;
+            }
+            string? UnresolvableRootDiagnostic(TypeRef typeRef)
+            {
+                string root = NamespaceRoot(typeRef.Namespace);
+                return options.AdditionalUnresolvableRootNames.Contains(root)
+                    && !options.AdditionalDeclaredTypeFullNames.Contains(typeRef.FullName)
+                    && IsKnownNamespaceRoot(root)
+                        ? $"Type name '{typeRef.FullName}' conflicts with global type '{root}'; emitted the only available global-qualified spelling."
+                        : null;
+            }
+            void KeepResolvableQualified(TypeRef typeRef)
+            {
+                ReplaceQualifiedName(
+                    typeRef,
+                    ResolvableQualifiedName(typeRef),
+                    diagnostic: UnresolvableRootDiagnostic(typeRef));
+            }
+            void KeepAttributeValueQualified(TypeRef typeRef)
+            {
+                string root = NamespaceRoot(typeRef.Namespace);
+                string qualified = (options.AdditionalDeclaredTypeFullNames.Contains(typeRef.FullName)
+                        || options.AdditionalImportedDeclaredTypeFullNames.Contains(typeRef.FullName))
+                    && !IsKnownNamespaceRoot(root)
+                        ? EscapeNamespace(typeRef.FullName)
+                        : ResolvableQualifiedName(typeRef);
+                ReplaceQualifiedName(
+                    typeRef,
+                    qualified,
+                    diagnostic: UnresolvableRootDiagnostic(typeRef));
+            }
+            bool IsKnownNamespaceRoot(string root)
+                => options.AdditionalKnownNamespaces.Any(@namespace =>
+                    string.Equals(@namespace, root, StringComparison.Ordinal)
+                    || @namespace.StartsWith($"{root}.", StringComparison.Ordinal));
+
+            foreach (var typeRef in typeRefs)
+            {
+                if (typeRef.Namespace.Length == 0)
+                    continue;
+                if (valueOnlyFullNames.Contains(typeRef.FullName))
+                {
+                    KeepAttributeValueQualified(typeRef);
+                    continue;
+                }
+                if (qualificationOnlyFullNames.Contains(typeRef.FullName))
+                {
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (options.TypeNameMode == CSharpTypeNameMode.Qualified
+                    && !preferredSimpleNameFullNames.Contains(typeRef.FullName))
+                {
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (attributeNameFullNames.Contains(typeRef.FullName)
+                    && !typeRef.SimpleName.EndsWith("Attribute", StringComparison.Ordinal))
+                {
+                    string suffixedName = $"{typeRef.SimpleName}Attribute";
+                    bool suffixCanBind = rootShadowingNames.Contains(suffixedName)
+                        || allShadowingNames.Contains(suffixedName)
+                        || collisionEvidence.Any(reference =>
+                            reference.FullName != typeRef.FullName
+                            && reference.SimpleName == suffixedName);
+                    if (suffixCanBind)
+                    {
+                        diagnostics.Add(
+                            $"Attribute name '{typeRef.SimpleName}' can bind to '{suffixedName}'; kept '{typeRef.FullName}' qualified.");
+                        KeepResolvableQualified(typeRef);
+                        continue;
+                    }
+                }
+                var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
+                    && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
+                if (!isSameNamespace && collisions.Contains(typeRef.SimpleName))
+                {
+                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is ambiguous; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (lexicalShadowingNames.Contains(typeRef.SimpleName))
+                {
+                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed in this declaration; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (!isSameNamespace && namespaceShadowingNames.Contains(typeRef.SimpleName))
+                {
+                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed by a namespace in this declaration; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (!isSameNamespace && unsafeNamespaces.Contains(typeRef.Namespace))
+                {
+                    diagnostics.Add($"Namespace '{typeRef.Namespace}' contains an ambiguous or shadowed type name; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                var isInContext = isSameNamespace || contextualUsings.Contains(typeRef.Namespace);
+
+                if (options.TypeNameMode == CSharpTypeNameMode.ContextualShort && !isInContext)
+                {
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+
+                ReplaceQualifiedName(
+                    typeRef,
+                    valueFullNames.Contains(typeRef.FullName)
+                        ? ResolvableQualifiedName(typeRef)
+                        : EscapeNamespace(typeRef.FullName),
+                    EscapeIdentifier(typeRef.SimpleName),
+                    UnresolvableRootDiagnostic(typeRef));
+                if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
+                    generatedUsings.Add(typeRef.Namespace);
+            }
+
+            return new TypeNamePlan(
+                replacements.OrderByDescending(kvp => kvp.Key.Length).ToArray(),
+                generatedUsings.ToImmutableSortedSet(StringComparer.Ordinal),
+                diagnostics);
+        }
+
+        static bool IsWithinGlobalAlias(string text, int index)
+        {
+            var start = index;
+            while (start > 0
+                && (IsIdentifierPart(text[start - 1]) || text[start - 1] is '.' or '+'))
+            {
+                start--;
+            }
+            return start >= "global::".Length
+                && text.AsSpan(start - "global::".Length, "global::".Length)
+                    .SequenceEqual("global::");
         }
 
         static bool IsStartBoundary(string text, int index)
             => index < 0
                || index >= text.Length
-               || (!IsIdentifierPart(text[index]) && text[index] is not '.' and not '+');
+               || (!IsIdentifierPart(text[index]) && text[index] is not '.' and not '+' and not '@');
 
         static bool IsEndBoundary(string text, int index)
             => index < 0
                || index >= text.Length
                || (!IsIdentifierPart(text[index]) && text[index] != '+');
+
+        static bool IsAttributeValuePrefix(string text, int start, int end)
+        {
+            if (end >= text.Length || text[end] != '.')
+                return false;
+
+            int parenthesisDepth = 0;
+            var bracketParenthesisDepths = new Stack<int>();
+            for (int index = 0; index < start;)
+            {
+                if (IsStringLiteralStart(text, index))
+                {
+                    index = SkipStringLiteral(text, index);
+                    continue;
+                }
+                if (text[index] == '\'')
+                {
+                    index = SkipCharLiteral(text, index);
+                    continue;
+                }
+
+                switch (text[index])
+                {
+                    case '[':
+                        bracketParenthesisDepths.Push(parenthesisDepth);
+                        break;
+                    case ']':
+                        if (bracketParenthesisDepths.Count > 0)
+                            bracketParenthesisDepths.Pop();
+                        break;
+                    case '(':
+                        parenthesisDepth++;
+                        break;
+                    case ')':
+                        if (parenthesisDepth > 0)
+                            parenthesisDepth--;
+                        break;
+                }
+                index++;
+            }
+
+            return bracketParenthesisDepths.Count > 0
+                && parenthesisDepth > bracketParenthesisDepths.Peek();
+        }
     }
 
     static bool IsStringLiteralStart(string text, int index)
-        => text[index] == '"'
-           || (text[index] == '@' && index + 1 < text.Length && text[index + 1] == '"')
-           || (text[index] == '$' && index + 1 < text.Length && text[index + 1] == '"')
-           || (text[index] == '$' && index + 2 < text.Length && text[index + 1] == '@' && text[index + 2] == '"')
-           || (text[index] == '@' && index + 2 < text.Length && text[index + 1] == '$' && text[index + 2] == '"');
+    {
+        if (text[index] == '"')
+            return true;
+        if (text[index] is not ('@' or '$'))
+            return false;
+        do
+        {
+            index++;
+        }
+        while (index < text.Length && text[index] is '@' or '$');
+        return index < text.Length && text[index] == '"';
+    }
 
     static int SkipStringLiteral(string text, int start)
     {
         var i = start;
-        var verbatim = false;
-        if (text[i] == '$')
-        {
+        while (i < text.Length && text[i] is '@' or '$')
             i++;
-            if (i < text.Length && text[i] == '@')
-            {
-                verbatim = true;
-                i++;
-            }
-        }
-        else if (text[i] == '@')
-        {
-            i++;
-            if (i < text.Length && text[i] == '$')
-                i++;
-            verbatim = true;
-        }
-
         if (i >= text.Length || text[i] != '"')
             return start + 1;
-
-        i++;
-        while (i < text.Length)
-        {
-            if (text[i] == '"' && verbatim && i + 1 < text.Length && text[i + 1] == '"')
-            {
-                i += 2;
-                continue;
-            }
-            if (text[i] == '"')
-                return i + 1;
-            if (text[i] == '\\' && !verbatim && i + 1 < text.Length)
-            {
-                i += 2;
-                continue;
-            }
-
-            i++;
-        }
-
-        return text.Length;
+        return Math.Min(SkipLiteral(text, i) + 1, text.Length);
     }
 
     static int SkipCharLiteral(string text, int start)
@@ -2268,6 +3346,8 @@ internal static class CSharpDeclarationWriter
         return text.Length;
     }
 
+    // An empty namespace records unqualified type-position evidence. It participates
+    // in collision analysis but never produces a replacement or using directive.
     sealed record TypeRef(string FullName, string Namespace, string SimpleName)
     {
         public static TypeRef? TryCreate(string value)
@@ -2276,12 +3356,14 @@ internal static class CSharpDeclarationWriter
             if (value.Length == 0)
                 return null;
             var lastDot = value.LastIndexOf('.');
-            if (lastDot <= 0 || lastDot == value.Length - 1)
+            if (lastDot == value.Length - 1)
+                return null;
+            if (lastDot < 0)
+                return new TypeRef(value, "", StripArity(value));
+            if (lastDot == 0)
                 return null;
             var ns = value[..lastDot];
             var simple = StripArity(value[(lastDot + 1)..]);
-            if (CSharpKeywords.RequiresDeclarationEscape(simple))
-                return null;
             return new TypeRef(value, ns, simple);
         }
 
