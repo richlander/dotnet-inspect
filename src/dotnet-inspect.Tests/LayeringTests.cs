@@ -139,7 +139,7 @@ public sealed class LayeringTests
             + $@"(?:(?:public|internal|protected|private|abstract|sealed|static|unsafe|new|file)\s+)*"
             + $@"partial\s+"
             + $@"(?:(?:public|internal|protected|private|abstract|sealed|static|unsafe|new|file)\s+)*"
-            + $@"class\s+{commandTypeName}\b";
+            + $@"class\s+@?{commandTypeName}\b";
 
         Assert.Matches(
             directIndexAccess,
@@ -187,6 +187,9 @@ public sealed class LayeringTests
         Assert.Matches(
             partialCommandDeclaration,
             $"public partial class {commandTypeName}");
+        Assert.Matches(
+            partialCommandDeclaration,
+            $"public partial class @{commandTypeName}");
         Assert.DoesNotMatch(directIndexAccess, source);
         Assert.DoesNotMatch(obscuredIndexImport, source);
         Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
