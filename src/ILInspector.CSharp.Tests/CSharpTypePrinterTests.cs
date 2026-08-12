@@ -986,6 +986,27 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void PrimaryConstructorTypeStaysQualifiedWithDistinctConfiguredUsing()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                primaryConstructorParameters:
+                [
+                    new ApiParameter { Type = "Lib.Exception", Name = "exception" }
+                ]),
+            new CSharpTypePrintOptions { Usings = ["System"] });
+
+        Assert.Equal(["System"], result.Usings);
+        Assert.Contains(
+            "public class Worker(Lib.Exception exception)",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FullMemberUsesBareTypesBackedByNamespaceSet()
     {
         var type = CreateEmptyType("Samples", "FieldWriter");
@@ -3767,6 +3788,49 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("using External;", result.Source, StringComparison.Ordinal);
         Assert.Contains(
             "public delegate Result Handler(Input value);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateSignatureTypeStaysQualifiedWithDistinctConfiguredUsing()
+    {
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "Lib.Exception";
+        var delegateType = CreateEmptyType("Samples", "Callback");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(delegateType),
+            new CSharpTypePrintOptions { Usings = ["System"] });
+
+        Assert.Equal(["System"], result.Usings);
+        Assert.Contains(
+            "public delegate Lib.Exception Callback();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateSignatureTypesStayQualifiedAcrossDistinctDerivedUsings()
+    {
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "Alpha.Result";
+        invoke.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "Beta.Input",
+            Name = "value"
+        });
+        var delegateType = CreateEmptyType("Samples", "Handler");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(delegateType));
+
+        Assert.Empty(result.Usings);
+        Assert.Contains(
+            "public delegate Alpha.Result Handler(Beta.Input value);",
             result.Source,
             StringComparison.Ordinal);
     }

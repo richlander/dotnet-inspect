@@ -432,6 +432,18 @@ internal static class CSharpDeclarationWriter
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
+        var exclusiveImportTypeFullNames = scopeList
+            .SelectMany(scope =>
+                (scope.Type.Kind == "delegate"
+                    ? scope.Members.SelectMany(member =>
+                        CollectMemberTypeReferences(member, includeParameterAttributes: false))
+                    : [])
+                .Concat(scope.AdditionalParameters.SelectMany(parameter =>
+                    ExtractTypeNames(parameter.Type))))
+            .Select(TypeRef.TryCreate)
+            .Where(reference => reference is not null)
+            .Select(reference => reference!.FullName)
+            .ToHashSet(StringComparer.Ordinal);
 
         var knownNamespaces = typeRefs
             .Select(typeRef => typeRef.Namespace)
@@ -536,7 +548,7 @@ internal static class CSharpDeclarationWriter
             typeRefs.Concat(attributeTypeRefs).ToList());
         unsafeNamespaces.UnionWith(unsafePrimaryAttributeNamespaces);
 
-        var importedDeclaredNamespaces = new HashSet<string>(StringComparer.Ordinal);
+        var exclusiveImportNamespaces = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
         {
             if (collidingSimpleNames.Contains(group.Key))
@@ -553,20 +565,23 @@ internal static class CSharpDeclarationWriter
             if (unsafeNamespaces.Contains(ns))
                 continue;
             usings.Add(ns);
-            if (importsDeclaredType)
-                importedDeclaredNamespaces.Add(ns);
+            if (importsDeclaredType
+                || exclusiveImportTypeFullNames.Contains(group.First().FullName))
+            {
+                exclusiveImportNamespaces.Add(ns);
+            }
         }
 
         var effectiveImportedNamespaces = usings
             .Concat(contextualNamespaceList)
             .Where(ns => !string.IsNullOrWhiteSpace(ns))
             .ToHashSet(StringComparer.Ordinal);
-        foreach (var declaredNamespace in importedDeclaredNamespaces)
+        foreach (var exclusiveNamespace in exclusiveImportNamespaces)
         {
             if (effectiveImportedNamespaces.Any(ns =>
-                !string.Equals(ns, declaredNamespace, StringComparison.Ordinal)))
+                !string.Equals(ns, exclusiveNamespace, StringComparison.Ordinal)))
             {
-                usings.Remove(declaredNamespace);
+                usings.Remove(exclusiveNamespace);
             }
         }
 
