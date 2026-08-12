@@ -306,6 +306,48 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public async Task PackageSignals_OmitsVulnerabilitySignalWhenAdvisoryDataIsUnavailable()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            Vulnerabilities = null,
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        Assert.DoesNotContain(
+            result.AuditSignals!,
+            signal => signal.Signal == "Known vulnerabilities");
+    }
+
+    [Fact]
+    public async Task PackageSignals_ReportsZeroOnlyWhenAdvisoryDataWasAvailable()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            Vulnerabilities = [],
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            signal => signal.Signal == "Known vulnerabilities");
+        Assert.Equal("0", signal.Value);
+        Assert.Equal("NuGet advisory data", signal.Evidence);
+    }
+
+    [Fact]
     public async Task PackageSignals_Symbols_ReportsMsdlPdbSource()
     {
         var result = new InspectionResult
