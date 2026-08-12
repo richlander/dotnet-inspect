@@ -338,11 +338,8 @@ internal sealed class ApiMemberAnalysisInspection
 
         try
         {
-            using var stream = File.OpenRead(assembly.Path);
-            using var pe =
-                new System.Reflection.PortableExecutable.PEReader(stream);
             AssemblyIdentityNames names =
-                AssemblyIdentityScanner.Scan(pe);
+                AssemblyIdentityScanner.Scan(assembly.Path);
             references = names.ReferenceNames;
             return names.ReferencesComplete;
         }
