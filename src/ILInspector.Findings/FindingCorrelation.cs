@@ -293,7 +293,8 @@ public sealed class FindingCorrelation<T>
         {
             switch (item.Inspection)
             {
-                case FindingInspection<T>.Complete complete:
+                case FindingInspection<T>.Complete:
+                    var complete = (FindingInspection<T>.Complete)item.Inspection.Value!;
                     var matches = complete.Findings.Where(key.Matches).Take(2).ToArray();
                     if (matches.Length > 1)
                     {
@@ -313,11 +314,13 @@ public sealed class FindingCorrelation<T>
                     }
                     break;
 
-                case FindingInspection<T>.Absent absent:
+                case FindingInspection<T>.Absent:
+                    var absent = (FindingInspection<T>.Absent)item.Inspection.Value!;
                     timeline.Add(new FindingCorrelationPoint<T>.SubjectAbsent(item.Version, absent.Detail));
                     break;
 
-                case FindingInspection<T>.Failed failed:
+                case FindingInspection<T>.Failed:
+                    var failed = (FindingInspection<T>.Failed)item.Inspection.Value!;
                     timeline.Add(new FindingCorrelationPoint<T>.Failed(item.Version, failed.Error));
                     break;
             }

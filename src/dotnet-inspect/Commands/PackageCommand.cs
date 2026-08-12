@@ -687,6 +687,12 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (wantsSignals && options.Count && !effectiveDiscovery)
+            {
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
+
             // Effective discovery renders the discovered rows below and answers the projection
             // against them. Counting here would count the package document instead, which is a
             // different payload than the one -D displays.
@@ -726,14 +732,9 @@ public class PackageCommand
 
             if (wantsSignals)
             {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger,
-                    acquirePdb: true, options.SourceOptions);
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
             }
-
-            if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, client, logger, options.SourceOptions);
 
             // Output results
             if (effectiveDiscovery)
@@ -941,12 +942,11 @@ public class PackageCommand
                 queryRegistry);
             if (result == null)
                 return 1;
-            FilterResultForOutput(result, options);
             results.Add(result);
         }
 
         if (options.Count)
-            return WriteMultiPackageCount(results, rowSection, options);
+            return WriteMultiPackageCount(results, rowSection, options, pipeline);
 
         if (options.JsonOutput)
         {
@@ -974,11 +974,21 @@ public class PackageCommand
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
         string? rowSection,
-        InspectionOptions options)
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        CountOutput.WriteCount(
-            CountMultiPackageRows(results, rowSection, options),
-            options.OutputPath);
+        if (rowSection == null
+            && options.IncludeSections is { Count: 1 } selectedSections
+            && selectedSections.Contains(PackageSections.Signals))
+        {
+            OutputFormatter.WritePackageResultsCount(results, options, pipeline);
+        }
+        else
+        {
+            CountOutput.WriteCount(
+                CountMultiPackageRows(results, rowSection, options),
+                options.OutputPath);
+        }
         return PackageIntegrityExitCode([.. results]);
     }
 
@@ -1648,6 +1658,8 @@ public class PackageCommand
                     sourceQueries);
             }
 
+            FilterResultForOutput(result, options);
+
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
@@ -1673,6 +1685,22 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task PopulatePackageSignalsAsync(
+        InspectionResult result,
+        string extractPath,
+        string? packageName,
+        string? version,
+        HttpClient client,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
+    {
+        result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+            extractPath, packageName, version, client, logger,
+            acquirePdb: true, sourceOptions);
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, client, logger, sourceOptions);
     }
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
@@ -2570,8 +2598,12 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
+        bool requiresGroupedIntegrations =
+            RequiresGroupedIntegrations(
+                queries,
+                out bool includeIntegrationOpportunities);
         using PackageIntegrationsWorkspace? integrationsWorkspace =
-            RequiresGroupedIntegrations(queries)
+            requiresGroupedIntegrations
                 ? PackageIntegrationsWorkspace.Create(
                     selected.Select(selection =>
                     {
@@ -2583,7 +2615,9 @@ public class PackageCommand
                             selection.Path,
                             relativePath);
                     }),
-                    acquisition)
+                    acquisition,
+                    includeIntegrationOpportunities:
+                        includeIntegrationOpportunities)
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
@@ -2596,7 +2630,8 @@ public class PackageCommand
 
             Task<LibraryInspection?> InspectAsync(
                 ResolvedAssemblyReference? assemblyReference,
-                AssemblyIntegrationsEntry? integrations)
+                AssemblyIntegrationsEntry? integrations,
+                AssemblyIntegrationOpportunitiesEntry? opportunities)
             {
                 return LibraryMetadataService.InspectAsync(
                     selection.Path,
@@ -2611,15 +2646,12 @@ public class PackageCommand
                     queryRegistry: queryRegistry,
                     assemblyReference: assemblyReference,
                     integrationsEntry: integrations,
-                    integrationEvidenceUnavailable:
-                        integrationsWorkspace is not null
-                        && assemblyReference is null
-                        && integrations is null);
+                    integrationOpportunitiesEntry: opportunities);
             }
 
             LibraryInspection? inspection =
                 integrationsWorkspace is null
-                    ? await InspectAsync(null, null)
+                    ? await InspectAsync(null, null, null)
                     : await InspectGroupedAssemblyAsync(
                         integrationsWorkspace,
                         selection.Path,
@@ -2693,6 +2725,7 @@ public class PackageCommand
             Func<
                 ResolvedAssemblyReference?,
                 AssemblyIntegrationsEntry?,
+                AssemblyIntegrationOpportunitiesEntry?,
                 Task<LibraryInspection?>> inspectAsync)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -2711,7 +2744,7 @@ public class PackageCommand
 
         return workspace.UseAssemblyAsync(
             path,
-            (retainedAssembly, integrations) =>
+            (retainedAssembly, integrations, opportunities) =>
             {
                 switch (integrations)
                 {
@@ -2725,13 +2758,36 @@ public class PackageCommand
                         break;
                 }
 
-                return inspectAsync(retainedAssembly, integrations);
+                switch (opportunities)
+                {
+                    case AssemblyIntegrationOpportunitiesEntry.Rejected
+                        rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        break;
+                    case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return inspectAsync(
+                    retainedAssembly,
+                    integrations,
+                    opportunities);
             });
     }
 
     internal static bool RequiresGroupedIntegrations(
-        HashSet<InspectionQueryDefinition> queries) =>
-        queries.Remove(AssemblyContextIntegrationsQuery.Definition);
+        HashSet<InspectionQueryDefinition> queries,
+        out bool includeIntegrationOpportunities)
+    {
+        includeIntegrationOpportunities = queries.Remove(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition);
+        return queries.Remove(
+                AssemblyContextIntegrationsQuery.Definition)
+            || includeIntegrationOpportunities;
+    }
 
     internal static PackageIntegrationAssembly
         CreatePackageIntegrationAssembly(
@@ -2871,11 +2927,17 @@ public class PackageCommand
 
     private sealed record PackageLibrarySelection(string Path);
 
-    private static List<string> GetAllLibrariesSections(
+    internal static List<string> GetAllLibrariesSections(
         List<LibraryInspection> inspections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        LibraryCommand.WarnEmptySections(
+            inspections,
+            options,
+            pipeline,
+            writeEmptyNote: false);
+
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         List<string> union = [];
         foreach (var inspection in inspections)
@@ -3102,7 +3164,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.Append("# ").Append(title).Append('\n').Append('\n');
+        AppendBlock(sb, $"# {title}");
 
         foreach (var section in sections)
         {
@@ -3114,6 +3176,29 @@ public class PackageCommand
 
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// Appends one rendered block, separated from whatever precedes it by exactly one blank line.
+    /// </summary>
+    /// <remarks>
+    /// Written once rather than at each of the three call sites, which restated it and so had to
+    /// keep three copies of the separator agreeing on a line ending. When a copy disagreed the
+    /// result was silent: #3963 read a CRLF tail as "no blank line yet" and doubled the blank
+    /// before every section on Windows.
+    /// <para>
+    /// Those call sites also guarded the trailing newlines with
+    /// <c>!sb.ToString().EndsWith("\n\n")</c> -- the two section sites did; the title site, which
+    /// runs first, never had it. That guard is unreachable and is not carried over.
+    /// Every append to the buffer goes through this method, and this method always leaves exactly
+    /// <c>"\n\n"</c> at the tail, so the guard was false for every block after the first and the
+    /// length test excluded the first. It was load-bearing only while the tail could be CRLF,
+    /// which is what #3981 removed. Keeping it would leave two mechanisms for one property and
+    /// gate neither; the separation is asserted from the rendered document instead, by
+    /// <c>PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine</c>.
+    /// </para>
+    /// </remarks>
+    private static void AppendBlock(StringBuilder sb, string rendered)
+        => sb.Append(rendered).Append('\n').Append('\n');
 
     /// <summary>
     /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
@@ -3132,9 +3217,7 @@ public class PackageCommand
         if (rendered.Length == 0)
             return;
 
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.Append('\n');
-        sb.Append(rendered).Append('\n').Append('\n');
+        AppendBlock(sb, rendered);
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3254,9 +3337,7 @@ public class PackageCommand
             if (rendered.Length == 0)
                 continue;
 
-            if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.Append('\n');
-            sb.Append(rendered).Append('\n').Append('\n');
+            AppendBlock(sb, rendered);
         }
     }
 

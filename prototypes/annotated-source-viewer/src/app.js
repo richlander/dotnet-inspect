@@ -2,6 +2,8 @@ import {
   buildLines,
   lineMedium,
   nodeIdsForFact,
+  nodeIdsForKind,
+  nodeKinds,
   nodesAtOffset,
   parseDocument,
   segmentsForLine,
@@ -14,6 +16,7 @@ const app = document.querySelector("#app");
 let sourceDocument = validateDocument(structuredClone(sampleDocument));
 let sourceName = "Built-in multi-span sample";
 let selectedFactId = null;
+let selectedKind = "";
 let selectedNodeIds = new Set();
 let showCSharp = true;
 let showIl = true;
@@ -23,6 +26,7 @@ function render() {
   const lines = buildLines(sourceDocument.text);
   const anchoredFacts = sourceDocument.facts.filter(fact => nodeIdsForFact(sourceDocument, fact.id).length > 0);
   const looseFacts = unanchoredFacts(sourceDocument);
+  const kinds = nodeKinds(sourceDocument);
   const selectedNodes = [...selectedNodeIds].map(id => sourceDocument.nodes[id]).filter(Boolean);
 
   app.innerHTML = `
@@ -44,6 +48,13 @@ function render() {
       <span><strong>${sourceDocument.facts.length}</strong> facts</span>
       <span><strong>${sourceDocument.targets.length}</strong> targets</span>
       <span><strong>${looseFacts.length}</strong> unanchored</span>
+      <label class="kind-filter">
+        node kind
+        <select id="node-kind">
+          <option value="">all</option>
+          ${kinds.map(kind => `<option value="${escapeHtml(kind)}"${selectedKind === kind ? " selected" : ""}>${escapeHtml(kind)}</option>`).join("")}
+        </select>
+      </label>
       <div class="medium-toggles" aria-label="Visible source media">
         ${mediumToggle("CSharp", "C#", showCSharp)}
         ${mediumToggle("Il", "IL", showIl)}
@@ -188,6 +199,12 @@ function bindEvents() {
       render();
     });
   });
+  document.querySelector("#node-kind")?.addEventListener("change", event => {
+    selectedKind = event.currentTarget.value;
+    selectedFactId = null;
+    selectedNodeIds = new Set(selectedKind ? nodeIdsForKind(sourceDocument, selectedKind) : []);
+    render();
+  });
   document.querySelectorAll("[data-fact-id]").forEach(button => {
     button.addEventListener("click", event => selectFact(Number(event.currentTarget.dataset.factId)));
   });
@@ -219,18 +236,21 @@ async function loadFile(event) {
 
 function selectFact(factId) {
   selectedFactId = factId;
+  selectedKind = "";
   selectedNodeIds = new Set(nodeIdsForFact(sourceDocument, factId));
   render();
 }
 
 function selectNode(nodeId) {
   selectedFactId = null;
+  selectedKind = "";
   selectedNodeIds = new Set([nodeId]);
   render();
 }
 
 function resetSelection() {
   selectedFactId = null;
+  selectedKind = "";
   selectedNodeIds = new Set();
 }
 
