@@ -41,6 +41,16 @@ runtime's `System.Private.CoreLib` (net11 preview.5), across 41,012 methods —
 | `leave-target-in-container` | 14 | an EH leave survivor keeps its container flat |
 | `eh-terminator-survivor` | 14 | a `Leave`/`EndFinally`/`EndFilter` terminator |
 
+> **Denominator warning (2026-08-12).** `cond-backward-branch` is *not* the
+> loop population — it is a first-bail-only lower bound, off by **6.4×
+> (CoreLib) to 14× (corpus)**. `--structuring-stops` records one reason per
+> container, and loop-carrying containers overwhelmingly bail earlier on
+> `cond-target-past-region` / `forward-branch-not-region-exit` (the rotated
+> entry or the loop body's merge is hit before the back-edge). Size loop work
+> from `--gaps --by-shape` (`loop-residue`) or the postdom probe's `Loop`
+> bucket; see the measured sizing in
+> [#4063](https://github.com/richlander/dotnet-inspect/issues/4063).
+
 The top two — **1,475 of 1,672** — are the same shape: **a forward branch to a
 common merge/exit that lies past the region**. Representative methods:
 `System.Array::InternalSetValue`, `System.Array::LastIndexOf`,
@@ -697,8 +707,19 @@ than something to emit speculatively now.
 
 ## Out of scope
 
-- Loops (`cond-backward-branch`, 61) — a separate loop-raising effort, not
-  control-flow merging.
+- Loops — **corrected by measurement
+  ([#4063](https://github.com/richlander/dotnet-inspect/issues/4063), 2026-08-12)**:
+  the loop residual is not a separate effort. 85% of corpus loop-residue
+  containers also hold a shared forward merge; the modal case is a
+  `FindWhileShape`-recognizable while killed by all-or-nothing on its body's
+  merge. Step 4 without a back-edge rule recovers zero loops; a loop track
+  without step 4 recovers only ~15% of the bucket — the tracks multiply. Step
+  4's join primitive should serve back-edge regions ("back-edges target the
+  head → while; postdom-LCA exit → break target") from day one. Loop-*specific*
+  machinery (continue placement, condition hoisting for effectful latches,
+  labeled break, conditional rotated entries) remains follow-on scope. (The
+  old "`cond-backward-branch`, 61" framing understated the population — see
+  the denominator warning above.)
 - EH (`unconsumed-regions`, 108) — the EH pass leaving regions flat is a distinct
   gap; the CFG-DA's `Leave` bail (#631) is the related printer-side residue.
 - Switch jump tables (`SwitchRaisingPass`) and comparison trees (#640) — done.
@@ -900,3 +921,39 @@ If condition 1 holds but condition 2 fails, the shape stays flat **by policy** (
 stated decision, not an accident) and the lane is closed with that finding recorded.
 This keeps step 4 the last and riskiest step while ensuring its start cannot quietly
 become "never."
+
+### Outcome (2026-08-12): both conditions met — the lane is open
+
+The trigger has been evaluated; the full evidence is on
+[#1175](https://github.com/richlander/dotnet-inspect/issues/1175).
+
+- **Condition 1 (treadmill stalled): met**, read off the PR slope as this doc
+  prescribes — two merged normalizer-family PRs in three weeks, one of them
+  value-flow. Corroboration: the canonical specimen above no longer exhibits
+  the shape — `InternalSetValue` and `CopyImpl` now fully structure on `main`
+  (the shared-terminator slices consumed the trace), which is the stall made
+  visible. Judge single-merge readability against the probe's exemplars
+  (`StateMachineBox<T>::RentFromCache`, `Number::DiyFp128RoundToUInt128`,
+  `NumberFormatInfo::ValidateParseStyleFloatingPoint`), not the stale list.
+- **Condition 2 (readability): met** by a throwaway retained-label probe
+  (branch `probe/issue-1175-condition2` @ `8c611b226`, 175 LOC, evidence-only):
+  acyclic single-merge diamonds render as nested `if`/`else` + one labelled
+  merge; goto/label counts drop 2–4×; twice the structured tree unlocked a
+  downstream `&&` fold. Soundness: 0 pass bugs over 42,502 CoreLib methods on
+  both sweeps, 0 UNSOUND assertions on fired methods, #640 canaries
+  byte-identical, zero printer changes needed.
+
+Design inputs the probe and [#4063](https://github.com/richlander/dotnet-inspect/issues/4063)
+add to the step-4 plan:
+
+1. **Merge selection**: deepest-valid post-dominator plus recursive
+   re-application to the tail — nearest-first structures only a prefix of
+   multi-merge containers (readable but visibly half-done).
+2. **Back-edge regions are in scope from day one** (see the corrected loop
+   entry under *Out of scope*).
+3. **Definite assignment**: retained gotos inside a structured tree flood
+   locals to `= default` (`Matrix4x4::Decompose` 1→7); the #631 CFG-based DA
+   walk must learn in-tree retained gotos. Cosmetic, but a merge-bar
+   implementation fixes it.
+4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
+   corpus baseline as the regression sensor before the rewrite lands.
