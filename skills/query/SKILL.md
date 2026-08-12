@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-query
 version: 0.1.0
-description: Output formats, -D/-S section discovery and selection, value projection, @ categories, and output limits shared across all commands.
+description: Output formats, curated package/library -D/-S discovery and selection, value projection, @ categories, and output limits shared across commands.
 ---
 
 # dotnet-inspect: query and output system
@@ -31,7 +31,7 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--bare` — one undecorated payload or URL list.
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
-- `--print` — print one document behind a selected printable row; use `--row N` when multiple printable rows exist.
+- `--print` — print one document behind a selected section row; use `--row N|first|last` when the section renders multiple rows.
 - `--tree` — a standalone tree for graph sections that support tree lowering.
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
@@ -58,9 +58,10 @@ format.
 
 ## Discover and select sections
 
-Use `-D` to discover the sections and columns a command can emit, `-S Section` to
-select sections by name or wildcard, and `--columns`/`--fields` to project
-values. Discover first instead of guessing names.
+`-D` and `-S` are the uppercase cross-command query namespace. Use `-D` to
+discover sections and fields, `-S` to select exact names, categories, compatible
+aliases, or wildcards, and `--columns`/`--fields` to project values. Discover
+first instead of guessing names.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
@@ -68,17 +69,43 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 ```
 
-`@` names a category of sections. Examples include `@Package`, `@Files`,
-`@Dependencies`, `@Library`, `@Surface`, `@Audit`, `@Context`, `@Source`,
-`@SourceLink`, `@Integrations`, `@Performance`, and `@Metadata`. `Switches` is
-a plain section, not a category.
-Some large families expose only their category door in the top-level catalog;
-drill in with `-D @Performance` or `-D @Metadata`. Row formats
-(`--tsv`/`--jsonl`/`--table`) require one concrete section or a supported
-homogeneous family. `Performance:*` flattens with a leading `Kind` column when
-two or more kinds have rows; if only one kind survives filtering, row formats
-use its concrete schema without `Kind`. Use structured `--json` when the kind
-discriminator must remain explicit.
+Structural discovery describes authored membership without running producers;
+effective discovery probes for data. Package and library differ:
+
+| Goal | `package` | `library` |
+| ---- | --------- | --------- |
+| Orient to a target | `package X -D` — effective base catalog. | `library X -D` — cheap target-aware base catalog. |
+| Inspect a category | `package X -D @Category` — effective members. | `library X -D @Category` — structural members; add `--effective` for populated members. |
+| Inspect section fields | `package X -D Section` — effective fields. | `library X -D Section` — structural fields; add `--effective` for rendered fields. |
+| Read the static graph | `package -D --schema` | `library -D --schema` |
+
+On library, `-D --effective` runs full probes and remains scoped to base
+evidence unless a category is named.
+
+| Command | Base categories | Domain categories |
+| ------- | --------------- | ----------------- |
+| `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
+| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+
+`@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
+`Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
+Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
+curated nuspec, README, and skill-file sections. Other commands expose
+categories such as member `@Source`; `Switches` is a section. There are no
+user-facing `@All`, `@Default`, or `@Hidden` categories.
+
+Bare `-S` returns high-value, fixed-length, network-free sections from the
+package or library base categories. Sections without evidence are omitted.
+`-S --count` returns the candidate count map, including zero rows. Explicit
+sections/categories override base scope and may authorize expensive work.
+Focused selection omits identity; include `Package Info` or `Library Info` when
+needed.
+
+Some large families expose only their category door in the top-level catalog.
+Use `library X -D @Performance` or `-D @Metadata`; add `--effective` for
+populated members. Row formats require a concrete section or homogeneous
+family. Heterogeneous categories use Markdown/JSON; `Performance:*` flattens
+kinds and adds `Kind` when multiple kinds have rows.
 
 ## Filter and order performance rows
 
@@ -103,9 +130,15 @@ Prefer built-in limits to shell pipes:
 
 - `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
 - `--tail` takes the same count from the end, like `tail`.
-- `--rows N` caps table data rows; `2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended.
-- `--tail --rows N` takes table rows from the end; otherwise row windows start at the beginning.
-- With `--print`, `--value`, `--urls`, or `--paths`, `--row N|first|last` chooses the projected row; `-n N` still limits output lines.
+- `--rows N` takes the first N data rows per table, preserving headings and
+  headers; add `--tail` for the last N.
+- `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
+  means ten rows starting at row 2, and `10..` runs from row 10 to the end.
+  Ranges reject `--head`/`--tail`; all `--rows` forms reject `-n`.
+- `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
+  it selects one displayed row, not a compacted projection position.
+  `first`/`last` mean rendered endpoints; missing payloads fail instead of
+  sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
 Command-specific caps: `-t N` for type/find rows, `-m N` for members, and
