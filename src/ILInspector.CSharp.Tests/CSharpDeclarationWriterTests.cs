@@ -428,7 +428,7 @@ public sealed class CSharpDeclarationWriterTests
                 [
                     new ApiParameter
                     {
-                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"System.String\")"],
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"System.String (External.Kind)1\")"],
                         Type = "string",
                         Name = "pattern"
                     }
@@ -449,7 +449,7 @@ public sealed class CSharpDeclarationWriterTests
             """
             using System.Diagnostics.CodeAnalysis;
 
-            public void Validate([StringSyntax("System.String")] string pattern);
+            public void Validate([StringSyntax("System.String (External.Kind)1")] string pattern);
             """,
             rendered.Source);
     }

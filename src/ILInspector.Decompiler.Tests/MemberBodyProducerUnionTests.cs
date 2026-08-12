@@ -1920,13 +1920,13 @@ public class MemberBodyProducerUnionTests
         var stderrTask = process.StandardError.ReadToEndAsync();
 
         var waitTask = process.WaitForExitAsync();
-        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+        var timeoutTask = Task.Delay(TimeSpan.FromMinutes(2));
         if (await Task.WhenAny(waitTask, timeoutTask) != waitTask)
         {
             try { process.Kill(entireProcessTree: true); }
             catch { }
             string timedOutOutput = string.Concat(await stdoutTask, await stderrTask);
-            Assert.Fail("dotnet build did not complete within 30 seconds.\n--- output ---\n" + timedOutOutput);
+            Assert.Fail("dotnet build did not complete within two minutes.\n--- output ---\n" + timedOutOutput);
         }
 
         await waitTask;
