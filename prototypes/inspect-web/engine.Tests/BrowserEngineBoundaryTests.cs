@@ -143,6 +143,20 @@ public sealed class BrowserEngineBoundaryTests
                 ArchiveWithShadowedEndRecord(
                     PackageEntries(BrowserPackageArchiveValidator.MaxEntries + 1))));
         Assert.Contains("entry-count limit", ambiguousFailure.Message, StringComparison.Ordinal);
+
+        byte[] divergent = ArchiveWithIgnoredZip64SizeSentinel(nupkg);
+        using (var archive = new ZipArchive(
+            new MemoryStream(divergent, writable: false),
+            ZipArchiveMode.Read))
+        {
+            Assert.Equal(
+                BrowserPackageArchiveValidator.MaxEntries + 1,
+                archive.Entries.Count);
+        }
+
+        InvalidOperationException divergentFailure = Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageArchiveValidator.Validate(divergent));
+        Assert.Contains("entry-count limit", divergentFailure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -452,5 +466,55 @@ public sealed class BrowserEngineBoundaryTests
         BinaryPrimitives.WriteUInt16LittleEndian(shadow[20..], 23);
         canonical.AsSpan(realEnd).CopyTo(ambiguous.AsSpan(realEnd + 22));
         return ambiguous;
+    }
+
+    static byte[] ArchiveWithIgnoredZip64SizeSentinel(byte[] canonical)
+    {
+        int realEnd = -1;
+        for (int offset = canonical.Length - 22; offset >= 0; offset--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(canonical.AsSpan(offset)) == 0x06054b50)
+            {
+                realEnd = offset;
+                break;
+            }
+        }
+        Assert.True(realEnd >= 0);
+
+        ReadOnlySpan<byte> originalEnd = canonical.AsSpan(realEnd, 22);
+        ushort totalEntries = BinaryPrimitives.ReadUInt16LittleEndian(originalEnd[10..]);
+        uint directoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(originalEnd[16..]);
+        ReadOnlySpan<byte> firstHeader = canonical.AsSpan((int)directoryOffset);
+        int firstHeaderLength = 46
+            + BinaryPrimitives.ReadUInt16LittleEndian(firstHeader[28..])
+            + BinaryPrimitives.ReadUInt16LittleEndian(firstHeader[30..])
+            + BinaryPrimitives.ReadUInt16LittleEndian(firstHeader[32..]);
+
+        byte[] divergent = new byte[realEnd + 56 + 20 + 22];
+        canonical.AsSpan(0, realEnd).CopyTo(divergent);
+        Span<byte> bytes = divergent;
+
+        int zip64 = realEnd;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[zip64..], 0x06064b50);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 4)..], 44);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(zip64 + 12)..], 45);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(zip64 + 14)..], 45);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 24)..], 1);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 32)..], 1);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 40)..], (ulong)firstHeaderLength);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 48)..], directoryOffset);
+
+        int locator = zip64 + 56;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[locator..], 0x07064b50);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(locator + 8)..], (ulong)zip64);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(locator + 16)..], 1);
+
+        int end = locator + 20;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[end..], 0x06054b50);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 8)..], totalEntries);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 10)..], totalEntries);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 12)..], uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 16)..], directoryOffset);
+        return divergent;
     }
 }

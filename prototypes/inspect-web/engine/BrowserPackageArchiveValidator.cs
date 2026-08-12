@@ -45,8 +45,9 @@ internal static class BrowserPackageArchiveValidator
             || centralDirectoryOffset == uint.MaxValue;
         if (zip64)
         {
-            (entryCount, directorySize, directoryOffset) =
+            (ulong zip64EntryCount, directorySize, directoryOffset) =
                 ReadZip64Directory(archive, endOffset);
+            entryCount = Math.Max(entryCount, zip64EntryCount);
         }
         else if (disk != 0 || centralDirectoryDisk != 0 || entriesOnDisk != totalEntries)
         {
