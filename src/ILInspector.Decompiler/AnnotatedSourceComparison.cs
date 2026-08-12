@@ -208,8 +208,14 @@ public static class AnnotatedSourceComparer
             new FindingMatchOptions(MinMoveRunLength: int.MaxValue));
         foreach (var edge in kindMatches.Edges.Where(edge => edge.Kind == FindingEdgeKind.Matched))
         {
-            pairedBefore[oldResidual[edge.OldIndex]] = true;
-            pairedAfter[newResidual[edge.NewIndex]] = true;
+            int oldIndex = oldResidual[edge.OldIndex];
+            int newIndex = newResidual[edge.NewIndex];
+            pairedBefore[oldIndex] = true;
+            pairedAfter[newIndex] = true;
+            changes.Add(new AnnotatedSourceNodeChange(
+                AnnotatedSourceChangeKind.Changed,
+                before[oldIndex],
+                after[newIndex]));
         }
 
         oldResidual = oldResidual.Where(index => !pairedBefore[index]).ToArray();

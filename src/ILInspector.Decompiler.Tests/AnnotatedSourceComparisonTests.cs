@@ -179,6 +179,25 @@ public class AnnotatedSourceComparisonTests
     }
 
     [Fact]
+    public void CompareReportsChangedTextForTheSameKind()
+    {
+        const string beforeText = "return first;";
+        const string afterText = "return second;";
+        var before = Document(
+            beforeText,
+            [Node(0, "ReturnStatement", beforeText, beforeText)]);
+        var after = Document(
+            afterText,
+            [Node(0, "ReturnStatement", afterText, afterText)]);
+
+        var change = Assert.Single(AnnotatedSourceComparer.Compare(before, after).Changes);
+
+        Assert.Equal(AnnotatedSourceChangeKind.Changed, change.Kind);
+        Assert.Equal("return first;", change.Before!.SelectedText);
+        Assert.Equal("return second;", change.After!.SelectedText);
+    }
+
+    [Fact]
     public void CompareRejectsIlDocuments()
     {
         const string text = "IL_0000: ret";
