@@ -37,6 +37,50 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusHarnessProcessTests
 {
+    [Fact]
+    public void Harness_RendersStructuralReviewFromOwnerIssuedComparison()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, StructuralReviewJson("break;", "BreakStatement", 6));
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("raise: Return case body", run.Output, StringComparison.Ordinal);
+            Assert.Contains("raise: Break case body", run.Output, StringComparison.Ordinal);
+            Assert.Contains("Return -&gt; Break", run.Output, StringComparison.Ordinal);
+            Assert.Contains("OpcodeDiff -&gt; Exact", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RendersExplicitNoChangeStructuralReview()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, StructuralReviewJson("return;", "ReturnStatement", 7));
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("## Before", run.Output, StringComparison.Ordinal);
+            Assert.Contains("## After", run.Output, StringComparison.Ordinal);
+            Assert.Contains("No structural changes.", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("raise:", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     /// <summary>
     /// Every mode that dispatches before a gate must refuse rather than run instead of
     /// it. One representative earlier mode per gate is enough here: which modes precede
@@ -309,6 +353,7 @@ public class AuthoredCorpusHarnessProcessTests
     /// </summary>
     static readonly (string Mode, string[] Invocation)[] PreemptingModeInvocations =
     [
+        ("--structural-review", ["--structural-review", UnusedOutputPath]),
         ("--fixture-source-inventory", ["--fixture-source-inventory"]),
         ("--history-card", ["--history-card"]),
         ("--generated-fixtures", ["--generated-fixtures"]),
@@ -344,6 +389,61 @@ public class AuthoredCorpusHarnessProcessTests
     /// before dispatch, so nothing is ever written here.
     /// </summary>
     const string UnusedOutputPath = "/does-not-exist/unused-output.json";
+
+    static string StructuralReviewJson(string afterText, string afterKind, int afterLength)
+        => $$"""
+            {
+              "subject": "M",
+              "before": {
+                "text": "return;",
+                "nodes": [
+                  {
+                    "id": 0,
+                    "kind": "ReturnStatement",
+                    "medium": "CSharp",
+                    "spans": [ { "start": 0, "length": 7 } ]
+                  }
+                ],
+                "regions": [
+                  {
+                    "role": "Case",
+                    "spans": [ { "start": 0, "length": 7 } ]
+                  }
+                ],
+                "facts": [],
+                "targets": []
+              },
+              "after": {
+                "text": "{{afterText}}",
+                "nodes": [
+                  {
+                    "id": 0,
+                    "kind": "{{afterKind}}",
+                    "medium": "CSharp",
+                    "spans": [ { "start": 0, "length": {{afterLength}} } ]
+                  }
+                ],
+                "regions": [
+                  {
+                    "role": "Case",
+                    "spans": [ { "start": 0, "length": {{afterLength}} } ]
+                  }
+                ],
+                "facts": [],
+                "targets": []
+              },
+              "before_node_ids": [ 0 ],
+              "after_node_ids": [ 0 ],
+              "correspondences": [
+                { "before_node_id": 0, "after_node_id": 0, "moved": false }
+              ],
+              "fidelity": {
+                "before": "OpcodeDiff",
+                "after": "Exact",
+                "note": "terminal IL_0072: ret"
+              }
+            }
+            """;
 
     /// <summary>
     /// A requested <c>--ratchet-baseline</c> must reach the benchmark.

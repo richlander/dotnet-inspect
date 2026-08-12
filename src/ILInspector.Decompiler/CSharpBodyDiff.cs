@@ -232,7 +232,7 @@ public sealed record CSharpBodyDiffResult(
 /// Decompiler-owned C# body diff over the shipped decompiler output for matched
 /// method bodies.
 /// </summary>
-public static class CSharpBodyDiff
+public static partial class CSharpBodyDiff
 {
     internal const int MaxLcsLines = 4096;
 

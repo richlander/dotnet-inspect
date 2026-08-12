@@ -58,6 +58,7 @@ static class Program
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
         bool fixtureSourceInventory = false;
+        string? structuralReview = null;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -340,6 +341,7 @@ static class Program
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
+                    case "--structural-review": structuralReview = NextArg(args, ref i, flag); break;
                     case "--help" or "-h": showHelp = true; break;
                     default: inputs.Add(args[i]); break;
                 }
@@ -398,6 +400,7 @@ static class Program
         // the first fix was written as a hand-maintained array next to one of them.
         (string Flag, bool Selected)[] dispatchOrder =
         [
+            ("--structural-review", structuralReview is not null),
             ("--fixture-source-inventory", fixtureSourceInventory),
             ("--history-card", historyCard),
             ("--generated-fixtures", generatedFixtures),
@@ -447,6 +450,13 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
             return FixtureSourceInventory(json);
+        }
+
+        if (structuralReview is not null)
+        {
+            if (inputs.Count > 0 || packages.Count > 0)
+                return Fail("--structural-review reads its documents from the comparison artifact; do not pass assembly or package inputs.");
+            return StructuralReview.Run(structuralReview);
         }
 
         if (historyCard)
@@ -2067,6 +2077,12 @@ static class Program
                                 (GeneratedFixtureCatalog). Use --json for a
                                 machine-readable inventory. Migrated Dynamic
                                 sites must appear here as Built or Generated.
+          --structural-review <comparison.json>
+                                render full-body Before/After structural carets
+                                plus a rich diff from two C# annotated documents,
+                                selected node ids, and owner-issued correspondence.
+                                The JSON shape is CSharpStructuralComparisonInput;
+                                node ids remain local to their own document.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
