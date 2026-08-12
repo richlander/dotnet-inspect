@@ -382,7 +382,8 @@ public static class MemberCommand
                     return 1;
             }
 
-            ApiCommand.WarnSelectedApiInspectionIncomplete(
+            int selectedSurfaceExitCode =
+                ApiCommand.WriteSelectedSurfaceDiagnostics(
                 api,
                 apiType,
                 effectiveOptions.MemberFilter);
@@ -426,7 +427,7 @@ public static class MemberCommand
                 Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
             }
 
-            return 0;
+            return selectedSurfaceExitCode;
         }
         catch (Exception ex)
         {

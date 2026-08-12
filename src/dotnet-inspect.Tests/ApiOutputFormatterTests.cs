@@ -2199,11 +2199,19 @@ public class ApiOutputFormatterTests
         // session (which calls SameType). If the projection dropped MetadataName,
         // SameType would fall back to the lossy '+'→'.' compare and re-drop rows
         // for a literal-'+' type — the exact #2238 bug, reintroduced downstream.
-        var type = new ApiType { Namespace = null, Name = "A+B", MetadataName = "A+B", Members = [] };
+        var type = new ApiType
+        {
+            Namespace = null,
+            Name = "A+B",
+            MetadataName = "A+B",
+            MetadataToken = 0x02000002,
+            Members = [],
+        };
 
         var filtered = ApiCommand.BuildFilteredTypeForSections(type, new ApiOptions());
 
         Assert.Equal("A+B", filtered.MetadataName);
+        Assert.Equal(0x02000002, filtered.MetadataToken);
         Assert.True(ApiAnalysisInspection.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
     }
 

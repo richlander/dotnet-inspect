@@ -263,7 +263,9 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
-    private static void WriteMalformedTypeNameAssembly(string path)
+    private static void WriteMalformedTypeNameAssembly(
+        string path,
+        bool includeHealthyType = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -286,6 +288,16 @@ public partial class CommandExecutionTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        if (includeHealthyType)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Good"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("Example"),
@@ -309,13 +321,20 @@ public partial class CommandExecutionTests
         int typeNameOffset =
             peReader.PEHeaders.MetadataStartOffset
             + reader.GetTableMetadataOffset(TableIndex.TypeDef)
-            + reader.GetTableRowSize(TableIndex.TypeDef)
+            + (reader.GetTableRowSize(TableIndex.TypeDef)
+                * (includeHealthyType ? 2 : 1))
             + sizeof(uint);
         BinaryPrimitives.WriteUInt16LittleEndian(
             bytes.AsSpan(typeNameOffset, sizeof(ushort)),
             ushort.MaxValue);
         File.WriteAllBytes(path, bytes);
     }
+
+    private static void WritePartiallyMalformedTypeNameAssembly(
+        string path) =>
+        WriteMalformedTypeNameAssembly(
+            path,
+            includeHealthyType: true);
 
     private static void WriteMissingConstraintAssembly(string path)
     {
@@ -9805,6 +9824,70 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "Generic-constraint classification",
                 selectedMember.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"selected-row-failure-{Guid.NewGuid():N}.dll");
+        WritePartiallyMalformedTypeNameAssembly(path);
+        try
+        {
+            string[][] typeOutputOptions =
+            [
+                [],
+                ["--json"],
+                ["--table"],
+                ["-S", "Type Info", "--count"],
+            ];
+            string[][] memberOutputOptions =
+            [
+                [],
+                ["--json"],
+                ["--table"],
+                ["-S", "Member Index", "--count"],
+            ];
+            for (int i = 0; i < typeOutputOptions.Length; i++)
+            {
+                var selectedType = await RunAppAsync(
+                    [
+                        "type",
+                        "N.Good",
+                        "--library",
+                        path,
+                        "--tips",
+                        "q",
+                        .. typeOutputOptions[i],
+                    ]);
+                var selectedMember = await RunAppAsync(
+                    [
+                        "member",
+                        "N.Good",
+                        "--library",
+                        path,
+                        "--tips",
+                        "q",
+                        .. memberOutputOptions[i],
+                    ]);
+
+                Assert.Equal(1, selectedType.Exit);
+                Assert.Contains(
+                    "rejected 1 metadata row",
+                    selectedType.Error,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Equal(1, selectedMember.Exit);
+                Assert.Contains(
+                    "rejected 1 metadata row",
+                    selectedMember.Error,
+                    StringComparison.OrdinalIgnoreCase);
+            }
         }
         finally
         {
