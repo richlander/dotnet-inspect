@@ -161,6 +161,148 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void DetachedVersionSkewedDefinitionsRemainDistinct()
+    {
+        LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+        LibraryBodyIndex targetV1 = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var scope = CatalogCallGraphTestExtensions.CreateScope(
+            targetV2,
+            [targetV1]);
+        MethodIdentity pingV2 = targetV2.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Api"
+            && method.Name == "Ping"
+            && method.ParameterTypes.Length == 0);
+        MethodIdentity pingV1 = targetV1.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Api"
+            && method.Name == "Ping"
+            && method.ParameterTypes.Length == 0);
+
+        CallTreeNode root = scope.Detach(
+            scope.BuildCallTree(targetV2, pingV2.MetadataToken));
+        CallTreeNode versionSkewed = scope.Detach(
+            scope.BuildCallTree(targetV1, pingV1.MetadataToken));
+        scope.Dispose();
+
+        Assert.NotNull(root.GraphEvidence);
+        Assert.NotNull(versionSkewed.GraphEvidence);
+        Assert.Null(root.GraphEvidence.Correspondence);
+        Assert.Null(versionSkewed.GraphEvidence.Correspondence);
+        Assert.NotEqual(
+            root.GraphEvidence.Identity,
+            versionSkewed.GraphEvidence.Identity);
+
+        CallGraphProjection projection = CallGraphProjection.FromCallees(
+            root with
+            {
+                Status = CallTreeStatus.Expanded,
+                Children = [versionSkewed],
+            });
+
+        Assert.Equal(2, projection.Nodes.Length);
+        CallGraphEdge edge = Assert.Single(projection.Edges);
+        Assert.Equal(0, edge.From);
+        Assert.Equal(1, edge.To);
+    }
+
+    [Fact]
+    public void DetachedRepeatedExternalOccurrencesStayJoined()
+    {
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        ResolvedAssemblyReference assembly = Descriptor(caller);
+        using var scope = new CatalogCallGraphScope(
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(caller.Path)),
+            [new(caller, assembly)]);
+        MethodIdentity rootMethod = caller.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Entry"
+            && method.Name == "RunTwice");
+        DirectCall[] calls =
+        [
+            .. caller.DirectCalls.Where(call =>
+                call.Caller.MetadataToken == rootMethod.MetadataToken),
+        ];
+        Assert.Equal(2, calls.Length);
+        GraphNodeIdentity externalIdentity =
+            GraphNodeIdentity.FromMember(calls[0].Callee);
+        CallTreeNode root = scope.BuildCallTree(
+            caller,
+            rootMethod.MetadataToken);
+        CallTreeNode[] occurrences =
+        [
+            .. calls.Select(call =>
+                new CallTreeNode(
+                    call.Callee,
+                    call.Kind,
+                    CallTreeStatus.External,
+                    [])
+                {
+                    GraphEvidence = new GraphNodeEvidence(
+                        GraphNodeStorageKey.CallSite(
+                            assembly,
+                            call.Caller.ModuleVersionId,
+                            call),
+                        externalIdentity,
+                        correspondence: null),
+                }),
+        ];
+
+        CallTreeNode detached = scope.Detach(
+            root with { Children = [.. occurrences] });
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(detached);
+
+        CallGraphNode external = Assert.Single(
+            projection.Nodes,
+            node => node.Member.Name == "Echo");
+        Assert.Equal(2, external.GraphEvidence.Length);
+    }
+
+    [Fact]
+    public void DetachedArtifactIdentityIgnoresAcquisitionRegistration()
+    {
+        LibraryBodyIndex first = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        LibraryBodyIndex second = LibraryBodyIndex.Open(first.Path);
+        ResolvedAssemblyReference firstAssembly = Descriptor(first);
+        ResolvedAssemblyReference secondAssembly = Descriptor(second);
+        MethodIdentity firstPing = first.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Api"
+            && method.Name == "Ping"
+            && method.ParameterTypes.Length == 0);
+        MethodIdentity secondPing = second.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Api"
+            && method.Name == "Ping"
+            && method.ParameterTypes.Length == 0);
+
+        using var firstScope = new CatalogCallGraphScope(
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(first.Path)),
+            [new(first, firstAssembly)]);
+        using var secondScope = new CatalogCallGraphScope(
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(second.Path)),
+            [new(second, secondAssembly)]);
+        CallTreeNode callerRoot = firstScope.Detach(
+            firstScope.BuildCallerTree(
+                first,
+                firstPing.MetadataToken));
+        CallTreeNode calleeRoot = secondScope.Detach(
+            secondScope.BuildCallTree(
+                second,
+                secondPing.MetadataToken));
+
+        CallGraphProjection projection = CallGraphProjection.Create(
+            callerRoot,
+            calleeRoot);
+
+        Assert.Single(projection.Nodes);
+        Assert.Equal("Ping", projection.Focus.Member.Name);
+    }
+
+    [Fact]
     public void MethodGenericArityKeepsOverloadsAndTheirCallersSeparate()
     {
         LibraryBodyIndex target = LibraryBodyIndex.Open(

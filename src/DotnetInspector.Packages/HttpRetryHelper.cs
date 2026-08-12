@@ -224,7 +224,8 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        RangeHeaderValue? range = null)
     {
         return ExecuteWithRetryAsync(
             ct =>
@@ -232,7 +233,13 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
-                return client.SendAsync(request, ct);
+                request.Headers.Range = range;
+                return range is null
+                    ? client.SendAsync(request, ct)
+                    : client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        ct);
             },
             url,
             "GET",

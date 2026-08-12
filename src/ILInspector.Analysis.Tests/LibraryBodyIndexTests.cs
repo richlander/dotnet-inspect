@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -90,6 +91,154 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(index.Methods, method =>
             method.DeclaringType.Name == "BodyStateSample"
             && method.Name == "BodyState");
+    }
+
+    [Fact]
+    public void BuildCallTree_PreservesRecoverableBodyAnalysisFailure()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedBody.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedBody"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Broken"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var il = new BlobBuilder();
+        il.WriteByte((byte)ILOpCode.Call);
+        il.WriteInt32(0x06000002);
+        il.WriteByte((byte)ILOpCode.Call);
+        il.WriteInt32(0x0AFFFFFF);
+        il.WriteByte((byte)ILOpCode.Ret);
+        int bodyOffset = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(il),
+            maxStack: 1);
+        var helperIl = new BlobBuilder();
+        var helperInstructions = new InstructionEncoder(helperIl);
+        helperInstructions.OpCode(ILOpCode.Ret);
+        int helperBodyOffset = bodyEncoder.AddMethodBody(
+            helperInstructions,
+            maxStack: 0);
+        BlobHandle signatureHandle =
+            metadata.GetOrAddBlob(signature);
+        MethodDefinitionHandle methodHandle =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                signatureHandle,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Helper"),
+            signatureHandle,
+            helperBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MalformedBody-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image.ToArray());
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            AnalysisDiagnostic diagnostic =
+                Assert.Single(index.Diagnostics);
+            int methodToken = MetadataTokens.GetToken(methodHandle);
+            CallTreeNode tree = index.BuildCallTree(methodToken);
+
+            Assert.Equal(methodToken, diagnostic.MethodToken);
+            Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
+            Assert.Same(diagnostic, tree.Diagnostic);
+            Assert.Single(index.DirectCalls);
+
+            CallTreeNode truncated =
+                index.BuildCallTree(
+                    methodToken,
+                    maxNodes: 1);
+            Assert.Equal(
+                CallTreeStatus.Truncated,
+                truncated.Status);
+            Assert.Same(diagnostic, truncated.Diagnostic);
+
+            ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "malformed-body call-tree test"));
+            var policy = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path));
+            using var scope = new CatalogCallGraphScope(
+                policy,
+                [new CatalogCallGraphParticipant(index, assembly)]);
+            CallTreeNode catalogTree = scope.BuildCallTree(
+                index,
+                methodToken);
+
+            Assert.Equal(
+                CallTreeStatus.AnalysisIncomplete,
+                catalogTree.Status);
+            Assert.Same(diagnostic, catalogTree.Diagnostic);
+
+            CallTreeNode truncatedCatalogTree =
+                scope.BuildCallTree(
+                    index,
+                    methodToken,
+                    maxNodes: 1);
+            Assert.Equal(
+                CallTreeStatus.Truncated,
+                truncatedCatalogTree.Status);
+            Assert.Same(
+                diagnostic,
+                truncatedCatalogTree.Diagnostic);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -615,6 +764,219 @@ public class LibraryBodyIndexTests
         var derivedTree = index.BuildCallerTree(derivedRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
         Assert.Equal("target", derivedTree.Perf?.RootKind);
         Assert.Empty(derivedTree.Children);
+    }
+
+    [Fact]
+    public void BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved()
+    {
+        var index =
+            LibraryBodyIndex.Open(
+                typeof(VirtualDispatchCallers).Assembly.Location);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                index.Path,
+                AssemblyResolutionProvenance.Local(
+                    "virtual-dispatch call-tree test"));
+        using var catalog =
+            new CatalogCallGraphScope(
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        index.Path)),
+                [new CatalogCallGraphParticipant(index, assembly)]);
+
+        AssertDispatch(
+            nameof(VirtualDispatchCallers.ViaBase),
+            expectedUnresolved: true);
+        AssertDispatch(
+            nameof(VirtualDispatchCallers.ViaNonVirtual),
+            expectedUnresolved: false);
+
+        Assert.True(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(VirtualDispatchBase)
+                    && method.Name
+                        == nameof(VirtualDispatchBase.Work))
+            .IsVirtualDispatchOpen);
+        Assert.False(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(VirtualDispatchDerived)
+                    && method.Name
+                        == nameof(VirtualDispatchDerived.Work))
+            .IsVirtualDispatchOpen);
+        Assert.False(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(FinalVirtualDispatchDerived)
+                    && method.Name
+                        == nameof(FinalVirtualDispatchDerived.Work))
+            .IsVirtualDispatchOpen);
+        Assert.False(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(NonVirtualDispatchTarget)
+                    && method.Name
+                        == nameof(NonVirtualDispatchTarget.Work))
+            .IsVirtualDispatchOpen);
+
+        void AssertDispatch(
+            string methodName,
+            bool expectedUnresolved)
+        {
+            int token = typeof(VirtualDispatchCallers)
+                .GetMethod(methodName)!
+                .MetadataToken;
+            CallTreeNode localChild =
+                Assert.Single(
+                    index.BuildCallTree(
+                        token,
+                        maxDepth: 2,
+                        maxNodes: 10).Children);
+            CallTreeNode catalogChild =
+                Assert.Single(
+                    catalog.BuildCallTree(
+                        index,
+                        token,
+                        maxDepth: 2,
+                        maxNodes: 10).Children);
+
+            Assert.Equal(
+                expectedUnresolved,
+                localChild.HasUnresolvedDispatch);
+            Assert.Equal(
+                expectedUnresolved,
+                catalogChild.HasUnresolvedDispatch);
+        }
+    }
+
+    [Fact]
+    public void CallTrees_PreserveDispatchAcrossCalleeCollapse()
+    {
+        var index =
+            LibraryBodyIndex.Open(
+                typeof(VirtualDispatchDerived).Assembly.Location);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                index.Path,
+                AssemblyResolutionProvenance.Local(
+                    "collapsed virtual-dispatch call-tree test"));
+        using var catalog =
+            new CatalogCallGraphScope(
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        index.Path)),
+                [new CatalogCallGraphParticipant(index, assembly)]);
+
+        AssertMixedDispatch(
+            nameof(
+                VirtualDispatchDerived
+                    .CallsBaseThenVirtual),
+            expectedRepresentativeInLoop: false);
+        AssertMixedDispatch(
+            nameof(
+                VirtualDispatchDerived
+                    .CallsVirtualThenBaseInLoop),
+            expectedRepresentativeInLoop: true);
+
+        void AssertMixedDispatch(
+            string methodName,
+            bool expectedRepresentativeInLoop)
+        {
+            int token = typeof(VirtualDispatchDerived)
+                .GetMethod(methodName)!
+                .MetadataToken;
+            CallTreeNode local =
+                index.BuildCallTree(
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 10);
+            CallTreeNode catalogTree =
+                catalog.BuildCallTree(
+                    index,
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 10);
+
+            CallTreeNode localCollapsed =
+                Assert.Single(
+                    local.Children);
+            CallTreeNode collapsed =
+                Assert.Single(
+                    catalogTree.Children);
+            Assert.Equal(
+                CallKind.Call,
+                localCollapsed.Kind);
+            Assert.Equal(
+                CallKind.Call,
+                collapsed.Kind);
+            Assert.Equal(
+                expectedRepresentativeInLoop,
+                localCollapsed.Perf?.InLoop);
+            Assert.Equal(
+                expectedRepresentativeInLoop,
+                collapsed.Perf?.InLoop);
+            Assert.True(
+                localCollapsed.HasUnresolvedDispatch);
+            Assert.True(
+                collapsed.HasUnresolvedDispatch);
+            Assert.Equal(2, local.Perf?.Fanout);
+            Assert.Equal(2, catalogTree.Perf?.Fanout);
+            Assert.True(
+                CallGraphProjection
+                    .FromCallees(local)
+                    .HasUnexploredTraversalBoundary);
+            Assert.True(
+                CallGraphProjection
+                    .FromCallees(catalogTree)
+                    .HasUnexploredTraversalBoundary);
+
+            Assert.NotEqual(
+                CallTreeStatus.Truncated,
+                index.BuildCallTree(
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 2).Status);
+            Assert.NotEqual(
+                CallTreeStatus.Truncated,
+                catalog.BuildCallTree(
+                    index,
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 2).Status);
+        }
+    }
+
+    [Fact]
+    public void BuildCallTree_ClassifiesSameAssemblyBodilessCallee()
+    {
+        var index =
+            LibraryBodyIndex.Open(
+                typeof(BodilessRootFixtures).Assembly.Location);
+        int rootToken = typeof(BodilessRootFixtures)
+            .GetMethod(
+                nameof(
+                    BodilessRootFixtures
+                        .InvokesThroughInterface))!
+            .MetadataToken;
+
+        CallTreeNode child =
+            Assert.Single(
+                index.BuildCallTree(
+                    rootToken,
+                    maxDepth: 2,
+                    maxNodes: 10).Children);
+
+        Assert.Equal(
+            CallTreeStatus.Bodiless,
+            child.Status);
+        Assert.Equal(
+            nameof(ICallerGraphTarget.Target),
+            child.Member.Name);
     }
 
     [Fact]
@@ -6168,6 +6530,25 @@ public class VirtualDispatchBase
 public sealed class VirtualDispatchDerived : VirtualDispatchBase
 {
     public override int Work() => 2;
+
+    public int CallsBaseThenVirtual(
+        VirtualDispatchBase value) =>
+        base.Work() + value.Work();
+
+    public int CallsVirtualThenBaseInLoop(
+        VirtualDispatchBase value,
+        int count)
+    {
+        int result = value.Work();
+        for (int i = 0; i < count; i++)
+            result += base.Work();
+        return result;
+    }
+}
+
+public class FinalVirtualDispatchDerived : VirtualDispatchBase
+{
+    public sealed override int Work() => 3;
 }
 
 public static class VirtualDispatchCallers
@@ -6182,6 +6563,15 @@ public static class VirtualDispatchCallers
         VirtualDispatchBase value = new VirtualDispatchDerived();
         return value.Work();
     }
+
+    public static int ViaNonVirtual(
+        NonVirtualDispatchTarget value) =>
+        value.Work();
+}
+
+public sealed class NonVirtualDispatchTarget
+{
+    public int Work() => 3;
 }
 
 public static class CallTreeFixtures
