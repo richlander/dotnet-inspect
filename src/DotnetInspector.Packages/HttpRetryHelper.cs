@@ -280,7 +280,8 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        RangeHeaderValue? range = null)
     {
         return ExecuteWithRetryAsync(
             client,
@@ -289,9 +290,12 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
+                request.Headers.Range = range;
                 return request;
             },
-            HttpCompletionOption.ResponseContentRead,
+            range is null
+                ? HttpCompletionOption.ResponseContentRead
+                : HttpCompletionOption.ResponseHeadersRead,
             url,
             "GET",
             retryCount,
