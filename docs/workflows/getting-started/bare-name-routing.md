@@ -7,7 +7,10 @@ areas: [routing, resolution, platform]
 
 # Bare Name Routing
 
-> Bare names (no `package` or `library` prefix) are routed based on whether the name overlaps with the .NET platform. Libraries like `System.Text.Json` that ship in both platform and NuGet default to **platform** as a bare name. The `package` command forces a NuGet lookup.
+> Bare names (no `package` or `library` prefix) are routed based on whether the
+> name overlaps with the .NET platform. An unversioned overlapping name such as
+> `System.Text.Json` defaults to **platform**. An explicit package version
+> selects NuGet, as does the `package` command.
 
 ## Preconditions
 
@@ -23,7 +26,8 @@ dotnet-inspect cache clear
 
 ## 1. Platform library as bare name
 
-> Goal: A platform-overlapping name like `System.Text.Json` resolves to the platform assembly, not the NuGet package. Even with a version tag, the bare name routes to platform.
+> Goal: An unversioned platform-overlapping name resolves to the platform
+> assembly, while an explicit version selects the NuGet package.
 
 ### 1a. Using bare name
 
@@ -54,7 +58,8 @@ dotnet-inspect System.Text.Json@6.0.0 -v:q
 ```
 
 ```expect
-Source: Platform
+Version: 6.0.0
+Source: NuGet
 ```
 
 ```query
@@ -219,7 +224,7 @@ Tell me about System.Text.Json.JsonSerializer.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer -v:q
+dotnet-inspect System.Text.Json.JsonSerializer -v:q --markdown
 ```
 
 ```expect
@@ -243,7 +248,7 @@ Show me JsonSerializer from the System.Text.Json 6.0.0 NuGet package.
 ```
 
 ```bash
-dotnet-inspect type --package System.Text.Json@6.0.0 JsonSerializer -v:q
+dotnet-inspect type --package System.Text.Json@6.0.0 JsonSerializer -v:q --markdown
 ```
 
 ```expect
