@@ -610,6 +610,9 @@ Header-first source fetches keep the untrusted-fetch timeout active through the
 body read, retry transient mid-body failures, and count decoded bytes against
 the download limit even when `Content-Length` is absent or describes compressed
 content. Source bodies are capped at 16 MB each, including decoded bytes.
+Bounded fetches require Browser/Wasm's streaming-response mode so the browser
+transport cannot buffer an unbounded body before that loop; a browser without
+streaming support fails before body acquisition.
 
 Every product consumer that renders or derives output from fetched source now
 uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. Original Source,
@@ -640,6 +643,7 @@ availability/integrity projections in
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
 `...HeaderFirstBodyRead_RetriesAMidBodyIoFailure`,
+`...HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
 `SourceLinkQueryServiceTests.Availability_DoesNotCountCrossOriginRedirectAsReachable`,
 `...BrowserTransport_FailsClosedOnlyForAttributedSourceUrls`,
 and

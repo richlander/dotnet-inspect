@@ -18,6 +18,9 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public static class HttpRetryHelper
 {
+    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+        new("WebAssemblyEnableStreamingResponse");
+
     public enum HttpBodyFetchStatus
     {
         Success,
@@ -310,6 +313,7 @@ public static class HttpRetryHelper
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     if (auth != null)
                         request.Headers.Authorization = auth;
+                    request.Options.Set(BrowserStreamingResponse, true);
 
                     using var response = await client.SendAsync(
                         request,

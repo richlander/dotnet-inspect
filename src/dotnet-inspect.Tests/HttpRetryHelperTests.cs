@@ -235,6 +235,23 @@ public class HttpRetryHelperTests
         Assert.Equal(2, handler.RequestCount);
     }
 
+    [Fact]
+    public async Task HeaderFirstBodyRead_RequiresBrowserStreamingResponse()
+    {
+        var handler = new BrowserStreamingOptionHandler();
+        using var client = new HttpClient(handler);
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Success, result.Status);
+        Assert.True(handler.StreamingRequested);
+    }
+
     private sealed class ThrowingContentHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -257,6 +274,29 @@ public class HttpRetryHelperTests
         {
             length = 0;
             return false;
+        }
+    }
+
+    sealed class BrowserStreamingOptionHandler : HttpMessageHandler
+    {
+        static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+            new("WebAssemblyEnableStreamingResponse");
+
+        public bool StreamingRequested { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            StreamingRequested = request.Options.TryGetValue(
+                BrowserStreamingResponse,
+                out bool enabled)
+                && enabled;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent("source"u8.ToArray()),
+                RequestMessage = request,
+            });
         }
     }
 

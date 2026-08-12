@@ -216,7 +216,8 @@ attributed SourceLink fetches fail closed on that platform; checksum-verified
 URLs outside the known provenance grammars remain available. Header-first body
 reads retain the untrusted-fetch timeout and enforce the download cap against
 decoded bytes even when the server omits `Content-Length`. Each source body is
-capped at 16 MB.
+capped at 16 MB. Browser/Wasm fetches require streaming-response support so the
+transport cannot buffer the full body before that cap is enforced.
 
 The section pipeline lowers selected SourceLink sections to typed query demand:
 
