@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
+using ILInspector.Instructions;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -141,8 +142,41 @@ internal static class StructuralReview
     }
 }
 
+internal sealed class StrictIlBodyDiffOutcomeJsonConverter : JsonConverter<IlBodyDiffOutcome>
+{
+    public override IlBodyDiffOutcome Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Structural fidelity contains an unknown IL body-diff outcome.");
+
+        return reader.GetString() switch
+        {
+            nameof(IlBodyDiffOutcome.Unavailable) => IlBodyDiffOutcome.Unavailable,
+            nameof(IlBodyDiffOutcome.Exact) => IlBodyDiffOutcome.Exact,
+            nameof(IlBodyDiffOutcome.OperandDiff) => IlBodyDiffOutcome.OperandDiff,
+            nameof(IlBodyDiffOutcome.OpcodeDiff) => IlBodyDiffOutcome.OpcodeDiff,
+            _ => throw new JsonException("Structural fidelity contains an unknown IL body-diff outcome."),
+        };
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IlBodyDiffOutcome value,
+        JsonSerializerOptions options)
+    {
+        if (!Enum.IsDefined(value))
+            throw new JsonException("Structural fidelity contains an unknown IL body-diff outcome.");
+
+        writer.WriteStringValue(value.ToString());
+    }
+}
+
 [JsonSourceGenerationOptions(
     AllowDuplicateProperties = false,
+    Converters = [typeof(StrictIlBodyDiffOutcomeJsonConverter)],
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     RespectRequiredConstructorParameters = true,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,

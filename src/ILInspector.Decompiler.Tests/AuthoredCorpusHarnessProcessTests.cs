@@ -148,6 +148,19 @@ public class AuthoredCorpusHarnessProcessTests
     }
 
     [Fact]
+    public void Harness_RejectsHelpCombinedWithStructuralReview()
+    {
+        var run = RunHarness(
+            "--structural-review",
+            "/does-not-exist/structural-review.json",
+            "--help");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("--structural-review is an exclusive mode", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Usage:", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Harness_ContainsStructuralTerminalControls()
     {
         string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
@@ -186,6 +199,30 @@ public class AuthoredCorpusHarnessProcessTests
         string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
         string json = StructuralReviewJson("break;", "BreakStatement", 6)
             .Replace("\"before\": \"OpcodeDiff\"", "\"before\": 999", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unknown IL body-diff outcome", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsCompositeStructuralFidelityOutcome()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"before\": \"OpcodeDiff\"",
+                "\"before\": \"Exact, OperandDiff\"",
+                StringComparison.Ordinal);
         File.WriteAllText(path, json);
 
         try

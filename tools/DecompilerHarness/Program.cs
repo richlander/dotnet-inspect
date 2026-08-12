@@ -356,6 +356,11 @@ static class Program
             return Fail(ex.Message);
         }
 
+        if (structuralReview is not null && showHelp)
+        {
+            return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
+        }
+
         // --help is answered after flag validation, not during parsing: returning 0 from
         // the parse loop let a gate flag be silently ignored, which is a permanently
         // green gate. The rule is a function in AuthoredCorpusExitContract because this
