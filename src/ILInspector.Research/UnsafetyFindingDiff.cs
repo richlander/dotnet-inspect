@@ -89,11 +89,13 @@ internal static class UnsafetyFindingDiff
     {
         var complete = comparison switch
         {
-            FindingComparison<T>.Complete value => value,
+            FindingComparison<T>.Complete
+                => (FindingComparison<T>.Complete)comparison.Value,
             // Both producer inputs are total Complete censuses. A failed
             // comparison here would violate the Analysis producer contract.
-            FindingComparison<T>.Failed failed => throw new InvalidOperationException(
-                $"A comparison of total Analysis censuses cannot fail: {failed.Failure}"),
+            FindingComparison<T>.Failed => throw new InvalidOperationException(
+                $"A comparison of total Analysis censuses cannot fail: " +
+                $"{((FindingComparison<T>.Failed)comparison.Value).Failure}"),
         };
         var oldGroups = GroupProjections(complete.OldAtoms, memberKey, project);
         var newGroups = GroupProjections(complete.NewAtoms, memberKey, project);
@@ -104,10 +106,12 @@ internal static class UnsafetyFindingDiff
         {
             switch (pair)
             {
-                case PairFinding<T>.Added added:
+                case PairFinding<T>.Added:
+                    var added = (PairFinding<T>.Added)pair.Value!;
                     Increment(addedCounts, added.New.Key.IdentityKey);
                     break;
-                case PairFinding<T>.Removed removed:
+                case PairFinding<T>.Removed:
+                    var removed = (PairFinding<T>.Removed)pair.Value!;
                     Increment(removedCounts, removed.Old.Key.IdentityKey);
                     break;
             }

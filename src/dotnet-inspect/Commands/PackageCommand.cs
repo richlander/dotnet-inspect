@@ -740,13 +740,10 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            if (wantsSignals)
+            if (wantsSignals && options.Count && !effectiveDiscovery)
             {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger,
-                    acquirePdb: true, options.SourceOptions);
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, client, logger, options.SourceOptions);
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
             }
 
             // Effective discovery renders the discovered rows below and answers the projection
@@ -784,6 +781,12 @@ public class PackageCommand
                         version,
                         options),
                     result);
+            }
+
+            if (wantsSignals)
+            {
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
             }
 
             // Output results
@@ -1005,7 +1008,6 @@ public class PackageCommand
                 queryRegistry);
             if (result == null)
                 return 1;
-            FilterResultForOutput(result, options);
             results.Add(result);
         }
 
@@ -1883,6 +1885,8 @@ public class PackageCommand
                     sourceQueries);
             }
 
+            FilterResultForOutput(result, options);
+
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
@@ -1908,6 +1912,22 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task PopulatePackageSignalsAsync(
+        InspectionResult result,
+        string extractPath,
+        string? packageName,
+        string? version,
+        HttpClient client,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
+    {
+        result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+            extractPath, packageName, version, client, logger,
+            acquirePdb: true, sourceOptions);
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, client, logger, sourceOptions);
     }
 
     private static async Task PopulatePackageSignatureAsync(

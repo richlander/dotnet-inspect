@@ -1588,7 +1588,7 @@ public class DiffCommand
             toTransitionRow)
         where T : notnull
     {
-        if (retained.Comparison is FindingComparison<T>.Failed failed)
+        if (retained.Comparison.Value is FindingComparison<T>.Failed failed)
         {
             yield return new FindingTransitionRow(
                 "FindingComparison.Failed",
@@ -1604,7 +1604,8 @@ public class DiffCommand
 
         var complete = retained.Comparison switch
         {
-            FindingComparison<T>.Complete value => value,
+            FindingComparison<T>.Complete
+                => (FindingComparison<T>.Complete)retained.Comparison.Value,
             FindingComparison<T>.Failed => throw new InvalidOperationException(
                 "Failed comparisons are handled before completed comparisons."),
         };
@@ -1648,7 +1649,8 @@ public class DiffCommand
         where T : notnull
         => comparison switch
         {
-            FindingComparison<T>.Complete complete => complete.Pairs,
+            FindingComparison<T>.Complete
+                => ((FindingComparison<T>.Complete)comparison.Value).Pairs,
             FindingComparison<T>.Failed => throw new InvalidOperationException("Finding comparison did not complete."),
         };
 
@@ -1840,19 +1842,19 @@ public class DiffCommand
         => pair switch
         {
             PairFinding<T>.Added => null,
-            PairFinding<T>.Removed removed => removed.Old,
-            PairFinding<T>.Present present => present.Old,
-            PairFinding<T>.Changed changed => changed.Old,
+            PairFinding<T>.Removed => ((PairFinding<T>.Removed)pair.Value!).Old,
+            PairFinding<T>.Present => ((PairFinding<T>.Present)pair.Value!).Old,
+            PairFinding<T>.Changed => ((PairFinding<T>.Changed)pair.Value!).Old,
         };
 
     static Finding<T>? NewSide<T>(PairFinding<T> pair)
         where T : notnull
         => pair switch
         {
-            PairFinding<T>.Added added => added.New,
+            PairFinding<T>.Added => ((PairFinding<T>.Added)pair.Value!).New,
             PairFinding<T>.Removed => null,
-            PairFinding<T>.Present present => present.New,
-            PairFinding<T>.Changed changed => changed.New,
+            PairFinding<T>.Present => ((PairFinding<T>.Present)pair.Value!).New,
+            PairFinding<T>.Changed => ((PairFinding<T>.Changed)pair.Value!).New,
         };
 
     internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
