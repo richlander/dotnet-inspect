@@ -574,21 +574,35 @@ public static class ApiMemberIdentity
         PropertyDefinition property)
     {
         var context = GenericContext.ForType(reader, markerType);
-        var markerSignature = GuardedProviderDecode.Method(
+        var decodedMarker = GuardedProviderDecode.MethodResult(
             reader,
             markerMethod,
             AnchorSignatureTypeProvider.Instance,
             context,
             new EncodedAnchorSignatureType("System.Object"));
+        if (decodedMarker.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The extension marker signature exceeds the metadata safety limit.");
+        }
+        MethodSignature<AnchorSignatureType> markerSignature =
+            decodedMarker.Value;
         if (markerSignature.ParameterTypes.Length != 1)
             throw new BadImageFormatException("An extension marker must have exactly one receiver parameter.");
 
-        var propertySignature = GuardedProviderDecode.Property(
+        var decodedProperty = GuardedProviderDecode.PropertyResult(
             reader,
             property,
             AnchorSignatureTypeProvider.Instance,
             context,
             new EncodedAnchorSignatureType("System.Object"));
+        if (decodedProperty.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The extension property signature exceeds the metadata safety limit.");
+        }
+        MethodSignature<AnchorSignatureType> propertySignature =
+            decodedProperty.Value;
         EnsureAnchorSignatureBudget(
             propertySignature.ReturnType,
             markerSignature.ParameterTypes,
@@ -621,17 +635,28 @@ public static class ApiMemberIdentity
     {
         var type = reader.GetTypeDefinition(typeHandle);
         string methodName = reader.GetString(method.Name);
-        var signature = GuardedProviderDecode.Method(
+        GenericContext context =
+            GenericContext.ForMethod(reader, type, method);
+        var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
             AnchorSignatureTypeProvider.Instance,
-            GenericContext.ForMethod(reader, type, method),
+            context,
             new EncodedAnchorSignatureType("System.Object"));
+        if (decoded.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The method signature exceeds the metadata safety limit.");
+        }
+        MethodSignature<AnchorSignatureType> signature =
+            decoded.Value;
         EnsureAnchorSignatureBudget(
             signature.ReturnType,
             signature.ParameterTypes);
         string typeFullName = FormatDefinitionName(reader, typeHandle);
-        string memberName = MethodMemberName(reader, methodName, method);
+        string memberName = MethodMemberName(
+            methodName,
+            context.MethodParameters);
         string returnType = signature.ReturnType.Render();
         ImmutableArray<string> parameterTypes =
             Render(signature.ParameterTypes);
@@ -799,14 +824,26 @@ public static class ApiMemberIdentity
         builder.Append(value, 0, count);
     }
 
-    static string MethodMemberName(MetadataReader reader, string methodName, MethodDefinition method)
+    static string MethodMemberName(
+        string methodName,
+        IReadOnlyList<string> genericNames)
     {
         if (methodName == ".ctor")
             return "#ctor";
-        var genericNames = method.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
-        return genericNames.Length == 0 ? methodName : $"{methodName}<{string.Join(",", genericNames)}>";
+        if (genericNames.Count == 0)
+            return methodName;
+
+        var builder = new StringBuilder();
+        AppendAnchorName(builder, methodName);
+        AppendAnchorName(builder, "<");
+        for (int i = 0; i < genericNames.Count; i++)
+        {
+            if (i > 0)
+                AppendAnchorName(builder, ",");
+            AppendAnchorName(builder, genericNames[i]);
+        }
+        AppendAnchorName(builder, ">");
+        return builder.ToString();
     }
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)

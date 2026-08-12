@@ -92,6 +92,161 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void Resolve_TerminalSentinelFailsClosedInsteadOfColliding()
+    {
+        byte[] sourceImage =
+            BuildMethodSignatureImage([0x05, 0x01, 0x01, 0x08, 0x41]);
+        byte[] targetImage =
+            BuildMethodSignatureImage([0x05, 0x01, 0x01, 0x08]);
+        using var sourcePe = new PEReader(new MemoryStream(sourceImage));
+        using var targetPe = new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("BadImageFormatException", result.Failure);
+    }
+
+    [Fact]
+    public void Resolve_MethodGenericNamesRespectAnchorBudget()
+    {
+        byte[] image = BuildManyMethodGenericParametersImage(
+            genericParameterCount: 2_000,
+            genericParameterNameLength: 2_000);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("generic-parameter names", result.Failure);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Generic-name rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Resolve_DuplicateRowsStayWithinAllocationBudget()
+    {
+        byte[] sourceImage = BuildDuplicateMethodsImage(1);
+        byte[] targetImage = BuildDuplicateMethodsImage(
+            MetadataSafetyPolicy.MaxCorrespondenceMethodRows + 1);
+        using var sourcePe = new PEReader(new MemoryStream(sourceImage));
+        using var targetPe = new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("method table", result.Failure);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Duplicate-row rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Resolve_DuplicateCandidatesFailClosedAtCap()
+    {
+        byte[] sourceImage = BuildDuplicateMethodsImage(1);
+        byte[] targetImage = BuildDuplicateMethodsImage(
+            MetadataSafetyPolicy.MaxCorrespondenceCandidates + 1);
+        using var sourcePe = new PEReader(new MemoryStream(sourceImage));
+        using var targetPe = new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Contains("matching target methods", result.Failure);
+    }
+
+    [Fact]
+    public void Resolve_OversizedShallowSignatureRejectsBeforeLargeAllocation()
+    {
+        byte[] image = BuildWidePrimitiveMethodImage(250_000);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("BadImageFormatException", result.Failure);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Oversized shallow signature allocated {allocated:N0} bytes before rejection.");
+    }
+
+    [Fact]
+    public void Resolve_OversizedAssemblyKeyRejectsBeforeCopyAndHexExpansion()
+    {
+        byte[] image = BuildAssemblyKeyMethodImage(
+            MetadataSafetyPolicy.MaxStructuralSignatureChars / 2 + 1);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("assembly-reference key", result.Failure);
+        Assert.True(
+            allocated < 2 * 1024 * 1024,
+            $"Oversized assembly-key rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -479,6 +634,105 @@ public sealed class MethodCorrespondenceResolverTests
     static byte[] BuildMethodSignatureImage(byte[] signature)
     {
         var metadata = CreateSingleTypeMetadata("MethodSignature");
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildManyMethodGenericParametersImage(
+        int genericParameterCount,
+        int genericParameterNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata("ManyMethodGenerics");
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteCompressedInteger(genericParameterCount);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        StringHandle name = metadata.GetOrAddString(
+            new string('T', genericParameterNameLength));
+        for (int i = 0; i < genericParameterCount; i++)
+        {
+            metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                name,
+                i);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDuplicateMethodsImage(int methodCount)
+    {
+        var metadata = CreateSingleTypeMetadata("DuplicateMethods");
+        BlobHandle signature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
+        StringHandle name = metadata.GetOrAddString("M");
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                name,
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWidePrimitiveMethodImage(int parameterCount)
+    {
+        var metadata = CreateSingleTypeMetadata("WidePrimitiveMethod");
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+            signature.WriteByte(0x08);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildAssemblyKeyMethodImage(int keyLength)
+    {
+        var metadata = CreateSingleTypeMetadata("AssemblyKeyMethod");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Dependency"),
+            new Version(1, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[keyLength]),
+            default,
+            default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Dependency"),
+            metadata.GetOrAddString("Token"));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger((1 << 2) | 1);
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,

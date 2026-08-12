@@ -110,7 +110,7 @@ public class SignatureBlobGuardTests
     [InlineData((int)SignatureCallingConvention.ThisCall)]
     [InlineData((int)SignatureCallingConvention.FastCall)]
     [InlineData((int)SignatureCallingConvention.VarArgs)]
-    public void TerminalSentinel_IsSafeForVarargCallingConventions(
+    public void TerminalSentinel_IsUnsafeForEveryCallingConvention(
         int callingConvention)
     {
         var signature = new BlobBuilder();
@@ -121,14 +121,48 @@ public class SignatureBlobGuardTests
         signature.WriteByte(I4);
         signature.WriteByte(0x41);
 
-        Assert.True(GuardMethodSig(signature));
+        Assert.False(GuardMethodSig(signature));
+    }
+
+    [Fact]
+    public void MidSignatureSentinel_RequiresVarArgsAndOccursOnce()
+    {
+        static BlobBuilder Signature(
+            SignatureCallingConvention convention,
+            bool repeatSentinel)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte((byte)convention);
+            signature.WriteByte(0x02);
+            signature.WriteByte(0x01);
+            signature.WriteByte(I4);
+            signature.WriteByte(0x41);
+            if (repeatSentinel)
+                signature.WriteByte(0x41);
+            signature.WriteByte(I4);
+            return signature;
+        }
+
+        Assert.True(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.VarArgs,
+                repeatSentinel: false)));
+        Assert.False(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.Default,
+                repeatSentinel: false)));
+        Assert.False(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.VarArgs,
+                repeatSentinel: true)));
     }
 
     [Fact]
     public void OuterSentinelAfterFunctionPointer_DoesNotBelongToTheNestedMethod()
     {
         var signature = new BlobBuilder();
-        signature.WriteByte(0x00);
+        signature.WriteByte(
+            (byte)SignatureCallingConvention.VarArgs);
         signature.WriteByte(0x02);
         signature.WriteByte(0x01);
         signature.WriteByte(0x1b);

@@ -709,9 +709,7 @@ static class StructuralSignatureKey
                     reader.GetString(assembly.Name),
                     assembly.Version,
                     assembly.Culture.IsNil ? "" : reader.GetString(assembly.Culture),
-                    assembly.PublicKeyOrToken.IsNil
-                        ? []
-                        : reader.GetBlobBytes(assembly.PublicKeyOrToken),
+                    ReadAssemblyKey(reader, assembly.PublicKeyOrToken),
                     (int)assembly.Flags);
                 break;
             case HandleKind.ModuleReference:
@@ -735,6 +733,23 @@ static class StructuralSignatureKey
                 break;
         }
         return builder.ToString();
+    }
+
+    static byte[] ReadAssemblyKey(
+        MetadataReader reader,
+        BlobHandle handle)
+    {
+        if (handle.IsNil)
+            return [];
+
+        int length = reader.GetBlobReader(handle).Length;
+        if (length
+            > MetadataSafetyPolicy.MaxStructuralSignatureChars / 2)
+        {
+            throw new BadImageFormatException(
+                "The assembly-reference key exceeds the structural-signature budget.");
+        }
+        return reader.GetBlobBytes(handle);
     }
 
     internal static void AppendPart(StringBuilder builder, string value)

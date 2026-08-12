@@ -43,6 +43,12 @@ public static class MethodCorrespondenceResolver
                 return Failed("source method address belongs to a different metadata module");
             if (!IsValid(sourceReader, source.Handle))
                 return Failed("source method handle is outside its metadata module");
+            if (targetReader.MethodDefinitions.Count
+                > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+            {
+                return Failed(
+                    "target method table exceeds the correspondence safety limit");
+            }
 
             var sourceMethod = sourceReader.GetMethodDefinition(source.Handle);
             var sourceTypeHandle = sourceMethod.GetDeclaringType();
@@ -104,6 +110,12 @@ public static class MethodCorrespondenceResolver
                     && sourceKey.Component.LocalKey.Equals(
                         targetKey.Component.LocalKey))
                 {
+                    if (candidates.Count
+                        == MetadataSafetyPolicy.MaxCorrespondenceCandidates)
+                    {
+                        return Failed(
+                            "matching target methods exceed the correspondence safety limit");
+                    }
                     candidates.Add(MetadataMethodAddress.Create(targetReader, targetHandle));
                 }
             }

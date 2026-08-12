@@ -20,6 +20,27 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
+    /// Maximum type nodes examined before decoding one metadata signature.
+    /// This bounds the iterative guard stack and SRM's decoded parameter/type
+    /// materialization for structurally shallow but hostile signatures. Gated by
+    /// <c>Resolve_OversizedShallowSignatureRejectsBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxSignatureTypeNodes = 64 * 1024;
+
+    /// <summary>
+    /// Maximum MethodDef rows scanned by one correspondence operation.
+    /// Gated by <c>Resolve_DuplicateRowsStayWithinAllocationBudget</c>.
+    /// </summary>
+    public const int MaxCorrespondenceMethodRows = 256 * 1024;
+
+    /// <summary>
+    /// Maximum matching MethodDef addresses materialized before malformed
+    /// duplicate metadata is rejected. Gated by
+    /// <c>Resolve_DuplicateCandidatesFailClosedAtCap</c>.
+    /// </summary>
+    public const int MaxCorrespondenceCandidates = 1024;
+
+    /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
     /// relationship chain.
     /// </summary>
