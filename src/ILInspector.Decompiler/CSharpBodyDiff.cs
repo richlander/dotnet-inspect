@@ -1160,6 +1160,38 @@ public static class CSharpBodyDiff
         return handles;
     }
 
+    internal static ExplicitImplementationVisibility GetVisibleExplicitImplementationBodies(
+        MetadataReader reader)
+    {
+        var typeDefinitionsByName = BuildTypeDefinitionMap(reader);
+        HashSet<MethodDefinitionHandle> handles = [];
+        List<ExplicitImplementationVisibilityFailure> failures = [];
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            try
+            {
+                handles.UnionWith(GetExplicitImplementationBodies(
+                    reader,
+                    type,
+                    typeDefinitionsByName));
+            }
+            catch (MetadataIdentityResolutionException ex)
+            {
+                failures.Add(new ExplicitImplementationVisibilityFailure(
+                    MetadataTokens.GetToken(typeHandle),
+                    ex.Message));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                failures.Add(new ExplicitImplementationVisibilityFailure(
+                    MetadataTokens.GetToken(typeHandle),
+                    ex.Message));
+            }
+        }
+        return new ExplicitImplementationVisibility(handles, failures);
+    }
+
     static bool IsVisibleImplementedMember(
         MetadataReader reader,
         EntityHandle declaration,
@@ -1201,7 +1233,7 @@ public static class CSharpBodyDiff
         IReadOnlyDictionary<string, TypeDefinitionHandle> typeDefinitionsByName)
     {
         var reference = reader.GetTypeReference(handle);
-        if (reference.ResolutionScope.Kind == HandleKind.AssemblyReference)
+        if (IsAssemblyScopedTypeReference(reader, handle))
             return true;
 
         string metadataName = ResolveIdentityTypeName(reader, handle);
@@ -1209,6 +1241,23 @@ public static class CSharpBodyDiff
             return IsVisibleInterfaceDefinition(reader, typeHandle, typeDefinitionsByName);
 
         return false;
+    }
+
+    static bool IsAssemblyScopedTypeReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        var result = MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(
+            reader,
+            handle);
+        if (result is RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Rejected rejected)
+        {
+            throw new MetadataIdentityResolutionException(
+                MetadataTypeNameFailure.From(rejected.Rejection));
+        }
+
+        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Completed)result).Value;
+        return chain.Terminal.Kind == HandleKind.AssemblyReference;
     }
 
     static bool IsVisibleTypeSpecificationParent(
@@ -2224,6 +2273,14 @@ public static class CSharpBodyDiff
     internal sealed record CSharpMethodIndex(
         Dictionary<string, CSharpMethodEntry> Methods,
         ImmutableArray<CSharpIdentityResolutionFailure> Failures);
+
+    internal sealed record ExplicitImplementationVisibility(
+        HashSet<MethodDefinitionHandle> Handles,
+        IReadOnlyList<ExplicitImplementationVisibilityFailure> Failures);
+
+    internal sealed record ExplicitImplementationVisibilityFailure(
+        int SubjectToken,
+        string Reason);
 
     sealed class MetadataIdentityResolutionException
         : InvalidOperationException
