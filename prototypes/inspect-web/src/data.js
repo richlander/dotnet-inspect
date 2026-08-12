@@ -47,9 +47,61 @@ export function packageForView(packages, view) {
   return packages.find(pkg => pkg.id === view.package) ?? null;
 }
 
+export function packageCoordinateMatchesLocation(pkg, location) {
+  if (!pkg || !location?.package || !location.version || !location.framework) return false;
+  return String(pkg.id).toLowerCase() === String(location.package).toLowerCase()
+    && String(pkg.version).toLowerCase() === String(location.version).toLowerCase()
+    && String(pkg.activeFramework).toLowerCase() === String(location.framework).toLowerCase();
+}
+
 export function callGraphTargetTypeId(target) {
   return target?.typeMetadataId || "";
 }
+
+export function resolveLoadedGraphTargetCandidate(packages, target) {
+  const typeId = callGraphTargetTypeId(target);
+  if (!typeId || !target?.assembly) return { status: "missing" };
+  const matches = [];
+  for (const pkg of packages) {
+    if (!pkg || pkg.isRuntimePack) continue;
+    for (const type of pkg.types ?? []) {
+      const assembly = String(type.assembly ?? pkg.assembly ?? "").replace(/\.dll$/i, "");
+      if (assembly.toLowerCase() === target.assembly.toLowerCase()
+          && (type.metadataId ?? type.queryId ?? type.id) === typeId) {
+        matches.push({ pkg, type });
+        if (matches.length > 1) return { status: "ambiguous" };
+      }
+    }
+  }
+  return matches.length === 1
+    ? { status: "unique", ...matches[0] }
+    : { status: "missing" };
+}
+
+export function graphTargetNavigationDisposition(candidate, target) {
+  if (candidate.status === "ambiguous") return "blocked";
+  if (candidate.status === "unique") return "loaded";
+  return target?.kind === "external"
+      && target.assembly
+      && callGraphTargetTypeId(target)
+    ? "platform"
+    : "none";
+}
+
+export function callGraphDiagnosticsMessage(diagnostics) {
+  if (!diagnostics?.isIncomplete) return "";
+  return `Partial call graph: ${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}, ${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}, and ${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}.`;
+}
+
+export const MARKDOWN_SANITIZE_OPTIONS = Object.freeze({
+  ALLOWED_TAGS: Object.freeze([
+    "a", "blockquote", "br", "code", "del", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+    "hr", "li", "ol", "p", "pre", "strong", "table", "tbody", "td", "th", "thead", "tr", "ul"
+  ]),
+  ALLOWED_ATTR: Object.freeze(["title"]),
+  ALLOW_ARIA_ATTR: false,
+  ALLOW_DATA_ATTR: false
+});
 
 export function graphMemberSelection(groups, target) {
   const bodyMatches = [];

@@ -1,12 +1,17 @@
 import {
+  callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  graphTargetNavigationDisposition,
   graphMemberSelection,
   lenses,
+  MARKDOWN_SANITIZE_OPTIONS,
   mermaidLabel,
+  packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
   packageLenses,
   rootCommands,
+  resolveLoadedGraphTargetCandidate,
   scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature
@@ -3141,6 +3146,11 @@ function renderMember(type, member) {
       : platformView
       ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
       : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
+    const diagnostics = active?.diagnostics;
+    const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
+    const incompleteGraph = diagnosticsMessage
+      ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
+      : "";
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
       : active && active.noBody
@@ -3161,6 +3171,7 @@ function renderMember(type, member) {
             ${state.memberCallGraphError
               ? `<div class="graph-drill-error">${escapeHtml(state.memberCallGraphError)}</div>`
               : ""}
+            ${incompleteGraph}
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             <div class="graph-legend" aria-label="Graph legend">
@@ -6386,7 +6397,15 @@ function patchCallGraphSection(previousMermaid) {
       `${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}`;
   }
   section.querySelector(".graph-expanding")?.remove();
+  section.querySelector(".graph-diagnostics")?.remove();
   const scopeEl = section.querySelector(".graph-scope");
+  const diagnosticsMessage = callGraphDiagnosticsMessage(graph?.diagnostics);
+  if (diagnosticsMessage) {
+    const warning = document.createElement("div");
+    warning.className = "graph-drill-error graph-diagnostics";
+    warning.textContent = diagnosticsMessage;
+    scopeEl?.before(warning);
+  }
   if (scopeEl && scope) {
     scopeEl.innerHTML =
       `<strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span>`;
@@ -6592,12 +6611,14 @@ function attachGraphPanZoom(
         });
         return;
       }
-      const loaded = resolveLoadedGraphTarget(target);
-      const platform = !loaded
-        && target.kind === "external"
-        && target.assembly
-        && typeId;
-      if (!loaded && !platform) return;
+      const packages = [state.package, ...state.packages.filter(item => item !== state.package)];
+      const candidate = resolveLoadedGraphTargetCandidate(packages, target);
+      const disposition = graphTargetNavigationDisposition(candidate, target);
+      if (disposition === "blocked" || disposition === "none") return;
+      const loaded = disposition === "loaded"
+        ? resolveLoadedGraphTarget(target, candidate)
+        : null;
+      const platform = disposition === "platform";
       node.classList.add("nav-node");
       if (platform) node.classList.add("platform-node");
       node.style.cursor = "pointer";
@@ -6644,37 +6665,27 @@ function graphTargetForSvgNode(graph, node) {
     : null;
 }
 
-function resolveLoadedGraphTarget(target) {
-  const typeId = callGraphTargetTypeId(target);
-  const packages = [state.package, ...state.packages.filter(item => item !== state.package)];
-  for (const pkg of packages) {
-    if (!pkg || pkg.isRuntimePack) continue;
-    const type = pkg.types?.find(item =>
-      libraryKey(item).toLowerCase() === target.assembly.toLowerCase()
-      && (item.metadataId ?? item.queryId ?? item.id) === typeId);
-    if (!type) continue;
-
-    const selection = findGraphMemberSelection(type, target);
-    if (selection) return { pkg, type, ...selection };
-    return {
-      pkg,
-      type,
-      group: null,
-      overloadIndex: null,
-      title: `${stripArity(type.name)}.${target.memberName}`,
-      request: {
-        packageId: pkg.id,
-        version: pkg.version,
-        framework: pkg.activeFramework,
-        assembly: type.assembly,
-        type: typeId,
-        member: target.memberName,
-        selectorKey: target.selectorKey,
-        metadataToken: target.metadataToken
-      }
-    };
-  }
-  return null;
+function resolveLoadedGraphTarget(target, candidate) {
+  const { pkg, type } = candidate;
+  const selection = findGraphMemberSelection(type, target);
+  if (selection) return { pkg, type, ...selection };
+  return {
+    pkg,
+    type,
+    group: null,
+    overloadIndex: null,
+    title: `${stripArity(type.name)}.${target.memberName}`,
+    request: {
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+      type: callGraphTargetTypeId(target),
+      member: target.memberName,
+      selectorKey: target.selectorKey,
+      metadataToken: target.metadataToken
+    }
+  };
 }
 
 function findGraphMemberSelection(type, target) {
@@ -6881,13 +6892,13 @@ async function markdownLibs() {
 async function renderMarkdown(text) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parse(String(text ?? ""), { gfm: true, breaks: false });
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
 async function renderMarkdownInline(text) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parseInline(String(text ?? ""), { gfm: true });
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
 // Skill files carry a leading YAML frontmatter block (---\n…\n---). Rendered as Markdown it turns
@@ -7971,11 +7982,7 @@ window.addEventListener("popstate", () => {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
   state.packageLens = loc.packageLens || "overview";
-  const samePackage = loc.package
-    && (isRuntimePackId(loc.package)
-      ? isRuntimePackId(state.package.id)
-      : (loc.package.toLowerCase() === state.package.id.toLowerCase()
-        && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase())));
+  const samePackage = packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
       // Back/forward within the platform: re-scope to the target library (or the

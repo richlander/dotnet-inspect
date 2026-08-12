@@ -124,7 +124,14 @@ objects before `ZipArchive` can materialize them. `InMemoryPackageContent` check
 expanded length before allocation and verifies the observed expansion against
 that declaration. `InMemoryPackageContentTests` gates both the pre-expansion
 rejection and bounded stream reading. These are Browser-Wasm host limits, not a
-product-wide archive-budget policy.
+product-wide archive-budget policy. XML documentation text is streamed through
+the shared `CSharpText.XmlDocText` grammar and rejects nesting beyond its
+product-owned depth limit. Package Markdown is rendered through a narrow
+text-only element allow list with styling and resource-loading attributes
+removed. `XmlDocTextTests.GetNodeTextWithRefs_RejectsExcessiveElementDepth`,
+`BrowserEngineBoundaryTests.XmlDocumentation_RejectsExcessiveElementDepth`, and
+the JavaScript `package Markdown has no styling or resource-loading authority`
+case gate those boundaries.
 
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
@@ -218,6 +225,16 @@ characters before artifact labels enter the grammar. The type-relationship
 renderer applies the same containment. Call-graph navigation receives typed
 targets for every projected node and uses the transport's normalized lowercase
 node kind rather than inferring identity from SVG text.
+Package participants never satisfy platform-scoped bindings. Incomplete node,
+edge, and binding-identity diagnostics from `MemberCallGraphView` cross the
+transport and remain visible beside a partial graph. A projected target is
+navigable only when exactly one loaded package coordinate matches it; portable
+graph focus remains deferred to [#4054].
+`WorkspaceBinding_RejectsPackageParticipantsForPlatformScope`,
+`CallGraphDiagnostics_PreserveIncompleteProductEvidence`, and the JavaScript
+ambiguity and diagnostic cases gate these host behaviors.
+
+[#4054]: https://github.com/richlander/dotnet-inspect/issues/4054
 
 ## Unsupported
 

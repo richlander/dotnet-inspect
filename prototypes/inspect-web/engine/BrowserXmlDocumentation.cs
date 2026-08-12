@@ -1,7 +1,6 @@
 using System.Runtime.Versioning;
-using System.Text;
 using System.Xml;
-using System.Xml.Linq;
+using CSharpText;
 
 namespace InspectWeb.Engine;
 
@@ -22,69 +21,73 @@ internal static class BrowserXmlDocumentation
         using XmlReader reader = XmlReader.Create(
             stream,
             new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null });
-        XElement? element = XDocument.Load(reader, LoadOptions.None)
-            .Descendants("member")
-            .FirstOrDefault(candidate =>
-                candidate.Attribute("name")?.Value == documentationId);
-        if (element is null)
+        while (reader.Read())
+        {
+            if (reader.NodeType == XmlNodeType.Element
+                && reader.LocalName == "member"
+                && reader.GetAttribute("name") == documentationId)
+            {
+                return ReadMember(reader);
+            }
+        }
+        return Empty;
+    }
+
+    static BrowserMemberDocumentation ReadMember(XmlReader reader)
+    {
+        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+        var exceptions = new List<BrowserExceptionSurface>();
+        string? summary = null;
+        string? returns = null;
+        int memberDepth = reader.Depth;
+        if (reader.IsEmptyElement)
             return Empty;
 
-        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (XElement parameter in element.Elements("param"))
+        while (reader.Read())
         {
-            string? name = parameter.Attribute("name")?.Value;
-            if (name is not null)
-                parameters[name] = Text(parameter) ?? "";
+            if (reader.NodeType == XmlNodeType.EndElement && reader.Depth == memberDepth)
+                break;
+            if (reader.NodeType != XmlNodeType.Element || reader.Depth != memberDepth + 1)
+                continue;
+
+            switch (reader.LocalName)
+            {
+                case "summary":
+                    string summaryText = Text(reader);
+                    summary ??= summaryText;
+                    break;
+
+                case "returns":
+                    string returnsText = Text(reader);
+                    returns ??= returnsText;
+                    break;
+
+                case "param":
+                    string? name = reader.GetAttribute("name");
+                    string parameterText = Text(reader);
+                    if (name is not null)
+                        parameters[name] = parameterText;
+                    break;
+
+                case "exception":
+                    string exceptionType = Reference(reader.GetAttribute("cref"));
+                    exceptions.Add(new BrowserExceptionSurface(exceptionType, Text(reader)));
+                    break;
+            }
         }
 
         return new BrowserMemberDocumentation(
-            Text(element.Element("summary")),
-            Text(element.Element("returns")),
+            summary,
+            returns,
             parameters,
-            [
-                .. element.Elements("exception").Select(exception => new BrowserExceptionSurface(
-                    Reference(exception.Attribute("cref")?.Value),
-                    Text(exception) ?? "")),
-            ]);
+            [.. exceptions]);
     }
 
     public static BrowserMemberDocumentation Empty { get; } =
         new(null, null, new Dictionary<string, string>(StringComparer.Ordinal), []);
 
-    static string? Text(XElement? element)
-    {
-        if (element is null)
-            return null;
-
-        var builder = new StringBuilder();
-        foreach (XNode node in element.Nodes())
-            Append(builder, node);
-        return string.Join(
-            " ",
-            builder.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-    }
-
-    static void Append(StringBuilder builder, XNode node)
-    {
-        if (node is XText text)
-        {
-            builder.Append(text.Value);
-            return;
-        }
-
-        if (node is not XElement element)
-            return;
-
-        builder.Append(element.Name.LocalName switch
-        {
-            "see" => element.Attribute("langword")?.Value
-                ?? Reference(element.Attribute("cref")?.Value),
-            "paramref" or "typeparamref" => element.Attribute("name")?.Value,
-            _ => null,
-        });
-        foreach (XNode child in element.Nodes())
-            Append(builder, child);
-    }
+    static string Text(XmlReader reader) =>
+        XmlDocText.NormalizeWhitespace(XmlDocText.GetElementTextWithRefs(reader));
 
     static string Reference(string? reference)
     {

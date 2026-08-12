@@ -13,67 +13,124 @@ namespace CSharpText;
 public static partial class XmlDocText
 {
     /// <summary>
-    /// Recursively extracts text from a node, replacing see/paramref/typeparamref elements with
-    /// their referenced names.
+    /// The maximum element nesting accepted while flattening XML documentation.
+    /// </summary>
+    public const int MaxElementDepth = 256;
+
+    /// <summary>
+    /// Extracts text from a node, replacing see/paramref/typeparamref elements with their
+    /// referenced names.
     /// </summary>
     public static string GetNodeTextWithRefs(XmlNode node)
     {
-        var sb = new StringBuilder();
+        ArgumentNullException.ThrowIfNull(node);
+        using var reader = new XmlNodeReader(node);
+        reader.MoveToContent();
+        return GetElementTextWithRefs(reader);
+    }
 
-        foreach (XmlNode child in node.ChildNodes)
+    /// <summary>
+    /// Iteratively extracts text from the element at the reader's current position. Excessive
+    /// nesting is rejected before it can exhaust the process stack.
+    /// </summary>
+    public static string GetElementTextWithRefs(
+        XmlReader reader,
+        int maxElementDepth = MaxElementDepth)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxElementDepth);
+        if (reader.NodeType != XmlNodeType.Element)
+            throw new ArgumentException("The XML reader must be positioned on an element.", nameof(reader));
+        if (reader.IsEmptyElement)
+            return "";
+
+        var builder = new StringBuilder();
+        int rootDepth = reader.Depth;
+        int? literalDepth = null;
+        int? suppressedDepth = null;
+        while (reader.Read())
         {
-            switch (child.NodeType)
+            if (reader.Depth - rootDepth > maxElementDepth)
             {
-                case XmlNodeType.Text:
-                case XmlNodeType.Whitespace:
-                case XmlNodeType.SignificantWhitespace:
-                    sb.Append(child.Value);
+                throw new XmlException(
+                    $"XML documentation exceeds the supported element depth of {maxElementDepth}.");
+            }
+
+            if (suppressedDepth is int suppressed)
+            {
+                if (reader.NodeType == XmlNodeType.EndElement && reader.Depth == suppressed)
+                    suppressedDepth = null;
+                continue;
+            }
+
+            if (literalDepth is int literal)
+            {
+                if (reader.NodeType == XmlNodeType.EndElement && reader.Depth == literal)
+                {
+                    literalDepth = null;
+                }
+                else if (reader.NodeType is XmlNodeType.Text
+                    or XmlNodeType.CDATA
+                    or XmlNodeType.Whitespace
+                    or XmlNodeType.SignificantWhitespace)
+                {
+                    builder.Append(reader.Value);
+                }
+                continue;
+            }
+
+            if (reader.NodeType == XmlNodeType.EndElement && reader.Depth == rootDepth)
+                break;
+
+            if (reader.NodeType is XmlNodeType.Text
+                or XmlNodeType.CDATA
+                or XmlNodeType.Whitespace
+                or XmlNodeType.SignificantWhitespace)
+            {
+                builder.Append(reader.Value);
+                continue;
+            }
+            if (reader.NodeType != XmlNodeType.Element)
+                continue;
+
+            switch (reader.LocalName)
+            {
+                case "see":
+                case "seealso":
+                    string? cref = reader.GetAttribute("cref");
+                    if (cref is not null)
+                    {
+                        builder.Append(SimplifyTypeName(cref));
+                        if (!reader.IsEmptyElement)
+                            suppressedDepth = reader.Depth;
+                    }
+                    else if (reader.GetAttribute("langword") is string languageKeyword)
+                    {
+                        builder.Append(languageKeyword);
+                        if (!reader.IsEmptyElement)
+                            suppressedDepth = reader.Depth;
+                    }
+                    else if (!reader.IsEmptyElement)
+                    {
+                        literalDepth = reader.Depth;
+                    }
                     break;
 
-                case XmlNodeType.Element:
-                    switch (child.Name)
-                    {
-                        case "see":
-                        case "seealso":
-                            // Extract cref="Type" or fall back to inner text / href
-                            var cref = child.Attributes?["cref"]?.Value;
-                            if (cref != null)
-                            {
-                                sb.Append(SimplifyTypeName(cref));
-                            }
-                            else
-                            {
-                                var innerText = child.InnerText;
-                                if (!string.IsNullOrWhiteSpace(innerText))
-                                {
-                                    sb.Append(innerText);
-                                }
-                            }
-                            break;
+                case "paramref":
+                case "typeparamref":
+                    builder.Append(reader.GetAttribute("name"));
+                    if (!reader.IsEmptyElement)
+                        suppressedDepth = reader.Depth;
+                    break;
 
-                        case "paramref":
-                        case "typeparamref":
-                            var name = child.Attributes?["name"]?.Value;
-                            if (name != null)
-                            {
-                                sb.Append(name);
-                            }
-                            break;
-
-                        case "c":
-                            // Inline code - just use the text
-                            sb.Append(child.InnerText);
-                            break;
-
-                        default:
-                            sb.Append(GetNodeTextWithRefs(child));
-                            break;
-                    }
+                case "c":
+                    if (!reader.IsEmptyElement)
+                        literalDepth = reader.Depth;
                     break;
             }
         }
 
-        return sb.ToString();
+        return builder.ToString();
     }
 
     /// <summary>

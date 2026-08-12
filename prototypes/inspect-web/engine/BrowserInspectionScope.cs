@@ -325,6 +325,8 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
         AssemblyResolutionScope scope)
     {
         ArgumentNullException.ThrowIfNull(identity);
+        if (scope == AssemblyResolutionScope.Platform)
+            return null;
         return Participants
             .FirstOrDefault(participant =>
                 participant.Assembly.Identity.IsEquivalentTo(identity))

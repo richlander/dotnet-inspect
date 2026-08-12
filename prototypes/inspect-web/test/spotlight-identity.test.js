@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  graphTargetNavigationDisposition,
   graphMemberSelection,
+  MARKDOWN_SANITIZE_OPTIONS,
   mermaidLabel,
+  packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
+  resolveLoadedGraphTargetCandidate,
   scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature
@@ -65,6 +70,20 @@ test("history never applies a selection to another coordinate", () => {
 
   assert.equal(packageForView([newVersion], view), null);
   assert.equal(packageForView([oldPackage, newVersion], view), oldPackage);
+  assert.equal(packageCoordinateMatchesLocation(oldPackage, {
+    package: oldPackage.id,
+    version: oldPackage.version,
+    framework: oldPackage.activeFramework
+  }), true);
+  assert.equal(packageCoordinateMatchesLocation(oldPackage, {
+    package: oldPackage.id,
+    version: oldPackage.version,
+    framework: "net9.0"
+  }), false);
+  assert.equal(packageCoordinateMatchesLocation(oldPackage, {
+    package: oldPackage.id,
+    version: oldPackage.version
+  }), false);
 });
 
 test("call graph navigation prefers exact metadata type identity", () => {
@@ -98,6 +117,59 @@ test("call graph navigation resolves accessor body selectors without a token", (
       selectorKey: "getter-selector"
     }),
     { groupIndex: 0, overloadIndex: 0 });
+});
+
+test("call graph navigation rejects ambiguous loaded package coordinates", () => {
+  const target = {
+    assembly: "Example",
+    typeMetadataId: "Example.Widget",
+    kind: "external"
+  };
+  const first = {
+    ...packageAt("1.0.0", "net8.0"),
+    types: [{ assembly: "Example", metadataId: "Example.Widget" }]
+  };
+  const second = {
+    ...packageAt("2.0.0", "net9.0"),
+    types: [{ assembly: "Example", metadataId: "Example.Widget" }]
+  };
+
+  assert.deepEqual(resolveLoadedGraphTargetCandidate([first], target), {
+    status: "unique",
+    pkg: first,
+    type: first.types[0]
+  });
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([first, second], target),
+    { status: "ambiguous" });
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([], target),
+    { status: "missing" });
+  assert.equal(
+    graphTargetNavigationDisposition({ status: "ambiguous" }, target),
+    "blocked");
+  assert.equal(
+    graphTargetNavigationDisposition({ status: "missing" }, target),
+    "platform");
+});
+
+test("incomplete call graphs produce a visible diagnostic", () => {
+  assert.equal(callGraphDiagnosticsMessage({
+    isIncomplete: true,
+    incompleteNodes: 2,
+    incompleteEdges: 1,
+    bindingIdentityConflicts: 3
+  }), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
+  assert.equal(callGraphDiagnosticsMessage({ isIncomplete: false }), "");
+});
+
+test("package Markdown has no styling or resource-loading authority", () => {
+  for (const tag of ["style", "img", "iframe", "video", "audio", "source", "link", "svg"]) {
+    assert.equal(MARKDOWN_SANITIZE_OPTIONS.ALLOWED_TAGS.includes(tag), false);
+  }
+  for (const attribute of ["style", "src", "srcset", "href", "poster", "class", "id"]) {
+    assert.equal(MARKDOWN_SANITIZE_OPTIONS.ALLOWED_ATTR.includes(attribute), false);
+  }
 });
 
 test("member documentation state is scoped to the exact request", () => {

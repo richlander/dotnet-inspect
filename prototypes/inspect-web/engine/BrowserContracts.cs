@@ -279,7 +279,17 @@ public sealed record BrowserCallGraph(
     BrowserCallGraphNode Callees,
     BrowserCallGraphScope Scope,
     BrowserCallGraphTarget[] Targets,
+    BrowserCallGraphDiagnostics Diagnostics,
     bool NoBody = false);
+
+public sealed record BrowserCallGraphDiagnostics(
+    int IncompleteNodes,
+    int IncompleteEdges,
+    int BindingIdentityConflicts)
+{
+    public bool IsIncomplete =>
+        IncompleteNodes > 0 || IncompleteEdges > 0 || BindingIdentityConflicts > 0;
+}
 
 public sealed record BrowserCallGraphTarget(
     string Id,

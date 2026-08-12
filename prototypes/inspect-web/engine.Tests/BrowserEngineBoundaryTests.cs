@@ -2,10 +2,12 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
+using System.Xml;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
+using ILInspector.Metadata;
 
 namespace InspectWeb.Engine.Tests;
 
@@ -181,6 +183,56 @@ public sealed class BrowserEngineBoundaryTests
 
         Assert.Equal("Summary", documentation.Summary);
         Assert.Equal("second", Assert.Single(documentation.Parameters).Value);
+    }
+
+    [Fact]
+    public void XmlDocumentation_RejectsExcessiveElementDepth()
+    {
+        string nested = string.Concat(
+            Enumerable.Repeat("<b>", CSharpText.XmlDocText.MaxElementDepth + 1));
+        string close = string.Concat(
+            Enumerable.Repeat("</b>", CSharpText.XmlDocText.MaxElementDepth + 1));
+        string xml =
+            $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
+            + "</member></members></doc>";
+
+        XmlException failure = Assert.Throws<XmlException>(
+            () => BrowserXmlDocumentation.Read(
+                System.Text.Encoding.UTF8.GetBytes(xml),
+                "M:Example.M"));
+
+        Assert.Contains("supported element depth", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WorkspaceBinding_RejectsPackageParticipantsForPlatformScope()
+    {
+        byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Platform.Confusable",
+            Package(image, "lib/net11.0/Platform.Confusable.dll"));
+        PackageCompileAsset asset = Assert.Single(coordinate.Selection.Assets);
+        using var workspace = new InspectionWorkspace();
+        using var group = new BrowserWorkspaceGroup(
+            workspace,
+            [(coordinate, asset)],
+            BrowserInspectionScope.MaxRetainedImageBytes);
+        AssemblyReferenceIdentity identity = Assert.Single(group.Participants).Assembly.Identity;
+
+        Assert.NotNull(group.Resolve(identity, AssemblyResolutionScope.Any));
+        Assert.Null(group.Resolve(identity, AssemblyResolutionScope.Platform));
+    }
+
+    [Fact]
+    public void CallGraphDiagnostics_PreserveIncompleteProductEvidence()
+    {
+        BrowserCallGraphDiagnostics diagnostics = BrowserInspectionEngine.Diagnostics(
+            new CatalogCallGraphDiagnostics(2, 3, 4));
+
+        Assert.True(diagnostics.IsIncomplete);
+        Assert.Equal(2, diagnostics.IncompleteNodes);
+        Assert.Equal(3, diagnostics.IncompleteEdges);
+        Assert.Equal(4, diagnostics.BindingIdentityConflicts);
     }
 
     [Fact]

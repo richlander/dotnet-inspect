@@ -585,6 +585,7 @@ public static partial class BrowserInspectionEngine
                     callerAssemblies,
                     view.Tier.ToString()),
                 Targets(projection.Nodes),
+                Diagnostics(view.Diagnostics),
                 NoBody: view.CalleeRoot is null && view.CallerRoot is null),
             BrowserJsonContext.Default.BrowserCallGraph);
     }
@@ -975,6 +976,13 @@ public static partial class BrowserInspectionEngine
         ArgumentNullException.ThrowIfNull(nodes);
         return [.. nodes.Select(Target)];
     }
+
+    internal static BrowserCallGraphDiagnostics Diagnostics(
+        Analysis.CatalogCallGraphDiagnostics diagnostics) =>
+        new(
+            diagnostics.IncompleteNodeCount,
+            diagnostics.IncompleteEdgeCount,
+            diagnostics.BindingIdentityConflictCount);
 
     static BrowserCallGraphNode Tree(Analysis.CallTreeNode? node) => node is null
         ? new BrowserCallGraphNode("", "None", false, null, [], "", "", "")
