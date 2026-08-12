@@ -131,22 +131,40 @@ public class LibraryBodyIndexTests
                 0,
                 returnType => returnType.Void(),
                 parameters => { });
-        var il = new BlobBuilder();
-        var instructions = new InstructionEncoder(
-            il,
-            new ControlFlowBuilder());
-        il.WriteByte((byte)ILOpCode.Br);
         var bodies = new BlobBuilder();
-        int bodyOffset = new MethodBodyStreamEncoder(bodies)
-            .AddMethodBody(instructions, maxStack: 0);
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var il = new BlobBuilder();
+        il.WriteByte((byte)ILOpCode.Call);
+        il.WriteInt32(0x06000002);
+        il.WriteByte((byte)ILOpCode.Call);
+        il.WriteInt32(0x0AFFFFFF);
+        il.WriteByte((byte)ILOpCode.Ret);
+        int bodyOffset = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(il),
+            maxStack: 1);
+        var helperIl = new BlobBuilder();
+        var helperInstructions = new InstructionEncoder(helperIl);
+        helperInstructions.OpCode(ILOpCode.Ret);
+        int helperBodyOffset = bodyEncoder.AddMethodBody(
+            helperInstructions,
+            maxStack: 0);
+        BlobHandle signatureHandle =
+            metadata.GetOrAddBlob(signature);
         MethodDefinitionHandle methodHandle =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Run"),
-                metadata.GetOrAddBlob(signature),
+                signatureHandle,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Helper"),
+            signatureHandle,
+            helperBodyOffset,
+            MetadataTokens.ParameterHandle(1));
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(
@@ -174,6 +192,16 @@ public class LibraryBodyIndexTests
             Assert.Equal(methodToken, diagnostic.MethodToken);
             Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
             Assert.Same(diagnostic, tree.Diagnostic);
+            Assert.Single(index.DirectCalls);
+
+            CallTreeNode truncated =
+                index.BuildCallTree(
+                    methodToken,
+                    maxNodes: 1);
+            Assert.Equal(
+                CallTreeStatus.Truncated,
+                truncated.Status);
+            Assert.Same(diagnostic, truncated.Diagnostic);
 
             ResolvedAssemblyReference assembly =
                 ResolvedAssemblyReference.CreateFromPath(
@@ -193,6 +221,18 @@ public class LibraryBodyIndexTests
                 CallTreeStatus.AnalysisIncomplete,
                 catalogTree.Status);
             Assert.Same(diagnostic, catalogTree.Diagnostic);
+
+            CallTreeNode truncatedCatalogTree =
+                scope.BuildCallTree(
+                    index,
+                    methodToken,
+                    maxNodes: 1);
+            Assert.Equal(
+                CallTreeStatus.Truncated,
+                truncatedCatalogTree.Status);
+            Assert.Same(
+                diagnostic,
+                truncatedCatalogTree.Diagnostic);
         }
         finally
         {
@@ -723,6 +763,122 @@ public class LibraryBodyIndexTests
         var derivedTree = index.BuildCallerTree(derivedRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
         Assert.Equal("target", derivedTree.Perf?.RootKind);
         Assert.Empty(derivedTree.Children);
+    }
+
+    [Fact]
+    public void BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved()
+    {
+        var index =
+            LibraryBodyIndex.Open(
+                typeof(VirtualDispatchCallers).Assembly.Location);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                index.Path,
+                AssemblyResolutionProvenance.Local(
+                    "virtual-dispatch call-tree test"));
+        using var catalog =
+            new CatalogCallGraphScope(
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        index.Path)),
+                [new CatalogCallGraphParticipant(index, assembly)]);
+
+        AssertDispatch(
+            nameof(VirtualDispatchCallers.ViaBase),
+            expectedUnresolved: true);
+        AssertDispatch(
+            nameof(VirtualDispatchCallers.ViaNonVirtual),
+            expectedUnresolved: false);
+
+        Assert.True(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(VirtualDispatchBase)
+                    && method.Name
+                        == nameof(VirtualDispatchBase.Work))
+            .IsVirtualDispatchOpen);
+        Assert.False(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(VirtualDispatchDerived)
+                    && method.Name
+                        == nameof(VirtualDispatchDerived.Work))
+            .IsVirtualDispatchOpen);
+        Assert.False(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(FinalVirtualDispatchDerived)
+                    && method.Name
+                        == nameof(FinalVirtualDispatchDerived.Work))
+            .IsVirtualDispatchOpen);
+        Assert.False(
+            Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(NonVirtualDispatchTarget)
+                    && method.Name
+                        == nameof(NonVirtualDispatchTarget.Work))
+            .IsVirtualDispatchOpen);
+
+        void AssertDispatch(
+            string methodName,
+            bool expectedUnresolved)
+        {
+            int token = typeof(VirtualDispatchCallers)
+                .GetMethod(methodName)!
+                .MetadataToken;
+            CallTreeNode localChild =
+                Assert.Single(
+                    index.BuildCallTree(
+                        token,
+                        maxDepth: 2,
+                        maxNodes: 10).Children);
+            CallTreeNode catalogChild =
+                Assert.Single(
+                    catalog.BuildCallTree(
+                        index,
+                        token,
+                        maxDepth: 2,
+                        maxNodes: 10).Children);
+
+            Assert.Equal(
+                expectedUnresolved,
+                localChild.HasUnresolvedDispatch);
+            Assert.Equal(
+                expectedUnresolved,
+                catalogChild.HasUnresolvedDispatch);
+        }
+    }
+
+    [Fact]
+    public void BuildCallTree_ClassifiesSameAssemblyBodilessCallee()
+    {
+        var index =
+            LibraryBodyIndex.Open(
+                typeof(BodilessRootFixtures).Assembly.Location);
+        int rootToken = typeof(BodilessRootFixtures)
+            .GetMethod(
+                nameof(
+                    BodilessRootFixtures
+                        .InvokesThroughInterface))!
+            .MetadataToken;
+
+        CallTreeNode child =
+            Assert.Single(
+                index.BuildCallTree(
+                    rootToken,
+                    maxDepth: 2,
+                    maxNodes: 10).Children);
+
+        Assert.Equal(
+            CallTreeStatus.Bodiless,
+            child.Status);
+        Assert.Equal(
+            nameof(ICallerGraphTarget.Target),
+            child.Member.Name);
     }
 
     [Fact]
@@ -6278,6 +6434,11 @@ public sealed class VirtualDispatchDerived : VirtualDispatchBase
     public override int Work() => 2;
 }
 
+public class FinalVirtualDispatchDerived : VirtualDispatchBase
+{
+    public sealed override int Work() => 3;
+}
+
 public static class VirtualDispatchCallers
 {
     // C# emits `callvirt VirtualDispatchBase::Work` because `value` is statically typed Base.
@@ -6290,6 +6451,15 @@ public static class VirtualDispatchCallers
         VirtualDispatchBase value = new VirtualDispatchDerived();
         return value.Work();
     }
+
+    public static int ViaNonVirtual(
+        NonVirtualDispatchTarget value) =>
+        value.Work();
+}
+
+public sealed class NonVirtualDispatchTarget
+{
+    public int Work() => 3;
 }
 
 public static class CallTreeFixtures

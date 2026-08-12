@@ -691,6 +691,27 @@ public sealed class LibraryBodyIndex
     /// </summary>
     MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
 
+    MethodIdentity? DeclaredMethod(int metadataToken)
+    {
+        // The builder merges declarations in metadata order, so token lookup
+        // needs no retained per-index cache.
+        int low = 0;
+        int high = DeclaredMethods.Length - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            MethodIdentity candidate = DeclaredMethods[middle];
+            if (candidate.MetadataToken == metadataToken)
+                return candidate;
+            if (candidate.MetadataToken < metadataToken)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Distinct callers per callee definition token, over the whole assembly.
     ///
@@ -1023,7 +1044,9 @@ public sealed class LibraryBodyIndex
         var expanded = new HashSet<int>();
 
         int ResolveCallee(DirectCall call)
-            => methodMap.Resolve(call);
+            => DeclaredMethod(call.CalleeDefinitionToken)
+                    ?.MetadataToken
+                ?? methodMap.Resolve(call);
 
         // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
         // members depend on this one"), and the reverse graph draws one edge per distinct
@@ -1033,23 +1056,40 @@ public sealed class LibraryBodyIndex
 
         CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth, bool inLoop = false)
         {
+            MethodIdentity? definition =
+                token == 0 ? null : DeclaredMethod(token);
             var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
             diagnosticsByToken.TryGetValue(token, out AnalysisDiagnostic? diagnostic);
+            bool hasUnresolvedDispatch =
+                kind is CallKind.CallVirtual
+                    or CallKind.LoadVirtualFunction
+                && definition?.IsVirtualDispatchOpen == true;
+
+            CallTreeNode Node(
+                CallTreeStatus status,
+                ImmutableArray<CallTreeNode> children,
+                CallTreePerf perf) =>
+                new(member, kind, status, children, perf)
+                {
+                    Diagnostic = diagnostic,
+                    HasUnresolvedDispatch =
+                        hasUnresolvedDispatch,
+                };
+
             if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
             {
                 var leafStatus = token == 0 && depth > 0
                     ? CallTreeStatus.External
                     : diagnostic is not null
                         ? CallTreeStatus.AnalysisIncomplete
-                        : token == rootMethodToken
-                            && root is not null
+                        : definition is not null
                             && !methodMap.ContainsToken(token)
                             ? CallTreeStatus.Bodiless
                             : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig))
-                {
-                    Diagnostic = diagnostic,
-                };
+                return Node(
+                    leafStatus,
+                    [],
+                    new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
             }
 
             // True outbound degree (call sites), independent of how far the bounded
@@ -1059,18 +1099,18 @@ public sealed class LibraryBodyIndex
             var fanout = edges.Length;
             if (depth >= maxDepth)
             {
-                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig))
-                {
-                    Diagnostic = diagnostic,
-                };
+                return Node(
+                    CallTreeStatus.DepthLimited,
+                    [],
+                    new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
             }
 
             if (!expanded.Add(token))
             {
-                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig))
-                {
-                    Diagnostic = diagnostic,
-                };
+                return Node(
+                    CallTreeStatus.AlreadyShown,
+                    [],
+                    new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
             }
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
@@ -1093,10 +1133,10 @@ public sealed class LibraryBodyIndex
                     : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
             var fanin = incomingCounts.TryGetValue(token, out var count) ? count : 0;
-            return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig))
-            {
-                Diagnostic = diagnostic,
-            };
+            return Node(
+                status,
+                children.ToImmutable(),
+                new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig));
         }
 
         return Build(rootMember, null, rootMethodToken, 0);

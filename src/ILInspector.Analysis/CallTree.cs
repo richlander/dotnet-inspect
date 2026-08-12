@@ -56,6 +56,12 @@ public sealed record CallTreeNode(
     /// The recoverable body-analysis failure that made this node incomplete, if any.
     /// </summary>
     public AnalysisDiagnostic? Diagnostic { get; init; }
+
+    /// <summary>
+    /// Whether this occurrence can dispatch to an override that the static operand
+    /// traversal does not represent.
+    /// </summary>
+    public bool HasUnresolvedDispatch { get; init; }
 }
 
 /// <summary>Perf-triage cues surfaced for a call-graph node.</summary>

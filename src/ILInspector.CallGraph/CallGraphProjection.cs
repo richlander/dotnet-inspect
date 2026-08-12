@@ -294,7 +294,8 @@ public sealed partial class CallGraphProjection
         bool hasUnexploredTraversalBoundary =
             !IsTraversalComplete(
                 calleeRoot,
-                useGraphEvidence);
+                useGraphEvidence)
+            || HasUnresolvedDispatch(calleeRoot);
         bool hasAnalysisFailureBoundary =
             HasAnalysisFailure(calleeRoot);
         return builder.Build(
@@ -557,6 +558,11 @@ public sealed partial class CallGraphProjection
             && (node.Status == CallTreeStatus.AnalysisIncomplete
                 || node.Diagnostic is not null
                 || node.Children.Any(HasAnalysisFailure));
+
+    private static bool HasUnresolvedDispatch(CallTreeNode? node)
+        => node is not null
+            && (node.HasUnresolvedDispatch
+                || node.Children.Any(HasUnresolvedDispatch));
 
     // The loop flag lives on the deeper (child) node and describes the parent↔child
     // call edge: for a callee tree the parent calls the child in a loop; for a caller

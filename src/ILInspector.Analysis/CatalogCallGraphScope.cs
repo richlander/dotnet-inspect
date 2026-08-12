@@ -837,6 +837,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                 string? source = external ? assembly : null;
                 string? loopHint = inLoop ? "loop" : null;
                 int fanin = _incoming.GetValueOrDefault(identity);
+                bool hasUnresolvedDispatch =
+                    kind is CallKind.CallVirtual
+                        or CallKind.LoadVirtualFunction
+                    && definition?.Method.IsVirtualDispatchOpen == true;
 
                 if (!_forward.TryGetValue(identity, out var rawEdges))
                 {
@@ -863,7 +867,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
-                        definition?.Diagnostic);
+                        definition?.Diagnostic,
+                        hasUnresolvedDispatch);
                 }
 
                 ImmutableArray<StoredEdge> edges = rawEdges
@@ -891,7 +896,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
-                        definition?.Diagnostic);
+                        definition?.Diagnostic,
+                        hasUnresolvedDispatch);
                 }
                 if (!expanded.Add(identity))
                 {
@@ -910,7 +916,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
-                        definition?.Diagnostic);
+                        definition?.Diagnostic,
+                        hasUnresolvedDispatch);
                 }
 
                 var children =
@@ -933,10 +940,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             edge.Call.InLoop));
                 }
 
-                CallTreeStatus status = definition?.Diagnostic is not null
-                    ? CallTreeStatus.AnalysisIncomplete
-                    : truncated
-                        ? CallTreeStatus.Truncated
+                CallTreeStatus status = truncated
+                    ? CallTreeStatus.Truncated
+                    : definition?.Diagnostic is not null
+                        ? CallTreeStatus.AnalysisIncomplete
                         : children.Count == 0
                             ? CallTreeStatus.Leaf
                             : CallTreeStatus.Expanded;
@@ -959,7 +966,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         signals,
                         source),
                     evidence,
-                    definition?.Diagnostic);
+                    definition?.Diagnostic,
+                    hasUnresolvedDispatch);
             }
 
             return Build(
@@ -1049,11 +1057,14 @@ public sealed class CatalogCallGraphScope : IDisposable
             ImmutableArray<CallTreeNode> children,
             CallTreePerf perf,
             GraphNodeEvidence evidence,
-            AnalysisDiagnostic? diagnostic = null) =>
+            AnalysisDiagnostic? diagnostic = null,
+            bool hasUnresolvedDispatch = false) =>
             new(member, kind, status, children, perf)
             {
                 GraphEvidence = evidence,
                 Diagnostic = diagnostic,
+                HasUnresolvedDispatch =
+                    hasUnresolvedDispatch,
             };
 
         static IOrderedEnumerable<StoredEdge> OrderForwardEdges(

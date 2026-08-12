@@ -122,7 +122,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   `Bodiless` means the resolved definition has no IL body and static operand
   traversal cannot rule out runtime dispatch or an external implementation.
   `AnalysisIncomplete` retains the method's typed `AnalysisDiagnostic`; partial
-  calls found before the recoverable failure remain positive evidence. An
+  calls found before the recoverable failure remain positive evidence. If the
+  same node also exhausts the node budget, `Truncated` remains its status while
+  the diagnostic remains attached; budget handling and analysis-failure
+  disclosure therefore stay independent. An
   occurrence expanded elsewhere outranks a boundary occurrence of the same
   member, so a shared node is never misclassified as a dead end. How a host
   *shows* those kinds is the host's choice — the CLI groups external nodes and
@@ -136,14 +139,26 @@ The projection owns everything a host must not re-invent in JavaScript:
   `AlreadyShown` defers to that primary occurrence and cannot override a
   `Truncated` primary. A bodiless definition and a recoverable body-analysis
   failure are always outbound boundaries; the latter is also exposed
-  independently as `HasAnalysisFailureBoundary`.
+  independently as `HasAnalysisFailureBoundary`. A `callvirt` or `ldvirtftn`
+  occurrence whose static operand is virtual, non-final, and declared on an
+  unsealed type is also an outbound boundary: runtime dispatch can select an
+  override that the static operand tree does not contain. This fact belongs to
+  the occurrence rather than the collapsed member identity, so a direct
+  occurrence of the same member cannot mask it. Nonvirtual methods and final
+  overrides remain complete; ordinary nonvirtual instance calls emitted as
+  `callvirt` do not acquire a false boundary.
   `CycleCompletenessCollapsesBoundariesWithinOneDirection`,
   `CallerLeafDoesNotHideAnOutboundTraversalBoundary`,
   `AlreadyShownDoesNotHideATruncatedPrimaryOccurrence`,
   `BodilessCalleeKeepsAnEmptyCycleCensusIncomplete`, and
-  `BodyAnalysisFailureRemainsAnExplicitTraversalBoundary` gate the projection
-  distinctions. `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates
-  the Analysis-to-tree wiring for both assembly-local and catalog traversals.
+  `BodyAnalysisFailureRemainsAnExplicitTraversalBoundary`,
+  `UnresolvedVirtualDispatchKeepsAnEmptyCycleCensusIncomplete`, and
+  `CycleWitnessSurvivesUnresolvedVirtualDispatch` gate the projection
+  distinctions. `BuildCallTree_ClassifiesSameAssemblyBodilessCallee`,
+  `BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved`, and
+  `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gate the
+  Analysis-to-tree wiring for both assembly-local and catalog traversals,
+  including the diagnostic-plus-budget precedence.
 - **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
   outbound, `loop call` inbound), read from the child node's loop flag.
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source

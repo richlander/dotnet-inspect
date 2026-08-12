@@ -399,6 +399,62 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void UnresolvedVirtualDispatchKeepsAnEmptyCycleCensusIncomplete()
+    {
+        CallTreeNode virtualTarget =
+            Leaf(
+                Member("Service", "Run")) with
+            {
+                HasUnresolvedDispatch = true,
+            };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    Member("Caller", "Invoke"),
+                    CallTreeStatus.Expanded,
+                    [virtualTarget]));
+
+        Assert.True(
+            projection.HasUnexploredTraversalBoundary);
+        Assert.False(
+            projection.HasAnalysisFailureBoundary);
+        Assert.Empty(
+            projection.FindFocusCycles().Witnesses);
+    }
+
+    [Fact]
+    public void CycleWitnessSurvivesUnresolvedVirtualDispatch()
+    {
+        MemberRef focus = Member("Caller", "Invoke");
+        CallTreeNode returnToFocus =
+            Leaf(
+                focus,
+                CallTreeStatus.AlreadyShown) with
+            {
+                HasUnresolvedDispatch = true,
+            };
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [
+                        Node(
+                            Member("Service", "Run"),
+                            CallTreeStatus.Expanded,
+                            [returnToFocus]),
+                    ]));
+
+        CallGraphCycleSearchResult result =
+            projection.FindFocusCycles();
+
+        Assert.Single(result.Witnesses);
+        Assert.True(
+            projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
     public void FocusCycleSearchDoesNotRepeatNodesWithinAWitness()
     {
         MemberRef focus = Member("A", "A");
