@@ -644,6 +644,26 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void DeclarationIndex_UniqueLeafNamesUseCompactEntryStorage()
+    {
+        const int TypeCount = 40_000;
+        byte[] image = BuildManyTypesAssembly(TypeCount);
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MetadataTypeDeclarationProbe.Index index =
+            MetadataTypeDeclarationProbe.CreateIndex(reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.IsType<TypeDeclarationResult.Defined>(
+            index.Probe(Name("N", $"Type{TypeCount - 1}")));
+        Assert.InRange(allocated, 0, 3 * 1024 * 1024);
+    }
+
+    [Fact]
     public void Session_WhenSourceChangesAfterInventory_RejectsImage()
     {
         byte[] inventoried = BuildValidForwarderImage();

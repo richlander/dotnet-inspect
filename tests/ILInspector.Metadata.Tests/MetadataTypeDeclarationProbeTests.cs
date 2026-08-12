@@ -505,6 +505,39 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void IndexedProbe_PreservesMetadataOrderForAmbiguousCandidates()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+        });
+        MetadataTypeDefinitionName name = Name("N", "Type");
+
+        var direct = Assert.IsType<TypeDeclarationResult.Ambiguous>(
+            MetadataTypeDeclarationProbe.Probe(image.Reader, name));
+        var indexed = Assert.IsType<TypeDeclarationResult.Ambiguous>(
+            MetadataTypeDeclarationProbe.CreateIndex(image.Reader)
+                .Probe(name));
+
+        Assert.Equal(
+            direct.Candidates
+                .Cast<TypeDeclarationCandidate.Definition>()
+                .Select(candidate => candidate.Token.Value),
+            indexed.Candidates
+                .Cast<TypeDeclarationCandidate.Definition>()
+                .Select(candidate => candidate.Token.Value));
+    }
+
+    [Fact]
     public void Probe_UsesCompleteAssemblyIdentityWhenCoalescingForwarders()
     {
         using MetadataImage image = BuildMetadata(metadata =>

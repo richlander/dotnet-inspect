@@ -317,6 +317,87 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, bytes);
     }
 
+    private static void WriteMissingConstraintAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MissingConstraint"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle missingAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("MissingConstraintDependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle missingBase =
+            metadata.AddTypeReference(
+                missingAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Healthy"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle consumer =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Consumer`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(2),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("HealthyValue"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            missingBase);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private static void WriteOverflowingMetadataStreamCountAssembly(
         string sourcePath,
         string destinationPath)
@@ -10237,6 +10318,124 @@ public partial class CommandExecutionTests
         Assert.True(count > 0);
         Assert.DoesNotContain("#", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelectedApiCommand_ReportsIncompleteInspectionNonfatally(
+        bool memberCommand)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-constraint-{Guid.NewGuid():N}.dll");
+        try
+        {
+            WriteMissingConstraintAssembly(path);
+
+            (int exit, string output, string error) result =
+                memberCommand
+                    ? await ConsoleCapture.RunAsync(
+                        () => MemberCommand.ExecuteAsync(
+                            new MemberOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Consumer`1",
+                                MemberFilter = ["Value"],
+                            }))
+                    : await ConsoleCapture.RunAsync(
+                        () => TypeCommand.ExecuteAsync(
+                            new TypeOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Consumer`1",
+                            }));
+
+            Assert.Equal(0, result.exit);
+            Assert.NotEmpty(result.output);
+            Assert.Contains(
+                "Generic-constraint classification was incomplete",
+                result.error,
+                StringComparison.Ordinal);
+
+            (int exit, string output, string error) healthy =
+                memberCommand
+                    ? await ConsoleCapture.RunAsync(
+                        () => MemberCommand.ExecuteAsync(
+                            new MemberOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Healthy",
+                                MemberFilter = ["HealthyValue"],
+                            }))
+                    : await ConsoleCapture.RunAsync(
+                        () => TypeCommand.ExecuteAsync(
+                            new TypeOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Healthy",
+                            }));
+
+            Assert.Equal(0, healthy.exit);
+            Assert.NotEmpty(healthy.output);
+            Assert.DoesNotContain(
+                "Generic-constraint classification was incomplete",
+                healthy.error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedApiInspection_GlobMemberFilterMatchesFailure()
+    {
+        const int MethodToken = 0x06000001;
+        const string Path = "/tmp/member-filter.dll";
+        var api = new ApiSurface();
+        var type = new ApiType
+        {
+            Name = "Consumer",
+            SourceAssemblyPath = Path,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetValue",
+                    MetadataToken = MethodToken,
+                },
+            ],
+        };
+        var failure = new ApiSurfaceInspectionFailure(
+            "resolve generic parameter constraints",
+            MethodToken,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "Dependency unavailable.")
+        {
+            SourceAssemblyPath = Path,
+        };
+        api.ConstraintResolutionFailuresBySubject[
+            new ApiSurfaceInspectionSubject(Path, MethodToken)] =
+            [failure];
+
+        bool incomplete = false;
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => incomplete =
+                ApiCommand.WarnSelectedApiInspectionIncomplete(
+                    api,
+                    type,
+                    new HashSet<string>(
+                        ["Get*"],
+                        StringComparer.OrdinalIgnoreCase)));
+
+        Assert.True(incomplete);
+        Assert.Contains(
+            "Generic-constraint classification was incomplete",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
