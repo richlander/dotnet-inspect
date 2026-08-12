@@ -138,6 +138,7 @@ public class MarkoutRowContainmentTests
         "ApiInfoSection.Source",
         "ApiInfoSection.Tfm",
         "ApiInfoSection.Version",
+        "ApiInspectionFailureRow.Assembly",
         "ApiInspectionFailureRow.Detail",
         "ApiInspectionFailureRow.Kind",
         "ApiInspectionFailureRow.Mechanism",

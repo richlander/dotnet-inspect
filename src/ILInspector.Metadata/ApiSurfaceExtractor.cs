@@ -68,7 +68,8 @@ public static class ApiSurfaceExtractor
         {
             AddConstraintResolutionFailure(
                 surface,
-                constraintResolution);
+                constraintResolution,
+                source.Identity);
             return surface;
         }
 
@@ -79,20 +80,23 @@ public static class ApiSurfaceExtractor
         constraintResolution.Apply(context);
         AddConstraintResolutionFailure(
             surface,
-            constraintResolution);
+            constraintResolution,
+            source.Identity);
         return surface;
     }
 
     static void AddConstraintResolutionFailure(
         ApiSurface surface,
-        TypeParameterConstraintResolution constraintResolution)
+        TypeParameterConstraintResolution constraintResolution,
+        AssemblyReferenceIdentity subjectAssembly)
     {
         foreach (MetadataTypeNameFailure budgetFailure
             in constraintResolution.Plan.RequestBudgetFailures)
         {
             TrackConstraintResolutionFailure(
                 surface,
-                budgetFailure);
+                budgetFailure,
+                subjectAssembly);
         }
 
         foreach (MetadataTypeNameFailure resolutionFailure
@@ -100,20 +104,23 @@ public static class ApiSurfaceExtractor
         {
             TrackConstraintResolutionFailure(
                 surface,
-                resolutionFailure);
+                resolutionFailure,
+                subjectAssembly);
         }
     }
 
     static void TrackConstraintResolutionFailure(
         ApiSurface surface,
-        MetadataTypeNameFailure failure)
+        MetadataTypeNameFailure failure,
+        AssemblyReferenceIdentity subjectAssembly)
     {
         var projected = new ApiSurfaceInspectionFailure(
             ApiSurface.ConstraintResolutionOperation,
             failure.SubjectToken ?? 0,
             failure.Mechanism,
             failure.Kind,
-            failure.Detail);
+            failure.Detail,
+            subjectAssembly);
         var subject = new ApiSurfaceInspectionSubject(
             SourceAssemblyPath: null,
             projected.SubjectToken);
@@ -2335,13 +2342,15 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         string operation,
         EntityHandle subject,
-        MetadataTypeNameFailure failure)
+        MetadataTypeNameFailure failure,
+        AssemblyReferenceIdentity? subjectAssembly = null)
         => surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail));
+            failure.Detail,
+            subjectAssembly));
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
         => !typeDef.BaseType.IsNil

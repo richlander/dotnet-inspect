@@ -73,8 +73,6 @@ public static class TypeCommand
             PackageRangeAddress = null,
             ProjectAssetsPath = projectAssetsPath,
         };
-        bool inspectionIncomplete = false;
-
         try
         {
             if (string.IsNullOrEmpty(typeName))
@@ -116,7 +114,6 @@ public static class TypeCommand
                 var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
                 if (listExitCode != 0)
                     return listExitCode;
-                inspectionIncomplete = api.InspectionFailures.Count > 0;
 
                 if (!options.FormatExplicitlySet && !options.IsRawOutput)
                 {
@@ -266,11 +263,10 @@ public static class TypeCommand
                             return 1;
                     }
 
-                    inspectionIncomplete =
-                        ApiCommand.WarnSelectedApiInspectionIncomplete(
-                            api,
-                            apiType,
-                            effectiveOptions.MemberFilter);
+                    ApiCommand.WarnSelectedApiInspectionIncomplete(
+                        api,
+                        apiType,
+                        effectiveOptions.MemberFilter);
                     if (tabularProjection)
                     {
                         // Capture output so we can warn when a requested column produced no data
@@ -419,7 +415,7 @@ public static class TypeCommand
                 }
             }
 
-            return inspectionIncomplete ? 1 : 0;
+            return 0;
         }
         catch (Exception ex)
         {

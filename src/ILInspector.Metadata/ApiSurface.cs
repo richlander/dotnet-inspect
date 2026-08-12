@@ -173,6 +173,7 @@ public class ApiSurface
         }
 
         var key = new ConstraintResolutionVisibleKey(
+            failure.SubjectAssembly,
             failure.Mechanism,
             failure.Kind,
             failure.Detail);
@@ -316,6 +317,7 @@ public class ApiSurface
         SurfaceClassificationInspection { get; set; }
 
     readonly record struct ConstraintResolutionVisibleKey(
+        AssemblyReferenceIdentity? SubjectAssembly,
         MetadataTypeNameFailureMechanism Mechanism,
         string Kind,
         string Detail);
@@ -326,7 +328,8 @@ public sealed record ApiSurfaceInspectionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail)
+    string Detail,
+    AssemblyReferenceIdentity? SubjectAssembly = null)
 {
     public const string
         GenericParameterConstraintResolutionOperation =

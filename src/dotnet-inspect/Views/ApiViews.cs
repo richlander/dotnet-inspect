@@ -632,7 +632,8 @@ public record ApiInspectionFailureRow(
     string Subject,
     string Mechanism,
     string Kind,
-    string Detail);
+    string Detail,
+    [property: MarkoutSkipNull] string? Assembly = null);
 
 [MarkoutSerializable]
 public record MemberRow(

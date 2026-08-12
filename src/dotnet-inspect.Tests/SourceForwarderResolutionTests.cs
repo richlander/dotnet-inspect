@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -370,6 +371,17 @@ public class SourceForwarderResolutionTests
                 ApiSurfaceInspectionFailure
                     .GenericParameterConstraintResolutionOperation,
                 failure.Operation);
+            using JsonDocument json = JsonDocument.Parse(
+                JsonSerializer.Serialize(
+                    api,
+                    ApiJsonContext.Default.ApiSurface));
+            Assert.Equal(
+                "Target",
+                json.RootElement
+                    .GetProperty("inspection_failures")[0]
+                    .GetProperty("subject_assembly")
+                    .GetProperty("name")
+                    .GetString());
         }
         finally
         {
