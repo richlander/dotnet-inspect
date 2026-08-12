@@ -229,6 +229,14 @@ dotnet-inspect implements Stream -t 3 -v:q
 extends
 ```
 
+```query
+awk '/^\| `/ { count++ } END { if (count == 3) print "three-implementers" }'
+```
+
+```expect
+three-implementers
+```
+
 ## 5. Find implementers of an interface
 
 > Goal: Discover types that implement a specific interface.
@@ -259,6 +267,14 @@ dotnet-inspect implements IDisposable -v:q --platform -t 5
 # Types Implementing IDisposable
 ## Implementers
 implements
+```
+
+```query
+awk '/^\| `/ { count++ } END { if (count == 5) print "five-implementers" }'
+```
+
+```expect
+five-implementers
 ```
 
 ## 6. Find implementers in a specific scope

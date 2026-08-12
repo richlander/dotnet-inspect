@@ -66,11 +66,11 @@ dotnet-inspect System.CommandLine --version
 ```
 
 ```query
-grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
+grep -Eq '^[0-9]+(\.[0-9]+){2}$' && echo stable-version
 ```
 
 ```expect
-semantic-version
+stable-version
 ```
 
 ## 2. Get the latest published version
@@ -88,11 +88,11 @@ dotnet-inspect System.CommandLine --latest-version
 ```
 
 ```query
-grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
+grep -Eq '^[0-9]+(\.[0-9]+){2}$' && echo stable-version
 ```
 
 ```expect
-semantic-version
+stable-version
 ```
 
 ### 2b. Using `@latest`
@@ -102,11 +102,11 @@ dotnet-inspect System.CommandLine@latest --version
 ```
 
 ```query
-grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
+grep -Eq '^[0-9]+(\.[0-9]+){2}$' && echo stable-version
 ```
 
 ```expect
-semantic-version
+stable-version
 ```
 
 ### 2c. Using `@latest` with package command
@@ -120,7 +120,11 @@ Source: NuGet
 ```
 
 ```query
-grep -oE 'Version: [0-9.]+'
+grep -Eq 'Version: [0-9]+(\.[0-9]+){2} \|' && echo stable-version
+```
+
+```expect
+stable-version
 ```
 
 ### 2d. Query latest prerelease version
@@ -129,26 +133,34 @@ By default, unpinned package resolution chooses the latest stable version. Add `
 or `--prerelease` to include prerelease versions when resolving latest.
 
 ```bash
-dotnet-inspect package Microsoft.CodeAnalysis.CSharp --latest-version --preview
+dotnet-inspect package System.Text.Json --latest-version --preview
 ```
 
 ```query
-grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
+grep -Eq '^[0-9]+(\.[0-9]+){2}-[^ ]+$' && echo prerelease-version
 ```
 
 ```expect
-semantic-version
+prerelease-version
 ```
 
 ### 2e. Resolve latest prerelease package
 
 ```bash
-dotnet-inspect package Microsoft.CodeAnalysis.CSharp@latest --preview -v:q
+dotnet-inspect package System.Text.Json@latest --preview -v:q
 ```
 
 ```expect
-# Microsoft.CodeAnalysis.CSharp
+# System.Text.Json
 Source: NuGet
+```
+
+```query
+grep -Eq 'Version: [0-9]+(\.[0-9]+){2}-[^ |]+ \|' && echo prerelease-version
+```
+
+```expect
+prerelease-version
 ```
 
 ### 2f. Inspect an exact prerelease library

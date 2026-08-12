@@ -35,6 +35,14 @@ Library: System.Text.Json.dll
 Source: Platform
 ```
 
+```query
+grep -Eq 'Types: [1-9][0-9]*' && echo type-count-positive
+```
+
+```expect
+type-count-positive
+```
+
 ### NuGet package
 
 ```prompt
@@ -48,6 +56,14 @@ dotnet-inspect type System.CommandLine@2.0.3 -v:q
 ```expect
 Library: System.CommandLine.dll
 Source: NuGet
+```
+
+```query
+grep -Eq 'Types: [1-9][0-9]*' && echo type-count-positive
+```
+
+```expect
+type-count-positive
 ```
 
 ## Filter types by glob
@@ -65,6 +81,14 @@ dotnet-inspect type System.Text.Json "Json*" -v:q
 ```expect
 System.Text.Json.JsonDocument
 System.Text.Json.JsonSerializer
+```
+
+```query
+awk -F'`' '/^\| `/ { name=$2; sub(/^.*\./, "", name); rows++; if (name !~ /^Json/) bad=1 } END { if (rows && !bad) print "json-filter-only" }'
+```
+
+```expect
+json-filter-only
 ```
 
 ## Address a single type
