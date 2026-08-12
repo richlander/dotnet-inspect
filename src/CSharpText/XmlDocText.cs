@@ -50,7 +50,8 @@ public static partial class XmlDocText
         int? suppressedDepth = null;
         while (reader.Read())
         {
-            if (reader.Depth - rootDepth > maxElementDepth)
+            if (reader.NodeType == XmlNodeType.Element
+                && reader.Depth - rootDepth > maxElementDepth)
             {
                 throw new XmlException(
                     $"XML documentation exceeds the supported element depth of {maxElementDepth}.");

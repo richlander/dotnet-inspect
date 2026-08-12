@@ -7,11 +7,16 @@ import {
   graphTargetNavigationDisposition,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
+  MAX_SHARE_STATE_CHARACTERS,
+  MAX_WORKSPACE_PACKAGES,
   mermaidLabel,
+  normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
+  retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  shareStateLengthError,
   scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature
@@ -170,6 +175,63 @@ test("package Markdown has no styling or resource-loading authority", () => {
   for (const attribute of ["style", "src", "srcset", "href", "poster", "class", "id"]) {
     assert.equal(MARKDOWN_SANITIZE_OPTIONS.ALLOWED_ATTR.includes(attribute), false);
   }
+});
+
+test("shared workspaces are bounded before package loading", () => {
+  const tuples = Array.from(
+    { length: MAX_WORKSPACE_PACKAGES },
+    (_, index) => [`Package.${index}`, "1.0.0", "net10.0"]);
+  assert.equal(normalizeShareTabs(tuples).error, "");
+  assert.match(
+    normalizeShareTabs([...tuples, ["Package.Overflow", "1.0.0", "net10.0"]]).error,
+    /12-package limit/);
+  for (const malformed of [
+    [null],
+    [[]],
+    [[""]],
+    [[{}, "1.0.0", "net10.0"]],
+    [["Package", "1.0.0", "net10.0", "unexpected"]]
+  ]) {
+    assert.match(normalizeShareTabs(malformed).error, /invalid/);
+  }
+  assert.equal(shareStateLengthError("x".repeat(MAX_SHARE_STATE_CHARACTERS)), "");
+  assert.match(
+    shareStateLengthError("x".repeat(MAX_SHARE_STATE_CHARACTERS + 1)),
+    /65536-character limit/);
+});
+
+test("workspace package models retain the active and newest coordinates within the limit", () => {
+  const packages = Array.from(
+    { length: MAX_WORKSPACE_PACKAGES },
+    (_, index) => packageAt(`${index}.0.0`, "net10.0"));
+  const active = packages[0];
+  const incoming = packageAt("13.0.0", "net10.0");
+
+  const retained = retainWorkspacePackage(packages, active, incoming);
+
+  assert.equal(retained.packages.length, MAX_WORKSPACE_PACKAGES);
+  assert.equal(retained.packages.includes(active), true);
+  assert.equal(retained.packages.includes(incoming), true);
+  assert.deepEqual(retained.evicted, [packages[1]]);
+});
+
+test("workspace package replacement reuses its slot at the package limit", () => {
+  const packages = Array.from(
+    { length: MAX_WORKSPACE_PACKAGES },
+    (_, index) => packageAt(`${index}.0.0`, "net10.0"));
+  const active = packages[0];
+  const replacement = packageAt("99.0.0", "net10.0");
+
+  const retained = retainWorkspacePackage(
+    packages,
+    active,
+    replacement,
+    active);
+
+  assert.equal(retained.packages.length, MAX_WORKSPACE_PACKAGES);
+  assert.equal(retained.packages.includes(active), false);
+  assert.equal(retained.packages.includes(replacement), true);
+  assert.deepEqual(retained.evicted, [active]);
 });
 
 test("member documentation state is scoped to the exact request", () => {

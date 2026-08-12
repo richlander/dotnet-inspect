@@ -186,19 +186,19 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void XmlDocumentation_RejectsExcessiveElementDepth()
+    public void XmlDocumentation_AcceptsTheDepthLimitAndRejectsTheNextElement()
     {
-        string nested = string.Concat(
-            Enumerable.Repeat("<b>", CSharpText.XmlDocText.MaxElementDepth + 1));
-        string close = string.Concat(
-            Enumerable.Repeat("</b>", CSharpText.XmlDocText.MaxElementDepth + 1));
-        string xml =
-            $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
-            + "</member></members></doc>";
+        BrowserMemberDocumentation accepted = BrowserXmlDocumentation.Read(
+            System.Text.Encoding.UTF8.GetBytes(
+                NestedDocumentation(CSharpText.XmlDocText.MaxElementDepth)),
+            "M:Example.M");
+
+        Assert.Equal("x", accepted.Summary);
 
         XmlException failure = Assert.Throws<XmlException>(
             () => BrowserXmlDocumentation.Read(
-                System.Text.Encoding.UTF8.GetBytes(xml),
+                System.Text.Encoding.UTF8.GetBytes(
+                    NestedDocumentation(CSharpText.XmlDocText.MaxElementDepth + 1)),
                 "M:Example.M"));
 
         Assert.Contains("supported element depth", failure.Message, StringComparison.Ordinal);
@@ -233,6 +233,14 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(2, diagnostics.IncompleteNodes);
         Assert.Equal(3, diagnostics.IncompleteEdges);
         Assert.Equal(4, diagnostics.BindingIdentityConflicts);
+    }
+
+    static string NestedDocumentation(int depth)
+    {
+        string nested = string.Concat(Enumerable.Repeat("<b>", depth));
+        string close = string.Concat(Enumerable.Repeat("</b>", depth));
+        return $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
+            + "</member></members></doc>";
     }
 
     [Fact]

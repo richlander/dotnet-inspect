@@ -6,12 +6,16 @@ namespace CSharpText.Tests;
 public class XmlDocTextTests
 {
     [Fact]
-    public void GetNodeTextWithRefs_RejectsExcessiveElementDepth()
+    public void GetNodeTextWithRefs_AcceptsTheDepthLimitAndRejectsTheNextElement()
     {
-        string nested = string.Concat(Enumerable.Repeat("<b>", XmlDocText.MaxElementDepth + 1));
-        string close = string.Concat(Enumerable.Repeat("</b>", XmlDocText.MaxElementDepth + 1));
         var document = new XmlDocument();
-        document.LoadXml($"<summary>{nested}value{close}</summary>");
+        document.LoadXml(NestedSummary(XmlDocText.MaxElementDepth));
+
+        Assert.Equal(
+            "value",
+            XmlDocText.GetNodeTextWithRefs(document.DocumentElement!));
+
+        document.LoadXml(NestedSummary(XmlDocText.MaxElementDepth + 1));
 
         XmlException failure = Assert.Throws<XmlException>(
             () => XmlDocText.GetNodeTextWithRefs(document.DocumentElement!));
@@ -31,5 +35,12 @@ public class XmlDocTextTests
         string text = XmlDocText.GetNodeTextWithRefs(document.DocumentElement!);
 
         Assert.Equal("Use String with value and literal ; null is accepted.", text);
+    }
+
+    static string NestedSummary(int depth)
+    {
+        string nested = string.Concat(Enumerable.Repeat("<b>", depth));
+        string close = string.Concat(Enumerable.Repeat("</b>", depth));
+        return $"<summary>{nested}value{close}</summary>";
     }
 }

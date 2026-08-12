@@ -110,7 +110,12 @@ single-threaded, and both caches are written for that host: at most 12 packages
 or 128 MB of package content in aggregate, including nupkg arrays retained by
 open scopes, and at most four open workspaces. Evicting a package first disposes
 every scope that retains it, so cache eviction actually releases the archive
-bytes instead of removing only the cache's reference. A nupkg response must
+bytes instead of removing only the cache's reference. The client retains at
+most 12 package models as well, and rejects a shared workspace with more than
+12 tuples or 65,536 encoded characters before it starts package acquisition.
+The JavaScript `shared workspaces are bounded before package loading` and
+`workspace package models retain the active and newest coordinates within the
+limit` cases gate those client boundaries. A nupkg response must
 declare its content length. The cache reserves that length and evicts enough
 unleased content before allocating the response array; reservations participate
 in the same 12-package/128 MB aggregate while the download is in flight.
@@ -128,8 +133,9 @@ product-wide archive-budget policy. XML documentation text is streamed through
 the shared `CSharpText.XmlDocText` grammar and rejects nesting beyond its
 product-owned depth limit. Package Markdown is rendered through a narrow
 text-only element allow list with styling and resource-loading attributes
-removed. `XmlDocTextTests.GetNodeTextWithRefs_RejectsExcessiveElementDepth`,
-`BrowserEngineBoundaryTests.XmlDocumentation_RejectsExcessiveElementDepth`, and
+removed.
+`XmlDocTextTests.GetNodeTextWithRefs_AcceptsTheDepthLimitAndRejectsTheNextElement`,
+`BrowserEngineBoundaryTests.XmlDocumentation_AcceptsTheDepthLimitAndRejectsTheNextElement`, and
 the JavaScript `package Markdown has no styling or resource-loading authority`
 case gate those boundaries.
 

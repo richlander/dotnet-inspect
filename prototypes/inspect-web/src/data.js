@@ -23,11 +23,99 @@ export const rootCommands = [
   ["share", "copy a link to this selection"]
 ];
 
+export const MAX_WORKSPACE_PACKAGES = 12;
+export const MAX_SHARE_STATE_CHARACTERS = 65536;
+
 export function packageIdentityKey(pkg) {
   if (!pkg) return "";
   return [pkg.id, pkg.version, pkg.activeFramework]
     .map(value => encodeURIComponent(String(value || "").toLowerCase()))
     .join("|");
+}
+
+export function normalizeShareTabs(list) {
+  if (!Array.isArray(list)) {
+    return {
+      tabs: [],
+      sourceIndexes: [],
+      error: "The shared workspace state is invalid and was ignored."
+    };
+  }
+  if (list.length > MAX_WORKSPACE_PACKAGES) {
+    return {
+      tabs: [],
+      sourceIndexes: [],
+      error: `The shared workspace exceeds the ${MAX_WORKSPACE_PACKAGES}-package limit and was ignored.`
+    };
+  }
+
+  const tabs = [];
+  const sourceIndexes = [];
+  const identityIndexes = new Map();
+  for (let sourceIndex = 0; sourceIndex < list.length; sourceIndex++) {
+    const tuple = list[sourceIndex];
+    if (!Array.isArray(tuple)
+      || tuple.length < 1
+      || tuple.length > 3
+      || tuple.some(value => typeof value !== "string")
+      || !tuple[0].trim()) {
+      return {
+        tabs: [],
+        sourceIndexes: [],
+        error: "The shared workspace state is invalid and was ignored."
+      };
+    }
+    const tab = {
+      id: tuple[0],
+      version: tuple[1] || "latest",
+      framework: tuple[2] || ""
+    };
+    const identity = packageIdentityKey({
+      id: tab.id,
+      version: tab.version,
+      activeFramework: tab.framework
+    });
+    if (!identityIndexes.has(identity)) {
+      identityIndexes.set(identity, tabs.length);
+      tabs.push(tab);
+    }
+    sourceIndexes[sourceIndex] = identityIndexes.get(identity);
+  }
+  return { tabs, sourceIndexes, error: "" };
+}
+
+export function shareStateLengthError(value) {
+  return String(value || "").length > MAX_SHARE_STATE_CHARACTERS
+    ? `The shared workspace state exceeds the ${MAX_SHARE_STATE_CHARACTERS}-character limit and was ignored.`
+    : "";
+}
+
+export function retainWorkspacePackage(
+  packages,
+  activePackage,
+  packageModel,
+  replacedPackage = null) {
+  const evicted = [];
+  const next = packages.filter(item => {
+    if (item !== replacedPackage) return true;
+    evicted.push(item);
+    return false;
+  });
+  const existing = next.findIndex(item =>
+    packageIdentityKey(item) === packageIdentityKey(packageModel));
+  if (existing >= 0)
+    next[existing] = packageModel;
+  else
+    next.push(packageModel);
+
+  while (next.length > MAX_WORKSPACE_PACKAGES) {
+    const eviction = next.findIndex(item =>
+      packageIdentityKey(item) !== packageIdentityKey(activePackage)
+      && packageIdentityKey(item) !== packageIdentityKey(packageModel));
+    if (eviction < 0) break;
+    evicted.push(...next.splice(eviction, 1));
+  }
+  return { packages: next, evicted };
 }
 
 export function spotlightCandidateKey(pkg, typeId) {
