@@ -95,6 +95,12 @@ foreach ((string json, string count) in new[]
         "\"previous_filename\":\"README.md\"," +
         "\"filename\":\"README.md\"" +
         "}]", "1"),
+    ("[" +
+        "{\"status\":\"renamed\",\"previous_filename\":\"src/old.cs\"," +
+        "\"filename\":\"src/new-a.cs\"}," +
+        "{\"status\":\"renamed\",\"previous_filename\":\"src/old.cs\"," +
+        "\"filename\":\"src/new-b.cs\"}" +
+        "]", "2"),
 })
 {
     Dictionary<string, string> malformed = RunDetection(
@@ -942,9 +948,17 @@ static void ValidateConsumerStepGuards(
         ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
         ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
     };
+    var allowedId = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["test/Run PR decompiler corpus sensor"] = "decompiler_pr_corpus",
+        ["test/Install ilasm/ildasm/mdv"] = "iltools",
+        ["test-windows/Build"] = "build",
+        ["decompiler-gates/Run decompiler gates"] = "gates",
+    };
     var seenIf = new HashSet<string>(StringComparer.Ordinal);
     var seenContinueOnError = new HashSet<string>(StringComparer.Ordinal);
     var seenShell = new HashSet<string>(StringComparer.Ordinal);
+    var seenId = new HashSet<string>(StringComparer.Ordinal);
 
     foreach (string jobName in jobNames)
     {
@@ -979,6 +993,12 @@ static void ValidateConsumerStepGuards(
                 key,
                 allowedShell,
                 seenShell);
+            ValidateOptionalStepValue(
+                step,
+                "id",
+                key,
+                allowedId,
+                seenId);
 
             string? continueOnError =
                 GetOptionalScalar(step, "continue-on-error");
@@ -1005,6 +1025,10 @@ static void ValidateConsumerStepGuards(
         seenShell,
         allowedShell.Keys,
         "consumer step shell overrides");
+    RequireSeenExactly(
+        seenId,
+        allowedId.Keys,
+        "consumer step ids");
 }
 
 static void ValidateOptionalStepValue(
@@ -1271,7 +1295,7 @@ static Dictionary<string, string> RunDetection(
                     '[{"status":"modified","filename":"s\u0000rc/Program.cs"}]'
                 elif [ "$NUL_PREVIOUS_FILE_RECORD" = "true" ]; then
                   printf '%s\n' \
-                    '[{"status":"modified","previous_filename":"sr\u0000c/Program.cs","filename":"notes/payload.bin"}]'
+                    '[{"status":"renamed","previous_filename":"sr\u0000c/Program.cs","filename":"notes/payload.bin"}]'
                 elif [ -n "$PREVIOUS_FILES" ]; then
                   jq -cn \
                     --arg previous "$PREVIOUS_FILES" \
@@ -1296,7 +1320,7 @@ static Dictionary<string, string> RunDetection(
               ) || exit 1
               rendered=$(printf '%s\n' "$records" | jq -r "$5") || exit 1
               if [ "$TRUNCATE_RECORD_STREAM" = "true" ]; then
-                printf '%s' "${rendered%?}"
+                printf '%s' "${rendered%????}"
               else
                 printf '%s\n' "$rendered"
               fi

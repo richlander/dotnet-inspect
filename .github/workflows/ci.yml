@@ -265,6 +265,7 @@ jobs:
                 ) || exit 1
                 ACTUAL_FILES=0
                 SEEN_FILES=""
+                SEEN_PREVIOUS_FILES=""
                 PATH_RECORDS=""
                 while IFS= read -r encoded_record; do
                   if [ -z "$encoded_record" ]; then
@@ -301,6 +302,16 @@ jobs:
                   fi
                   SEEN_FILES="${SEEN_FILES}${current}"$'\n'
                   if [ -n "$previous" ]; then
+                    if printf '%s' "$SEEN_PREVIOUS_FILES" |
+                         grep -Fqx "$previous"; then
+                      exit 1
+                    else
+                      grep_status=$?
+                      if [ "$grep_status" -ne 1 ]; then
+                        exit 1
+                      fi
+                    fi
+                    SEEN_PREVIOUS_FILES="${SEEN_PREVIOUS_FILES}${previous}"$'\n'
                     PATH_RECORDS="${PATH_RECORDS}${previous}"$'\n'
                   fi
                   PATH_RECORDS="${PATH_RECORDS}${current}"$'\n'
