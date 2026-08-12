@@ -55,6 +55,7 @@ namespace ILInspector.Decompiler.Tests;
 /// fixture seeded below.</para>
 /// </summary>
 [Trait("Area", "Corpus")]
+[Collection(SweepFileAppCollection.Name)]
 public class EvilPoolSweepGateTests
 {
     const string FixturePackage = "sweep.fixture";
