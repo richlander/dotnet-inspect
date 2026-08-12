@@ -115,17 +115,20 @@ public sealed class LayeringTests
                     "*.cs",
                     SearchOption.AllDirectories)
                 .Select(File.ReadAllText));
+        string qualifiedIndexType =
+            $@"(?:global\s*::\s*)?"
+            + $@"(?:@?\w+\s*\.\s*)*{nameof(LibraryBodyIndex)}";
         string directIndexAccess =
-            $@"\b(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*\.\s*"
+            $@"\b{qualifiedIndexType}\s*\.\s*"
             + $@"{nameof(LibraryBodyIndex.Open)}\w*\b";
         string obscuredIndexImport =
             $@"\b(?:global\s+)?using\s+"
-            + $@"(?:(?:\w+)\s*=\s*|static\s+)"
-            + $@"(?:global::)?(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*;";
+            + $@"(?:@?\w+\s*=\s*|static\s+)"
+            + $@"{qualifiedIndexType}\s*;";
         string obscuredGlobalIndexImport =
             $@"\bglobal\s+using\s+"
-            + $@"(?:(?:\w+)\s*=\s*|static\s+)"
-            + $@"(?:global::)?(?:\w+\.)*{nameof(LibraryBodyIndex)}\s*;";
+            + $@"(?:@?\w+\s*=\s*|static\s+)"
+            + $@"{qualifiedIndexType}\s*;";
         string sessionOpen =
             $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
             + $@"{nameof(MethodBodyInspectionSession.Open)}\w*\b";
@@ -135,8 +138,16 @@ public sealed class LayeringTests
             $"indexes.Select({nameof(LibraryBodyIndex)}."
                 + $"{nameof(LibraryBodyIndex.Open)})");
         Assert.Matches(
+            directIndexAccess,
+            $"global :: ILInspector . Analysis . {nameof(LibraryBodyIndex)} . "
+                + $"{nameof(LibraryBodyIndex.Open)}(path)");
+        Assert.Matches(
             obscuredIndexImport,
             $"using BodyIndex = ILInspector.Analysis."
+                + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredIndexImport,
+            $"using @BodyIndex = ILInspector . Analysis . "
                 + $"{nameof(LibraryBodyIndex)};");
         Assert.Matches(
             obscuredIndexImport,
@@ -145,6 +156,14 @@ public sealed class LayeringTests
         Assert.Matches(
             obscuredGlobalIndexImport,
             $"global using BodyIndex = ILInspector.Analysis."
+                + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredGlobalIndexImport,
+            $"global using BodyIndex = global :: ILInspector . Analysis . "
+                + $"{nameof(LibraryBodyIndex)};");
+        Assert.Matches(
+            obscuredGlobalIndexImport,
+            $"global using static ILInspector . Analysis . "
                 + $"{nameof(LibraryBodyIndex)};");
         Assert.DoesNotMatch(directIndexAccess, source);
         Assert.DoesNotMatch(obscuredIndexImport, source);
