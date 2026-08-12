@@ -87,10 +87,12 @@ evidence unless a category is named.
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
 | `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 
-`@Package` includes unbounded `Package files`; `@Files` is only the curated
-nuspec, README, and skill-file family. Other commands expose categories such as
-member `@Source`; `Switches` is a section. There are no user-facing `@All`,
-`@Default`, or `@Hidden` categories.
+`@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
+`Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
+Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
+curated nuspec, README, and skill-file sections. Other commands expose
+categories such as member `@Source`; `Switches` is a section. There are no
+user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Bare `-S` returns high-value, fixed-length, network-free sections from the
 package or library base categories. Sections without evidence are omitted.
