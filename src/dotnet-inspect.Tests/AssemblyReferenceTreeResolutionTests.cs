@@ -2,7 +2,9 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -368,6 +370,24 @@ public class AssemblyReferenceTreeResolutionTests
                     LibraryInspectionView.BuildNestedReferenceTree([platform]))
                     .Text,
                 StringComparison.Ordinal);
+
+            string json = JsonSerializer.Serialize(
+                new LibraryInspection
+                {
+                    AssemblyInfo = new AssemblyInfo
+                    {
+                        TransitiveReferences = [platform],
+                    },
+                },
+                JsonContext.Default.LibraryInspection);
+            using JsonDocument document = JsonDocument.Parse(json);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement
+                    .GetProperty("assembly_info")
+                    .GetProperty("transitive_references")[0]
+                    .GetProperty("resolution_failure")
+                    .GetString());
         }
         finally
         {
