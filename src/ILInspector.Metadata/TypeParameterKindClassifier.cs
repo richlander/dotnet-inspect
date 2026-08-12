@@ -197,6 +197,21 @@ internal static class TypeParameterKindClassifier
             }
 
             ResolvedTypeDefinition definition = resolved.Definition;
+            if (definition.KindResolutionFailure is { } kindFailure)
+            {
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        handle,
+                        budget.Budget);
+                }
+                else
+                {
+                    RecordResolutionFailure(handle, kindFailure);
+                }
+            }
+
             ConstraintClass result =
                 genericArgumentCount is int expected
                     && definition.GenericParameterCount != expected

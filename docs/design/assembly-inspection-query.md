@@ -313,7 +313,9 @@ with explicit bounded worklists rather than process recursion.
 `Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles;
 `DeepConstructedBaseAuthenticationUsesBoundedStack` and
 `SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack` gate bounded native-stack
-use; and
+use across TypeSpec handles, while
+`NestedTypeSpecificationDepthBoundaryUsesBoundedStack` gates both sides of the structural
+depth limit for one signature blob before SRM's recursive decoder runs; and
 `ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
 Authentic `System.ValueType` and `System.Enum` roots never confer class identity even when
 hostile metadata labels them `CLASS`; `AuthenticCoreValueTypeRootsDoNotAuthenticateAsClass`
@@ -335,7 +337,16 @@ non-cacheable rejection across catalog generations
 opened or decoded also remains unclassified, but its typed resolution rejection is projected
 as a bounded representative `ApiSurface.InspectionFailures` entry rather than disappearing
 behind `Undetermined`
-(`DependencyOpenFailureIsVisibleOnApiSurface`). An extraction lease keeps retained
+(`DependencyOpenFailureIsVisibleOnApiSurface`). The same rule applies when the failure occurs
+while authenticating a dependency's own base
+(`TransitiveDependencyOpenFailureIsVisibleOnApiSurface`). The outer type's identity remains a
+resolved definition with unknown kind and typed kind-failure evidence, rather than becoming a
+failed type lookup (`TransitiveDependencyOpenFailurePreservesResolvedIdentity`), and that
+evidence survives multiple kind-authentication hops
+(`MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity`). The builder defensively
+withholds kind-incomplete resolutions from catalog promotion; this cache-hygiene property is
+not independently observable because candidate failures are memoized per registration. An
+extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open
@@ -347,8 +358,10 @@ and ambiguous bindings remain unclassified. Catalog keys and definition handles 
 escape with the `ApiSurface`.
 
 TypeSpec root evidence is accepted only after the complete bounded signature has been
-consumed; a valid prefix followed by trailing bytes remains unreadable.
-`ConstructedConstraintRejectsTrailingSignatureBytes` gates that boundary.
+consumed; a valid prefix followed by trailing bytes or a signature whose structural nesting
+exceeds the constrained-stack decode limit remains unreadable.
+`ConstructedConstraintRejectsTrailingSignatureBytes` and
+`NestedTypeSpecificationDepthBoundaryUsesBoundedStack` gate those boundaries.
 
 This is a transitional host for a context-group-scoped query, not a second workspace model.
 The workspace must eventually lend its retained image generation to the Metadata catalog

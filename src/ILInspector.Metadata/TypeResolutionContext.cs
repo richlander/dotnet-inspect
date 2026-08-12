@@ -1255,6 +1255,10 @@ public sealed class TypeResolutionContext : IDisposable
             RequestKey Key,
             int GenericArgumentCount);
 
+        readonly record struct KindAuthenticationResult(
+            MetadataTypeDefinitionKind Kind,
+            TypeResolutionFailure? Failure);
+
         internal Builder(
             TypeResolutionCatalog catalog,
             IAssemblyBindingPolicy policy,
@@ -1501,6 +1505,10 @@ public sealed class TypeResolutionContext : IDisposable
                     {
                         Failure:
                             TypeResolutionFailure.RequestBudgetExceeded,
+                    }
+                    or TypeResolutionOutcome.Resolved
+                    {
+                        Definition.KindResolutionFailure: not null,
                     })
                 {
                     continue;
@@ -1620,7 +1628,7 @@ public sealed class TypeResolutionContext : IDisposable
             var pending = new Stack<KindResolutionFrame>();
             var active = new HashSet<RequestKey> { currentKey };
             var authenticatedKinds =
-                new Dictionary<RequestKey, MetadataTypeDefinitionKind>();
+                new Dictionary<RequestKey, KindAuthenticationResult>();
             TypeResolutionRequest currentRequest = request;
 
             while (true)
@@ -1654,16 +1662,15 @@ public sealed class TypeResolutionContext : IDisposable
                 if (outcome is TypeResolutionOutcome.Rejected
                     {
                         Failure:
-                            TypeResolutionFailure.RequestBudgetExceeded
-                                budgetFailure,
-                    })
+                            TypeResolutionFailure.RequestBudgetExceeded,
+                    } rejected)
                 {
-                    return Rejected(budgetFailure);
+                    return Rejected(rejected.Failure);
                 }
 
                 KindResolutionFrame frame = pending.Pop();
                 authenticatedKinds[frame.Key] =
-                    ClassKindFromOutcome(
+                    AuthenticateKindFromOutcome(
                         outcome,
                         frame.GenericArgumentCount);
                 currentRequest = frame.Request;
@@ -1675,7 +1682,7 @@ public sealed class TypeResolutionContext : IDisposable
             TypeResolutionRequest request,
             RequestKey requestKey,
             HashSet<RequestKey> active,
-            Dictionary<RequestKey, MetadataTypeDefinitionKind>
+            Dictionary<RequestKey, KindAuthenticationResult>
                 authenticatedKinds)
         {
             var hops = ImmutableArray.CreateBuilder<TypeForwardingHop>();
@@ -1782,16 +1789,20 @@ public sealed class TypeResolutionContext : IDisposable
                         AssemblyInventorySnapshot inventory =
                             _inventories[current.Id];
                         MetadataTypeDefinitionKind kind = defined.Kind;
+                        TypeResolutionFailure? kindResolutionFailure =
+                            null;
                         if (kind
                                 == MetadataTypeDefinitionKind.Unknown
                             && defined.KindDependency is { } dependency)
                         {
                             if (authenticatedKinds.TryGetValue(
                                     requestKey,
-                                    out MetadataTypeDefinitionKind
+                                    out KindAuthenticationResult
                                         authenticated))
                             {
-                                kind = authenticated;
+                                kind = authenticated.Kind;
+                                kindResolutionFailure =
+                                    authenticated.Failure;
                             }
                             else
                             {
@@ -1802,80 +1813,112 @@ public sealed class TypeResolutionContext : IDisposable
                                             current.Assembly),
                                         dependency.Scope,
                                         dependency.Type);
-                                if (TryProjectRequest(
+                                if (!TryProjectRequest(
                                         dependencyRequest,
                                         out RequestKey dependencyKey,
-                                        out _))
+                                        out TypeResolutionOutcome?
+                                            dependencyProjectionFailure))
                                 {
-                                    if (active.Contains(dependencyKey))
+                                    if (dependencyProjectionFailure
+                                        is not TypeResolutionOutcome.Rejected
+                                            rejected)
                                     {
-                                        kind =
-                                            MetadataTypeDefinitionKind
-                                                .Unknown;
+                                        throw new InvalidOperationException(
+                                            "A projected dependency failure "
+                                                + "must be a rejection.");
                                     }
-                                    else if (_outcomes.TryGetValue(
-                                            dependencyKey,
-                                            out TypeResolutionOutcome?
-                                                cached))
-                                    {
-                                        if (cached
-                                            is TypeResolutionOutcome.Rejected
-                                            {
-                                                Failure:
-                                                    TypeResolutionFailure
-                                                        .RequestBudgetExceeded
-                                                        budgetFailure,
-                                            })
-                                        {
-                                            return Completed(
-                                                Rejected(
-                                                    budgetFailure,
-                                                    hops));
-                                        }
 
-                                        kind = ClassKindFromOutcome(
-                                            cached,
-                                            dependency
-                                                .GenericArgumentCount);
-                                    }
-                                    else if (!TryConsumeRequest(
-                                            dependencyKey))
+                                    kindResolutionFailure =
+                                        rejected.Failure;
+                                }
+                                else if (active.Contains(dependencyKey))
+                                {
+                                    kind =
+                                        MetadataTypeDefinitionKind
+                                            .Unknown;
+                                }
+                                else if (_outcomes.TryGetValue(
+                                        dependencyKey,
+                                        out TypeResolutionOutcome?
+                                            cached))
+                                {
+                                    if (cached is TypeResolutionOutcome.Rejected
+                                        {
+                                            Failure:
+                                                TypeResolutionFailure
+                                                    .RequestBudgetExceeded,
+                                        } rejected)
                                     {
                                         return Completed(
                                             Rejected(
-                                                new TypeResolutionFailure
-                                                    .RequestBudgetExceeded(
-                                                        _maxTypeResolutionRequests),
+                                                rejected.Failure,
                                                 hops));
                                     }
-                                    else if (_catalog.TryGetResolution(
-                                            _policyVersion,
-                                            dependencyKey,
-                                            out TypeResolutionOutcome?
-                                                catalogCached))
+
+                                    KindAuthenticationResult authentication =
+                                        AuthenticateKindFromOutcome(
+                                        cached,
+                                        dependency
+                                            .GenericArgumentCount);
+                                    kind = authentication.Kind;
+                                    kindResolutionFailure =
+                                        authentication.Failure;
+                                }
+                                else if (!TryConsumeRequest(
+                                        dependencyKey))
+                                {
+                                    return Completed(
+                                        Rejected(
+                                            new TypeResolutionFailure
+                                                .RequestBudgetExceeded(
+                                                    _maxTypeResolutionRequests),
+                                            hops));
+                                }
+                                else if (_catalog.TryGetResolution(
+                                        _policyVersion,
+                                        dependencyKey,
+                                        out TypeResolutionOutcome?
+                                            catalogCached))
+                                {
+                                    SeedRecipe(
+                                        dependencyKey,
+                                        catalogCached!);
+                                    TypeResolutionOutcome reprojected =
+                                        Reproject(catalogCached!);
+                                    _outcomes.Add(
+                                        dependencyKey,
+                                        reprojected);
+                                    if (reprojected
+                                        is TypeResolutionOutcome.Rejected
+                                        {
+                                            Failure:
+                                                TypeResolutionFailure
+                                                    .RequestBudgetExceeded,
+                                        } rejected)
                                     {
-                                        SeedRecipe(
+                                        return Completed(
+                                            Rejected(
+                                                rejected.Failure,
+                                                hops));
+                                    }
+
+                                    KindAuthenticationResult authentication =
+                                        AuthenticateKindFromOutcome(
+                                        reprojected,
+                                        dependency
+                                            .GenericArgumentCount);
+                                    kind = authentication.Kind;
+                                    kindResolutionFailure =
+                                        authentication.Failure;
+                                }
+                                else
+                                {
+                                    return new CoreResolutionStep
+                                        .Dependency(
+                                            dependencyRequest,
                                             dependencyKey,
-                                            catalogCached!);
-                                        TypeResolutionOutcome reprojected =
-                                            Reproject(catalogCached!);
-                                        _outcomes.Add(
-                                            dependencyKey,
-                                            reprojected);
-                                        kind = ClassKindFromOutcome(
-                                            reprojected,
                                             dependency
                                                 .GenericArgumentCount);
-                                    }
-                                    else
-                                    {
-                                        return new CoreResolutionStep
-                                            .Dependency(
-                                                dependencyRequest,
-                                                dependencyKey,
-                                                dependency
-                                                    .GenericArgumentCount);
-                                    }
                                 }
                             }
                         }
@@ -1898,7 +1941,8 @@ public sealed class TypeResolutionContext : IDisposable
                                     kind,
                                     defined
                                         .DeclaringAssemblyDefinesCoreLibraryRoot,
-                                    defined.GenericParameterCount),
+                                    defined.GenericParameterCount,
+                                    kindResolutionFailure),
                                 hops.ToImmutable()));
 
                     case TypeDeclarationResult.Missing:
@@ -1975,10 +2019,12 @@ public sealed class TypeResolutionContext : IDisposable
             TypeResolutionOutcome outcome) =>
             new(outcome);
 
-        static MetadataTypeDefinitionKind ClassKindFromOutcome(
+        static KindAuthenticationResult AuthenticateKindFromOutcome(
             TypeResolutionOutcome outcome,
-            int genericArgumentCount) =>
-            outcome is TypeResolutionOutcome.Resolved
+            int genericArgumentCount)
+        {
+            MetadataTypeDefinitionKind kind =
+                outcome is TypeResolutionOutcome.Resolved
             {
                 Definition.Kind:
                     MetadataTypeDefinitionKind.Class,
@@ -1992,6 +2038,16 @@ public sealed class TypeResolutionContext : IDisposable
                         is "System.ValueType" or "System.Enum")
                 ? MetadataTypeDefinitionKind.Class
                 : MetadataTypeDefinitionKind.Unknown;
+            TypeResolutionFailure? failure = outcome switch
+            {
+                TypeResolutionOutcome.Resolved resolvedOutcome =>
+                    resolvedOutcome.Definition.KindResolutionFailure,
+                TypeResolutionOutcome.Rejected rejected =>
+                    rejected.Failure,
+                _ => null,
+            };
+            return new KindAuthenticationResult(kind, failure);
+        }
 
         bool TryConsumeRequest(RequestKey key) =>
             _budgetedRequests.Contains(key)
@@ -2334,7 +2390,8 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.Type,
                     definition.Kind,
                     definition.DeclaringAssemblyDefinesCoreLibraryRoot,
-                    definition.GenericParameterCount),
+                    definition.GenericParameterCount,
+                    definition.KindResolutionFailure),
                 resolved.Hops);
         }
 

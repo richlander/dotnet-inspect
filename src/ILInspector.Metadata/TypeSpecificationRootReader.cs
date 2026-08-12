@@ -18,6 +18,8 @@ internal readonly record struct TypeSpecificationRoot(
     int GenericArgumentCount,
     int GenericParameterIndex)
 {
+    internal const int MaxAuthenticationSignatureDepth = 64;
+
     internal static bool TryRead(
         MetadataReader reader,
         TypeSpecificationHandle handle,
@@ -99,6 +101,8 @@ internal readonly record struct TypeSpecificationRoot(
     sealed class TypeSpecificationShapeValidator :
         ISignatureTypeProvider<byte, Stack<TypeSpecificationHandle>>
     {
+        // SRM decodes one blob recursively. This leaves ample margin on the
+        // 128-KiB managed stack used by the bounded-stack regression gate.
         internal static TypeSpecificationShapeValidator Instance { get; } =
             new();
 
@@ -132,7 +136,8 @@ internal readonly record struct TypeSpecificationRoot(
                     cumulativeBytes += blobLength;
                     if (!SignatureBlobGuard
                             .IsCompleteTypeSpecification(
-                                reader.GetBlobReader(signature)))
+                                reader.GetBlobReader(signature),
+                                MaxAuthenticationSignatureDepth))
                     {
                         return false;
                     }

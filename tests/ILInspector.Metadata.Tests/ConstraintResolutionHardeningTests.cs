@@ -57,6 +57,66 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void NestedTypeSpecificationDepthBoundaryUsesBoundedStack()
+    {
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "NestedSignature",
+                "Derived",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        TypeParameterTypeKind accepted = default;
+        TypeParameterTypeKind rejected = default;
+        Exception? failure = null;
+        var thread = new Thread(
+            () =>
+            {
+                try
+                {
+                    using var pe = Reader(consumerImage);
+                    accepted = Classify(
+                        TypeSpecificationRoot
+                            .MaxAuthenticationSignatureDepth - 1);
+                    rejected = Classify(
+                        TypeSpecificationRoot
+                            .MaxAuthenticationSignatureDepth);
+
+                    TypeParameterTypeKind Classify(int depth)
+                    {
+                        byte[] dependencyImage =
+                            BuildDeeplyNestedTypeSpecificationBase(
+                                depth);
+                        ResolvedAssemblyReference dependency =
+                            Descriptor(dependencyImage);
+                        using var catalog =
+                            new TypeResolutionCatalog();
+                        ApiSurface surface = ApiSurfaceExtractor.Extract(
+                            pe,
+                            source,
+                            catalog,
+                            new MappingPolicy(dependency));
+                        return Assert.Single(
+                            Assert.Single(surface.Types).TypeParameters)
+                            .TypeKind;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            },
+            maxStackSize: 128 * 1024);
+
+        thread.Start();
+        thread.Join();
+
+        Assert.Null(failure);
+        Assert.Equal(TypeParameterTypeKind.ReferenceType, accepted);
+        Assert.Equal(TypeParameterTypeKind.Undetermined, rejected);
+    }
+
+    [Fact]
     public void DeepConstructedBaseAuthenticationUsesBoundedStack()
     {
         const int Count = 1_000;
@@ -433,6 +493,140 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void TransitiveDependencyOpenFailureIsVisibleOnApiSurface()
+    {
+        byte[] dependencyImage =
+            BuildSimpleType("Dependency", "Base`1");
+        byte[] derivedImage =
+            BuildDerivedWithExternalConstructedBase();
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Derived",
+                "Derived",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference derived = Descriptor(derivedImage);
+        ResolvedAssemblyReference dependency =
+            UnreadableDescriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(derived, dependency));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains(
+            "dependency could not be opened",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TransitiveDependencyOpenFailurePreservesResolvedIdentity()
+    {
+        byte[] dependencyImage =
+            BuildSimpleType("Dependency", "Base`1");
+        byte[] derivedImage =
+            BuildDerivedWithExternalConstructedBase();
+        ResolvedAssemblyReference derived = Descriptor(derivedImage);
+        ResolvedAssemblyReference dependency =
+            UnreadableDescriptor(dependencyImage);
+        TypeResolutionRequest request =
+            Request(derived, "Derived");
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new MappingPolicy(dependency),
+            [derived],
+            [request]);
+
+        ResolvedTypeDefinition definition =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(request)).Definition;
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Unknown,
+            definition.Kind);
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            definition.KindResolutionFailure);
+    }
+
+    [Fact]
+    public void MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity()
+    {
+        byte[] terminalImage =
+            BuildGenericType("Terminal", "Base`1");
+        byte[] middleImage =
+            BuildTypeWithExternalConstructedBase(
+                "Middle",
+                "Middle`1",
+                genericDefinition: true,
+                "Terminal",
+                "Base`1");
+        byte[] outerImage =
+            BuildTypeWithExternalConstructedBase(
+                "Outer",
+                "Outer",
+                genericDefinition: false,
+                "Middle",
+                "Middle`1");
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Outer",
+                "Outer",
+                constructed: false);
+        ResolvedAssemblyReference terminal =
+            UnreadableDescriptor(terminalImage);
+        ResolvedAssemblyReference middle = Descriptor(middleImage);
+        ResolvedAssemblyReference outer = Descriptor(outerImage);
+        ResolvedAssemblyReference consumer = Descriptor(consumerImage);
+        var policy = new MappingPolicy(
+            outer,
+            middle,
+            terminal);
+        TypeResolutionRequest request = Request(outer, "Outer");
+
+        using (var catalog = new TypeResolutionCatalog())
+        using (TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            [outer],
+            [request]))
+        {
+            ResolvedTypeDefinition definition =
+                Assert.IsType<TypeResolutionOutcome.Resolved>(
+                    context.Resolve(request)).Definition;
+            Assert.Equal(
+                MetadataTypeDefinitionKind.Unknown,
+                definition.Kind);
+            Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+                definition.KindResolutionFailure);
+        }
+
+        using var pe = Reader(consumerImage);
+        using var extractionCatalog = new TypeResolutionCatalog();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            extractionCatalog,
+            policy);
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+        Assert.Single(surface.InspectionFailures);
+    }
+
+    [Fact]
     public void DiscoveryBudgetExhaustionIsVisibleOnApiSurface()
     {
         byte[] image = BuildTwoConstraintConsumer();
@@ -550,6 +744,66 @@ public class ConstraintResolutionHardeningTests
             AddGenericParameter(metadata, definitions[i]);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDeeplyNestedTypeSpecificationBase(int depth)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("NestedSignature");
+        AddModule(metadata);
+        TypeDefinitionHandle root =
+            AddType(metadata, "Base`1");
+        AddGenericParameter(metadata, root);
+        var signature = new BlobBuilder();
+        for (int i = 0; i < depth; i++)
+        {
+            signature.WriteByte(0x15);
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                EncodeTypeDefOrRef(root));
+            signature.WriteCompressedInteger(1);
+        }
+
+        signature.WriteByte(0x08);
+        AddType(
+            metadata,
+            "Derived",
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature)));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDerivedWithExternalConstructedBase() =>
+        BuildTypeWithExternalConstructedBase(
+            "Derived",
+            "Derived",
+            genericDefinition: false,
+            "Dependency",
+            "Base`1");
+
+    static byte[] BuildTypeWithExternalConstructedBase(
+        string assemblyName,
+        string typeName,
+        bool genericDefinition,
+        string targetAssembly,
+        string targetType)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AssemblyReferenceHandle dependency =
+            AddReference(metadata, targetAssembly);
+        TypeReferenceHandle root =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(targetType));
+        AddModule(metadata);
+        TypeDefinitionHandle definition = AddType(
+            metadata,
+            typeName,
+            AddConstructedClass(metadata, root));
+        if (genericDefinition)
+            AddGenericParameter(metadata, definition);
         return Serialize(metadata);
     }
 
