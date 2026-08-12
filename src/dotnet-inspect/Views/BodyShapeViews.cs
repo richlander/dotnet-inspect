@@ -25,11 +25,7 @@ public sealed class BodyShapeResultView
     }
 
     [MarkoutSection(Name = "Matches")]
-    [MarkoutIgnoreColumnWhen(nameof(KindIsUniform), nameof(BodyShapeRow.Kind))]
     public List<BodyShapeRow>? Matches { get; init; }
-
-    public static bool KindIsUniform(List<BodyShapeRow>? rows)
-        => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
 }
 
 [MarkoutSerializable]

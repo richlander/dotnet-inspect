@@ -14,6 +14,30 @@ public static class BodyShapeCommand
 {
     public const string Name = "body-shape";
 
+    public static async Task<int> ExecuteAsync(
+        BodyShapeOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        if (options.Discover is not null
+            || options.JsonOutput && !options.Count
+                && (options.Columns is { Length: > 0 } || options.Fields is { Length: > 0 }))
+        {
+            return Execute(options, cancellationToken);
+        }
+
+        var context = new CommandContext(options.Verbose);
+        string? pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
+            options.LibraryPath,
+            new ApiOptions
+            {
+                AssemblyPath = options.LibraryPath,
+                Verbose = options.Verbose
+            },
+            context.Logger,
+            context.HttpClient);
+        return Execute(options with { PdbPath = pdbPath }, cancellationToken);
+    }
+
     public static int Execute(BodyShapeOptions options, CancellationToken cancellationToken = default)
     {
         try
@@ -43,13 +67,15 @@ public static class BodyShapeCommand
                 return 1;
             }
 
-            using var source = MetadataSource.Open(options.LibraryPath);
+            using var source = MetadataSource.Open(options.LibraryPath, options.PdbPath);
+            options.RenderConfigWarnings?.EmitOnce();
             var result = BodyShapeSearch.Search(
                 source,
                 options.Kind,
                 options.IncludeAll,
                 options.MatchLimit,
-                cancellationToken);
+                cancellationToken,
+                options.RenderOptions);
 
             if (options.Verbose)
             {

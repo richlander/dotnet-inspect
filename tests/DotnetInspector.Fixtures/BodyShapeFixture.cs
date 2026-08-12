@@ -1,10 +1,24 @@
 namespace DotnetInspector.Fixtures;
 
-public sealed class BodyShapeFixture
+public interface IBodyShapeValue
+{
+    object Value { get; }
+    event Action Changed;
+}
+
+public sealed class BodyShapeFixture : IBodyShapeValue
 {
     public static object PublicCreation() => new object();
 
     private static object PrivateCreation() => new Version(1, 2);
+
+    object IBodyShapeValue.Value => new object();
+
+    event Action IBodyShapeValue.Changed
+    {
+        add => GC.KeepAlive(new object());
+        remove { }
+    }
 
     public static string Classify(int value) =>
         value switch
@@ -23,4 +37,20 @@ public sealed class BodyShapeFixture
 
         return "no";
     }
+
+    public static string ReadableLocal(int value)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.Append(value);
+        if (value >= 0)
+            builder.Append('+');
+        else
+            builder.Append('-');
+        return builder.ToString();
+    }
+}
+
+public sealed class GenericBodyShapeFixture<T>
+{
+    public static object Create() => new object();
 }

@@ -122,6 +122,19 @@ public class CommandLineTests
         Assert.Contains("not recognized", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("99999999999")]
+    public void BodyShapeCommand_InvalidLimitReportsParseError(string limit)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(
+                ["body-shape", "LiteralExpression", "--library", "sample.dll", "--limit", limit]));
+
+        Assert.Contains(result.Errors, error =>
+            error.Message.Contains("Cannot parse", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
     {

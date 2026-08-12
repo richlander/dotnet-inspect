@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -27,7 +28,8 @@ public sealed class BodyShapeCommandTests
             .Where(match => match.TypeName == typeof(BodyShapeFixture).FullName)
             .ToList();
 
-        var publicMatch = Assert.Single(publicFixtureMatches);
+        var publicMatch = Assert.Single(publicFixtureMatches, match =>
+            match.MethodName == nameof(BodyShapeFixture.PublicCreation));
         Assert.Contains(nameof(BodyShapeFixture.PublicCreation), publicMatch.Member);
         Assert.Equal("new object()", publicMatch.Text);
 
@@ -72,6 +74,48 @@ public sealed class BodyShapeCommandTests
         Assert.Equal(
             ApiMemberIdentity.GetMemberAnchor(type, member).Format(MemberAnchorFormat.Qualified),
             match.Member);
+    }
+
+    [Fact]
+    public void Search_UsesExplicitReadableLocalNameOptions()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shape-readable-names-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, Path.GetFileName(FixturePath));
+        File.Copy(FixturePath, assemblyPath);
+        try
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+
+            var defaultResult = BodyShapeSearch.Search(
+                source,
+                "NameExpression",
+                cancellationToken: TestContext.Current.CancellationToken);
+            var readableResult = BodyShapeSearch.Search(
+                source,
+                "NameExpression",
+                printerOptions: StyleOptionCatalog.DefaultOptions,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            var defaultMatches = defaultResult.Matches
+                .Where(match => match.TypeName == typeof(BodyShapeFixture).FullName
+                    && match.MethodName == nameof(BodyShapeFixture.ReadableLocal))
+                .ToList();
+            var readableMatches = readableResult.Matches
+                .Where(match => match.TypeName == typeof(BodyShapeFixture).FullName
+                    && match.MethodName == nameof(BodyShapeFixture.ReadableLocal))
+                .ToList();
+            Assert.Contains(defaultMatches, match => match.Text.StartsWith("V_", StringComparison.Ordinal));
+            Assert.NotEmpty(readableMatches);
+            Assert.DoesNotContain(readableMatches, match => match.Text.StartsWith("V_", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+            Directory.Delete(directory);
+        }
     }
 
     [Fact]
@@ -135,6 +179,96 @@ public sealed class BodyShapeCommandTests
     }
 
     [Fact]
+    public void Search_DefaultExcludesInternalExplicitInterfaceBodies()
+    {
+        using var source = MetadataSource.Open(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var surface = source.ExtractApiSurface(includeAll: true);
+        var internalType = Assert.Single(surface.Types, candidate =>
+            candidate.Name == "InternalExplicitSurface");
+        var internalMember = Assert.Single(internalType.Members, candidate =>
+            candidate.Kind == "explicit-interface-implementation");
+
+        var publicResult = BodyShapeSearch.Search(
+            source,
+            "LiteralExpression",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var allResult = BodyShapeSearch.Search(
+            source,
+            "LiteralExpression",
+            includeAll: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(publicResult.Matches, match =>
+            match.MethodToken == internalMember.MetadataToken);
+        Assert.Contains(allResult.Matches, match =>
+            match.MethodToken == internalMember.MetadataToken);
+    }
+
+    [Fact]
+    public void Search_PrefersDeclaringExtensionMemberIdentity()
+    {
+        using var source = MetadataSource.Open(typeof(SampleExtensions).Assembly.Location);
+        var surface = source.ExtractApiSurface(includeAll: false);
+        var declaringType = Assert.Single(surface.Types, candidate =>
+            candidate.Name == nameof(SampleExtensions));
+        var declaringMember = Assert.Single(declaringType.Members, candidate =>
+            candidate.Name == nameof(SampleExtensions.GetInfo));
+
+        var result = BodyShapeSearch.Search(
+            source,
+            "MemberAccessExpression",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var match = Assert.Single(result.Matches, candidate =>
+            candidate.MethodToken == declaringMember.MetadataToken);
+
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(declaringType, declaringMember)
+                .Format(MemberAnchorFormat.Qualified),
+            match.Member);
+        Assert.Equal(typeof(SampleExtensions).FullName, match.TypeName);
+    }
+
+    [Fact]
+    public void Search_PrefersExplicitAccessorIdentity_AndFormatsGenericTypeName()
+    {
+        using var source = MetadataSource.Open(FixturePath);
+
+        var result = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            includeAll: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var explicitProperty = typeof(BodyShapeFixture).GetProperty(
+            $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Value)}",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var explicitMatch = Assert.Single(result.Matches, match =>
+            match.MethodToken == explicitProperty.GetMethod!.MetadataToken);
+        Assert.Contains(".explicit:", explicitMatch.Member, StringComparison.Ordinal);
+        Assert.Contains(".get_Value~", explicitMatch.Member, StringComparison.Ordinal);
+
+        var explicitEvent = typeof(BodyShapeFixture).GetEvent(
+            $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Changed)}",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var eventMatch = Assert.Single(result.Matches, match =>
+            match.MethodToken == explicitEvent.AddMethod!.MetadataToken);
+        Assert.Contains(".explicit:", eventMatch.Member, StringComparison.Ordinal);
+        Assert.Contains(".add_Changed~", eventMatch.Member, StringComparison.Ordinal);
+
+        var genericMatch = Assert.Single(result.Matches, match =>
+            match.MethodToken == typeof(GenericBodyShapeFixture<>)
+                .GetMethod(nameof(GenericBodyShapeFixture<object>.Create))!
+                .MetadataToken);
+        Assert.Equal(
+            "DotnetInspector.Fixtures.GenericBodyShapeFixture<T>",
+            genericMatch.TypeName);
+        Assert.StartsWith(
+            $"{genericMatch.TypeName}.",
+            genericMatch.Member,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Command_TsvReportsExactCoordinatesAndPublicMatch()
     {
         var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
@@ -155,6 +289,44 @@ public sealed class BodyShapeCommandTests
     }
 
     [Fact]
+    public async Task Command_UsesExternalPdbForLocalNames()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shape-external-pdb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, Path.GetFileName(FixturePath));
+        File.Copy(FixturePath, assemblyPath);
+        try
+        {
+            var (exit, output, _) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+                BodyShapeCommand.Execute(new BodyShapeOptions
+                {
+                    Kind = "NameExpression",
+                    LibraryPath = assemblyPath,
+                    PdbPath = Path.ChangeExtension(FixturePath, ".pdb"),
+                    RenderOptions = StyleOptionCatalog.DefaultOptions,
+                    Tabular = true,
+                    Tsv = true
+                })));
+
+            Assert.Equal(0, exit);
+            var rows = output.Split('\n')
+                .Where(row => row.Contains(
+                    $".{nameof(BodyShapeFixture.ReadableLocal)}~",
+                    StringComparison.Ordinal))
+                .ToList();
+            Assert.Contains(rows, row => row.EndsWith("\tbuilder", StringComparison.Ordinal));
+            Assert.DoesNotContain(rows, row => row.EndsWith("\tstringBuilder", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
     public async Task Command_MarkdownHonorsColumnProjection()
     {
         var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
@@ -171,6 +343,26 @@ public sealed class BodyShapeCommandTests
         Assert.DoesNotContain("Member", output);
         Assert.DoesNotContain("Start Line", output);
         Assert.DoesNotContain("new object()", output);
+    }
+
+    [Fact]
+    public async Task Command_TsvHonorsKindOnlyProjection()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            BodyShapeCommand.Execute(new BodyShapeOptions
+            {
+                Kind = "ObjectCreationExpression",
+                LibraryPath = FixturePath,
+                Tabular = true,
+                Tsv = true,
+                Columns = ["Kind"]
+            })));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Warning: Body-shape search skipped", error);
+        Assert.Equal(
+            ["kind", "ObjectCreationExpression"],
+            output.Trim().Split('\n').Distinct(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]

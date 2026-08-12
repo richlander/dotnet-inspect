@@ -89,12 +89,16 @@ public static class BodyShapeSearch
     /// </param>
     /// <param name="limit">Optional maximum number of matches. Search stops when reached.</param>
     /// <param name="cancellationToken">Cancellation token checked between method bodies.</param>
+    /// <param name="printerOptions">
+    /// Optional explicit rendering options. The library default preserves stable slot names.
+    /// </param>
     public static BodyShapeSearchResult Search(
         MetadataSource source,
         string kind,
         bool includeAll = false,
         int? limit = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PrinterOptions? printerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -109,7 +113,7 @@ public static class BodyShapeSearch
                 $"{failure.Operation} at 0x{failure.SubjectToken:X8}",
                 failure.Detail))
             .ToList();
-        var methods = SurfaceMethods(source.Reader, surface, includeAll);
+        var methods = SurfaceMethods(source.Reader, surface, includeAll, failures);
         var matches = new List<BodyShapeMatch>();
         int methodsInspected = 0;
 
@@ -142,7 +146,8 @@ public static class BodyShapeSearch
                 function,
                 out var ranges,
                 importMethodBody: methodRef => IrImporter.Import(source, methodRef),
-                typesProvablyDisjoint: source.AreProvablyDisjoint);
+                typesProvablyDisjoint: source.AreProvablyDisjoint,
+                options: printerOptions);
             if (InternalError(rendered.Diagnostics) is { } renderError)
             {
                 failures.Add(new BodyShapeSearchFailure(subject, renderError));
@@ -164,7 +169,6 @@ public static class BodyShapeSearch
             }
 
             var map = PrintedBodyMap.Create(ranges);
-
             foreach (var node in map.Nodes)
             {
                 if (!string.Equals(node.Kind, kind, StringComparison.Ordinal))
@@ -239,9 +243,20 @@ public static class BodyShapeSearch
     static IReadOnlyList<SurfaceMethod> SurfaceMethods(
         MetadataReader reader,
         ApiSurface surface,
-        bool includeAll)
+        bool includeAll,
+        List<BodyShapeSearchFailure> failures)
     {
         var methods = new SortedDictionary<int, SurfaceMethod>();
+        var explicitVisibility = includeAll
+            ? null
+            : CSharpBodyDiff.GetVisibleExplicitImplementationBodies(reader);
+        if (explicitVisibility is not null)
+        {
+            failures.AddRange(explicitVisibility.Failures.Select(failure =>
+                new BodyShapeSearchFailure(
+                    $"explicit-interface visibility at 0x{failure.SubjectToken:X8}",
+                    failure.Reason)));
+        }
         foreach (var type in surface.Types)
         {
             foreach (var member in type.Members)
@@ -262,14 +277,58 @@ public static class BodyShapeSearch
             var entity = MetadataTokens.EntityHandle(value);
             if (entity.Kind != HandleKind.MethodDefinition)
                 return;
+            var methodHandle = (MethodDefinitionHandle)entity;
+            if (!includeAll
+                && member.Kind == "explicit-interface-implementation"
+                && !explicitVisibility!.Handles.Contains(methodHandle))
+            {
+                return;
+            }
             if (accessor && !includeAll)
             {
-                var method = reader.GetMethodDefinition((MethodDefinitionHandle)entity);
+                var method = reader.GetMethodDefinition(methodHandle);
                 if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
                     return;
             }
-            methods.TryAdd(value, new SurfaceMethod(value, type, member));
+            var candidate = new SurfaceMethod(value, type, member);
+            if (!methods.TryGetValue(value, out var existing)
+                || Prefer(candidate, existing))
+            {
+                methods[value] = candidate;
+            }
         }
+
+        static bool Prefer(SurfaceMethod candidate, SurfaceMethod existing)
+        {
+            bool candidateIsDeclaration = IsDeclaration(candidate);
+            bool existingIsDeclaration = IsDeclaration(existing);
+            if (candidateIsDeclaration != existingIsDeclaration)
+                return candidateIsDeclaration;
+
+            bool candidateHasKindMarker = HasKindMarker(candidate);
+            bool existingHasKindMarker = HasKindMarker(existing);
+            if (candidateHasKindMarker != existingHasKindMarker)
+                return candidateHasKindMarker;
+
+            var candidateAnchor = ApiMemberIdentity.GetMemberAnchor(candidate.Type, candidate.Member);
+            var existingAnchor = ApiMemberIdentity.GetMemberAnchor(existing.Type, existing.Member);
+            return string.CompareOrdinal(
+                candidateAnchor.Format(MemberAnchorFormat.Qualified),
+                existingAnchor.Format(MemberAnchorFormat.Qualified)) < 0;
+        }
+
+        static bool IsDeclaration(SurfaceMethod method)
+            => string.IsNullOrWhiteSpace(method.Member.DeclaringType)
+                || string.Equals(
+                    MetadataTypeNameFormatter.FormatFullName(method.Type),
+                    method.Member.DeclaringType,
+                    StringComparison.Ordinal);
+
+        static bool HasKindMarker(SurfaceMethod method)
+            => method.Member.Kind is
+                "explicit-interface-implementation"
+                or "operator"
+                or "extension-method";
     }
 
     private sealed record SurfaceMethod(int MethodToken, ApiType Type, ApiMember Member);

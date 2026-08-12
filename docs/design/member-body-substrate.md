@@ -457,10 +457,14 @@ stable source-facing member identity, MethodDef token, exact `PrintedExtent`,
 and the text selected by that extent. Bodies below `Full` fidelity, including
 state-machine kickoffs whose source body was not reconstructed, are explicit
 failures rather than searchable compiler plumbing. The `body-shape` CLI exposes
-that narrow query for one `--library`; it does not add a predicate language,
-persist an index, or infer parentage from IR object references. Public members
-are the default search boundary, `--all` expands that boundary, and `--limit`
-supplies explicit backpressure. `Instruction` belongs to the IL plane;
+that narrow query for one `--library`, acquires the portable PDB used by its
+source view, and passes its resolved user-facing `PrinterOptions`, so each
+extent indexes the same rendering. Library callers retain the low-level printer
+defaults and symbol source represented by their `MetadataSource` unless they
+supply options and a PDB explicitly. The command does not add a predicate
+language, persist an index, or infer parentage from IR object references. Public
+members are the default search boundary, `--all` expands that boundary, and
+`--limit` supplies explicit backpressure. `Instruction` belongs to the IL plane;
 region-only and structural catalog names such as `CatchClause`, `SwitchSection`,
 and `Block` are likewise not exact body-shape query kinds.
 

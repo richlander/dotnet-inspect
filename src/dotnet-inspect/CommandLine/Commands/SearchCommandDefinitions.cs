@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Globalization;
 using DotnetInspector.Commands;
 using ILInspector.Decompiler;
 using DotnetInspector.Options;
@@ -39,8 +40,13 @@ public static class SearchCommandDefinitions
         };
         limitOption.Validators.Add(result =>
         {
-            if (result.GetValueOrDefault<int?>() is <= 0)
+            var token = result.Tokens.Count > 0 ? result.Tokens[^1].Value : null;
+            if (token is not null
+                && int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out int limit)
+                && limit <= 0)
+            {
                 result.AddError("--limit must be a positive integer.");
+            }
         });
         var compactOption = new Option<bool>("--compact")
         {
@@ -61,7 +67,7 @@ public static class SearchCommandDefinitions
         opts.AddCountOptionTo(command);
         opts.AddOutputOptionsTo(command);
 
-        command.SetAction(parseResult =>
+        command.SetAction(async (parseResult, cancellationToken) =>
         {
             var discover = opts.ParseDiscover(parseResult);
             var kind = parseResult.GetValue(kindArgument);
@@ -83,7 +89,8 @@ public static class SearchCommandDefinitions
                     $"body-shape {kind} --library MyLibrary.dll");
             }
 
-            return BodyShapeCommand.Execute(
+            var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
+            return await BodyShapeCommand.ExecuteAsync(
                 new BodyShapeOptions
                 {
                     Kind = kind ?? "",
@@ -102,8 +109,13 @@ public static class SearchCommandDefinitions
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
                     Discover = discover,
-                    Tree = opts.ParseTree(parseResult)
-                });
+                    Tree = opts.ParseTree(parseResult),
+                    RenderOptions = renderStyle.Options,
+                    RenderConfigWarnings = renderStyle.Warnings.Count > 0 && discover is null
+                        ? new RenderConfigWarningSink(renderStyle.Warnings)
+                        : null
+                },
+                cancellationToken);
         });
 
         return command;

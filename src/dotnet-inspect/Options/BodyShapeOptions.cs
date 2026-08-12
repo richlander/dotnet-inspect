@@ -1,4 +1,5 @@
 using DotnetInspector.Output;
+using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Options;
 
@@ -24,4 +25,7 @@ public sealed record BodyShapeOptions : IProjectionOptions
     public string[]? Fields { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
+    internal PrinterOptions? RenderOptions { get; init; }
+    internal DotnetInspector.Services.RenderConfigWarningSink? RenderConfigWarnings { get; init; }
+    internal string? PdbPath { get; init; }
 }
