@@ -69,6 +69,38 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_CanOmitCustomAttributesAndTheirImports()
+    {
+        var type = Specimen();
+        var constructor = Assert.Single(type.Members, member => member.Kind == "constructor");
+
+        var withAttributes = MemberBodyProducer.ProduceMember(
+            type,
+            constructor,
+            AssemblyPath,
+            pdbPath: null);
+        var withoutAttributes = MemberBodyProducer.ProduceMember(
+            type,
+            constructor,
+            AssemblyPath,
+            pdbPath: null,
+            includeCustomAttributes: false);
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null,
+            includeCustomAttributes: false);
+
+        Assert.Contains("[Description(\"marker\")]", withAttributes.Text);
+        Assert.DoesNotContain("[Description(\"marker\")]", withoutAttributes.Text);
+        Assert.Contains("System.ComponentModel", withAttributes.Namespaces);
+        Assert.DoesNotContain("System.ComponentModel", withoutAttributes.Namespaces);
+        Assert.Equal(withoutAttributes.Status, batch[constructor].Status);
+        Assert.Equal(withoutAttributes.Text, batch[constructor].Text);
+        Assert.Equal(withoutAttributes.Namespaces, batch[constructor].Namespaces);
+    }
+
+    [Fact]
     public void ProduceMember_RendersExpressionBodiedArrow()
     {
         var type = Specimen();
@@ -226,6 +258,7 @@ public sealed class MemberBodyProducerMemberRenderTests
 #pragma warning disable CA1822 // members are instance to exercise real signatures
 public sealed class MemberRenderSpecimen
 {
+    [System.ComponentModel.Description("marker")]
     public MemberRenderSpecimen(int seed) => Value = seed;
 
     public int Value { get; }

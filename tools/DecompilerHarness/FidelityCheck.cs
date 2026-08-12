@@ -17,6 +17,7 @@ using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.DecompilerHarness;
@@ -187,6 +188,7 @@ static class FidelityCheck
                         zeroSignal?.Observe(total, exact, opcodeDiff + operandDiff, recompileFail, contextFail, recompileFailCodes);
                     }
                 }
+
             }
         }
 
@@ -1469,6 +1471,7 @@ static class FidelityCheck
                         CaptureDetail = captureDetail,
                     });
             }
+            StampWholeMemberUsage(forced, entries);
             return forced;
         }
 
@@ -1506,7 +1509,19 @@ static class FidelityCheck
                     };
             }
         }
+        StampWholeMemberUsage(results, entries);
         return results;
+    }
+
+    static void StampWholeMemberUsage(
+        IList<CompileBackResult> results,
+        IReadOnlyList<Entry> entries)
+    {
+        for (int i = 0; i < results.Count && i < entries.Count; i++)
+            results[i] = results[i] with
+            {
+                UsedProductWholeMember = entries[i].Target.WholeMember is not null,
+            };
     }
 
     /// <summary>Builds and compiles one grouped unit; on success appends a classified result per method and returns true.</summary>
@@ -2818,7 +2833,7 @@ static class FidelityCheck
                 foreach (var ns in wholeMemberNamespaces)
                     usings.Add(ns);
         foreach (var ns in usings)
-            sb.AppendLine($"using {ns};");
+            sb.AppendLine($"using {EscapeNamespace(ns)};");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -2881,7 +2896,7 @@ static class FidelityCheck
         string baseName = BaseTypeName(reader, typeDef.BaseType);
         if (baseName is "System.Object")
             return "";
-        return $" : {Clean(baseName)}";
+        return $" : global::{Clean(baseName)}";
     }
 
     static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
@@ -3229,7 +3244,11 @@ static class FidelityCheck
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
             if (hasTarget && target.WholeMember is { } wholeMember)
-                EmitPrerenderedMember(wholeMember, sb, pad + "    ");
+                EmitPrerenderedMember(
+                    wholeMember,
+                    forcePublicAccessibility: reader.GetString(reader.GetMethodDefinition(mh).Name) == ".ctor",
+                    sb,
+                    pad + "    ");
             else
                 EmitMethod(reader, typeHandle, mh,
                     hasTarget ? target.Body : null,
@@ -3744,6 +3763,8 @@ static class FidelityCheck
     /// replacing the harness's self-spelled signature. Ordinary constructors are
     /// safe to migrate because the scaffold already applies the decompiler's
     /// separately captured lifted field initializers to the reconstructed fields.
+    /// Custom attributes are omitted because they do not affect contract-body IL
+    /// and the skeleton does not reproduce arbitrary attribute inheritance.
     /// A detected primary constructor remains type-header-owned and therefore
     /// declines the member render. Accessors still decline because the product
     /// renders their containing property. Broad evaluation renders the whole type
@@ -3777,8 +3798,20 @@ static class FidelityCheck
         try
         {
             return SourceContextCache.TryGetValue(source, out var context)
-                ? MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null, context.Resolver, context)
-                : MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null);
+                ? MemberBodyProducer.ProduceMember(
+                    type,
+                    member,
+                    source.Path,
+                    pdbPath: null,
+                    context.Resolver,
+                    context,
+                    includeCustomAttributes: false)
+                : MemberBodyProducer.ProduceMember(
+                    type,
+                    member,
+                    source.Path,
+                    pdbPath: null,
+                    includeCustomAttributes: false);
         }
         catch
         {
@@ -3804,8 +3837,18 @@ static class FidelityCheck
         try
         {
             return SourceContextCache.TryGetValue(source, out var context)
-                ? MemberBodyProducer.ProduceMembers(type, source.Path, pdbPath: null, context.Resolver, context)
-                : MemberBodyProducer.ProduceMembers(type, source.Path, pdbPath: null);
+                ? MemberBodyProducer.ProduceMembers(
+                    type,
+                    source.Path,
+                    pdbPath: null,
+                    context.Resolver,
+                    context,
+                    includeCustomAttributes: false)
+                : MemberBodyProducer.ProduceMembers(
+                    type,
+                    source.Path,
+                    pdbPath: null,
+                    includeCustomAttributes: false);
         }
         catch
         {
@@ -3816,11 +3859,21 @@ static class FidelityCheck
     /// <summary>
     /// Splices the product's whole-member text into the compile-back unit,
     /// re-indenting from the product's one-level (4-space) base to the member's
-    /// position in the reconstructed type. C# ignores indentation, so this is
-    /// cosmetic; only the token stream matters for the opcode comparison.
+    /// position in the reconstructed type. Constructor accessibility is normalized
+    /// to public, preserving the skeleton's same-assembly binding policy while the
+    /// product continues to own the rest of the declaration. C# ignores
+    /// indentation, so that part is cosmetic; only the token stream matters for
+    /// the opcode comparison.
     /// </summary>
-    static void EmitPrerenderedMember(string wholeMember, StringBuilder sb, string pad)
+    static void EmitPrerenderedMember(
+        string wholeMember,
+        bool forcePublicAccessibility,
+        StringBuilder sb,
+        string pad)
     {
+        if (forcePublicAccessibility)
+            wholeMember = ForcePublicConstructorAccessibility(wholeMember);
+
         int shift = pad.Length - 4;
         string prefix = shift > 0 ? new string(' ', shift) : "";
         foreach (var line in wholeMember.Split('\n'))
@@ -3830,6 +3883,35 @@ static class FidelityCheck
             else
                 sb.Append(prefix).Append(line).Append('\n');
         }
+    }
+
+    static string ForcePublicConstructorAccessibility(string wholeMember)
+    {
+        if (SyntaxFactory.ParseMemberDeclaration(wholeMember) is not ConstructorDeclarationSyntax constructor
+            || constructor.ContainsDiagnostics)
+        {
+            throw new InvalidOperationException("Product-rendered constructor is not valid constructor syntax.");
+        }
+
+        var accessibility = constructor.Modifiers
+            .Where(token => token.IsKind(SyntaxKind.PublicKeyword)
+                || token.IsKind(SyntaxKind.PrivateKeyword)
+                || token.IsKind(SyntaxKind.ProtectedKeyword)
+                || token.IsKind(SyntaxKind.InternalKeyword))
+            .ToArray();
+        if (accessibility.Length == 0)
+            throw new InvalidOperationException("Product-rendered constructor has no accessibility modifier.");
+
+        var publicToken = SyntaxFactory.Token(
+            accessibility[0].LeadingTrivia,
+            SyntaxKind.PublicKeyword,
+            accessibility[^1].TrailingTrivia);
+        var remaining = constructor.Modifiers
+            .Where(token => !accessibility.Contains(token))
+            .ToArray();
+        return constructor
+            .WithModifiers(SyntaxFactory.TokenList([publicToken, .. remaining]))
+            .ToFullString();
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,

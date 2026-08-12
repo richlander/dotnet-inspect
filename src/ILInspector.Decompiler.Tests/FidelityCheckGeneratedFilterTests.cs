@@ -174,21 +174,31 @@ public class FidelityCheckGeneratedFilterTests
             {
             }
 
-            public sealed class ConstructorWholeMemberFixture
+            public class ConstructorWholeMemberFixture
             {
                 private readonly int _value;
 
                 [ConstructorTag]
-                private ConstructorWholeMemberFixture(int value)
+                private ConstructorWholeMemberFixture()
+                {
+                    _value = 42;
+                }
+
+                public ConstructorWholeMemberFixture(int value)
                 {
                     _value = value;
                 }
 
-                public ConstructorWholeMemberFixture() : this(42)
+                public static ConstructorWholeMemberFixture CreateDefault() => new();
+                public int Value => _value;
+            }
+
+            public sealed class DerivedConstructorWholeMemberFixture
+                : ConstructorWholeMemberFixture
+            {
+                public DerivedConstructorWholeMemberFixture() : base(1)
                 {
                 }
-
-                public int Value => _value;
             }
             """);
         try
@@ -209,7 +219,7 @@ public class FidelityCheckGeneratedFilterTests
                     continue;
                 constructorOverload++;
                 if (method.GetParameters().Count(
-                        parameterHandle => reader.GetParameter(parameterHandle).SequenceNumber > 0) == 1)
+                        parameterHandle => reader.GetParameter(parameterHandle).SequenceNumber > 0) == 0)
                 {
                     target = methodHandle;
                     break;
@@ -227,10 +237,10 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.NotNull(wholeMember);
             Assert.Contains(
-                "private ConstructorWholeMemberFixture(int value)",
+                "private ConstructorWholeMemberFixture()",
                 wholeMember.Value.Text,
                 StringComparison.Ordinal);
-            Assert.Contains("[ConstructorTag]", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("[ConstructorTag]", wholeMember.Value.Text, StringComparison.Ordinal);
             Assert.Null(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
@@ -244,6 +254,76 @@ public class FidelityCheckGeneratedFilterTests
                     type => type == "ConstructorWholeMemberFixture",
                     method => method.Method == ".ctor"
                         && method.Overload == constructorOverload));
+
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_ReportsProductWholeMemberWhenConstructorRecompileFails()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.ComponentModel;
+
+            internal sealed class DerivedDescriptionAttribute : DescriptionAttribute
+            {
+                public DerivedDescriptionAttribute(string text) : base(text)
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "DerivedDescriptionAttribute",
+                    method => method.Method == ".ctor"));
+
+            Assert.True(result.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_EscapesProductWholeMemberNamespaces()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Tags.@event
+            {
+                public sealed class Payload
+                {
+                }
+            }
+
+            namespace ConstructorHost
+            {
+                public sealed class KeywordNamespaceConstructor
+                {
+                    private readonly Tags.@event.Payload _value;
+
+                    public KeywordNamespaceConstructor(Tags.@event.Payload value)
+                    {
+                        _value = value;
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "ConstructorHost.KeywordNamespaceConstructor",
+                    method => method.Method == ".ctor"));
 
             Assert.True(result.UsedProductWholeMember);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
