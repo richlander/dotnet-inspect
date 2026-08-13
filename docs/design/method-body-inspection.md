@@ -258,17 +258,26 @@ assembly reader, so no metadata reader, `PEReader`, generic scope, IL buffer, or
 reader-bound body reaches allocation analysis. One scan produces a
 `MethodAllocationResult` carrying both the discovered occurrences and the
 escape-refined occurrences: the published allocation facts take the latter,
-and optimization-opportunity collection reuses the former plus the query methods
-(`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`)
-rather than scanning or interpreting again. Call-site acquisition uses the same
+and `OptimizationOpportunityAnalysis` reuses the former plus the query methods
+(`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
+That service owns the per-method optimization instruction walk, shape
+classification, lazy memoized reaching-definitions use, and allocation metadata
+projection without opening another allocation or decode path. Its traversal may
+repeat member and type resolution, and its reaching-definitions result is
+memoized within one collection rather than shared with allocation analysis.
+Those reader- and raw-IL-dependent facts arrive through
+`IOptimizationOpportunityResolver`; the producer does not own the metadata
+reader, generic scope, or raw IL. Call-site acquisition uses the same
 `MultiplicityAt` reading for direct-call multiplicity.
-The assembly reader retains, on the allocation path, exactly: PE/body
+The assembly reader retains exactly: PE/body
 acquisition, the intentionally throwing `InstructionDecoder.Decode` +
 `BlockGraph.Build` decode, loop-region computation for the context, method
 identity and generic-scope creation, metadata ownership and token resolution,
-per-method orchestration and recoverable-failure diagnostics,
-optimization-recommendation production, resource/leak analysis, and
-result aggregation.
+raw-IL ownership through the shared narrow method-analysis resolver, per-method
+orchestration and recoverable-failure diagnostics, resource/leak analysis, and
+result aggregation. Topic producers may each traverse the canonical decoded
+instructions for their own policy; this ownership split does not claim one
+instruction traversal overall.
 `MethodInstructionFacts` owns the metadata-free local/argument-slot, operand,
 and single-branch-target grammar shared by safety and allocation interpretation,
 and `CompilerGeneratedNames` owns the unspeakable-name grammar shared by
