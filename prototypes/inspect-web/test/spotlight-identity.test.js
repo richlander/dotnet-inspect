@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  assemblyDescriptorForType,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
@@ -18,6 +19,7 @@ import {
   packageForView,
   packageIdentityKey,
   parameterTitleHtml,
+  removeWorkspacePackage,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
@@ -258,6 +260,26 @@ test("call graph navigation joins asset names through metadata identity", () => 
   });
 });
 
+test("package overview joins member counts by exact asset identity", () => {
+  const descriptors = [
+    { id: "asset:a", name: "Logical", publicMembers: 3 },
+    { id: "asset:b", name: "Logical", publicMembers: 7 }
+  ];
+
+  assert.equal(
+    assemblyDescriptorForType(descriptors, {
+      assembly: "Physical.dll",
+      assemblyId: "asset:b"
+    }),
+    descriptors[1]);
+  assert.equal(
+    assemblyDescriptorForType(descriptors, {
+      assembly: "Physical.dll",
+      assemblyId: "asset:missing"
+    }),
+    null);
+});
+
 test("call graph navigation joins duplicate metadata names by asset identity", () => {
   const firstType = {
     assembly: "A.dll",
@@ -393,6 +415,28 @@ test("workspace package replacement reuses its slot at the package limit", () =>
   assert.deepEqual(retained.evicted, [active]);
 });
 
+test("closing a package removes its coordinate and selects the adjacent tab", () => {
+  const first = packageAt("1.0.0", "net8.0");
+  const active = packageAt("2.0.0", "net9.0");
+  const last = packageAt("3.0.0", "net10.0");
+
+  const removed = removeWorkspacePackage(
+    [first, active, last],
+    active,
+    packageIdentityKey(active));
+
+  assert.deepEqual(removed.packages, [first, last]);
+  assert.equal(removed.active, last);
+  assert.equal(removed.closed, active);
+
+  const only = removeWorkspacePackage(
+    [active],
+    active,
+    packageIdentityKey(active));
+  assert.deepEqual(only.packages, []);
+  assert.equal(only.active, null);
+});
+
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
     appSource,
@@ -434,6 +478,24 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /state\.retryAction = runCallGraphDemo/);
+  assert.match(
+    appSource,
+    /state\.queryNoticeRetryAction = options\.retryAction/);
+  assert.match(
+    appSource,
+    /data-package-close=/);
+  assert.match(
+    appSource,
+    /closePackageTab\(button\.dataset\.packageClose\)/);
+  assert.match(
+    appSource,
+    /const key = assemblyId \|\| `legacy:\$\{asm\}`/);
+  assert.match(
+    appSource,
+    /assemblyDescriptorForType\(pkg\.assemblies, stat\)/);
+  assert.match(
+    appSource,
+    /activatePackage\(targetPackage\)/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

@@ -150,7 +150,9 @@ body {
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
+  cursor: pointer;
 }
+.package-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .package-tab .tab-label { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
 .package-tab small { flex: none; }
 /* Browser-tab style: as a tab is squeezed, shed the version then the icon so the
@@ -167,7 +169,15 @@ body {
 }
 .package-tab small { color: var(--dim); font: 10px var(--mono); }
 .package-cube { color: var(--accent); font: 13px var(--mono); }
-.tab-close { margin-left: 8px; color: var(--dim); }
+.tab-close {
+  flex: none;
+  margin-left: 8px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+}
+.tab-close:hover { color: var(--text); }
 .package-tab:hover { background: var(--panel-raised); color: var(--text); }
 /* The always-present Platform tab: pinned left, non-closable, with a steady width
    floor and an accent glyph so it reads as the fixed home for platform libraries. */

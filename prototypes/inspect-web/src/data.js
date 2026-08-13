@@ -33,6 +33,19 @@ export function packageIdentityKey(pkg) {
     .join("|");
 }
 
+export function assemblyDescriptorForType(assemblies, type) {
+  if (type?.assemblyId) {
+    return assemblies?.find(assembly => assembly.id === type.assemblyId) ?? null;
+  }
+
+  const name = type?.assembly || "";
+  const bare = name.endsWith(".dll") ? name.slice(0, -4) : name;
+  return assemblies?.find(assembly =>
+    assembly.name === name
+    || assembly.name === bare
+    || assembly.name === `${bare}.dll`) ?? null;
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {
@@ -116,6 +129,20 @@ export function retainWorkspacePackage(
     evicted.push(...next.splice(eviction, 1));
   }
   return { packages: next, evicted };
+}
+
+export function removeWorkspacePackage(packages, activePackage, packageKey) {
+  const index = packages.findIndex(item => packageIdentityKey(item) === packageKey);
+  if (index < 0 || packages[index].isRuntimePack) {
+    return { packages, active: activePackage, closed: null };
+  }
+
+  const closed = packages[index];
+  const remaining = packages.filter((_, candidate) => candidate !== index);
+  const active = packageIdentityKey(activePackage) === packageKey
+    ? remaining[Math.min(index, remaining.length - 1)] ?? null
+    : activePackage;
+  return { packages: remaining, active, closed };
 }
 
 export function spotlightCandidateKey(pkg, typeId) {

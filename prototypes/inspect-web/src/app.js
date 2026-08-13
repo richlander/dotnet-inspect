@@ -1,4 +1,5 @@
 import {
+  assemblyDescriptorForType,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   graphTargetNavigationDisposition,
@@ -14,6 +15,7 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
+  removeWorkspacePackage,
   retainWorkspacePackage,
   rootCommands,
   resolveLoadedGraphTargetCandidate,
@@ -91,6 +93,7 @@ const state = {
   home: false,
   platformIndex: null,
   queryNotice: "",
+  queryNoticeRetryAction: null,
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
   requestedFramework: "net10.0",
@@ -733,6 +736,36 @@ function clearWorkspacePackages() {
     releasePackageModelCaches(packageModel);
 }
 
+function selectPackageTab(pkg) {
+  if (!pkg) return;
+  activatePackage(pkg, { resetAccessibility: true });
+  state.home = false;
+  state.selectedTypeId = pkg.types[0]?.id || "";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
+  resetMemberSectionState();
+  render();
+}
+
+function closePackageTab(packageKey) {
+  const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
+  if (!removal.closed) return;
+
+  state.packages = removal.packages;
+  releasePackageModelCaches(removal.closed);
+  if (removal.active) {
+    selectPackageTab(removal.active);
+    return;
+  }
+
+  state.package = null;
+  goHome();
+}
+
 function activatePackage(pkg, { resetAccessibility = false } = {}) {
   const changed = !packageIdentityEquals(state.package, pkg);
   state.package = pkg;
@@ -1180,12 +1213,14 @@ function render() {
         <div class="package-tabs" role="tablist" aria-label="Package scope">
           ${platformTabHtml()}
           ${state.packages.filter(item => !item.isRuntimePack).map(item => `
-            <button class="package-tab ${packageIdentityEquals(item, state.package) ? "active" : ""}" data-package-key="${escapeHtml(packageIdentityKey(item))}" role="tab">
+            <div class="package-tab ${packageIdentityEquals(item, state.package) ? "active" : ""}" data-package-key="${escapeHtml(packageIdentityKey(item))}" role="tab" tabindex="0">
               <span class="package-cube">⬡</span>
               <span class="tab-label">${escapeHtml(item.id)}</span>
               <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
-              ${packageIdentityEquals(item, state.package) ? '<span class="tab-close">×</span>' : ""}
-            </button>`).join("")}
+              ${packageIdentityEquals(item, state.package)
+                ? `<button class="tab-close" data-package-close="${escapeHtml(packageIdentityKey(item))}" type="button" aria-label="Close ${escapeHtml(item.id)}">×</button>`
+                : ""}
+            </div>`).join("")}
         </div>
         <form class="package-query" id="package-query">
           <span>+</span>
@@ -1205,6 +1240,9 @@ function render() {
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
             <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
+            ${state.queryNoticeRetryAction
+              ? '<button id="retry-notice" type="button">retry</button>'
+              : ""}
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
@@ -2965,22 +3003,27 @@ function renderPackageOverview() {
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)) continue;
     const asm = type.assembly || pkg.assembly || "(unknown)";
-    let stat = libStats.get(asm);
-    if (!stat) libStats.set(asm, (stat = { types: 0, kinds: new Map() }));
+    const assemblyId = type.assemblyId || "";
+    const key = assemblyId || `legacy:${asm}`;
+    let stat = libStats.get(key);
+    if (!stat) {
+      stat = { assemblyId, assembly: asm, types: 0, kinds: new Map() };
+      libStats.set(key, stat);
+    }
     stat.types++;
     const kind = typeKind(type.kind);
     stat.kinds.set(kind, (stat.kinds.get(kind) || 0) + 1);
   }
-  const memberFor = asm => {
-    const bare = asm.endsWith(".dll") ? asm.slice(0, -4) : asm;
-    const hit = (pkg.assemblies || []).find(a => a.name === asm || a.name === bare || a.name === `${bare}.dll`);
+  const memberFor = stat => {
+    const hit = assemblyDescriptorForType(pkg.assemblies, stat);
     return hit ? hit.publicMembers : null;
   };
   const libraryRows = [...libStats.entries()]
     .sort((a, b) => b[1].types - a[1].types)
-    .map(([asm, stat]) => {
+    .map(([, stat]) => {
+      const asm = stat.assembly;
       const name = asm.endsWith(".dll") ? asm.slice(0, -4) : asm;
-      const members = memberFor(asm);
+      const members = memberFor(stat);
       const multi = libStats.size > 1;
       const kinds = KIND_ORDER
         .filter(kind => stat.kinds.has(kind))
@@ -3620,17 +3663,24 @@ function highlightCSharp(value) {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-package-key]").forEach(button => button.addEventListener("click", () => {
-    activatePackage(
-      state.packages.find(item => packageIdentityKey(item) === button.dataset.packageKey),
-      { resetAccessibility: true });
-    state.selectedTypeId = state.package.types[0]?.id || "";
-    state.selectedMemberKey = "";
-    state.typeFilter = "";
-    state.namespaceFilter = "";
-    state.kindFilter = "";
-    render();
-  }));
+  document.querySelectorAll("[data-package-key]").forEach(tab => {
+    const activate = () => selectPackageTab(
+      state.packages.find(item => packageIdentityKey(item) === tab.dataset.packageKey));
+    tab.addEventListener("click", event => {
+      if (event.target.closest("[data-package-close]")) return;
+      activate();
+    });
+    tab.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      activate();
+    });
+  });
+  document.querySelectorAll("[data-package-close]").forEach(button =>
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      closePackageTab(button.dataset.packageClose);
+    }));
   document.querySelector("[data-platform-open]")?.addEventListener("click", () => openRuntimePackFromHome());
   // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
   // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
@@ -4027,8 +4077,11 @@ function bindEvents() {
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
     render();
   });
+  document.querySelector("#retry-notice")?.addEventListener("click", () =>
+    state.queryNoticeRetryAction?.());
   document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
     state.package.inspectionError = "";
     render();
@@ -5555,6 +5608,7 @@ function bindHomeEvents() {
   document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
     render();
   });
   const input = document.querySelector("#spotlight-input");
@@ -7421,6 +7475,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     state.retryAction = null;
     state.home = false;
     state.queryNotice = options.queryNotice || "";
+    state.queryNoticeRetryAction = null;
     state.requestedPackage = packageId;
     state.requestedVersion = version;
     state.requestedFramework = framework;
@@ -7505,6 +7560,12 @@ async function loadPackage(packageId, version, framework, options = {}) {
       state.requestedFramework = prevRequested.framework;
       state.error = "";
       appendQueryNotice(friendly.message);
+      state.queryNoticeRetryAction = options.retryAction
+        ?? (() => loadPackage(
+          packageId,
+          version,
+          framework,
+          { ...options, navigationSeq: undefined }));
       render();
     } else {
       state.error = state.queryNotice
@@ -7782,28 +7843,35 @@ async function runCallGraphDemo() {
   const targetPackage = await loadPackage(
     "Microsoft.Extensions.DependencyInjection.Abstractions",
     "10.0.0",
-    "net10.0");
+    "net10.0",
+    { retryAction: runCallGraphDemo });
   if (!targetPackage) {
     state.retryAction = runCallGraphDemo;
     render();
     return;
   }
-  const loggingPackage = await loadPackage("Microsoft.Extensions.Logging", "10.0.0", "net10.0");
+  const loggingPackage = await loadPackage(
+    "Microsoft.Extensions.Logging",
+    "10.0.0",
+    "net10.0",
+    { retryAction: runCallGraphDemo });
   if (!loggingPackage) {
     state.retryAction = runCallGraphDemo;
     render();
     return;
   }
-  const httpPackage = await loadPackage("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+  const httpPackage = await loadPackage(
+    "Microsoft.Extensions.Http",
+    "10.0.0",
+    "net10.0",
+    { retryAction: runCallGraphDemo });
   if (!httpPackage) {
     state.retryAction = runCallGraphDemo;
     render();
     return;
   }
 
-  activatePackage(state.packages.find(item =>
-    item.id === "Microsoft.Extensions.DependencyInjection.Abstractions"
-    && item.version === "10.0.0") || targetPackage);
+  activatePackage(targetPackage);
   const type = state.package.types.find(item =>
     item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
   const member = type && memberGroups(type).find(item =>
