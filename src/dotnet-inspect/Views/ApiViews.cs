@@ -47,6 +47,14 @@ public class TypeView
 
     [MarkoutIgnore]
     [JsonIgnore]
+    internal byte[]? SourceChecksum { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal string? SourceChecksumAlgorithm { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
     public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
 
     [MarkoutIgnore]
@@ -307,11 +315,21 @@ public class TypeView
     {
         List<TypeSourceFileRow> rows = [];
         if (SourceUrl != null)
-            rows.Add(new TypeSourceFileRow(SourceUrl));
+        {
+            rows.Add(new TypeSourceFileRow(SourceUrl)
+            {
+                Checksum = SourceChecksum,
+                ChecksumAlgorithm = SourceChecksumAlgorithm,
+            });
+        }
         if (AdditionalSourceFiles is { Count: > 0 })
             rows.AddRange(AdditionalSourceFiles
                 .Where(file => file.SourceUrl != null)
-                .Select(file => new TypeSourceFileRow(file.SourceUrl!)));
+                .Select(file => new TypeSourceFileRow(file.SourceUrl!)
+                {
+                    Checksum = file.SourceChecksum,
+                    ChecksumAlgorithm = file.SourceChecksumAlgorithm,
+                }));
         return rows.Count > 0 ? rows : null;
     }
 }
@@ -664,6 +682,14 @@ public record MemberIndexRow(
 public record TypeSourceFileRow(string Url)
 {
     public string Url { get; init; } = CSharpIdentifier.ContainRenderedText(Url);
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal byte[]? Checksum { get; init; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal string? ChecksumAlgorithm { get; init; }
 }
 
 [MarkoutSerializable]
@@ -691,6 +717,14 @@ public record MemberSourceLocationRow(
     public int? EndLine { get; init; } = EndLine;
     [MarkoutSkipNull]
     public string? Url { get; init; } = Contain(Url);
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal byte[]? Checksum { get; init; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal string? ChecksumAlgorithm { get; init; }
 
     private static string? Contain(string? value)
         => value is null ? null : CSharpIdentifier.ContainRenderedText(value);

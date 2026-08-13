@@ -203,7 +203,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Type forwarders.</summary>
     public List<TypeForwarderInfo> TypeForwarders()
-        => AssemblyDetailScanner.ScanTypeForwarders(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return AssemblyDetailScanner.ScanTypeForwarders(_image.PEReader);
+    }
 
     /// <summary>Assembly audit metadata (P-Invoke counts, flags, …).</summary>
     public AssemblyAuditMetadata AuditMetadata()
