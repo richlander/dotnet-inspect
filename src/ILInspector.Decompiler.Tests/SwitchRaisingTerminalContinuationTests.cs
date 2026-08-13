@@ -455,6 +455,175 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
+    public void OwnedCaseBranchToConsumedDefaultDispatcher_DeclinesSwitchRaise()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10]));
+        loopBody.Add(dispatch);
+
+        var defaultDispatcher = new Block(0x08);
+        defaultDispatcher.Add(new Branch(0x20));
+        loopBody.Add(defaultDispatcher);
+
+        var enterDefaultArm = new Block();
+        enterDefaultArm.Add(new Branch(0x08));
+
+        var caseBody = new Block(0x10);
+        caseBody.Add(new IfStatement(
+            new LoadArgument(1, "enterDefault", s_bool),
+            enterDefaultArm,
+            elseArm: null));
+        caseBody.Add(new Continue());
+        loopBody.Add(caseBody);
+
+        var defaultBody = new Block(0x20);
+        defaultBody.Add(new StoreLocal(
+            0,
+            s_int,
+            new Constant(42, s_int)));
+        defaultBody.Add(new Continue());
+        loopBody.Add(defaultBody);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [
+                new Parameter("value", s_int),
+                new Parameter("enterDefault", s_bool),
+            ],
+            [s_int]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Contains(
+            function.Descendants.OfType<Block>(),
+            block => block.StartOffset == 0x08);
+    }
+
+    [Fact]
+    public void OwnedCaseBranchEnteringSiblingCaseRegion_DeclinesSwitchRaise()
+    {
+        var body = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10, 0x20]));
+        body.Add(dispatch);
+
+        var defaultDispatcher = new Block(0x08);
+        defaultDispatcher.Add(new Branch(0x40));
+        body.Add(defaultDispatcher);
+
+        var enterSiblingArm = new Block();
+        enterSiblingArm.Add(new Branch(0x30));
+        var firstCase = new Block(0x10);
+        firstCase.Add(new IfStatement(
+            new LoadArgument(1, "enterSibling", s_bool),
+            enterSiblingArm,
+            elseArm: null));
+        firstCase.Add(new Branch(0x40));
+        body.Add(firstCase);
+
+        var secondCase = new Block(0x20);
+        secondCase.Add(new ConditionalBranch(
+            new LoadArgument(2, "condition", s_bool),
+            0x30));
+        body.Add(secondCase);
+
+        var falseBody = new Block(0x28);
+        falseBody.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        falseBody.Add(new Branch(0x38));
+        body.Add(falseBody);
+
+        var trueBody = new Block(0x30);
+        trueBody.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
+        body.Add(trueBody);
+
+        var secondCaseExit = new Block(0x38);
+        secondCaseExit.Add(new Branch(0x40));
+        body.Add(secondCaseExit);
+
+        var join = new Block(0x40);
+        join.Add(new Return(null));
+        body.Add(join);
+
+        var function = CreateFunction(
+            body,
+            [
+                new Parameter("value", s_int),
+                new Parameter("enterSibling", s_bool),
+                new Parameter("condition", s_bool),
+            ],
+            [s_int]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+    }
+
+    [Fact]
+    public void OwnedCaseBranchWithinSameRegion_RaisesSwitch()
+    {
+        var body = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10, 0x20]));
+        body.Add(dispatch);
+
+        var defaultDispatcher = new Block(0x08);
+        defaultDispatcher.Add(new Branch(0x30));
+        body.Add(defaultDispatcher);
+
+        var enterLaterArm = new Block();
+        enterLaterArm.Add(new Branch(0x18));
+        var firstCase = new Block(0x10);
+        firstCase.Add(new IfStatement(
+            new LoadArgument(1, "enterLater", s_bool),
+            enterLaterArm,
+            elseArm: null));
+        body.Add(firstCase);
+
+        var firstCaseExit = new Block(0x18);
+        firstCaseExit.Add(new Branch(0x30));
+        body.Add(firstCaseExit);
+
+        var secondCase = new Block(0x20);
+        secondCase.Add(new Branch(0x30));
+        body.Add(secondCase);
+
+        var join = new Block(0x30);
+        join.Add(new Return(null));
+        body.Add(join);
+
+        var function = CreateFunction(
+            body,
+            [
+                new Parameter("value", s_int),
+                new Parameter("enterLater", s_bool),
+            ]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<Switch>());
+    }
+
+    [Fact]
     public void DispatchHeadDirectBranchEnteringContinueCase_RemainsFlat()
     {
         var loopBody = new BlockContainer();
@@ -684,4 +853,19 @@ public class SwitchRaisingTerminalContinuationTests
             locals is null ? [] : [.. locals],
             body);
     }
+
+    static IrFunction CreateFunction(
+        BlockContainer body,
+        IReadOnlyList<Parameter> parameters,
+        IReadOnlyList<TypeRef>? locals = null) =>
+        new(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [.. parameters],
+                HasThis: false,
+                GenericParameterCount: 0),
+            locals is null ? [] : [.. locals],
+            body);
 }

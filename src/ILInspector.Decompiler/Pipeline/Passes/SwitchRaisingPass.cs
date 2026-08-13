@@ -247,7 +247,20 @@ public sealed class SwitchRaisingPass : IIrPass
 
         // Nothing outside the switch (the block s aside, which dispatches) may
         // enter the owned blocks — including a leave from another container.
-        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
+        // A bare default dispatcher is tiled as owned but omitted by Build, so
+        // no surviving transfer may target it, including one from a case body.
+        bool defaultDispatcherIsRetained =
+            defaultBodyHead == defaultIndex || defaultSharesTarget == defaultIndex;
+        int? consumedDefaultDispatcherOffset = defaultDispatcherIsRetained
+            ? null
+            : blocks[defaultIndex].StartOffset;
+        if (!OnlyReachedByTable(
+                blocks,
+                owned,
+                s,
+                leaveTargets,
+                regions,
+                consumedDefaultDispatcherOffset))
             return false;
 
         Build(function, container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
@@ -419,7 +432,7 @@ public sealed class SwitchRaisingPass : IIrPass
             if (idx < defaultIndex || idx >= regionEnd)
                 return false;
 
-        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
+        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets, regions))
             return false;
 
         GuardRange? guardRange = TryGetPrecedingEnumGuardRange(
@@ -1365,15 +1378,25 @@ public sealed class SwitchRaisingPass : IIrPass
         return visited != region.Count;
     }
 
-    static bool OnlyReachedByTable(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, HashSet<int> leaveTargets)
+    static bool OnlyReachedByTable(
+        IReadOnlyList<Block> blocks,
+        HashSet<int> owned,
+        int s,
+        HashSet<int> leaveTargets,
+        IReadOnlyDictionary<int, List<int>>? regions = null,
+        int? consumedDefaultDispatcherOffset = null)
     {
-        var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
-        if (ownedOffsets.Overlaps(leaveTargets))
+        var ownedByOffset = owned.ToDictionary(i => blocks[i].StartOffset);
+        if (ownedByOffset.Keys.Any(leaveTargets.Contains))
             return false;
+        var regionByBlock = new Dictionary<int, int>();
+        if (regions is not null)
+            foreach (var (head, region) in regions)
+                foreach (int block in region)
+                    regionByBlock.Add(block, head);
+
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if (owned.Contains(idx))
-                continue;
             foreach (var node in blocks[idx].Children)
             {
                 if (idx == s
@@ -1383,8 +1406,22 @@ public sealed class SwitchRaisingPass : IIrPass
                     continue;
                 }
                 foreach (int target in TargetsInFunctionScope(node))
-                    if (ownedOffsets.Contains(target))
+                {
+                    if (target == consumedDefaultDispatcherOffset)
                         return false;
+                    if (!ownedByOffset.TryGetValue(target, out int targetBlock))
+                        continue;
+                    if (!owned.Contains(idx))
+                        return false;
+
+                    // Build emits each region into a separate section container.
+                    // A surviving transfer between them may later target a block
+                    // nested by that section's independent structuring pass.
+                    if (regionByBlock.TryGetValue(idx, out int sourceRegion)
+                        && regionByBlock.TryGetValue(targetBlock, out int targetRegion)
+                        && sourceRegion != targetRegion)
+                        return false;
+                }
             }
         }
         return true;
