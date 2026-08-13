@@ -62,7 +62,7 @@ cross-document node correspondence, generate the full-body structural review
 introduced by #4092 from one `CSharpStructuralComparison` and paste its
 Before/After caret overlays and structural rows verbatim.
 
-#4092 currently supplies the comparison and presentation consumer, not a
+PR #4092 currently supplies the comparison and presentation consumer, not a
 producer that maps base-render C# node ids to head-render C# node ids. Until
 such a producer exists, record `Not generated — no product correspondence
 issuer` and retain the standalone Before and After bodies. Never hand-place
