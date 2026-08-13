@@ -352,9 +352,8 @@ internal static class LibraryMetadataService
             }
 
             if (options.CollectIdentifierConfusionReferenceTree
-                && inspection.AssemblyInfo?.References is { } auditReferences)
+                && inspection.AssemblyReferenceIdentities is { Count: > 0 } auditReferences)
             {
-                var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(
                     inspection.AssemblyInfo.AssemblyName
@@ -363,7 +362,7 @@ internal static class LibraryMetadataService
                 inspection.IdentifierConfusionReferenceClosure =
                     BuildTransitiveReferences(
                         auditReferences,
-                        sourceDir,
+                        path,
                         visited,
                         logger,
                         deduplicate: true,
@@ -877,8 +876,8 @@ internal static class LibraryMetadataService
                     if (failOnReadError)
                     {
                         throw new IdentifierConfusionReferenceTraversalException(
-                            $"Failed to inspect resolved assembly reference "
-                            + $"'{reference.Name}' at '{resolved.Path}': {ex.Message}",
+                            reference.Name,
+                            resolved.Path ?? string.Empty,
                             ex);
                     }
 
@@ -891,15 +890,25 @@ internal static class LibraryMetadataService
         return nodes;
     }
 
-    private sealed class IdentifierConfusionReferenceTraversalException
+    internal sealed class IdentifierConfusionReferenceTraversalException
         : InvalidOperationException
     {
         public IdentifierConfusionReferenceTraversalException(
-            string message,
+            string referenceName,
+            string resolvedPath,
             Exception innerException)
-            : base(message, innerException)
+            : base(
+                $"Failed to inspect resolved assembly reference "
+                + $"'{referenceName}' at '{resolvedPath}': {innerException.Message}",
+                innerException)
         {
+            ReferenceName = referenceName;
+            FailureKind = innerException.GetType().Name;
         }
+
+        public string ReferenceName { get; }
+
+        public string FailureKind { get; }
     }
 
     /// <summary>

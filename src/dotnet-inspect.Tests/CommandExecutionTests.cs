@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
@@ -970,6 +971,29 @@ public partial class CommandExecutionTests
                 "NUGET_PACKAGES",
                 original);
         }
+    }
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunAppInDirectoryAsync(
+            string workingDirectory,
+            params string[] args)
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(typeof(CommandLineBuilder).Assembly.Location);
+        foreach (string arg in args)
+            startInfo.ArgumentList.Add(arg);
+
+        using Process process = Process.Start(startInfo)!;
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return (process.ExitCode, await output, await error);
     }
 
     private static IEnumerable<string> JsonStrings(JsonElement element)
@@ -11715,6 +11739,68 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "Failed to inspect resolved assembly reference 'Bridge'",
                 error);
+
+            var relative = await RunAppInDirectoryAsync(
+                tempDir,
+                "library",
+                "Root.dll",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, relative.Exit);
+            Assert.Empty(relative.Output);
+            Assert.Contains(
+                "Failed to inspect resolved assembly reference 'Bridge'",
+                relative.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure()
+    {
+        var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(libraryDirectory, "A.Valid.dll"),
+                "\u0405ystem.Valid");
+            File.WriteAllText(
+                Path.Combine(libraryDirectory, "Bridge.dll"),
+                "not a managed assembly");
+            File.Delete(packagePath);
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("U+0405→S", output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll' while inspecting reference "
+                    + "'Bridge': BadImageFormatException",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain(
+                "IdentifierConfusionReferenceTraversalException",
+                error);
         }
         finally
         {
@@ -11746,6 +11832,32 @@ public partial class CommandExecutionTests
         Assert.Contains("System.Private.CoreLib", output);
         Assert.DoesNotContain("## Dependencies", output);
         Assert.DoesNotContain("Name: System.Text.Json", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeResolvesBareRelativePath()
+    {
+        var (_, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            var (exit, output, error) = await RunAppInDirectoryAsync(
+                tempDir,
+                "library",
+                "Root.dll",
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Micr\u03bFsoft.Transitive", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

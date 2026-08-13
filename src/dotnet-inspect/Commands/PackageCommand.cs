@@ -3336,6 +3336,8 @@ public class PackageCommand
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
+        List<(string FileName, string ReferenceName, string FailureKind)>
+            identifierAuditFailures = [];
         foreach (var selection in selected)
         {
             string relativePath = Path.GetRelativePath(
@@ -3364,15 +3366,29 @@ public class PackageCommand
                     integrationOpportunitiesEntry: opportunities);
             }
 
-            LibraryInspection? inspection =
-                integrationsWorkspace is null
-                    ? await InspectAsync(null, null, null)
-                    : await InspectGroupedAssemblyAsync(
-                        integrationsWorkspace,
-                        selection.Path,
+            LibraryInspection? inspection;
+            try
+            {
+                inspection =
+                    integrationsWorkspace is null
+                        ? await InspectAsync(null, null, null)
+                        : await InspectGroupedAssemblyAsync(
+                            integrationsWorkspace,
+                            selection.Path,
+                            relativePath,
+                            groupedIntegrationsFailures,
+                            InspectAsync);
+            }
+            catch (LibraryMetadataService.IdentifierConfusionReferenceTraversalException ex)
+            {
+                identifierAuditFailures.Add(
+                    (
                         relativePath,
-                        groupedIntegrationsFailures,
-                        InspectAsync);
+                        ex.ReferenceName,
+                        ex.FailureKind));
+                continue;
+            }
+
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
@@ -3390,8 +3406,11 @@ public class PackageCommand
             integrationsWorkspace is not null
             && WriteGroupedIntegrationsFailures(
                 groupedIntegrationsFailures);
+        bool identifierAuditIncomplete =
+            WriteIdentifierAuditFailures(identifierAuditFailures);
         int completionExitCode =
-            AllLibrariesCompletionExitCode(integrationsIncomplete);
+            AllLibrariesCompletionExitCode(
+                integrationsIncomplete || identifierAuditIncomplete);
 
         if (inspections.Count == 0)
         {
@@ -3535,9 +3554,31 @@ public class PackageCommand
         return failures.Count > 0;
     }
 
+    internal static bool WriteIdentifierAuditFailures(
+        IEnumerable<(
+            string FileName,
+            string ReferenceName,
+            string FailureKind)> auditFailures)
+    {
+        ArgumentNullException.ThrowIfNull(auditFailures);
+
+        var failures = auditFailures
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, referenceName, failureKind) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Identifier audit failed for '{fileName}' while inspecting "
+                + $"reference '{referenceName}': {failureKind}");
+        }
+
+        return failures.Count > 0;
+    }
+
     internal static int AllLibrariesCompletionExitCode(
-        bool integrationsIncomplete) =>
-        integrationsIncomplete ? 1 : 0;
+        bool incomplete) =>
+        incomplete ? 1 : 0;
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()

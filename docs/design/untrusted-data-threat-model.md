@@ -1054,7 +1054,10 @@ gates full-effective discovery,
 `LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
 gates direct/closure identity deduplication,
 `LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
-gates visible traversal failure, and
+gates visible traversal failure for absolute and bare relative library paths,
+`PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
+gates clean diagnostics, healthy partial results, and nonzero completion for
+survey-mode traversal failure, and
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates content-free Markdown and structured output.
 
