@@ -508,6 +508,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "ilroundtrip",
         "packaging",
         "shipped",
+        "skills",
     ];
     if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
         .SetEquals(requiredOutputs))
@@ -891,6 +892,9 @@ static void ValidateOutputConsumers(YamlMappingNode jobs)
     var conditions = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["markdownlint"] = "needs.changes.outputs.docs == 'true'",
+        ["skill-gate"] =
+            "needs.changes.outputs.skills == 'true' && " +
+            "github.event_name == 'pull_request'",
         ["test"] =
             "needs.changes.outputs.code == 'true' && " +
             "github.event_name == 'pull_request'",
@@ -1009,6 +1013,7 @@ static void ValidateConsumerStepGuards(
         ["test/Install ilasm/ildasm/mdv"] = "bash",
         ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
         ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
+        ["skill-gate/Run embedded skill tests"] = "bash",
     };
     var allowedId = new Dictionary<string, string>(StringComparer.Ordinal)
     {
