@@ -412,45 +412,44 @@ public static class PackageExtractor
         Action<string>? log,
         string tempDirPrefix)
     {
+        // Full producer list in one EnumerateCached so app-cache slots for
+        // every authorized source precede any global-packages tier.
         IReadOnlyList<string> producerKeys =
             NuGetSourceResolver.SourceKeys(sources);
         PackageContentAdmission.Outcome? lastCacheRejection = null;
-        foreach (string producerKey in producerKeys)
+        foreach (IPackageContent cached in s_packageStore.EnumerateCached(
+                     normalizedName,
+                     normalizedVersion,
+                     producerKeys,
+                     log))
         {
-            foreach (IPackageContent cached in s_packageStore.EnumerateCached(
-                         normalizedName,
-                         normalizedVersion,
-                         [producerKey],
-                         log))
+            PackageContentAdmission.Outcome admission =
+                await PackageContentAdmission.EvaluateAsync(
+                    cached,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None).ConfigureAwait(false);
+            if (admission != PackageContentAdmission.Outcome.Admissible)
             {
-                PackageContentAdmission.Outcome admission =
-                    await PackageContentAdmission.EvaluateAsync(
-                        cached,
-                        PackagePayloadLimits.Default,
-                        CancellationToken.None).ConfigureAwait(false);
-                if (admission != PackageContentAdmission.Outcome.Admissible)
-                {
-                    lastCacheRejection = admission;
-                    log?.Invoke(
-                        admission == PackageContentAdmission.Outcome.MissingArchive
-                            ? $"Cached content for package '{packageName}' version "
-                                + $"'{version}' from one authorized producer has no "
-                                + "retained archive and no usable extracted tree."
-                            : $"Cached content for package '{packageName}' version "
-                                + $"'{version}' from one authorized producer does not "
-                                + "satisfy the current payload limits.");
-                    continue;
-                }
-
-                return new PackageExtractionResult(
-                    cached.RootPath!,
-                    null,
-                    packageName,
-                    version,
-                    cached.NupkgPath,
-                    FromCache: true,
-                    cached.ProducerKey);
+                lastCacheRejection = admission;
+                log?.Invoke(
+                    admission == PackageContentAdmission.Outcome.MissingArchive
+                        ? $"Cached content for package '{packageName}' version "
+                            + $"'{version}' from one authorized producer has no "
+                            + "retained archive and no usable extracted tree."
+                        : $"Cached content for package '{packageName}' version "
+                            + $"'{version}' from one authorized producer does not "
+                            + "satisfy the current payload limits.");
+                continue;
             }
+
+            return new PackageExtractionResult(
+                cached.RootPath!,
+                null,
+                packageName,
+                version,
+                cached.NupkgPath,
+                FromCache: true,
+                cached.ProducerKey);
         }
 
         if (HttpClientFactory.IsOffline)

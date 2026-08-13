@@ -9,14 +9,13 @@ namespace DotnetInspector.Packages;
 /// Cache hits with a retained archive are revalidated against the full archive
 /// limit set. Product-owned trees (app-cache slots carrying the commit marker)
 /// must then match the archive entry paths, sizes, and CRC-32 values so a valid
-/// nupkg cannot launder a mutated extract. Foreign trees such as NuGet's
-/// global-packages folder are not 1:1 extracts (OPC entries omitted, sidecar
-/// metadata files, nuspec casing) and cannot be rewritten by this product — they
-/// receive reparse-point and expanded-byte gates only. Archive-less entries
-/// require a top-level <c>.nuspec</c> and a full tree walk that counts every
-/// filesystem node toward <see cref="PackagePayloadLimits.MaxEntryCount"/>.
-/// Expanded-byte tally omits the retained archive path (when present) and the
-/// internal commit marker.
+/// nupkg cannot launder a mutated extract. Foreign trees such as NuGet's global-packages folder are not 1:1 extracts
+/// (OPC entries omitted, sidecar metadata files, nuspec casing) and cannot be
+/// rewritten by this product — they receive reparse-point, expanded-byte, and
+/// full-node entry-count gates so zero-byte fan-out cannot unbounded-walk.
+/// Archive-less entries require a top-level <c>.nuspec</c> and the same full
+/// tree walk. Expanded-byte tally omits the retained archive path (when
+/// present) and the internal commit marker.
 /// </remarks>
 internal static class PackageContentAdmission
 {
@@ -133,9 +132,10 @@ internal static class PackageContentAdmission
     /// immutable <paramref name="requiresArchiveTreeMatch"/> flag from the
     /// store (or a still-present commit marker as a belt-and-suspenders check
     /// for hand-constructed test content). Foreign layouts (global-packages)
-    /// get walk-only safety gates plus the same top-level <c>.nuspec</c>
-    /// usability gate as archive-less slots so a retained nupkg beside an
-    /// empty folder is not published as content.
+    /// get walk-only safety gates (reparse, expanded bytes, every FS node
+    /// toward <see cref="PackagePayloadLimits.MaxEntryCount"/>) plus the same
+    /// top-level <c>.nuspec</c> usability gate as archive-less slots so a
+    /// retained nupkg beside an empty folder is not published as content.
     /// </summary>
     internal static bool AdmitExtractedTreeWithArchive(
         string root,
@@ -156,7 +156,7 @@ internal static class PackageContentAdmission
                     root,
                     retainedNupkgPath,
                     limits,
-                    countEveryNodeTowardEntryLimit: false);
+                    countEveryNodeTowardEntryLimit: true);
 
     static bool HasCommitMarker(string root)
     {
@@ -384,12 +384,12 @@ internal static class PackageContentAdmission
         while (pending.Count > 0)
         {
             string directory = pending.Pop();
-            List<string> children;
+            IEnumerable<string> children;
             try
             {
-                children = Directory
-                    .EnumerateFileSystemEntries(directory)
-                    .ToList();
+                // Incremental: do not materialize a whole directory before the
+                // entry-count gate can reject a hostile fan-out.
+                children = Directory.EnumerateFileSystemEntries(directory);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

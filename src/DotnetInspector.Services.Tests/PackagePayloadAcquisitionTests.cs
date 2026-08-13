@@ -627,6 +627,161 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    /// <summary>
+    /// Foreign/global-packages trees count every filesystem node toward
+    /// <see cref="PackagePayloadLimits.MaxEntryCount"/> so a zero-byte fan-out
+    /// cannot unbounded-walk past the archive's own entry budget.
+    /// </summary>
+    [Fact]
+    public async Task ForeignTree_ExcessNodes_IsRejected()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll",
+                "Sample.Package.nuspec");
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1]);
+            // Zero-byte fan-out under an otherwise small tree.
+            for (int i = 0; i < 20; i++)
+                File.WriteAllBytes(Path.Combine(root, $"pad-{i}"), []);
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: "global");
+            Assert.False(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    new PackagePayloadLimits { MaxEntryCount = 8 },
+                    CancellationToken.None));
+            Assert.True(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    new PackagePayloadLimits { MaxEntryCount = 50 },
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// App-cache slots for every authorized producer precede the single
+    /// global-packages tier — not app+global per producer.
+    /// </summary>
+    [Fact]
+    public void ListCachedPackageContent_AllAppSlotsBeforeGlobal()
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string primaryKey = NuGetCache.GetSourceKey(Primary.Url);
+            string nugetKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            byte[] nupkgBytes = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll",
+                $"{PackageId}.nuspec");
+
+            foreach (string sourceKey in new[] { primaryKey, nugetKey })
+            {
+                string staging = Path.Combine(stagingRoot, sourceKey);
+                Directory.CreateDirectory(staging);
+                string nupkg = Path.Combine(staging, "package.nupkg");
+                File.WriteAllBytes(nupkg, nupkgBytes);
+                string extracted = Path.Combine(staging, "from-nupkg");
+                ZipFile.ExtractToDirectory(nupkg, extracted);
+                NuGetCache.CommitPackage(
+                    extracted,
+                    nupkg,
+                    PackageId,
+                    Version,
+                    sourceKey);
+            }
+
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            File.WriteAllText(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                $$"""{"source":"{{Primary.Url}}"}""");
+            File.WriteAllBytes(
+                Path.Combine(
+                    globalDir,
+                    $"{PackageId.ToLowerInvariant()}.{Version.ToLowerInvariant()}.nupkg"),
+                [1]);
+
+            IReadOnlyList<CachedPackage> listed =
+                NuGetCache.ListCachedPackageContent(
+                    PackageId,
+                    Version,
+                    [primaryKey, nugetKey],
+                    globalPackagesPath: globalRoot);
+
+            Assert.Equal(3, listed.Count);
+            Assert.True(listed[0].RequiresArchiveTreeMatch);
+            Assert.Equal(primaryKey, listed[0].ProducerKey);
+            Assert.True(listed[1].RequiresArchiveTreeMatch);
+            Assert.Equal(nugetKey, listed[1].ProducerKey);
+            Assert.False(listed[2].RequiresArchiveTreeMatch);
+            Assert.Equal(primaryKey, listed[2].ProducerKey);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Acquisition must hand the store the full authorized producer list so
+    /// app-before-global ordering is not defeated by a per-producer loop.
+    /// </summary>
+    [Fact]
+    public async Task Acquire_EnumeratesCachedOnceWithAllAuthorizedProducers()
+    {
+        var store = new RecordingEnumerateStore();
+        using var client = new HttpClient(new NotFoundHandler());
+
+        _ = await PackagePayloadAcquisition.AcquireAsync(
+            client,
+            Coordinate(Primary, NuGetOrg),
+            store,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        IReadOnlyList<string> expected =
+        [
+            NuGetCache.GetSourceKey(Primary.Url),
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+        ];
+        Assert.Equal(
+            [expected],
+            store.EnumerateAllowedSourceKeys.Select(keys => keys!.ToArray()));
+    }
+
     [Fact]
     public void ArchiveBackedTree_CommitMarkerDoesNotConsumeExpandedBudget()
     {
@@ -2058,6 +2213,41 @@ public sealed class PackagePayloadAcquisitionTests
             Stream nupkg,
             CancellationToken cancellationToken = default)
             => ValueTask.FromResult(winner);
+    }
+
+    /// <summary>
+    /// Records each <see cref="IPackageStore.EnumerateCached"/> allowed-source
+    /// argument so callers can prove they pass the full producer list once.
+    /// </summary>
+    sealed class RecordingEnumerateStore : IPackageStore
+    {
+        internal List<IReadOnlyList<string>?> EnumerateAllowedSourceKeys { get; } = [];
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => null;
+
+        public IEnumerable<IPackageContent> EnumerateCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+        {
+            EnumerateAllowedSourceKeys.Add(allowedSourceKeys);
+            yield break;
+        }
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException(
+                "RecordingEnumerateStore does not commit.");
     }
 
     /// <summary>

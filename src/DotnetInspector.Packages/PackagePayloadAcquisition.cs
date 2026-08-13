@@ -144,36 +144,37 @@ public static class PackagePayloadAcquisition
                 $"No source is authorized to provide package '{coordinate.PackageId}'.");
         }
 
+        // One EnumerateCached over the full authorized producer list so the
+        // store can yield every app-cache slot (configured order) before any
+        // global-packages tier. Per-producer loops would inspect producer A's
+        // global entry before producer B's app entry.
         IReadOnlyList<string> producerKeys =
             NuGetSourceResolver.SourceKeys(coordinate.Sources);
-        foreach (string producerKey in producerKeys)
+        foreach (IPackageContent cached in store.EnumerateCached(
+                     coordinate.PackageId,
+                     coordinate.Version,
+                     producerKeys,
+                     log))
         {
-            foreach (IPackageContent cached in store.EnumerateCached(
-                         coordinate.PackageId,
-                         coordinate.Version,
-                         [producerKey],
-                         log))
+            PackageContentAdmission.Outcome admission =
+                await PackageContentAdmission.EvaluateAsync(
+                    cached,
+                    limits,
+                    cancellationToken).ConfigureAwait(false);
+            if (admission != PackageContentAdmission.Outcome.Admissible)
             {
-                PackageContentAdmission.Outcome admission =
-                    await PackageContentAdmission.EvaluateAsync(
-                        cached,
-                        limits,
-                        cancellationToken).ConfigureAwait(false);
-                if (admission != PackageContentAdmission.Outcome.Admissible)
-                {
-                    log?.Invoke(
-                        admission == PackageContentAdmission.Outcome.MissingArchive
-                            ? $"Cached content for package '{coordinate.PackageId}' version "
-                                + $"'{coordinate.Version}' from one authorized producer has "
-                                + "no retained archive and no usable extracted tree."
-                            : $"Cached content for package '{coordinate.PackageId}' version "
-                                + $"'{coordinate.Version}' from one authorized producer does "
-                                + "not satisfy the current payload limits.");
-                    continue;
-                }
-
-                return Result(cached, PackagePayloadOrigin.Cache);
+                log?.Invoke(
+                    admission == PackageContentAdmission.Outcome.MissingArchive
+                        ? $"Cached content for package '{coordinate.PackageId}' version "
+                            + $"'{coordinate.Version}' from one authorized producer has "
+                            + "no retained archive and no usable extracted tree."
+                        : $"Cached content for package '{coordinate.PackageId}' version "
+                            + $"'{coordinate.Version}' from one authorized producer does "
+                            + "not satisfy the current payload limits.");
+                continue;
             }
+
+            return Result(cached, PackagePayloadOrigin.Cache);
         }
 
         List<string> failedSources = [];
