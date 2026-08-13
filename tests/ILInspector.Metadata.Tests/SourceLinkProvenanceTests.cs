@@ -2271,11 +2271,11 @@ public class SourceLinkProvenanceTests
     /// reader fails here rather than being quietly tolerated.
     /// </para>
     /// <para>
-    /// Three entries are legitimate and stay. <c>LocalRepoSourceAcquisition</c> maps an
-    /// already-attributed URL onto a local git object, <c>SourceLinkUrls</c> classifies a URL as
-    /// content-addressed for caching, and <c>GitHubUrlResolver</c> builds a raw URL from a
-    /// github.com one. All three parse rather than match text, and none of them decides where
-    /// source came from. Comment text is ignored: naming the host in prose is not reading it.
+    /// Two non-attributing readers are legitimate and stay. <c>LocalRepoSourceAcquisition</c>
+    /// maps an already-attributed URL onto a local git object, and <c>GitHubUrlResolver</c> builds
+    /// a raw URL from a github.com one. Both parse rather than match text, and neither decides
+    /// where source came from. Comment text is ignored: naming the host in prose is not reading
+    /// it.
     /// </para>
     /// </remarks>
     [Fact]
@@ -2294,7 +2294,6 @@ public class SourceLinkProvenanceTests
             [
                 "DotnetInspector.Services/GitHubUrlResolver.cs",
                 "DotnetInspector.Services/LocalRepoSourceAcquisition.cs",
-                "DotnetInspector.Services/SourceLinkUrls.cs",
                 "SourceLinkFetch/SourceLinkProvenance.cs",
             ],
             readers);

@@ -12160,6 +12160,68 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
+    {
+        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
+        {
+            var method = type.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
+            var il = method.GetMethodBody()!.GetILAsByteArray()!;
+            var offset = Array.IndexOf(il, opcode);
+            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
+            return (method.MetadataToken, offset);
+        }
+
+        var (allSignalsToken, virtualCallOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            0x6F);
+        var (_, allocationOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            0x8D);
+        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            0x28);
+
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(
+            path,
+            [
+                $"hot-virtual-call 0x{allSignalsToken:X8}+0x{virtualCallOffset:X}",
+                $"allocation 0x{allSignalsToken:X8}+0x{allocationOffset:X}",
+                $"unsafe-call 0x{unsafeToken:X8}+0x{unsafeCallOffset:X}"
+            ],
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            var rows = document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
+
+            var callsite = Assert.Single(rows, row => row.GetProperty("label").GetString() == "hot-virtual-call");
+            Assert.Equal("callsite", callsite.GetProperty("meaning").GetString());
+            Assert.Contains("virtual dispatch", callsite.GetProperty("evidence").GetString());
+
+            var allocation = Assert.Single(rows, row => row.GetProperty("label").GetString() == "allocation");
+            Assert.Equal("allocation", allocation.GetProperty("meaning").GetString());
+
+            var safety = Assert.Single(rows, row => row.GetProperty("label").GetString() == "unsafe-call");
+            Assert.Equal("safety", safety.GetProperty("meaning").GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");

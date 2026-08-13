@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using System.Diagnostics;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -37,6 +38,16 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusHarnessProcessTests
 {
+    [Fact]
+    public void HarnessBinary_CarriesKnownBuildSourceState()
+    {
+        Assembly assembly = Assembly.LoadFile(HarnessBinary());
+        string state = AuthoredCorpusHistoryStore.ReadSourceStateAtBuild(
+            assembly.GetCustomAttributes<AssemblyMetadataAttribute>());
+
+        Assert.Contains(state, new[] { "clean", "dirty" });
+    }
+
     [Fact]
     public void Harness_RendersStructuralReviewFromOwnerIssuedComparison()
     {
@@ -391,6 +402,8 @@ public class AuthoredCorpusHarnessProcessTests
     [Theory]
     [InlineData("--benchmark-authored-corpus")]
     [InlineData("--verify-authored-corpus")]
+    [InlineData("--append-authored-corpus-history")]
+    [InlineData("--verify-authored-corpus-history")]
     public void Harness_RefusesRegardlessOfTheOrderTheFlagsWereTyped(string gate)
     {
         var run = RunHarness("--history-card", gate, "/does-not-exist.jsonl");
@@ -410,6 +423,8 @@ public class AuthoredCorpusHarnessProcessTests
     [Theory]
     [InlineData("--benchmark-authored-corpus")]
     [InlineData("--verify-authored-corpus")]
+    [InlineData("--append-authored-corpus-history")]
+    [InlineData("--verify-authored-corpus-history")]
     public void Harness_RefusesHelpWhenAGateWasAlsoRequested(string gate)
     {
         var run = RunHarness(gate, "/does-not-exist.jsonl", "--help");
@@ -479,6 +494,35 @@ public class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(0, run.ExitCode);
         Assert.Contains("usage: decompiler-harness", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void Harness_DispatchesTheTypedHistoryVerifier()
+    {
+        var run = RunHarness(
+            "--verify-authored-corpus-history",
+            "--history-path",
+            "/does-not-exist/history.jsonl");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("EVIL history verification failed:", run.Output, StringComparison.Ordinal);
+        Assert.Contains("history.jsonl", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void Harness_DispatchesTheTypedHistoryAppender()
+    {
+        var run = RunHarness(
+            "--append-authored-corpus-history",
+            "/does-not-exist/run.json",
+            "--history-path",
+            "/does-not-exist/history.jsonl");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("Could not append EVIL history:", run.Output, StringComparison.Ordinal);
+        Assert.Contains("history.jsonl", run.Output, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -664,6 +708,8 @@ public class AuthoredCorpusHarnessProcessTests
         ("--harvest-evil-corpus", ["--harvest-evil-corpus", UnusedOutputPath]),
         ("--benchmark-authored-corpus", ["--benchmark-authored-corpus", "/does-not-exist.jsonl"]),
         ("--verify-authored-corpus", ["--verify-authored-corpus", "/does-not-exist.jsonl"]),
+        ("--append-authored-corpus-history", ["--append-authored-corpus-history", "/does-not-exist.json"]),
+        ("--verify-authored-corpus-history", ["--verify-authored-corpus-history"]),
     ];
 
     /// <summary>

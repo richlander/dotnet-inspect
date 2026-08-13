@@ -40,8 +40,19 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool IncludeAspNetCoreSharedFramework { get; init; } = true;
     public bool IncludeSiblingAssemblies { get; init; } = true;
     public bool IncludeDepsJsonAssets { get; init; } = true;
+    /// <summary>
+    /// Allows Any-scope resolution to use an installed platform assembly only
+    /// when no enabled candidate tier owns the requested simple name.
+    /// </summary>
+    public bool IncludeInstalledPlatformFallback { get; init; }
     public bool PreferImplementationAssemblies { get; init; }
     public bool AllowPlatformAssemblyVersionRollForward { get; init; }
+    /// <summary>
+    /// Treats the metadata version as descriptive while retaining the resolver's
+    /// existing name, culture, and public-key-token matching. Omitted culture
+    /// and token values retain their existing wildcard behavior.
+    /// </summary>
+    public bool IgnoreAssemblyVersion { get; init; }
     public bool ExcludeTargetAssembly { get; init; }
     /// <summary>
     /// Retains the bytes acquired for each descriptor so later opens observe
@@ -71,6 +82,18 @@ public sealed class AssemblyDependencyResolver :
     IAssemblyReferenceResolver,
     IAssemblyBindingPolicy
 {
+    enum CandidateTier
+    {
+        Sibling,
+        Package,
+        TrustedPlatform,
+        SharedFramework,
+        DepsJson,
+        ProjectAssets,
+        Corpus,
+        InstalledPlatform,
+    }
+
     readonly AssemblyDependencyResolutionOptions _options;
     readonly ConcurrentDictionary<
         string,
@@ -217,10 +240,16 @@ public sealed class AssemblyDependencyResolver :
     }
 
     public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        => ResolveCore(identity, scope).Assembly;
+
+    AssemblyResolutionAttempt ResolveCore(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
     {
-        var candidates = scope == AssemblyResolutionScope.Platform
-            ? _allCandidates ??= CollectDependencies(deduplicate: false)
-            : ResolveAll();
+        var candidates =
+            _allCandidates ??= CollectDependencies(deduplicate: false);
+        bool candidateUnavailable = false;
+        CandidateTier? activeTier = null;
 
         foreach (var dependency in candidates)
         {
@@ -231,29 +260,62 @@ public sealed class AssemblyDependencyResolver :
                 && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
                 continue;
 
+            CandidateTier tier = TierFor(dependency.Provenance);
+            if (activeTier is { } previousTier
+                && tier != previousTier)
+            {
+                if (candidateUnavailable
+                    || scope != AssemblyResolutionScope.Platform)
+                {
+                    return new AssemblyResolutionAttempt(
+                        Assembly: null,
+                        candidateUnavailable);
+                }
+            }
+            activeTier = tier;
+
             bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
                 && _options.AllowPlatformAssemblyVersionRollForward;
             ResolvedAssemblyReference? selected = Descriptor(
                 dependency.Path,
                 ResolutionProvenance(dependency));
-            if (selected is null
-                || !MatchesIdentity(
-                    identity,
+            if (selected is null)
+            {
+                candidateUnavailable = true;
+                continue;
+            }
+            if (!identity.MatchesCandidate(
                     selected.Identity,
-                    allowVersionRollForward))
+                    allowVersionRollForward,
+                    _options.IgnoreAssemblyVersion))
             {
                 continue;
             }
 
-            return selected;
+            return new AssemblyResolutionAttempt(
+                selected,
+                CandidateUnavailable: false);
+        }
+
+        if (candidateUnavailable)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                CandidateUnavailable: true);
         }
 
         // The target may reference an older platform contract than the running
         // inspector, and TPA contains only assemblies in the tool's own closure.
         // Resolve the remaining platform name from installed packs/runtimes.
-        // Decompiler callers may opt into platform roll-forward, which ignores
-        // the assembly version while retaining culture and public-key-token checks.
-        if (scope == AssemblyResolutionScope.Platform && PlatformResolver.IsPlatformCandidate(identity.Name))
+        // Callers may opt into one-way platform roll-forward or version-insensitive
+        // descriptive selection while retaining culture and public-key-token checks.
+        bool useInstalledPlatformFallback =
+            scope == AssemblyResolutionScope.Platform
+            || scope == AssemblyResolutionScope.Any
+                && _options.IncludeInstalledPlatformFallback
+                && activeTier is null;
+        if (useInstalledPlatformFallback
+            && PlatformResolver.IsPlatformCandidate(identity.Name))
         {
             var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
                 identity.Name,
@@ -266,19 +328,52 @@ public sealed class AssemblyDependencyResolver :
                         framework ?? "InstalledPlatform",
                         frameworkVersion: null,
                         AssemblyDependencyProvenance.InstalledPlatformAssembly.ToString()));
-                if (selected is not null
-                    && MatchesIdentity(
-                        identity,
-                        selected.Identity,
-                        _options.AllowPlatformAssemblyVersionRollForward))
+                if (selected is null)
                 {
-                    return selected;
+                    candidateUnavailable = true;
+                }
+                else if (identity.MatchesCandidate(
+                        selected.Identity,
+                        _options.AllowPlatformAssemblyVersionRollForward,
+                        _options.IgnoreAssemblyVersion))
+                {
+                    return new AssemblyResolutionAttempt(
+                        selected,
+                        CandidateUnavailable: false);
                 }
             }
         }
 
-        return null;
+        return new AssemblyResolutionAttempt(
+            Assembly: null,
+            candidateUnavailable);
     }
+
+    static CandidateTier TierFor(
+        AssemblyDependencyProvenance provenance) =>
+        provenance switch
+        {
+            AssemblyDependencyProvenance.SiblingAssembly =>
+                CandidateTier.Sibling,
+            AssemblyDependencyProvenance.PackageDependency =>
+                CandidateTier.Package,
+            AssemblyDependencyProvenance.TrustedPlatformAssembly =>
+                CandidateTier.TrustedPlatform,
+            AssemblyDependencyProvenance.SharedFramework =>
+                CandidateTier.SharedFramework,
+            AssemblyDependencyProvenance.DepsJsonAsset =>
+                CandidateTier.DepsJson,
+            AssemblyDependencyProvenance.ProjectAsset =>
+                CandidateTier.ProjectAssets,
+            AssemblyDependencyProvenance.CorpusAssembly =>
+                CandidateTier.Corpus,
+            AssemblyDependencyProvenance.InstalledPlatformAssembly =>
+                CandidateTier.InstalledPlatform,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(provenance),
+                provenance,
+                "Unknown assembly dependency provenance."),
+        };
 
     AssemblyBindingSelection SelectCore(
         AssemblyBindingRequest request)
@@ -288,10 +383,7 @@ public sealed class AssemblyDependencyResolver :
             return request.Target switch
             {
                 AssemblyBindingTarget.AssemblyReference reference =>
-                    Resolve(reference.Identity, request.Scope) is
-                        { } assembly
-                        ? AssemblyBindingSelection.Found(assembly)
-                        : AssemblyBindingSelection.NotFound(),
+                    SelectReference(reference.Identity, request.Scope),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
                     SelectIntrinsicCoreLibrary(request.Scope),
                 _ => AssemblyBindingSelection.Invalid(
@@ -315,6 +407,20 @@ public sealed class AssemblyDependencyResolver :
         }
     }
 
+    AssemblyBindingSelection SelectReference(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+    {
+        AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
+        if (attempt.Assembly is { } assembly)
+            return AssemblyBindingSelection.Found(assembly);
+        return attempt.CandidateUnavailable
+            ? AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable))
+            : AssemblyBindingSelection.NotFound();
+    }
+
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
         AssemblyResolutionScope scope)
     {
@@ -330,9 +436,7 @@ public sealed class AssemblyDependencyResolver :
                     AssemblyBindingFailureKind.CandidateUnavailable))
             : IntrinsicCoreLibraryBinding.Select(
                 target,
-                facade => Resolve(facade, scope) is { } selected
-                    ? AssemblyBindingSelection.Found(selected)
-                    : AssemblyBindingSelection.NotFound());
+                facade => SelectReference(facade, scope));
     }
 
     static AssemblyResolutionProvenance ResolutionProvenance(
@@ -452,33 +556,6 @@ public sealed class AssemblyDependencyResolver :
             _snapshotImageBytes -= bytes;
     }
 
-    static bool MatchesIdentity(
-        AssemblyReferenceIdentity expected,
-        AssemblyReferenceIdentity actual,
-        bool allowVersionRollForward = false)
-    {
-        if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (expected.Version is null
-            && string.IsNullOrEmpty(expected.Culture)
-            && string.IsNullOrEmpty(expected.PublicKeyToken))
-        {
-            return true;
-        }
-
-        if (expected.Version is not null
-            && actual.Version != expected.Version
-            && (!allowVersionRollForward || actual.Version < expected.Version))
-            return false;
-        if (!CultureMatches(expected.Culture, actual.Culture))
-            return false;
-        if (expected.PublicKeyToken is { Length: > 0 }
-            && !string.Equals(actual.PublicKeyToken, expected.PublicKeyToken, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return true;
-    }
-
     readonly record struct AssemblyBindingRequestKey(
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
@@ -502,18 +579,9 @@ public sealed class AssemblyDependencyResolver :
             };
     }
 
-    static bool CultureMatches(string? expected, string? actual)
-    {
-        if (string.IsNullOrEmpty(expected))
-            return true;
-
-        static string Normalize(string? culture)
-            => string.IsNullOrEmpty(culture) || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
-                ? ""
-                : culture;
-
-        return Normalize(expected).Equals(Normalize(actual), StringComparison.OrdinalIgnoreCase);
-    }
+    readonly record struct AssemblyResolutionAttempt(
+        ResolvedAssemblyReference? Assembly,
+        bool CandidateUnavailable);
 
     public static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
         => PackageDependencyReferencePaths(targetPath, packageRoots: null);
