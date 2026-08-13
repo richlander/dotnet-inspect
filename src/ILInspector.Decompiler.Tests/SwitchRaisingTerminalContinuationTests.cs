@@ -188,6 +188,53 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
+    public void CaseTargetJoinWithInteriorizedLoopAndOuterContinue_DeclinesSwitchRaise()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x50, 0x20]));
+        loopBody.Add(dispatch);
+
+        var defaultBody = new Block(0x10);
+        defaultBody.Add(new Branch(0x50));
+        loopBody.Add(defaultBody);
+
+        var loopHead = new Block(0x20);
+        loopHead.Add(new ConditionalBranch(
+            new LoadArgument(1, "repeat", s_bool),
+            0x40));
+        loopBody.Add(loopHead);
+
+        var continueOuterLoop = new Block(0x30);
+        continueOuterLoop.Add(new Continue());
+        loopBody.Add(continueOuterLoop);
+
+        var loopLatch = new Block(0x40);
+        loopLatch.Add(new Branch(0x20));
+        loopBody.Add(loopLatch);
+
+        var join = new Block(0x50);
+        join.Add(new Return(null));
+        loopBody.Add(join);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [
+                new Parameter("value", s_int),
+                new Parameter("repeat", s_bool),
+            ]);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<Continue>());
+    }
+
+    [Fact]
     public void LoopOwnedBreakInsideContinueSection_DeclinesSwitchWrapping()
     {
         var loopBody = new BlockContainer();

@@ -395,6 +395,10 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
+        if (regions.Values.Any(region =>
+                ContainsOuterOwnedContinue(blocks, region)
+                && RegionContainsCycle(blocks, region, offsetToIndex)))
+            return false;
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
         // terminating case (which would wrongly empty-case it). A predecessor
