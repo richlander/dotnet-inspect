@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Core;
@@ -18,7 +19,10 @@ public sealed record CommittedPackage(
 /// An exact cached package payload and the canonical identity of the source
 /// that produced it.
 /// </summary>
-internal sealed record CachedPackage(string ExtractPath, string ProducerKey);
+internal sealed record CachedPackage(
+        string ExtractPath,
+        string ProducerKey,
+        bool RequiresArchiveTreeMatch);
 
 /// <summary>
 /// Utilities for working with NuGet package caches.
@@ -174,35 +178,60 @@ public static class NuGetCache
         IReadOnlyList<string>? allowedSourceKeys,
         string? globalPackagesPath = null)
     {
+        foreach (CachedPackage candidate in EnumerateCachedPackageContent(
+                     packageName,
+                     version,
+                     allowedSourceKeys,
+                     globalPackagesPath))
+        {
+            return candidate;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Materializes <see cref="EnumerateCachedPackageContent"/> (tests / callers
+    /// that need the full tier set). Prefer the lazy enumerator on admission
+    /// paths so global-packages is not touched when an earlier tier admits.
+    /// </summary>
+    internal static IReadOnlyList<CachedPackage> ListCachedPackageContent(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        string? globalPackagesPath = null)
+        => [.. EnumerateCachedPackageContent(
+            packageName,
+            version,
+            allowedSourceKeys,
+            globalPackagesPath)];
+
+    /// <summary>
+    /// Cache tiers for a coordinate, preferred order: product-owned app-cache
+    /// slots (configured producer order), then NuGet global-packages. Yields
+    /// lazily so a usable app-cache hit never opens global
+    /// <c>.nupkg.metadata</c> or inspects a corrupt foreign tree.
+    /// </summary>
+    internal static IEnumerable<CachedPackage> EnumerateCachedPackageContent(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        string? globalPackagesPath = null)
+    {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
 
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{normalizedVersion}";
+        bool any = false;
 
-        // Check NuGet cache first (more likely to have packages) — skip in isolated mode
-        if (!_skipNuGetCache)
-        {
-            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
-            CachedPackage? global = TryGetGlobalPackageContent(
-                nugetCachePath,
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
-            if (global is not null)
-            {
-                InfoTracker.RecordCacheHit();
-                CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
-                return global;
-            }
-        }
-
-        // Check app cache. A read happens before the tool knows which source
-        // would serve the package, so it asks every source the caller is
-        // currently configured to read from, in configured order. A slot
-        // belonging to any other source is not consulted: those bytes were
-        // fetched under an authority this caller no longer claims.
+        // App cache first: product-owned and preferred when both tiers exist.
+        // A read happens before the tool knows which source would serve the
+        // package, so it asks every source the caller is currently configured
+        // to read from, in configured order. A slot belonging to any other
+        // source is not consulted: those bytes were fetched under an authority
+        // this caller no longer claims.
         var appCachePath = GetPackageContentCachePath();
         if (Directory.Exists(appCachePath))
         {
@@ -213,22 +242,64 @@ public static class NuGetCache
                     normalizedName,
                     normalizedVersion,
                     sourceKey);
-                if (IsCommittedPackageValid(
+                // Marker match alone is enough to surface the slot. Layout and
+                // archive admission decide usability so a damaged extracted
+                // tree still reaches a typed offline diagnostic.
+                if (IsCommittedPackageSlotPresent(
                     appPackageDir,
                     normalizedName,
                     normalizedVersion,
                     sourceKey))
                 {
-                    InfoTracker.RecordCacheHit();
-                    CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
-                    return new CachedPackage(appPackageDir, sourceKey);
+                    if (!any)
+                    {
+                        any = true;
+                        InfoTracker.RecordCacheHit();
+                        CacheTelemetry.Record(
+                            "packages",
+                            cacheKey,
+                            CacheAccessResult.Hit);
+                    }
+
+                    yield return new CachedPackage(
+                        appPackageDir,
+                        sourceKey,
+                        RequiresArchiveTreeMatch: true);
                 }
             }
         }
 
-        CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
-        InfoTracker.RecordCacheMiss();
-        return null;
+        // Global-packages only after the caller has exhausted earlier tiers
+        // (admission rejected them or none existed).
+        if (!_skipNuGetCache)
+        {
+            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
+            CachedPackage? global = TryGetGlobalPackageContent(
+                nugetCachePath,
+                normalizedName,
+                normalizedVersion,
+                allowedSourceKeys);
+            if (global is not null)
+            {
+                if (!any)
+                {
+                    any = true;
+                    InfoTracker.RecordCacheHit();
+                    CacheTelemetry.Record(
+                        "nuget-global-packages",
+                        cacheKey,
+                        CacheAccessResult.Hit);
+                }
+
+                yield return global;
+            }
+        }
+
+        if (!any)
+        {
+            CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
+            InfoTracker.RecordCacheMiss();
+        }
     }
 
     internal static CachedPackage? TryGetGlobalPackageContent(
@@ -241,8 +312,10 @@ public static class NuGetCache
             globalPackagesPath,
             packageName,
             version);
+        // Do not require a full valid layout here: admission decides whether a
+        // retained nupkg or extracted tree is usable. A damaged global-packages
+        // slot must still surface so offline errors are not "not found".
         if (!Directory.Exists(packageDirectory)
-            || !IsCachedPackageValid(packageDirectory, packageName)
             || !TryReadGlobalPackageSourceKey(
                 packageDirectory,
                 out string? producerKey)
@@ -251,8 +324,27 @@ public static class NuGetCache
             return null;
         }
 
-        return new CachedPackage(packageDirectory, producerKey);
+        return new CachedPackage(
+            packageDirectory,
+            producerKey,
+            RequiresArchiveTreeMatch: false);
     }
+
+    /// <summary>
+    /// Hard cap on NuGet's <c>.nupkg.metadata</c> sidecar. Real files are tiny
+    /// JSON; an unbounded read would let a hostile global-packages tree OOM
+    /// the host when the tier is consulted.
+    /// </summary>
+    internal const int MaxGlobalPackageMetadataBytes = 64 * 1024;
+
+    /// <summary>
+    /// Hard cap on the product-owned commit marker
+    /// (<see cref="CommitMarkerFileName"/>). Legitimate content is a short
+    /// ASCII line (<c>package-content-v5:id@ver:sourceKey</c>); an unbounded
+    /// <c>ReadAllText</c> would let a hostile app-cache slot OOM the host on
+    /// every <see cref="EnumerateCachedPackageContent"/> probe.
+    /// </summary>
+    internal const int MaxCommitMarkerBytes = 4 * 1024;
 
     private static bool TryReadGlobalPackageSourceKey(
         string packageDirectory,
@@ -261,7 +353,43 @@ public static class NuGetCache
         string metadataPath = Path.Combine(packageDirectory, ".nupkg.metadata");
         try
         {
-            byte[] metadata = File.ReadAllBytes(metadataPath);
+            var info = new FileInfo(metadataPath);
+            if (!info.Exists
+                || info.Length <= 0
+                || info.Length > MaxGlobalPackageMetadataBytes)
+            {
+                sourceKey = null;
+                return false;
+            }
+
+            byte[] metadata = new byte[checked((int)info.Length)];
+            using (FileStream stream = new(
+                metadataPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                int offset = 0;
+                while (offset < metadata.Length)
+                {
+                    int read = stream.Read(metadata.AsSpan(offset));
+                    if (read == 0)
+                    {
+                        sourceKey = null;
+                        return false;
+                    }
+
+                    offset += read;
+                }
+
+                // One more byte means the file grew past the admitted length.
+                if (stream.ReadByte() != -1)
+                {
+                    sourceKey = null;
+                    return false;
+                }
+            }
+
             using var document = HardenedJson.Parse(metadata);
             if (!document.RootElement.TryGetProperty("source", out var source)
                 || source.ValueKind != System.Text.Json.JsonValueKind.String
@@ -278,7 +406,8 @@ public static class NuGetCache
             IOException
             or UnauthorizedAccessException
             or System.Text.Json.JsonException
-            or InvalidOperationException)
+            or InvalidOperationException
+            or OverflowException)
         {
             sourceKey = null;
             return false;
@@ -316,7 +445,11 @@ public static class NuGetCache
     /// already committed winner.
     /// </summary>
     /// <param name="extractedPath">Path to the extracted package contents</param>
-    /// <param name="nupkgPath">Optional source archive to retain with the committed contents</param>
+    /// <param name="nupkgPath">
+    /// Source archive to retain with the committed contents. When null, a
+    /// matching <c>.nupkg</c> is synthesized from the staged extract so
+    /// product-owned admission (<c>RequiresArchiveTreeMatch</c>) can open it.
+    /// </param>
     /// <param name="packageName">The package name</param>
     /// <param name="version">The package version</param>
     /// <param name="sourceKey">
@@ -362,6 +495,21 @@ public static class NuGetCache
 
         if (Directory.Exists(targetPath))
         {
+            // A concurrent winner may have published between the validity
+            // check and Exists. Re-check before treating the slot as corrupt.
+            if (IsCommittedPackageValid(
+                targetPath,
+                normalizedName,
+                normalizedVersion,
+                sourceKey))
+            {
+                return OpenCommittedPackage(
+                    targetPath,
+                    normalizedName,
+                    normalizedVersion,
+                    sourceKey);
+            }
+
             throw new InvalidDataException(
                 $"Package cache entry '{targetPath}' is incomplete or corrupt. Clear the cache before retrying.");
         }
@@ -375,19 +523,43 @@ public static class NuGetCache
         {
             CopyDirectory(extractedPath, stagingPath);
 
-            string? committedNupkgPath = null;
-            if (nupkgPath is not null)
-            {
-                committedNupkgPath = Path.Combine(
-                    stagingPath,
-                    $"{normalizedName}.{normalizedVersion}.nupkg");
-                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
-            }
-
             if (!IsCachedPackageValid(stagingPath))
             {
                 throw new InvalidDataException(
                     $"Package '{packageName}@{version}' has no valid extracted package structure.");
+            }
+
+            // Product-owned admission requires a retained archive that matches
+            // the extract (RequiresArchiveTreeMatch). Always publish one: copy
+            // the caller's nupkg when provided, otherwise zip the staged extract
+            // before the commit marker is written so the archive does not
+            // contain the marker (marker + nupkg remain the only allowed extras).
+            string committedNupkgPath = Path.Combine(
+                stagingPath,
+                $"{normalizedName}.{normalizedVersion}.nupkg");
+            if (nupkgPath is not null)
+            {
+                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
+            }
+            else
+            {
+                string tempNupkg = Path.Combine(
+                    parentDir,
+                    $".{sourceKey}.nupkg-{Guid.NewGuid():N}");
+                try
+                {
+                    ZipFile.CreateFromDirectory(
+                        stagingPath,
+                        tempNupkg,
+                        CompressionLevel.NoCompression,
+                        includeBaseDirectory: false);
+                    File.Move(tempNupkg, committedNupkgPath);
+                }
+                finally
+                {
+                    if (File.Exists(tempNupkg))
+                        File.Delete(tempNupkg);
+                }
             }
 
             using (var marker = new FileStream(
@@ -428,9 +600,7 @@ public static class NuGetCache
 
             return new CommittedPackage(
                 targetPath,
-                committedNupkgPath is null
-                    ? null
-                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
+                Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
                 sourceKey);
         }
         finally
@@ -603,21 +773,69 @@ public static class NuGetCache
         string cachedPath,
         string packageName,
         string version,
+        string sourceKey) =>
+        IsCachedPackageValid(cachedPath)
+        && IsCommittedPackageSlotPresent(
+            cachedPath,
+            packageName,
+            version,
+            sourceKey);
+
+    /// <summary>
+    /// True when the app-cache slot exists and carries this source's commit
+    /// marker, regardless of whether the extracted tree is still a usable
+    /// package layout.
+    /// </summary>
+    private static bool IsCommittedPackageSlotPresent(
+        string cachedPath,
+        string packageName,
+        string version,
         string sourceKey)
     {
         try
         {
-            if (!IsCachedPackageValid(cachedPath))
+            if (!Directory.Exists(cachedPath))
                 return false;
 
             // The source is already selected by the path; the marker restates it
             // so an entry that was moved or hand-copied between slots is not
-            // mistaken for one this source committed.
-            return File.ReadAllText(
-                Path.Combine(cachedPath, CommitMarkerFileName))
-                .Equals(
-                    GetCommitMarkerContent(packageName, version, sourceKey),
-                    StringComparison.Ordinal);
+            // mistaken for one this source committed. Bound the read the same
+            // way as global .nupkg.metadata: Length gate, fixed buffer, trailing
+            // growth probe — never File.ReadAllText.
+            string markerPath = Path.Combine(cachedPath, CommitMarkerFileName);
+            var info = new FileInfo(markerPath);
+            if (!info.Exists
+                || info.Length <= 0
+                || info.Length > MaxCommitMarkerBytes)
+            {
+                return false;
+            }
+
+            byte[] markerBytes = new byte[checked((int)info.Length)];
+            using (FileStream stream = new(
+                markerPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                int offset = 0;
+                while (offset < markerBytes.Length)
+                {
+                    int read = stream.Read(markerBytes.AsSpan(offset));
+                    if (read == 0)
+                        return false;
+
+                    offset += read;
+                }
+
+                if (stream.ReadByte() != -1)
+                    return false;
+            }
+
+            string actual = Encoding.UTF8.GetString(markerBytes);
+            return actual.Equals(
+                GetCommitMarkerContent(packageName, version, sourceKey),
+                StringComparison.Ordinal);
         }
         catch (IOException)
         {
@@ -737,15 +955,4 @@ public static class NuGetCache
         }
     }
 
-    /// <summary>
-    /// Gets cached source content for a URL, if available.
-    /// Delegates to <see cref="CoreCache"/>.
-    /// </summary>
-    public static string? TryGetCachedSource(string url) => CoreCache.TryGet("sources", url, "txt");
-
-    /// <summary>
-    /// Caches source content for a URL.
-    /// Delegates to <see cref="CoreCache"/>.
-    /// </summary>
-    public static void CacheSource(string url, string content) => CoreCache.Set("sources", url, content, "txt");
 }

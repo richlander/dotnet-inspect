@@ -83,6 +83,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<AssemblyReference> AssemblyReferences()
         => AssemblyInspector.ExtractReferences(_image.PEReader);
 
+    /// <summary>Direct typed assembly-reference identities without presentation projection.</summary>
+    public List<AssemblyReferenceIdentity> AssemblyReferenceIdentities()
+        => AssemblyInspector.ExtractReferenceIdentities(_image.PEReader);
+
     /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
@@ -98,7 +102,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
-        => ResourceScanner.Scan(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return ResourceScanner.Scan(_image.PEReader);
+    }
 
     /// <summary>
     /// Extracts embedded manifest resources beneath a directory without allowing
@@ -140,7 +147,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Discriminated-union types.</summary>
     public List<UnionTypeInfo> UnionTypes()
-        => UnionTypeScanner.Scan(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return UnionTypeScanner.Scan(_image.PEReader);
+    }
 
     /// <summary>Extension methods.</summary>
     public IEnumerable<ExtensionMethodInfo> ExtensionMethods(bool includeAll = false)
@@ -172,7 +182,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Type forwarders.</summary>
     public List<TypeForwarderInfo> TypeForwarders()
-        => AssemblyDetailScanner.ScanTypeForwarders(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return AssemblyDetailScanner.ScanTypeForwarders(_image.PEReader);
+    }
 
     /// <summary>Assembly audit metadata (P-Invoke counts, flags, …).</summary>
     public AssemblyAuditMetadata AuditMetadata()

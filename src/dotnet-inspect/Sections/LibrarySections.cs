@@ -21,9 +21,6 @@ public static class LibrarySections
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
-    public const string ScannerResources = "Resources";
-    public const string ScannerUnionTypes = "UnionTypes";
-    public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerSwitches = "Switches";
@@ -75,7 +72,12 @@ public static class LibrarySections
             .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
-                [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition])
+                [
+                    CustomAttributesQuery.Definition,
+                    ExtensionMethodsQuery.Definition,
+                    ResourcesQuery.Definition,
+                    TypeForwardersQuery.Definition,
+                ])
             .Add<InspectionFailures>()
             .Add<ILOffset>()
             .Add<MemberContext>()
@@ -131,10 +133,10 @@ public static class LibrarySections
             .Add<ArrayPoolEscapes>(HasMethodBodies)
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
-            .Add<Resources>()
+            .Add<Resources>(ResourcesQuery.Definition)
             .Add<CustomAttributes>(CustomAttributesQuery.Definition)
-            .Add<UnionTypes>()
-            .Add<TypeForwarders>()
+            .Add<UnionTypes>(UnionTypesQuery.Definition)
+            .Add<TypeForwarders>(TypeForwardersQuery.Definition)
             .Add<NonNormalizedPaths>()
             .AddMetadataLens()
             .AddBaseCategory(SectionCategoryNames.Library,
@@ -188,23 +190,9 @@ public static class LibrarySections
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerResources, SectionCost.NetworkFree, ctx =>
-                ctx.Model.ResourceInspection = ctx.Scan(
-                    session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
-            .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
-                ctx.Model.UnionTypeInspection = ctx.Scan(
-                    session => LibraryMetadataService.ScanUnionTypes(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger)))
-            .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
-                ctx.Model.TypeForwarderInspection = ctx.Scan(
-                    session => LibraryMetadataService.ScanTypeForwarders(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger)))
             .AddBundle(
                 ScannerInfoCounts,
-                ScannerClassifiedMethods,
-                ScannerResources,
-                ScannerTypeForwarders)
+                ScannerClassifiedMethods)
             .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
@@ -304,6 +292,18 @@ public static class LibrarySections
                             return new ExtensionMethodsResult.Failed(ex);
                         }
                     }))
+            .Add(ResourcesQuery.Definition, ctx =>
+                ctx.Query(
+                    ResourcesQuery.Execute,
+                    ex => new ResourcesResult.Failed(ex)))
+            .Add(TypeForwardersQuery.Definition, ctx =>
+                ctx.Query(
+                    TypeForwardersQuery.Execute,
+                    ex => new TypeForwardersResult.Failed(ex)))
+            .Add(UnionTypesQuery.Definition, ctx =>
+                ctx.Query(
+                    UnionTypesQuery.Execute,
+                    ex => new UnionTypesResult.Failed(ex)))
             .AddSourceLinkQueries(RequireSourceLinkContext);
     }
 
@@ -819,7 +819,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Resources;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerResources;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceInspection.CanRenderWithPresence(model.HasManifestResources);
     }
@@ -837,7 +837,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.UnionTypes;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerUnionTypes;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.UnionTypeInspection.CanRenderWithPresence(model.HasUnionTypes);
     }
@@ -846,7 +846,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerTypeForwarders;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarderInspection.CanRenderWithPresence(model.HasExportedTypeForwarders);
     }

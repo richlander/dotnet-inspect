@@ -22,16 +22,33 @@ public sealed class InMemoryPackageStore : IPackageStore
         IReadOnlyList<string>? allowedSourceKeys,
         Action<string>? log = null)
     {
+        foreach (IPackageContent content in EnumerateCached(
+                     packageName,
+                     version,
+                     allowedSourceKeys,
+                     log))
+        {
+            return content;
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<IPackageContent> EnumerateCached(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        Action<string>? log = null)
+    {
         foreach (var sourceKey in allowedSourceKeys ?? [])
         {
             if (!_packages.TryGetValue(Key(packageName, version, sourceKey), out var bytes))
                 continue;
 
             log?.Invoke($"Using cached package: {packageName} {version}");
-            return new InMemoryPackageContent(bytes, fromCache: true, sourceKey);
+            yield return new InMemoryPackageContent(bytes, fromCache: true, sourceKey);
         }
-
-        return null;
     }
 
     /// <inheritdoc />

@@ -16,8 +16,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.Decompiler.Tests" />
     <InternalsVisibleTo Include="ILInspector.Research" />
-    <!-- The diagnostic harness reuses the runtime-ported ILReader to walk raw IL
-         independently of the semantic importer (the annotation check oracle). -->
+    <!-- The diagnostic harness drives internal pipeline types directly
+         (IrFunction, PassContext, StructuringDiagnostics) for stage dumps and
+         stop-reason tallies. The runtime-ported ILReader it once needed from
+         here is now public in ILInspector.Instructions. -->
     <InternalsVisibleTo Include="decompiler-harness" />
   </ItemGroup>
 

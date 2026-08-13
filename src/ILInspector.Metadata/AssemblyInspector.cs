@@ -98,7 +98,11 @@ public static class AssemblyInspector
 
             if (includeReferences)
             {
-                info.References = ExtractReferences(metadataReader);
+                List<AssemblyReferenceIdentity> identities =
+                    ExtractReferenceIdentities(metadataReader);
+                info.References = identities.Count == 0
+                    ? null
+                    : identities.Select(static identity => identity.ToReference()).ToList();
             }
         }
 
@@ -125,12 +129,18 @@ public static class AssemblyInspector
 
     /// <summary>Extracts only the direct assembly references from an open PE image.</summary>
     public static List<AssemblyReference> ExtractReferences(PEReader peReader)
+        => ExtractReferenceIdentities(peReader)
+            .Select(static identity => identity.ToReference())
+            .ToList();
+
+    /// <summary>Extracts only the direct typed assembly-reference identities from an open PE image.</summary>
+    public static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         if (!peReader.HasMetadata)
             return [];
 
-        return ExtractReferences(peReader.GetMetadataReader()) ?? [];
+        return ExtractReferenceIdentities(peReader.GetMetadataReader());
     }
 
     /// <summary>
@@ -227,10 +237,18 @@ public static class AssemblyInspector
     /// Extracts assembly references from a file path.
     /// </summary>
     public static List<AssemblyReference> ExtractReferences(string assemblyPath)
+        => ExtractReferenceIdentities(assemblyPath)
+            .Select(static identity => identity.ToReference())
+            .ToList();
+
+    /// <summary>
+    /// Extracts typed assembly-reference identities from a file path.
+    /// </summary>
+    public static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(string assemblyPath)
     {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
-        return ExtractReferences(peReader);
+        return ExtractReferenceIdentities(peReader);
     }
 
     /// <summary>
@@ -238,14 +256,70 @@ public static class AssemblyInspector
     /// </summary>
     public static (List<AssemblyReference> References, string? Company) ExtractReferencesAndCompany(string assemblyPath)
     {
+        var (identities, company) = ExtractReferenceIdentitiesAndCompany(assemblyPath);
+        return (
+            identities.Select(static identity => identity.ToReference()).ToList(),
+            company);
+    }
+
+    /// <summary>
+    /// Extracts typed assembly-reference identities and company name in a single pass.
+    /// </summary>
+    public static (List<AssemblyReferenceIdentity> References, string? Company)
+        ExtractReferenceIdentitiesAndCompany(string assemblyPath)
+    {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
+        return ExtractReferenceIdentitiesAndCompany(peReader);
+    }
 
+    /// <summary>
+    /// Extracts assembly references and company name from a resolved descriptor.
+    /// </summary>
+    public static (List<AssemblyReference> References, string? Company) ExtractReferencesAndCompany(
+        ResolvedAssemblyReference assembly)
+    {
+        var (identities, company) = ExtractReferenceIdentitiesAndCompany(assembly);
+        return (
+            identities.Select(static identity => identity.ToReference()).ToList(),
+            company);
+    }
+
+    /// <summary>
+    /// Extracts typed assembly-reference identities and company name from a resolved descriptor.
+    /// </summary>
+    public static (List<AssemblyReferenceIdentity> References, string? Company)
+        ExtractReferenceIdentitiesAndCompany(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        using var stream = assembly.OpenRead();
+        using var peReader = new PEReader(stream);
+        return ExtractReferenceIdentitiesAndCompany(peReader);
+    }
+
+    /// <summary>
+    /// Extracts assembly references and company name from an already-open image.
+    /// </summary>
+    public static (List<AssemblyReference> References, string? Company) ExtractReferencesAndCompany(PEReader peReader)
+    {
+        var (identities, company) = ExtractReferenceIdentitiesAndCompany(peReader);
+        return (
+            identities.Select(static identity => identity.ToReference()).ToList(),
+            company);
+    }
+
+    /// <summary>
+    /// Extracts typed assembly-reference identities and company name from an already-open image.
+    /// </summary>
+    public static (List<AssemblyReferenceIdentity> References, string? Company)
+        ExtractReferenceIdentitiesAndCompany(PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
         if (!peReader.HasMetadata)
             return ([], null);
 
         var metadataReader = peReader.GetMetadataReader();
-        var refs = ExtractReferences(metadataReader) ?? [];
+        var refs = ExtractReferenceIdentities(metadataReader);
         var company = ExtractCompanyAttribute(metadataReader);
         return (refs, company);
     }
@@ -264,29 +338,14 @@ public static class AssemblyInspector
         return null;
     }
 
-    private static List<AssemblyReference>? ExtractReferences(MetadataReader metadataReader)
+    private static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(
+        MetadataReader metadataReader)
     {
-        List<AssemblyReference> references = [];
+        List<AssemblyReferenceIdentity> references = [];
         foreach (var refHandle in metadataReader.AssemblyReferences)
-        {
-            var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
-            var name = metadataReader.GetString(assemblyRef.Name);
-            var version = assemblyRef.Version.ToString();
-            var culture = metadataReader.GetString(assemblyRef.Culture);
-            if (string.IsNullOrEmpty(culture))
-                culture = "neutral";
+            references.Add(AssemblyReferenceIdentity.From(metadataReader, refHandle));
 
-            string? publicKeyToken = null;
-            var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-            if (pkToken.Length > 0)
-            {
-                publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
-            }
-
-            references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
-        }
-
-        return references.Count > 0 ? references : null;
+        return references;
     }
 
     private static void ExtractCustomAttributes(MetadataReader metadataReader, AssemblyInfo info)

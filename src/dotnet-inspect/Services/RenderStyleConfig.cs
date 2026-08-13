@@ -62,6 +62,11 @@ internal static class RenderStyleConfig
             .Where(v => v.ConfigKey is not null)
             .ToDictionary(v => v.ConfigKey!, StringComparer.Ordinal);
 
+    private static readonly IReadOnlyDictionary<string, StyleOptionDescriptor> ValueAxesByKey =
+        StyleOptionCatalog.Options
+            .Where(o => o.ValueConfigKey is not null)
+            .ToDictionary(o => o.ValueConfigKey!, StringComparer.Ordinal);
+
     // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
     // file is already a hard boundary (nothing above it is read); 'root' is
     // recognized so a file copied from a real .editorconfig does not warn, and it
@@ -209,7 +214,16 @@ internal static class RenderStyleConfig
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
                 default:
-                    if (KnobsByKey.TryGetValue(key, out var knob))
+                    if (ValueAxesByKey.TryGetValue(key, out var axis))
+                    {
+                        var selected = axis.Values.FirstOrDefault(
+                            candidate => string.Equals(candidate.Token, value, StringComparison.OrdinalIgnoreCase));
+                        if (selected is not null)
+                            options = axis.WithValue(options, selected.Token);
+                        else
+                            Warn($"line {i + 1}: key '{key}' expects one of {string.Join(", ", axis.Values.Select(v => v.Token))}, got '{value}' (ignored)");
+                    }
+                    else if (KnobsByKey.TryGetValue(key, out var knob))
                     {
                         if (TryParseBool(value, out var on))
                             options = knob.SetSelected(options, on);

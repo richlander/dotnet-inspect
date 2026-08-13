@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -8,6 +10,13 @@ public record AssemblyReference(
     string Version,
     string? Culture,
     string? PublicKeyToken);
+
+[JsonConverter(typeof(JsonStringEnumConverter<AssemblyReferenceResolutionFailure>))]
+public enum AssemblyReferenceResolutionFailure
+{
+    Unavailable,
+    Rejected
+}
 
 /// <summary>
 /// Represents a node in the transitive assembly reference tree.
@@ -33,6 +42,11 @@ public class AssemblyReferenceNode
     /// Resolved file path, or null if not found.
     /// </summary>
     public string? Path { get; set; }
+
+    /// <summary>
+    /// Why a matching reference candidate could not be selected.
+    /// </summary>
+    public AssemblyReferenceResolutionFailure? ResolutionFailure { get; set; }
 
     /// <summary>
     /// True if this node was already seen earlier in the tree (circular reference).

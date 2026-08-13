@@ -578,7 +578,7 @@ This allows precise control over output size for LLM context management.
 Packages are resolved in order:
 
 1. **NuGet global cache** (`~/.nuget/packages`) — read-only (never written to)
-2. **App cache** (`~/.local/share/dotnet-inspect/packages`) — downloaded packages cached here
+2. **App cache** — downloaded packages cached under the platform cache directory owned by `DotnetInspector.Core`'s `CoreCache`: `$XDG_CACHE_HOME/dotnet-inspect` (default `~/.cache/dotnet-inspect`) on Linux, `~/Library/Caches/dotnet-inspect` on macOS, `%LocalAppData%\dotnet-inspect` on Windows. The pre-XDG `~/.local/share/dotnet-inspect` location is legacy and is removed by cache cleanup.
 
 `PackageCacheService` enforces this invariant: the app reads from both caches but only writes to the app cache. This prevents corrupting the shared NuGet cache.
 
@@ -634,8 +634,12 @@ Research overlay bridge, and the application layer:
 ├─────────────────────────────────────────────────────────────┤
 │  DotnetInspector.Packages (Domain provider — NuGet)         │
 │                                                             │
-│  PackageExtractor, NuGetCache, TfmResolver                  │
+│  PackageExtractor, NuGetCache                               │
 │  DependencyGroup, PackageDependency                         │
+├─────────────────────────────────────────────────────────────┤
+│  NuGetFetch (NuGet protocol client)                         │
+│                                                             │
+│  Feeds, downloads, TfmResolver — adopted in-repo (#3423)    │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.CSharp (C# type views)                         │
 │                                                             │
@@ -658,6 +662,11 @@ Research overlay bridge, and the application layer:
 │  SourceLinkFetch (map/provenance grammar)                   │
 │                                                             │
 │  SourceLinkResolver matcher, SourceLinkProvenance           │
+├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Core (Tool runtime kernel)                 │
+│                                                             │
+│  CoreCache/AsyncCache, HttpClientFactory, NetworkTelemetry  │
+│  HardenedXml/Json, Downloader — zero project references     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -684,7 +693,9 @@ Research overlay bridge, and the application layer:
   those shared results. Within acquisition, one
   `MethodBodyAnalysisContext` carries the method identity, exception regions,
   shared Layer-0 `MethodInstructions`, Analysis-owned loop regions, and
-  immutable decoded local types to topic producers. Raw IL, generic decoding
+  immutable decoded local types to topic producers, plus the neutral navigation
+  those producers share (instruction-at-offset, next-non-`nop` index, loop-region
+  membership). Raw IL, generic decoding
   scope, metadata readers, and reader-bound method bodies remain outside the
   context, preventing producers from creating a second decode or metadata
   traversal path. Allocation path contexts, confidence, and
@@ -692,10 +703,37 @@ Research overlay bridge, and the application layer:
   `BodySignalAnalysis` consumes the context with metadata-dependent box
   classification supplied through a narrow callback.
   `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
-  occurrence interpretation; call-site acquisition remains separate and
-  delegates only its safety projection. `MethodInstructionFacts` owns the
-  metadata-free local/argument-slot grammar shared by safety and allocation
-  interpretation.
+  occurrence interpretation.
+  `MethodCallAnalysis` owns the single instruction traversal that projects
+  direct and indirect calls, return addresses, definition tokens, call kinds,
+  opcodes, loop membership, and allocation-derived multiplicity. It receives
+  member, calli-signature, and definition-token facts through
+  `IMethodCallResolver`, appends calls and safety evidence incrementally, and
+  delegates unsafe-call/opcode policy back to `MethodSafetyAnalysis`.
+  `MethodAllocationAnalysis` owns allocation interpretation for one decoded
+  body: occurrence discovery, allocation-shape classification, escape
+  classification, and the private path-context/confidence/post-dominance indexes
+  that produce its multiplicity reading. It receives metadata and raw-IL
+  judgments through the narrow `IMethodAllocationResolver` contract the assembly
+  reader implements, and returns one `MethodAllocationResult` carrying the
+  discovered and escape-refined occurrences from a single scan.
+  `OptimizationOpportunityAnalysis` owns its per-method instruction walk,
+  optimization-shape classification, lazy memoized reaching-definitions use,
+  and allocation metadata projection. It reuses allocation discovery and the
+  allocation analysis's Layer-1 query methods rather than opening another
+  allocation or decode path. Its separate traversal may repeat member and type
+  resolution, and lazily requests its own reaching-definitions result through
+  `IOptimizationOpportunityResolver`; the producer does not own the metadata
+  reader, generic scope, or raw IL. The assembly reader retains PE/body
+  acquisition, the intentionally throwing decode path, method identity and
+  scope creation, metadata and raw-IL ownership through the shared narrow
+  method-analysis resolver, orchestration and diagnostics, resource/leak
+  analysis, and result aggregation.
+  `MethodInstructionFacts` owns the
+  metadata-free local/argument-slot, operand, and single-branch-target grammar
+  shared by safety and allocation
+  interpretation, and `CompilerGeneratedNames` owns the unspeakable-name grammar
+  shared by escape classification and optimization-opportunity classification.
   `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
   analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
   of every analysis algorithm. The app unions the features required by selected

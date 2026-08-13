@@ -77,13 +77,15 @@ public static class CommandLineBuilder
     {
         // Two projections cannot both shape one payload, so reject the combination before
         // the command runs rather than letting one of them be discarded.
-        if (!ProjectionAudit.ValidateExclusive(parseResult))
+        if (!ProjectionAudit.ValidateExclusive(parseResult, message => CommandError.Write(message)))
             return 1;
 
         try
         {
             using var scope = ProjectionAudit.BeginRequest(parseResult);
-            return ProjectionAudit.Verify(await parseResult.InvokeAsync(ExceptionsReachTheCliErrorContract));
+            return ProjectionAudit.Verify(
+                await parseResult.InvokeAsync(ExceptionsReachTheCliErrorContract),
+                message => CommandError.Write(message));
         }
         catch (RowWindowValidationException ex)
         {
@@ -184,6 +186,9 @@ public static class CommandLineBuilder
 
         // Find command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateFindCommand(opts));
+
+        // Body shape command
+        rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateBodyShapeCommand(opts));
 
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
