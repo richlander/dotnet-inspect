@@ -9,6 +9,22 @@ public class RenderAbSensorTests
     static readonly object ConsoleGate = new();
 
     [Fact]
+    public void RenderAbUsesCrossMethodImportForGenericTypeLocalFunctions()
+    {
+        var type = typeof(GenericTypeLocalFunctionSamples<>);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(GenericTypeLocalFunctionSamples<int>.NoTypeParameter));
+        Assert.NotNull(function);
+
+        string? output = RenderAbSensor.Render(source, function!);
+
+        Assert.Contains("return Own(value);", output);
+        Assert.Contains("static int Own(int input) => input + 1;", output);
+        Assert.DoesNotContain("_g__Own_", output);
+    }
+
+    [Fact]
     public void RenderAbSemanticLane_CatchesParseValidCompileInvalidRegression()
     {
         const string key = "fixture.dll!T::M()";

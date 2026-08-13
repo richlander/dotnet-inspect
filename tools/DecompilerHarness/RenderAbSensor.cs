@@ -95,7 +95,7 @@ internal static class RenderAbSensor
                     // sensor measured a second-run pipeline the product never
                     // ships (the double run folded goto-region diamonds the
                     // single run leaves raw — found via slice F1 scoping).
-                    var rendered = CSharpPrinter.PrintRaised(function).Output;
+                    var rendered = Render(source, function);
                     if (rendered is not null)
                     {
                         string signature = CorpusMethodIdentity.SignatureText(function.Signature);
@@ -119,6 +119,9 @@ internal static class RenderAbSensor
         return renders.OrderBy(kv => kv.Key, StringComparer.Ordinal)
                       .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
     }
+
+    internal static string? Render(MetadataSource source, IrFunction function)
+        => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method)).Output;
 
     static Dictionary<string, string> ToBodyDictionary(Dictionary<string, RenderedMethod> renders)
         => renders.ToDictionary(kv => kv.Key, kv => kv.Value.Body, StringComparer.Ordinal);
