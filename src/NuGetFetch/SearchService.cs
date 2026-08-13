@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 
 namespace NuGetFetch;
@@ -43,8 +44,22 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         CancellationToken cancellationToken)
     {
         string pre = prerelease ? "true" : "false";
-        string url =
-            $"{_searchUrl}?q={Uri.EscapeDataString(query)}&skip={skip}&take={take}&prerelease={pre}";
+        if (!SearchRequestUri.TryCompose(
+                _searchUrl,
+                [
+                    ("q", query),
+                    ("skip", skip.ToString(CultureInfo.InvariantCulture)),
+                    ("take", take.ToString(CultureInfo.InvariantCulture)),
+                    ("prerelease", pre),
+                ],
+                out string url))
+        {
+            // The endpoint is feed-declared and may carry a signature, so it is
+            // not named here; the caller's adapter reports the source and the
+            // redacted endpoint.
+            throw new InvalidOperationException(
+                "The search endpoint is not a usable absolute HTTP or HTTPS URL.");
+        }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (auth is not null)
@@ -59,10 +74,12 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         SearchResponse? parsed = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
 
         // A null document is not an empty result set. Reporting it as one would
-        // hide the failure behind a successful-looking zero-result search.
+        // hide the failure behind a successful-looking zero-result search. The
+        // endpoint is not named: it is feed-declared metadata that can carry a
+        // signature, and this message reaches a caller's failure list.
         return parsed?.Data
             ?? throw new InvalidOperationException(
-                $"Search response from '{_searchUrl}' was not a valid NuGet search document.");
+                "The search response was not a valid NuGet search document.");
     }
 
     /// <summary>

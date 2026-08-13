@@ -66,14 +66,22 @@ static class ReturnToSenderInvalidClassifier
         if (result.Outcome != ReturnToSenderSourceOutcome.Invalid)
             return null;
 
-        return result.FaultIsolationKind switch
+        return ClassifyKind(result.FaultIsolationKind, result.Detail);
+    }
+
+    internal static ReturnToSenderInvalidKind ClassifyKind(
+        ReturnToSender.FaultIsolationKind? faultIsolation,
+        string? detail)
+        => faultIsolation switch
         {
-            ReturnToSender.FaultIsolationKind.BodyDefect => ReturnToSenderInvalidKind.ProductBodyDefect,
-            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect => ReturnToSenderInvalidKind.HarnessShellReconstruction,
-            _ when HasClosureStopDetail(result.Detail) => ReturnToSenderInvalidKind.HarnessShellReconstruction,
+            ReturnToSender.FaultIsolationKind.BodyDefect
+                => ReturnToSenderInvalidKind.ProductBodyDefect,
+            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect
+                => ReturnToSenderInvalidKind.HarnessShellReconstruction,
+            _ when HasClosureStopDetail(detail)
+                => ReturnToSenderInvalidKind.HarnessShellReconstruction,
             _ => ReturnToSenderInvalidKind.Unclassified,
         };
-    }
 
     static bool HasClosureStopDetail(string? detail)
         => detail is not null

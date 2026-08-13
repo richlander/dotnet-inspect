@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -236,7 +237,7 @@ public class HttpRetryHelperTests
             message.Contains("(not retryable)", StringComparison.Ordinal));
         Assert.DoesNotContain(Secret, branchLog, StringComparison.Ordinal);
         Assert.Contains(
-            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            "https:///F/feed/auth/REDACTED/api?REDACTED",
             branchLog,
             StringComparison.Ordinal);
     }
@@ -583,6 +584,102 @@ public class HttpRetryHelperTests
         Assert.NotNull(response);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported(
+        bool underReportLength)
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-bounded-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(
+                new byte[17],
+                underReportLength ? 1 : null));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.RejectedPayload,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFile_AcceptsExactlyTheByteLimit()
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-bounded-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(new byte[16], contentLength: null));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.Succeeded,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+            Assert.Equal(16, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFile_RejectsAdvertisedOversizeAsTypedResult()
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-oversize-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(new byte[1], contentLength: 600_000_000));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.RejectedPayload,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
     [Fact]
     public async Task HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody()
     {
@@ -620,6 +717,112 @@ public class HttpRetryHelperTests
 
         Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.TooLarge, result.Status);
         Assert.Null(result.Bytes);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_CapsBodyAndReturnsNullWhenOversize()
+    {
+        byte[] body = Encoding.UTF8.GetBytes(new string('x', 64));
+        using var client = new HttpClient(new ByteHandler(body));
+        var messages = new List<string>();
+        using var telemetry = FeedFailureTelemetry.Scope();
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            log: messages.Add,
+            maxDownloadSize: 32,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(text);
+        Assert.Contains(
+            messages,
+            message => message.Contains("byte cap", StringComparison.Ordinal));
+        // Oversize must count as a feed failure (not silent Absent).
+        Assert.NotEmpty(FeedFailureTelemetry.Current!.Failures);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_ReturnsUtf8BodyWhenUnderCap()
+    {
+        using var client = new HttpClient(new ByteHandler("{\"ok\":true}"u8.ToArray()));
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("{\"ok\":true}", text);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_TimesOutAStalledBodyAfterHeaders()
+    {
+        var handler = new StallingBodyHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+        var messages = new List<string>();
+        using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: overall.Token);
+
+        Assert.Null(text);
+        Assert.False(overall.IsCancellationRequested);
+        Assert.Contains(
+            messages,
+            message => message.Contains("body timeout", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_MidBodyIo_ReturnsNullAndRecordsFailure()
+    {
+        using var telemetry = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new RetryingBodyHandler("unused"u8.ToArray()));
+        var messages = new List<string>();
+
+        // retryCount 0: headers succeed once; body stream throws IOException.
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            trafficKind: NetworkTrafficKind.PackageVersionList,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(text);
+        Assert.Contains(
+            messages,
+            message => message.Contains("body failed", StringComparison.Ordinal));
+        FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_BodyFailure_UsesCallerTrafficKindNotOuterScope()
+    {
+        using var telemetry = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new RetryingBodyHandler("unused"u8.ToArray()));
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch))
+        {
+            string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+                client,
+                "https://example.test/index.json",
+                retryCount: 0,
+                trafficKind: NetworkTrafficKind.PackageVersionList,
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Null(text);
+        }
+
+        FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+        Assert.NotEqual(NetworkTrafficKind.PackageSearch, failure.Phase);
     }
 
     [Fact]
@@ -850,6 +1053,43 @@ public class HttpRetryHelperTests
             {
                 Content = new ThrowingContent(),
             });
+    }
+
+    private sealed class DownloadHandler(
+        byte[] content,
+        long? contentLength)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var responseContent = new UnknownLengthContent(content);
+            responseContent.Headers.ContentLength = contentLength;
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = responseContent,
+                });
+        }
+    }
+
+    private sealed class UnknownLengthContent(byte[] content) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+            => stream.WriteAsync(content).AsTask();
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(
+                new MemoryStream(content, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     private sealed class ThrowingContent : HttpContent
