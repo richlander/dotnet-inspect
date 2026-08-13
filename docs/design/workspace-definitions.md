@@ -903,10 +903,14 @@ resolution, acquisition, and asset-selection owners. It supplies:
   `PackagePayloadAcquisitionTests.UnboundedChunkedPayload_IsRejectedWithoutContentLength`,
   `ArchiveDeclaringTooManyEntries_IsRejected`,
   `ArchiveDeclaringTooMuchExpandedContent_IsRejected`,
+  `CacheHit_IsRevalidatedAgainstCurrentPayloadLimits`,
+  `InadmissibleCacheEntry_DoesNotMaskAnotherProducer`,
+  `CommitThatLosesToInadmissibleCachedContent_IsNotServed`,
   `InvalidArchiveFromOneSource_LetsTheNextSourceServe`, and
   `Acquisition_ObservesCancellationDuringDownload`, so a payload is bounded and
-  validated before it enters a store and an unusable one stays a typed
-  single-source failure;
+  validated before it enters a store or returns from one, an inadmissible
+  producer cannot mask another authorized cached producer, and an unusable
+  payload stays a typed single-source failure;
 - an archive-admission gate — `PackageArchiveValidatorTests`, which refuses a
   traversing, rooted, backslash-bearing, control-bearing, or overlong entry
   path under the same rules both stores apply, streams every entry — including
@@ -981,8 +985,10 @@ resolution, acquisition, and asset-selection owners. It supplies:
 - a stable-only floating gate —
   `PackageCoordinateResolverTests.FloatingCoordinate_WithOnlyPrereleases_IsUnavailable`,
   `FloatingCoordinate_WithMixedVersions_HonoursThePrereleaseFlag`, and
+  `FloatingCoordinate_AppliesStablePreferenceAcrossSources`, against
   `ExactPrereleasePin_ResolvesWithoutTheFlag`, so a feed carrying no stable
-  release has no answer for a caller that did not ask for a prerelease; and
+  release has no answer for a caller that did not ask for a prerelease and a
+  higher prerelease from one feed cannot hide a stable answer from another; and
 - a hostile-moniker gate — `TfmResolverTests.TryGetFrameworkIdentity_RejectsEverythingOutsideTheDigitGrammar`
   under the invariant and `sv-SE` cultures, with
   `PackageAssetSelectorTests.Select_RejectsASignBearingFrameworkFolder` and
