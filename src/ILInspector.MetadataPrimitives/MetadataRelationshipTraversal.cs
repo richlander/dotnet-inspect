@@ -11,6 +11,20 @@ public static class MetadataSafetyPolicy
     /// relationship chain.
     /// </summary>
     public const int MaxRelationshipNodes = 256;
+
+    /// <summary>
+    /// Maximum characters in one structured type name: its namespace plus every root-to-leaf
+    /// segment, plus one delimiter per segment boundary.
+    /// </summary>
+    /// <remarks>
+    /// The segment-count ceiling alone bounds nesting depth, not size: each of up to
+    /// <see cref="MaxRelationshipNodes"/> segments carries an artifact-authored string of
+    /// arbitrary length, so a malformed image can encode a name of hundreds of megabytes within
+    /// the depth budget. Real names are far smaller — the deepest generated names in the .NET
+    /// libraries are a few hundred characters — so this ceiling only trips on input that was
+    /// never a name.
+    /// </remarks>
+    public const int MaxTypeNameCharacters = 4096;
 }
 
 /// <summary>Bounded iterative walks over SRM metadata relationships.</summary>
