@@ -76,7 +76,6 @@ public sealed record AssemblyReferenceIdentity(
             return false;
         }
         return true;
-        return true;
     }
 
     public static AssemblyReferenceIdentity From(MetadataReader reader, AssemblyReferenceHandle handle)
