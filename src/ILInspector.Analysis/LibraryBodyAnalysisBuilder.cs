@@ -2996,7 +2996,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             && DefinitionResolution(right)?.Origin
                 is TypeReferenceOrigin.AssemblyReference
                     rightAssembly
-            && leftAssembly.Assembly != rightAssembly.Assembly)
+            && leftAssembly.Assembly != rightAssembly.Assembly
+            && !AreTrustedCoreLibraryFacades(left, right))
         {
             return false;
         }
@@ -3013,6 +3014,24 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return AsyncSiblingTypesMatch(
             left.TypeArguments,
             right.TypeArguments);
+    }
+
+    static bool AreTrustedCoreLibraryFacades(
+        TypeRef left,
+        TypeRef right)
+    {
+        TypeRef leftDefinition = left.Kind
+            == TypeRefKind.GenericInstance
+                ? left.ElementType ?? left
+                : left;
+        TypeRef rightDefinition = right.Kind
+            == TypeRefKind.GenericInstance
+                ? right.ElementType ?? right
+                : right;
+        return leftDefinition.Assembly == TypeRef.CoreLibrary
+            && rightDefinition.Assembly == TypeRef.CoreLibrary
+            && leftDefinition.TrustedFrameworkAssembly
+            && rightDefinition.TrustedFrameworkAssembly;
     }
 
     static bool IsCancellationToken(TypeRef type)

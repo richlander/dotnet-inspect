@@ -207,6 +207,67 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void AsyncSiblingTypeMatching_HonorsTrustedCoreLibraryFacades()
+    {
+        MetadataTypeDefinitionName typeName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System.IO",
+                    ["Stream"]))
+            .Name;
+        static TypeRef CreateType(
+            string assemblyName,
+            Version version,
+            MetadataTypeDefinitionName typeName,
+            bool trustedFrameworkAssembly = true)
+        {
+            var identity = new AssemblyReferenceIdentity(
+                assemblyName,
+                version,
+                null,
+                null);
+            return TypeRef.Definition(
+                assemblyName,
+                "System.IO",
+                "Stream",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin
+                        .AssemblyReference(identity),
+                    typeName),
+                trustedFrameworkAssembly);
+        }
+
+        TypeRef netstandard =
+            CreateType(
+                "netstandard",
+                new Version(2, 0),
+                typeName);
+        TypeRef systemRuntime =
+            CreateType(
+                "System.Runtime",
+                new Version(11, 0),
+                typeName);
+        TypeRef untrustedSystemRuntime =
+            CreateType(
+                "System.Runtime",
+                new Version(11, 0),
+                typeName,
+                trustedFrameworkAssembly: false);
+
+        Assert.Equal(netstandard, systemRuntime);
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    netstandard,
+                    systemRuntime));
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    netstandard,
+                    untrustedSystemRuntime));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate()
     {
         string path = typeof(ClassicAsyncSiblingFixture)
