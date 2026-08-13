@@ -77,7 +77,12 @@ public class LocalFolderSourceTests : IDisposable
         var localSource = new NuGetSource("local", folderUrl);
 
         var url = await PackageExtractor.GetPackageDownloadUrlAsync(
-            client, localSource, "testpackage", "1.0.0", log: null);
+            client,
+            localSource,
+            "testpackage",
+            "1.0.0",
+            log: null,
+            TestContext.Current.CancellationToken);
 
         Assert.Null(url);
     }
