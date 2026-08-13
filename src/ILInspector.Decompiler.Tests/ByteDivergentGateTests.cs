@@ -9,10 +9,11 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Exhaustive behavioral coverage for every non-default byte-divergent style
-/// value (#3655). The catalog classification drives this registry: adding a
-/// divergent value without a firing specimen and an executed equivalence
-/// contract fails <see cref="EveryByteDivergentValue_HasABehavioralGate"/>.
+/// Catalog-complete behavioral-gate registration for non-default byte-divergent
+/// style values (#3655). <see cref="EveryByteDivergentValue_HasABehavioralGate"/>
+/// enforces set equality with the catalog; the other tests require each registered
+/// value to fire on its specimen and invoke its manually authored equivalence
+/// contract. The semantic strength of that authored contract remains review-owned.
 /// </summary>
 [Trait("Area", "RoundTrip")]
 [Collection(FidelityGateCollection.Name)]
@@ -35,14 +36,18 @@ public sealed class ByteDivergentGateTests
             "conditional-expression",
             typeof(PreferConditionalReturnSpecimen),
             nameof(PreferConditionalReturnSpecimen.GuardBothVariable),
-            text => Assert.Contains("a ? b : c", text, StringComparison.Ordinal),
+            text => Assert.Equal(
+                "public static bool GuardBothVariable(bool a, bool b, bool c) => a ? b : c;",
+                text.Trim()),
             AssertConditionalReturnBehavior),
         new(
             "guarded-boolean-return-style",
             "branchless",
             typeof(PreferBranchlessBooleanSpecimen),
-            nameof(PreferBranchlessBooleanSpecimen.AndTailGuard),
-            text => Assert.Contains("a && b", text, StringComparison.Ordinal),
+            nameof(PreferBranchlessBooleanSpecimen.OrTailGuard),
+            text => Assert.Equal(
+                "public static bool OrTailGuard(bool a, bool b) => !a || b;",
+                text.Trim()),
             AssertBranchlessBooleanBehavior),
         new(
             "prefer-long-literal-suffix",
@@ -129,7 +134,7 @@ public sealed class ByteDivergentGateTests
     {
         foreach (bool a in new[] { false, true })
         foreach (bool b in new[] { false, true })
-            Assert.Equal(a && b, PreferBranchlessBooleanSpecimen.AndTailGuard(a, b));
+            Assert.Equal(!a || b, PreferBranchlessBooleanSpecimen.OrTailGuard(a, b));
     }
 
     static void AssertLongLiteralBehavior()
