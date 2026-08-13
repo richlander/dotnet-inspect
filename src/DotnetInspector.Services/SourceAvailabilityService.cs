@@ -22,6 +22,7 @@ public sealed record SourceAvailabilitySummary(
 /// </summary>
 public static class SourceAvailabilityService
 {
+    private const string CacheCategory = "source-audit-v2";
     private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromDays(1);
     private static readonly TimeSpan MutablePositiveCacheTtl = TimeSpan.FromDays(1);
 
@@ -68,7 +69,7 @@ public static class SourceAvailabilityService
         {
             bool immutable = SourceLinkUrls.IsImmutable(document.ResolvedUrl!);
             string? positiveHit = cache?.TryGet(
-                "source-audit",
+                CacheCategory,
                 document.ResolvedUrl!,
                 immutable ? null : MutablePositiveCacheTtl,
                 "ok");
@@ -78,7 +79,7 @@ public static class SourceAvailabilityService
                 accessibleCount++;
             }
             else if (cache?.TryGet(
-                "source-audit",
+                CacheCategory,
                 document.ResolvedUrl!,
                 NegativeCacheTtl,
                 "miss") != null)
@@ -108,31 +109,42 @@ public static class SourceAvailabilityService
                     var result = await HttpRetryHelper.HeadWithRetryResultAsync(
                         httpClient,
                         document.ResolvedUrl!,
-                        log: log,
+                        log: null,
                         cancellationToken: ct,
                         trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
                     using var response = result.Response;
-                    if (response != null)
+                    string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
+                    bool originPreserved = response is not null
+                        && SourceFetchOriginValidator.Validate(
+                            document.ResolvedUrl!,
+                            finalUrl).IsAllowed;
+                    if (originPreserved)
                     {
                         Interlocked.Increment(ref accessibleCount);
                         cache?.Set(
-                            "source-audit",
+                            CacheCategory,
                             document.ResolvedUrl!,
                             "1",
                             "ok");
                     }
                     else
                     {
-                        if (result.IsNotFound)
+                        if (response is not null)
+                        {
+                            log?.Invoke(
+                                "Could not verify the final SourceLink response origin.");
+                        }
+                        else if (result.IsNotFound)
                         {
                             cache?.Set(
-                                "source-audit",
+                                CacheCategory,
                                 document.ResolvedUrl!,
                                 "1",
                                 "miss");
                         }
 
-                        log?.Invoke($"Source not accessible: {document.ResolvedUrl}");
+                        if (response is null)
+                            log?.Invoke("Source not accessible.");
                         missingFiles.Add(document.OriginalPath);
                     }
                 }).ConfigureAwait(false);
