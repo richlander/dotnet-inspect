@@ -473,7 +473,9 @@ public static class ApiOutputFormatter
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (!memberFilterActive && type.TypeParameters.Count > 0)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.TypeParameters))
+            && type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = ConstraintSummary(type.TypeParameters, tp) })
@@ -482,7 +484,9 @@ public static class ApiOutputFormatter
 
         // Interfaces (pipeline controls visibility via IncludeSections)
         List<InterfaceRow>? interfaceRows = null;
-        if (!memberFilterActive && type.Interfaces.Count > 0)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.Interfaces))
+            && type.Interfaces.Count > 0)
         {
             interfaceRows = projection.Interfaces
                 .Select(i => new InterfaceRow { Interface = CSharpIdentifier.ContainRenderedText(i) })
@@ -491,7 +495,9 @@ public static class ApiOutputFormatter
 
         // Baseclass (pipeline controls visibility via IncludeSections; filtered for trivial bases)
         List<BaseclassRow>? baseclassRows = null;
-        if (!memberFilterActive && baseType != null)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.Baseclass))
+            && baseType != null)
         {
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }

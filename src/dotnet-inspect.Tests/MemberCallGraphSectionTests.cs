@@ -275,9 +275,30 @@ public class MemberCallGraphSectionTests
         Assert.Empty(result.Error);
     }
 
+    [Fact]
+    public async Task AutoSelectedDetail_EffectiveDiscoveryIncludesInventorySection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                IncludeSections = [SectionNames.Methods, SectionNames.Signature],
+                Discover = [SectionNames.Methods],
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
     [Theory]
     [InlineData("count")]
+    [InlineData("table")]
     [InlineData("tsv")]
+    [InlineData("jsonl")]
     [InlineData("tree")]
     [InlineData("mermaid")]
     public async Task AutoSelectedDetail_WithCallerScope_ValidatesTheAuthoredSelection(
@@ -299,10 +320,11 @@ public class MemberCallGraphSectionTests
                 Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!
             ],
             Count = format == "count",
-            Tabular = format == "tsv",
+            Tabular = format is "table" or "tsv" or "jsonl",
             Tsv = format == "tsv",
-            TabularExplicitlySet = format == "tsv",
-            FormatExplicitlySet = format == "tsv",
+            Jsonl = format == "jsonl",
+            TabularExplicitlySet = format is "table" or "tsv" or "jsonl",
+            FormatExplicitlySet = format is "table" or "tsv" or "jsonl",
             Tree = format == "tree",
             MermaidOutput = format == "mermaid",
             TipLevel = TipLevel.Quiet,
@@ -313,6 +335,11 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.NotEqual(string.Empty, result.Output.Trim());
         Assert.DoesNotContain("Error:", result.Error);
+        if (format is "table" or "tsv" or "jsonl")
+        {
+            Assert.Contains("signature", result.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("caller", result.Output, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]

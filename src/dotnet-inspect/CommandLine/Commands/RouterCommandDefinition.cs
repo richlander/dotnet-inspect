@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using CSharpText;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
@@ -238,6 +239,18 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
+            if (TryResolveExactGenericPlatformType(target) is { } exactType)
+            {
+                return
+                [
+                    "type",
+                    target,
+                    "--platform",
+                    exactType.Candidate.Assembly.Identity.Name,
+                    .. tail
+                ];
+            }
+
             string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
                 target,
@@ -384,6 +397,27 @@ public static class RouterCommandDefinition
             return error == null
                    && assemblyPath != null
                    && PlatformResolver.HasType(assemblyPath, probe.Remainder);
+        }
+
+        private static PlatformTypeLookupOutcome.Resolved? TryResolveExactGenericPlatformType(
+            string target)
+        {
+            if (!target.Contains('`') && !target.Contains('<'))
+                return null;
+
+            var normalizedTarget = FqnParser.NormalizeTypeName(target).Replace('+', '.');
+            if (PlatformResolver.LookupType(target)
+                is not PlatformTypeLookupOutcome.Resolved resolved)
+                return null;
+
+            var normalizedCandidate = resolved.Candidate.Type
+                .ToMetadataFullName()
+                .Replace('+', '.');
+            return normalizedCandidate.Equals(
+                normalizedTarget,
+                StringComparison.OrdinalIgnoreCase)
+                ? resolved
+                : null;
         }
     }
 }

@@ -167,8 +167,7 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            var callersImplicitlySelected = effectiveOptions.HasCallerScope
-                && effectiveOptions.IncludeSections?.Contains(SectionNames.Callers) != true;
+            var callersImplicitlySelected = ShouldImplicitlySelectCallers(effectiveOptions);
             if (callersImplicitlySelected)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
             var authoredSelection = callersImplicitlySelected
@@ -248,7 +247,7 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
-                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+                && TryGetSelectedSingleOverloadSections(authoredSelection, out var singleOverloadSections))
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
@@ -399,12 +398,9 @@ public static class MemberCommand
                     context.HttpClient,
                     logger);
 
-                // Supplying a caller scope is an explicit request for the Callers section, so it
-                // renders (with an empty-state note when nothing matches) even at low verbosity.
                 effectiveOptions = effectiveOptions with
                 {
-                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
-                    IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
+                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies
                 };
             }
 
@@ -434,6 +430,17 @@ public static class MemberCommand
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
+
+            if (!effectiveOptions.Tabular
+                && !effectiveOptions.JsonOutput
+                && (apiType.Members is [{ Kind: "field" }]
+                    || effectiveOptions.IncludeSections?.Contains(SectionNames.Callers, StringComparer.OrdinalIgnoreCase) == true))
+            {
+                ApiCommand.WarnEmptySelectedSections(
+                    apiType,
+                    effectiveOptions,
+                    ApiMemberSectionPipelines.Create(effectiveOptions));
+            }
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {
@@ -571,6 +578,29 @@ public static class MemberCommand
         return options with { IncludeSections = includeSections };
     }
 
+    private static bool ShouldImplicitlySelectCallers(MemberOptions options)
+        => options.HasCallerScope
+           && options.IncludeSections?.Contains(SectionNames.Callers) != true
+           && !options.Tree
+           && !IsStandaloneMermaid(options)
+           && (options.IncludeSections is null || !UsesSingleSectionOutput(options));
+
+    private static bool UsesSingleSectionOutput(MemberOptions options)
+        => options.Discover is null
+           && (options.Count
+               || options.Print
+               || options.TabularExplicitlySet
+               || ShapeProjectionOutput.ActiveShapeCount(
+                   options.Value,
+                   options.Urls,
+                   options.Paths) > 0);
+
+    private static bool IsStandaloneMermaid(MemberOptions options)
+        => options.MermaidOutput
+           && (options.FormatFlagExplicitlySet
+               || options.IncludeSections is { Count: 1 } sections
+               && sections.Contains(SectionNames.CallGraph));
+
     private static readonly string[] SingleOverloadSectionNames =
     [
         SectionNames.Signature,
@@ -597,7 +627,8 @@ public static class MemberCommand
     ];
 
     private static bool IsPureSelector(string[]? select, string name) =>
-        select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
+        select is { Length: > 0 }
+        && select.All(selector => selector.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)

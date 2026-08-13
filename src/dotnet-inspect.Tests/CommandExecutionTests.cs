@@ -1840,6 +1840,19 @@ public partial class CommandExecutionTests
         Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("System.Collections.Frozen.FrozenDictionary`2.AlternateLookup`1")]
+    [InlineData("System.Collections.Frozen.FrozenDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>")]
+    public async Task BareNestedGenericPlatformType_RoutesToWholeType(string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(typeName, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.Collections.Frozen.FrozenDictionary", output);
+        Assert.Contains("AlternateLookup", output);
+    }
+
     /// <summary>
     /// A dotted prefix that does not resolve to a type enters the preamble looking like a single
     /// type -- so its sections are validated against the single-type pipeline -- but renders a
@@ -4733,6 +4746,50 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains($"## {SectionNames.Methods}", output);
         Assert.Contains($"## {SectionNames.Signature}", output);
+    }
+
+    [Fact]
+    public async Task Member_DuplicateAllSelectors_AreIdempotent()
+    {
+        var single = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SelectResolver.AllSelector, "--tips", "q");
+        var duplicate = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SelectResolver.AllSelector, "-S", SelectResolver.AllSelector, "--tips", "q");
+
+        Assert.Equal(single.Exit, duplicate.Exit);
+        Assert.Equal(single.Output, duplicate.Output);
+        Assert.Equal(single.Error, duplicate.Error);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedDetail_RendersRequestedTypeShapeSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>.TrimExcess",
+            "--platform", "System.Collections",
+            "-S", SectionNames.TypeParameters, "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"## {SectionNames.TypeParameters}", output);
+        Assert.Contains($"## {SectionNames.Signature}", output);
+    }
+
+    [Fact]
+    public async Task Member_InapplicableBodySection_ReportsNoDataAfterAutoSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Empty", "--platform", "System.Runtime",
+            "-S", SectionNames.IL, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Contains(
+            $"section '{SectionNames.IL}' has no data",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -7901,18 +7958,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareNameCallerScope_AmbiguousOverloadReportsSelectorHint()
+    public async Task Member_BareNameCallerScope_AggregatesAmbiguousOverloads()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory, "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("section 'Callers' requires a single selected overload", error);
-        Assert.Contains("Overloaded~<digest>", error);
-        Assert.Contains("Overloaded:1 through Overloaded:2", error);
+        Assert.Equal(0, exit);
+        Assert.Contains($"# {typeof(MemberCallsFixture).FullName}", output);
+        Assert.Contains("section 'Callers' has no data", error);
+        Assert.DoesNotContain("requires a single selected overload", error);
     }
 
     [Fact]

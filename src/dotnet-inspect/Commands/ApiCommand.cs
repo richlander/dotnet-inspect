@@ -2318,6 +2318,9 @@ public class ApiCommand
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
         TypeAcquisitionContext? acquisition = null)
     {
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+            memberPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+
         var fullSchema = RestrictSchemaToSections(
             GetTypeDocumentSchema(options),
             memberPipeline.SelectableSectionNames);
