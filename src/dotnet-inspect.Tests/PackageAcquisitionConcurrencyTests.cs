@@ -547,7 +547,10 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         File.WriteAllText(refFile, "fixture");
         CommittedPackage committed = NuGetCache.CommitPackage(
             source,
-            nupkgPath: null,
+            CreateNupkg(
+                PackageName,
+                Version,
+                "platform-pack"),
             PackageName,
             Version,
             TestSourceKey);
@@ -596,7 +599,10 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             "<package />");
         NuGetCache.CommitPackage(
             source,
-            nupkgPath: null,
+            CreateNupkg(
+                PackageName,
+                Version,
+                "windowsdesktop-pack"),
             PackageName,
             Version,
             TestSourceKey);
@@ -1362,7 +1368,10 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 packageName,
                 "A",
                 payloadCount: 1),
-            nupkgPath: null,
+            CreateNupkg(
+                packageName,
+                Version,
+                "pinned-a"),
             packageName,
             Version,
             producerA);
@@ -1471,6 +1480,20 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             payloadCount: 1);
 
         Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, [TestSourceKey]));
+    }
+
+    private string CreateNupkg(
+        string packageName,
+        string version,
+        string name)
+    {
+        string path = Path.Combine(
+            _testRoot,
+            $"{name}-{Guid.NewGuid():N}.nupkg");
+        File.WriteAllBytes(
+            path,
+            CreatePackageArchive(packageName, version));
+        return path;
     }
 
     private static byte[] CreatePackageArchive(

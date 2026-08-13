@@ -63,6 +63,34 @@ public sealed class PackageAssetSelectorTests
         Assert.IsType<PackageAssetSelection.NoMatch>(selection);
     }
 
+    [Theory]
+    [InlineData("uap10.0")]
+    [InlineData("xamarin.ios")]
+    [InlineData("portable-net45+win8+wpa81")]
+    public void Select_AcceptsAnExactValidUnmodeledFramework(
+        string targetFramework)
+    {
+        PackageAssetSelection selection = Select(
+            targetFramework,
+            null,
+            $"lib/{targetFramework}/Sample.dll");
+
+        Assert.Equal(
+            targetFramework,
+            Selected(selection).TargetFramework);
+    }
+
+    [Fact]
+    public void Select_RejectsANonExactUnmodeledFramework()
+    {
+        PackageAssetSelection selection = Select(
+            "uap10.0",
+            null,
+            "lib/uap9.0/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
     /// <summary>
     /// .NET Standard is the contract .NET Framework implements, so a
     /// netstandard2.0 asset is the right answer for a net472 or net481 target.

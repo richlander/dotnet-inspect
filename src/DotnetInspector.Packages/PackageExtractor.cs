@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO.Compression;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -59,7 +60,8 @@ public sealed record PackageReferenceTarget(
 /// </summary>
 internal sealed record PackageVersionResolution(
     string Version,
-    IReadOnlyList<NuGetSource> ReportingSources);
+    IReadOnlyList<NuGetSource> ReportingSources,
+    bool IsComplete = true);
 
 /// <summary>
 /// Shared utility for extracting NuGet packages from local files or NuGet feeds.
@@ -410,21 +412,36 @@ public static class PackageExtractor
         Action<string>? log,
         string tempDirPrefix)
     {
-        // Check NuGet cache first
-        IPackageContent? cached = s_packageStore.TryGetCached(
-            normalizedName,
-            normalizedVersion,
-            NuGetSourceResolver.SourceKeys(sources),
-            log);
-        if (cached != null)
+        IReadOnlyList<string> producerKeys =
+            NuGetSourceResolver.SourceKeys(sources);
+        foreach (string producerKey in producerKeys)
         {
-            var cachedNupkg = cached.NupkgPath;
+            IPackageContent? cached = s_packageStore.TryGetCached(
+                normalizedName,
+                normalizedVersion,
+                [producerKey],
+                log);
+            if (cached is null)
+                continue;
+
+            if (!await PackageContentAdmission.IsAdmissibleAsync(
+                    cached,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None).ConfigureAwait(false))
+            {
+                log?.Invoke(
+                    $"Cached content for package '{packageName}' version "
+                    + $"'{version}' from one authorized producer does not "
+                    + "satisfy the current payload limits.");
+                continue;
+            }
+
             return new PackageExtractionResult(
                 cached.RootPath!,
                 null,
                 packageName,
                 version,
-                cachedNupkg,
+                cached.NupkgPath,
                 FromCache: true,
                 cached.ProducerKey);
         }
@@ -436,13 +453,12 @@ public static class PackageExtractor
 
         try
         {
-            // Try each source in order, streaming the package straight to disk
-            // without an in-memory archive buffer.
+            // Try each source in order. The bounded download lands in this
+            // temporary file; its bytes are admitted before publication.
             string nupkgPath = Path.Combine(
                 tempDir,
                 $"{packageName}.{version}.nupkg");
-            NuGetSource? successfulSource = null;
-
+            bool sourceSuppliedUnusablePayload = false;
             foreach (var source in sources)
             {
                 var nupkgUrl = await GetPackageDownloadUrlAsync(
@@ -469,8 +485,50 @@ public static class PackageExtractor
                         .ConfigureAwait(false);
                     if (ok)
                     {
-                        successfulSource = source;
-                        break;
+                        byte[] archive = await File.ReadAllBytesAsync(
+                                nupkgPath)
+                            .ConfigureAwait(false);
+                        if (PackageArchiveValidator.Validate(archive)
+                            is PackageArchiveValidation.Rejected rejection)
+                        {
+                            sourceSuppliedUnusablePayload = true;
+                            log?.Invoke(
+                                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload: "
+                                + rejection.Reason);
+                            continue;
+                        }
+
+                        using var archiveStream = new MemoryStream(
+                            archive,
+                            writable: false);
+                        IPackageContent content = await s_packageStore.CommitAsync(
+                                packageName,
+                                version,
+                                NuGetCache.GetSourceKey(source.Url),
+                                archiveStream)
+                            .ConfigureAwait(false);
+                        if (!await PackageContentAdmission.IsAdmissibleAsync(
+                                content,
+                                PackagePayloadLimits.Default,
+                                CancellationToken.None).ConfigureAwait(false))
+                        {
+                            sourceSuppliedUnusablePayload = true;
+                            log?.Invoke(
+                                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not publish content satisfying the current payload limits.");
+                            continue;
+                        }
+
+                        log?.Invoke(
+                            $"Package downloaded successfully from {PackageSourceDisplay.ForDiagnostics(source)}.");
+                        log?.Invoke($"Cached to: {content.RootPath}");
+                        return new PackageExtractionResult(
+                            content.RootPath!,
+                            TempDir: null,
+                            packageName,
+                            version,
+                            content.NupkgPath,
+                            FromCache: true,
+                            content.ProducerKey);
                     }
                 }
                 catch (HttpRequestException ex)
@@ -481,66 +539,42 @@ public static class PackageExtractor
                         $"Source {PackageSourceDisplay.ForDiagnostics(source)} failed: "
                         + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
                 }
-            }
-
-            if (successfulSource == null)
-            {
-                // Differentiate "package doesn't exist" from "version doesn't exist"
-                var knownVersions = await GetVersionsAsync(
-                    client,
-                    packageName,
-                    includePrerelease: true,
-                    limit: null,
-                    log: null,
-                    sourceOptions: sourceOptions).ConfigureAwait(false);
-                if (knownVersions == null || knownVersions.Count == 0)
+                catch (Exception ex) when (
+                    ex is IOException
+                        or InvalidDataException
+                        or NotSupportedException
+                        or UnauthorizedAccessException)
                 {
-                    return PackageExtractionOutcome.Error(
-                        (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
-                            ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
-                            .ToString());
+                    sourceSuppliedUnusablePayload = true;
+                    log?.Invoke(
+                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
                 }
-
-                return PackageExtractionOutcome.Error(
-                    $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
             }
 
-            log?.Invoke(
-                $"Package downloaded successfully from {PackageSourceDisplay.ForDiagnostics(successfulSource)}.");
-
-            byte[] archive = await File.ReadAllBytesAsync(nupkgPath)
-                .ConfigureAwait(false);
-            if (PackageArchiveValidator.Validate(archive)
-                is PackageArchiveValidation.Rejected rejection)
+            if (sourceSuppliedUnusablePayload)
             {
                 return PackageExtractionOutcome.Error(
-                    $"Package '{packageName}@{version}' was rejected before caching: "
-                    + rejection.Reason);
+                    $"Package '{packageName}@{version}' was rejected before caching because no authorized source supplied usable content.");
             }
 
-            // Persist the downloaded nupkg through the package store. The
-            // filesystem store extracts and transactionally commits it to the
-            // cache; the stream is a plain FileStream, so nothing is buffered
-            // in memory beyond the store's own copy loop.
-            IPackageContent content;
-            await using (var nupkgStream = File.OpenRead(nupkgPath))
-            {
-                content = await s_packageStore.CommitAsync(
-                    packageName,
-                    version,
-                    NuGetCache.GetSourceKey(successfulSource.Url),
-                    nupkgStream).ConfigureAwait(false);
-            }
-            log?.Invoke($"Cached to: {content.RootPath}");
-
-            return new PackageExtractionResult(
-                content.RootPath!,
-                TempDir: null,
+            // Differentiate "package doesn't exist" from "version doesn't exist"
+            var knownVersions = await GetVersionsAsync(
+                client,
                 packageName,
-                version,
-                content.NupkgPath,
-                FromCache: true,
-                content.ProducerKey);
+                includePrerelease: true,
+                limit: null,
+                log: null,
+                sourceOptions: sourceOptions).ConfigureAwait(false);
+            if (knownVersions == null || knownVersions.Count == 0)
+            {
+                return PackageExtractionOutcome.Error(
+                    (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                        ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                        .ToString());
+            }
+
+            return PackageExtractionOutcome.Error(
+                $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
         }
         catch (IOException ex)
         {
@@ -898,6 +932,9 @@ public static class PackageExtractor
             {
                 log?.Invoke(
                     $"Invalid service index from '{PackageSourceDisplay.ForDiagnostics(source)}': missing resources array.");
+                FeedFailureTelemetry.Record(
+                    indexUrl,
+                    HttpStatusCode.OK);
                 return null;
             }
             var result = new List<ServiceResource>();
@@ -970,6 +1007,9 @@ public static class PackageExtractor
             log?.Invoke(
                 $"Invalid service index from '{PackageSourceDisplay.ForDiagnostics(source)}': "
                 + "the document could not be read.");
+            FeedFailureTelemetry.Record(
+                indexUrl,
+                HttpStatusCode.OK);
             return null;
         }
     }
@@ -1261,6 +1301,7 @@ public static class PackageExtractor
         Action<string>? log,
         bool skipCache = false,
         bool includePrerelease = false,
+        bool requireCompleteSources = false,
         CancellationToken cancellationToken = default)
     {
         string normalizedName = packageName.ToLowerInvariant();
@@ -1270,6 +1311,7 @@ public static class PackageExtractor
         NuGet.Versioning.NuGetVersion? bestAny = null;
         string? bestAnyOriginal = null;
         List<NuGetSource> anyReporters = [];
+        bool complete = true;
 
         foreach (var source in sources)
         {
@@ -1287,14 +1329,34 @@ public static class PackageExtractor
 
             if (version is null)
             {
-                string? fetchedVersion = NormalizeCandidateVersion(
-                    await GetLatestVersionFromSourceAsync(
-                        client,
-                        normalizedName,
-                        source,
-                        log,
-                        includePrerelease,
-                        cancellationToken).ConfigureAwait(false));
+                string? fetchedVersion;
+                if (requireCompleteSources)
+                {
+                    using var failureScope = FeedFailureTelemetry.Scope();
+                    fetchedVersion = NormalizeCandidateVersion(
+                        await GetLatestVersionFromSourceAsync(
+                            client,
+                            normalizedName,
+                            source,
+                            log,
+                            includePrerelease,
+                            cancellationToken).ConfigureAwait(false));
+                    if (fetchedVersion is null
+                        && FeedFailureTelemetry.Current!.HasFailures)
+                        complete = false;
+                }
+                else
+                {
+                    fetchedVersion = NormalizeCandidateVersion(
+                        await GetLatestVersionFromSourceAsync(
+                            client,
+                            normalizedName,
+                            source,
+                            log,
+                            includePrerelease,
+                            cancellationToken).ConfigureAwait(false));
+                }
+
                 if (fetchedVersion is not null)
                 {
                     version = fetchedVersion;
@@ -1354,7 +1416,10 @@ public static class PackageExtractor
                 : stableReporters;
         return selected is null
             ? null
-            : new PackageVersionResolution(selected, selectedReporters);
+            : new PackageVersionResolution(
+                selected,
+                selectedReporters,
+                complete);
     }
 
     /// <summary>
@@ -1511,6 +1576,9 @@ public static class PackageExtractor
                 || versions.ValueKind
                     != System.Text.Json.JsonValueKind.Array)
             {
+                FeedFailureTelemetry.Record(
+                    indexUrl,
+                    HttpStatusCode.OK);
                 return null;
             }
 
@@ -1522,6 +1590,9 @@ public static class PackageExtractor
                     || NormalizeCandidateVersion(
                         element.GetString()) is not string candidate)
                 {
+                    FeedFailureTelemetry.Record(
+                        indexUrl,
+                        HttpStatusCode.OK);
                     return null;
                 }
 
@@ -1535,6 +1606,9 @@ public static class PackageExtractor
             or InvalidOperationException)
         {
             // Ignore parse errors
+            FeedFailureTelemetry.Record(
+                indexUrl,
+                HttpStatusCode.OK);
         }
 
         return null;
@@ -1585,9 +1659,15 @@ public static class PackageExtractor
             packageName,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (registration == null
-            || !RegistrationCovers(versions, registration.AllVersions))
+        if (registration == null)
             return (versions, Authoritative: false);
+        if (!RegistrationCovers(versions, registration.AllVersions))
+        {
+            FeedFailureTelemetry.Record(
+                $"{NuGetOrgRegistrationBase}/{packageName}/index.json",
+                HttpStatusCode.OK);
+            return (versions, Authoritative: false);
+        }
         if (registration.UnlistedVersions.Count == 0)
             return (versions, Authoritative: true);
 
@@ -1643,7 +1723,12 @@ public static class PackageExtractor
         {
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("items", out var pages))
+            {
+                FeedFailureTelemetry.Record(
+                    indexUrl,
+                    HttpStatusCode.OK);
                 return null;
+            }
 
             foreach (var page in pages.EnumerateArray())
             {
@@ -1685,6 +1770,9 @@ public static class PackageExtractor
             // (JsonException = invalid JSON; InvalidOperationException = valid JSON whose
             // shape defies the accessors, e.g. `items` not an array or `version` not a string).
             log?.Invoke($"Could not parse listing status: {ex.Message}");
+            FeedFailureTelemetry.Record(
+                indexUrl,
+                HttpStatusCode.OK);
             return null;
         }
 
@@ -1889,16 +1977,29 @@ public static class PackageExtractor
                 return null;
 
             using var doc = HardenedJson.Parse(json);
-            if (doc.RootElement.TryGetProperty("data", out var data) &&
-                data.GetArrayLength() > 0)
+            if (!doc.RootElement.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.Array)
             {
-                var package = data[0];
-                if (package.TryGetProperty("version", out var version))
-                {
-                    return NormalizeCandidateVersion(
-                        version.GetString());
-                }
+                FeedFailureTelemetry.Record(
+                    searchUrl,
+                    HttpStatusCode.OK);
+                return null;
             }
+
+            if (data.GetArrayLength() == 0)
+                return null;
+
+            var package = data[0];
+            if (package.TryGetProperty("version", out var version)
+                && NormalizeCandidateVersion(
+                    version.GetString()) is { } candidate)
+            {
+                return candidate;
+            }
+
+            FeedFailureTelemetry.Record(
+                searchUrl,
+                HttpStatusCode.OK);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1907,6 +2008,9 @@ public static class PackageExtractor
         catch (Exception ex)
         {
             log?.Invoke($"Search API failed: {ex.Message}");
+            FeedFailureTelemetry.Record(
+                searchUrl,
+                HttpStatusCode.OK);
         }
 
         return null;
@@ -1932,11 +2036,16 @@ public static class PackageExtractor
                     "versions",
                     out var versions)
                 || versions.ValueKind
-                    != System.Text.Json.JsonValueKind.Array
-                || versions.GetArrayLength() == 0)
+                    != System.Text.Json.JsonValueKind.Array)
             {
+                FeedFailureTelemetry.Record(
+                    indexUrl,
+                    HttpStatusCode.OK);
                 return null;
             }
+
+            if (versions.GetArrayLength() == 0)
+                return null;
 
             var candidates = new List<string>();
             foreach (var element in versions.EnumerateArray())
@@ -1946,6 +2055,9 @@ public static class PackageExtractor
                     || NormalizeCandidateVersion(
                         element.GetString()) is not string candidate)
                 {
+                    FeedFailureTelemetry.Record(
+                        indexUrl,
+                        HttpStatusCode.OK);
                     return null;
                 }
 
@@ -1960,6 +2072,9 @@ public static class PackageExtractor
             System.Text.Json.JsonException
             or InvalidOperationException)
         {
+            FeedFailureTelemetry.Record(
+                indexUrl,
+                HttpStatusCode.OK);
             return null;
         }
     }

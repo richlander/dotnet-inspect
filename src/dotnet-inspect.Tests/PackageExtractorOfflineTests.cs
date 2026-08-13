@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
@@ -182,12 +183,33 @@ public sealed class PackageExtractorOfflineTests : IDisposable
                 staged,
                 $"{packageName.ToLowerInvariant()}.nuspec"),
             "<package />");
+        string nupkg = Path.Combine(
+            _cacheDir,
+            $"stage-{Guid.NewGuid():N}.nupkg");
+        File.WriteAllBytes(
+            nupkg,
+            CreateArchive(
+                $"{packageName.ToLowerInvariant()}.nuspec"));
         NuGetCache.CommitPackage(
             staged,
-            nupkgPath: null,
+            nupkg,
             packageName,
             version,
             sourceKey);
+    }
+
+    private static byte[] CreateArchive(string entryPath)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            archive.CreateEntry(entryPath);
+        }
+
+        return buffer.ToArray();
     }
 
     [Fact]

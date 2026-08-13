@@ -906,6 +906,7 @@ resolution, acquisition, and asset-selection owners. It supplies:
   `CacheHit_IsRevalidatedAgainstCurrentPayloadLimits`,
   `InadmissibleCacheEntry_DoesNotMaskAnotherProducer`,
   `CommitThatLosesToInadmissibleCachedContent_IsNotServed`,
+  `PackageExtractorAdmissionTests`,
   `InvalidArchiveFromOneSource_LetsTheNextSourceServe`, and
   `Acquisition_ObservesCancellationDuringDownload`, so a payload is bounded and
   validated before it enters a store or returns from one, an inadmissible
@@ -917,8 +918,15 @@ resolution, acquisition, and asset-selection owners. It supplies:
   the directory-shaped ones, which no store reads and which therefore hid
   content from every budget while they were skipped — so an undecodable
   compression method or a lying declared size is caught before publication
-  rather than after it, and refuses an oversized declared directory before the
-  archive is opened, with
+  rather than after it, independently of the runtime ZIP stream's declared-size
+  behavior, refuses duplicate portable destinations before store selection,
+  and refuses an oversized declared directory before the archive is opened,
+  with
+  `PackageArchiveValidatorTests.Validate_AcceptsACentralDirectoryDigitalSignature`,
+  `PackageArchiveValidatorTests.Validate_RejectsHiddenContentWhoseCrcIsZero`,
+  `Validate_RejectsDuplicatePortableDestinations`,
+  `Validate_RejectsCaseAliasedPortableDestinations`,
+  `Validate_RejectsAFileUsedAsADirectory`,
   `PackagePayloadAcquisitionTests.TraversingArchiveFromOneSource_IsRejectedAndNotCached`,
   `ArchiveHidingContentInADirectoryEntry_IsRejectedAndNotCached`, and
   `ArchiveWithUnsupportedCompression_IsRejectedBeforePublication` proving
@@ -935,9 +943,12 @@ resolution, acquisition, and asset-selection owners. It supplies:
 - a framework-reduction gate — `TfmResolverTests.IsFrameworkCompatible_IsVersionAndFamilyAware`
   with `PackageAssetSelectorTests.Select_NetFrameworkTargetAcceptsASupportedNetStandardAsset`,
   `Select_NetCoreApp1TargetRejectsANetStandard21Asset`, and
-  `Select_PrefersTheTargetsOwnLineageOverNetStandard`, so .NET Standard
-  applicability follows the support matrix rather than a cross-family age
-  comparison; and
+  `Select_PrefersTheTargetsOwnLineageOverNetStandard`, plus
+  `Select_AcceptsAnExactValidUnmodeledFramework` against
+  `Select_RejectsANonExactUnmodeledFramework`, so .NET Standard applicability
+  follows the support matrix rather than a cross-family age comparison while
+  an exact valid legacy TFM does not require a modeled compatibility family;
+  and
 - a resource-URL gate — `PackageResourceUrlTests` with
   `PackagePayloadAcquisitionTests.SignedFlatContainerBase_ComposesThePackagePath`,
   `MalformedFlatContainerBase_IsATypedSourceFailure`, and
@@ -986,9 +997,11 @@ resolution, acquisition, and asset-selection owners. It supplies:
   `PackageCoordinateResolverTests.FloatingCoordinate_WithOnlyPrereleases_IsUnavailable`,
   `FloatingCoordinate_WithMixedVersions_HonoursThePrereleaseFlag`, and
   `FloatingCoordinate_AppliesStablePreferenceAcrossSources`, against
+  `FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer` and
   `ExactPrereleasePin_ResolvesWithoutTheFlag`, so a feed carrying no stable
-  release has no answer for a caller that did not ask for a prerelease and a
-  higher prerelease from one feed cannot hide a stable answer from another; and
+  release has no answer for a caller that did not ask for a prerelease, a higher
+  prerelease from one feed cannot hide a stable answer from another, and a
+  partial source set cannot be presented as the complete floating answer; and
 - a hostile-moniker gate — `TfmResolverTests.TryGetFrameworkIdentity_RejectsEverythingOutsideTheDigitGrammar`
   under the invariant and `sv-SE` cultures, with
   `PackageAssetSelectorTests.Select_RejectsASignBearingFrameworkFolder` and

@@ -714,6 +714,38 @@ public sealed class PackageCoordinateResolverTests
             Assert.Single(resolved.Coordinate.Sources));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer(
+        bool malformedVersionIndex)
+    {
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex));
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(
+                    IncompleteVersionSourcesHandler.PackageId),
+                [
+                    IncompleteVersionSourcesHandler.IncompleteSource,
+                    IncompleteVersionSourcesHandler.AvailableSource,
+                ],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(
+                resolution);
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The CLI's own floating resolution reaches this resolver, so the
     /// workspace's stricter rule must be opt-in rather than the default. This
@@ -1010,6 +1042,51 @@ public sealed class PackageCoordinateResolverTests
                 $"https://preview.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["2.0.0-beta"]}"""),
                 $"https://stable.test/flat/{PackageId}/index.json" =>
+                    Json("""{"versions":["1.0.0"]}"""),
+                _ => Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound)),
+            };
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
+    sealed class IncompleteVersionSourcesHandler(
+        bool malformedVersionIndex)
+        : HttpMessageHandler
+    {
+        internal const string PackageId = "partial.package";
+        internal static readonly PackageSource IncompleteSource =
+            new("incomplete", "https://incomplete.test/v3/index.json");
+        internal static readonly PackageSource AvailableSource =
+            new("available", "https://available.test/v3/index.json");
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            return url switch
+            {
+                "https://incomplete.test/v3/index.json"
+                    when !malformedVersionIndex =>
+                    Task.FromResult(
+                        new HttpResponseMessage(
+                            HttpStatusCode.ServiceUnavailable)),
+                "https://incomplete.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                $"https://incomplete.test/flat/{PackageId}/index.json" =>
+                    Json("""{"versions":"not-an-array"}"""),
+                "https://available.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                $"https://available.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 _ => Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.NotFound)),

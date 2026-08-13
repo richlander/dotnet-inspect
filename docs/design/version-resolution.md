@@ -355,6 +355,14 @@ even when NuGet.org also carries the package. Source declaration order cannot
 make one feed shadow another. Use package source mapping, or select a single
 source, when only one feed may answer for an id.
 
+Workspace floating-coordinate realization requires a complete authoritative
+answer from every authorized source. A transport failure or malformed
+candidate response therefore produces typed unavailability instead of
+successfully selecting from a partial source set. The legacy CLI aggregation
+paths retain their long-standing source fall-through behavior. This boundary
+is gated by
+`PackageCoordinateResolverTests.FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer`.
+
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
 one feed.

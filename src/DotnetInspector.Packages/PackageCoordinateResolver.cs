@@ -129,6 +129,14 @@ public static class PackageCoordinateResolver
     /// network listing, and not by a version-cache entry a legacy caller wrote
     /// after taking that fallback.
     /// </para>
+    /// <para>
+    /// The same opt-in requires an authoritative answer from every authorized
+    /// source. A partial candidate set cannot prove a floating coordinate is
+    /// latest, so a failed or malformed source makes the workspace result
+    /// unavailable while legacy aggregation retains source fall-through.
+    /// Gated by
+    /// <c>PackageCoordinateResolverTests.FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer</c>.
+    /// </para>
     /// </remarks>
     public static async Task<PackageCoordinateResolution> ResolveAsync(
         HttpClient client,
@@ -181,11 +189,18 @@ public static class PackageCoordinateResolver
                 log,
                 skipCache: !useVersionCache,
                 includePrerelease,
+                requireCompleteSources: requireStableFloating,
                 cancellationToken).ConfigureAwait(false);
         if (resolution is null)
         {
             return new PackageCoordinateResolution.Unavailable(
                 $"No acceptable version of package '{coordinate.PackageId}' is available.");
+        }
+
+        if (!resolution.IsComplete)
+        {
+            return new PackageCoordinateResolution.Unavailable(
+                $"The complete version set for package '{coordinate.PackageId}' could not be resolved from every authorized source.");
         }
 
         NuGetVersion selected = NuGetVersion.Parse(resolution.Version);

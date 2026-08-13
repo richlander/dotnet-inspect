@@ -382,6 +382,18 @@ public static class PackageAssetSelector
     /// </remarks>
     static bool IsApplicable(FrameworkFolder candidate, FrameworkFolder target)
     {
+        if (PackageCoordinateResolver.IsAcquisitionTargetText(
+                candidate.FullName)
+            && PackageCoordinateResolver.IsAcquisitionTargetText(
+                target.FullName)
+            && string.Equals(
+                candidate.FullName,
+                target.FullName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (!TfmResolver.TryGetFrameworkIdentity(candidate.BaseFramework, out _)
             || !TfmResolver.TryGetFrameworkIdentity(target.BaseFramework, out _)
             || !TfmResolver.IsFrameworkCompatible(
@@ -417,6 +429,11 @@ public static class PackageAssetSelector
         string BaseFramework,
         string? Platform)
     {
+        internal string FullName =>
+            Platform is null
+                ? BaseFramework
+                : $"{BaseFramework}-{Platform}";
+
         internal static FrameworkFolder Parse(string name)
         {
             int separator = name.IndexOf('-', StringComparison.Ordinal);

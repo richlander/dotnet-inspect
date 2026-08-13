@@ -157,7 +157,7 @@ public static class PackagePayloadAcquisition
                 continue;
             }
 
-            if (!await IsAdmissibleCachedContentAsync(
+            if (!await PackageContentAdmission.IsAdmissibleAsync(
                     cached,
                     limits,
                     cancellationToken).ConfigureAwait(false))
@@ -221,30 +221,6 @@ public static class PackagePayloadAcquisition
         }
     }
 
-    static async Task<bool> IsAdmissibleCachedContentAsync(
-        IPackageContent content,
-        PackagePayloadLimits limits,
-        CancellationToken cancellationToken)
-    {
-        if (!content.TryOpenArchive(out Stream? archiveStream))
-            return false;
-
-        await using (archiveStream.ConfigureAwait(false))
-        {
-            byte[]? archive = await ReadBoundedAsync(
-                    archiveStream,
-                    limits.MaxArchiveBytes,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            return archive is not null
-                && PackageArchiveValidator.Validate(
-                    archive,
-                    limits,
-                    cancellationToken)
-                is PackageArchiveValidation.Valid;
-        }
-    }
-
     static async Task<IPackageContent?> TryDownloadAsync(
         HttpClient client,
         ResolvedPackageCoordinate coordinate,
@@ -301,7 +277,7 @@ public static class PackagePayloadAcquisition
                 .ConfigureAwait(false);
             await using (payload.ConfigureAwait(false))
             {
-                if (await ReadBoundedAsync(
+                if (await PackageContentAdmission.ReadBoundedAsync(
                         payload,
                         limits.MaxArchiveBytes,
                         cancellationToken).ConfigureAwait(false)
@@ -335,7 +311,7 @@ public static class PackagePayloadAcquisition
                 NuGetCache.GetSourceKey(source.Url),
                 new MemoryStream(archive, writable: false),
                 cancellationToken).ConfigureAwait(false);
-            if (!await IsAdmissibleCachedContentAsync(
+            if (!await PackageContentAdmission.IsAdmissibleAsync(
                     committed,
                     limits,
                     cancellationToken).ConfigureAwait(false))
@@ -378,34 +354,4 @@ public static class PackagePayloadAcquisition
         }
     }
 
-    /// <summary>
-    /// Reads at most <paramref name="maxBytes"/> from <paramref name="source"/>,
-    /// or returns null when the stream carries more. The count is of bytes
-    /// actually received, so a response with no advertised length, or one whose
-    /// advertised length under-reports its body, is bounded identically.
-    /// </summary>
-    static async Task<byte[]?> ReadBoundedAsync(
-        Stream source,
-        long maxBytes,
-        CancellationToken cancellationToken)
-    {
-        var buffer = new MemoryStream();
-        byte[] chunk = new byte[81920];
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            int read = await source
-                .ReadAsync(chunk, cancellationToken)
-                .ConfigureAwait(false);
-            if (read == 0)
-                break;
-
-            if (buffer.Length + read > maxBytes)
-                return null;
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.ToArray();
-    }
 }

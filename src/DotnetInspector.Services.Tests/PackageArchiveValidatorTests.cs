@@ -31,6 +31,16 @@ public sealed class PackageArchiveValidatorTests
     }
 
     [Fact]
+    public void Validate_AcceptsACentralDirectoryDigitalSignature()
+    {
+        byte[] archive = WithCentralDirectoryDigitalSignature(
+            TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            Validate(archive));
+    }
+
+    [Fact]
     public void Validate_AcceptsDirectoryEntries()
     {
         byte[] archive = ArchiveWithNames(
@@ -44,6 +54,57 @@ public sealed class PackageArchiveValidatorTests
                 cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(3, valid.EntryCount);
         Assert.Equal(3, valid.ExpandedBytes);
+    }
+
+    [Fact]
+    public void Validate_RejectsDuplicatePortableDestinations()
+    {
+        byte[] archive = ArchiveWithNames(
+            ("lib/net10.0/Sample.dll", [1]),
+            ("content/readme.txt", [2]),
+            ("content/readme.txt", [3]));
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            Validate(archive));
+    }
+
+    [Fact]
+    public void Validate_RejectsCaseAliasedPortableDestinations()
+    {
+        byte[] archive = ArchiveWithNames(
+            ("lib/net10.0/Sample.dll", [1]),
+            ("content/readme.txt", [2]),
+            ("Content/README.txt", [3]));
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            Validate(archive));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Validate_RejectsAFileUsedAsADirectory(
+        bool fileComesFirst)
+    {
+        (string, byte[]) file = ("content", [1]);
+        (string, byte[]) descendant = ("content/readme.txt", [2]);
+        byte[] archive = fileComesFirst
+            ? ArchiveWithNames(file, descendant)
+            : ArchiveWithNames(descendant, file);
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            Validate(archive));
+    }
+
+    [Fact]
+    public void Validate_AllowsAnExplicitDirectoryWithDescendants()
+    {
+        byte[] archive = ArchiveWithNames(
+            ("content/", []),
+            ("content/readme.txt", [1]));
+
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            Validate(archive));
     }
 
     /// <summary>
@@ -80,6 +141,25 @@ public sealed class PackageArchiveValidatorTests
     {
         byte[] archive = WithZeroedUncompressedSize(
             ArchiveWithNames(("lib/", new byte[8192])));
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxExpandedBytes = 16 },
+                TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// These four non-empty bytes have IEEE ZIP CRC32 zero. A validator that
+    /// checks only the declared checksum would therefore mistake them for an
+    /// empty entry after both size fields are rewritten to zero.
+    /// </summary>
+    [Fact]
+    public void Validate_RejectsHiddenContentWhoseCrcIsZero()
+    {
+        byte[] archive = WithZeroedUncompressedSize(
+            ArchiveWithNames(
+                ("lib/", [0x9D, 0x0A, 0xD9, 0x6D])));
 
         Assert.IsType<PackageArchiveValidation.Rejected>(
             PackageArchiveValidator.Validate(
@@ -503,6 +583,25 @@ public sealed class PackageArchiveValidatorTests
         BinaryPrimitives.WriteUInt16LittleEndian(
             rewritten.AsSpan(end + 10),
             declared);
+        return rewritten;
+    }
+
+    static byte[] WithCentralDirectoryDigitalSignature(byte[] archive)
+    {
+        int end = EndOfCentralDirectory(archive);
+        byte[] rewritten = new byte[archive.Length + 9];
+        archive.AsSpan(0, end).CopyTo(rewritten);
+        Span<byte> signature = rewritten.AsSpan(end, 9);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            signature,
+            0x05054B50);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            signature[4..],
+            3);
+        signature[6] = 1;
+        signature[7] = 2;
+        signature[8] = 3;
+        archive.AsSpan(end).CopyTo(rewritten.AsSpan(end + 9));
         return rewritten;
     }
 
