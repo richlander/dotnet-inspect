@@ -505,6 +505,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     sessions.Add(ready.Session);
                 }
             }
+            _entriesByRegistration.Clear();
+            _entriesById.Clear();
+            _retainedImageBytes = 0;
         }
 
         foreach (AssemblyInspectionSession session in sessions)

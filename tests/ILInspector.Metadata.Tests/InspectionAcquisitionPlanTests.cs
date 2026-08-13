@@ -524,10 +524,21 @@ public class InspectionAcquisitionPlanTests
         MethodBodySource methodBodies = first.Session.MethodBodies;
         plan.Dispose();
 
+        Assert.Equal(0, plan.CandidateCount);
+        Assert.Equal(0, plan.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(
             () => methodBodies.EnumerateMethods());
         Assert.Throws<ObjectDisposedException>(
             () => plan.OpenSession(registration.Candidate));
+        using Stream retainedAfterDispose =
+            retained.OpenRead();
+        var retainedAfterDisposeBytes =
+            new byte[image.Length];
+        retainedAfterDispose.ReadExactly(
+            retainedAfterDisposeBytes);
+        Assert.Equal(
+            image,
+            retainedAfterDisposeBytes);
     }
 
     [Fact]

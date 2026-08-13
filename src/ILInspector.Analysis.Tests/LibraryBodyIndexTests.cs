@@ -150,6 +150,26 @@ public class LibraryBodyIndexTests
         Assert.Single(
             opportunities,
             opportunity => opportunity.Method.Name
+                    == nameof(
+                        NewSlotVirtualSiblingLeaf
+                            .LoadAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        NewSlotVirtualSiblingLeaf));
+
+        Assert.Single(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        UnrelatedOverrideSiblingConsumer
+                            .LoadAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        UnrelatedOverrideSiblingConsumer));
+
+        Assert.Single(
+            opportunities,
+            opportunity => opportunity.Method.Name
                 == nameof(GenericInvocationSiblingFixture
                     .CallsDifferentInstantiationAsync));
         Assert.DoesNotContain(opportunities, opportunity =>
@@ -281,6 +301,14 @@ public class LibraryBodyIndexTests
                 new Version(11, 0),
                 typeName,
                 trustedFrameworkAssembly: false);
+        TypeRef intrinsic = TypeRef.Definition(
+            TypeRef.CoreLibrary,
+            "System.IO",
+            "Stream",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin
+                    .IntrinsicCoreLibrary(),
+                typeName));
 
         Assert.Equal(netstandard, systemRuntime);
         Assert.True(
@@ -293,6 +321,202 @@ public class LibraryBodyIndexTests
                 .AsyncSiblingTypesMatch(
                     netstandard,
                     untrustedSystemRuntime));
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    intrinsic,
+                    systemRuntime));
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    intrinsic,
+                    untrustedSystemRuntime));
+    }
+
+    [Fact]
+    public void AsyncSiblingMethodMatching_PreservesOpenGenericSignature()
+    {
+        TypeRef declaring = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Api");
+        TypeRef int32 = TypeRef.CoreLib(
+            "System",
+            "Int32");
+        TypeRef methodParameter =
+            TypeRef.MethodGenericParameter(0);
+        var generic = new MemberRef(
+            declaring,
+            "Read",
+            [int32],
+            int32,
+            MemberKind.Method)
+        {
+            TypeArguments = [int32],
+            OpenParameterTypes = [methodParameter],
+            OpenReturnType = int32,
+            SignatureHeader = 0x10,
+            RequiredParameterCount = 1,
+            GenericArity = 1,
+        };
+        var concrete = generic with
+        {
+            OpenParameterTypes = [int32],
+        };
+
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingMethodsMatch(
+                    generic,
+                    generic));
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingMethodsMatch(
+                    generic,
+                    concrete));
+        var source = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            declaring,
+            "Read",
+            [int32],
+            int32,
+            0x06000001,
+            IsStatic: true,
+            GenericArity: 1)
+        {
+            SignatureHeader = 0x10,
+            RequiredParameterCount = 1,
+        };
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingMethodMatchesSource(
+                    generic,
+                    source));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void AsyncSiblingCancellationTokenDefault_MustBeNull(
+        bool validDefault,
+        bool duplicateParameter)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("TokenDefault.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("TokenDefault"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    "System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle cancellationToken =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading"),
+                metadata.GetOrAddString(
+                    "CancellationToken"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Api"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        ParameterHandle parameter =
+            metadata.AddParameter(
+                ParameterAttributes.Optional
+                    | ParameterAttributes.HasDefault,
+                metadata.GetOrAddString(
+                    "cancellationToken"),
+                sequenceNumber: 1);
+        if (validDefault)
+            metadata.AddConstant(parameter, null);
+        else
+            metadata.AddConstant(parameter, 0);
+        if (duplicateParameter)
+        {
+            ParameterHandle duplicate =
+                metadata.AddParameter(
+                    ParameterAttributes.Optional
+                        | ParameterAttributes.HasDefault,
+                    metadata.GetOrAddString(
+                        "duplicateCancellationToken"),
+                    sequenceNumber: 1);
+            metadata.AddConstant(duplicate, null);
+        }
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var il = new BlobBuilder();
+        il.WriteByte((byte)ILOpCode.Ret);
+        int body = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(il),
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadAsync"),
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0x00, 0x01, 0x01, 0x11,
+                    (byte)CodedIndex
+                        .TypeDefOrRefOrSpec(
+                            cancellationToken),
+                }),
+            body,
+            parameter);
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        using var peReader = new PEReader(
+            new MemoryStream(
+                image.ToArray(),
+                writable: false));
+        MetadataReader reader =
+            peReader.GetMetadataReader();
+
+        Assert.Equal(
+            validDefault && !duplicateParameter,
+            LibraryBodyAnalysisBuilder
+                .TrailingParameterCanBeOmitted(
+                    reader,
+                    reader.GetMethodDefinition(
+                        MetadataTokens
+                            .MethodDefinitionHandle(1)),
+                    parameterCount: 1));
     }
 
     [Fact]
@@ -514,10 +738,14 @@ public class LibraryBodyIndexTests
         }
     }
 
-    [Fact]
-    public void OptimizationOpportunities_DuplicateLocalTypeIdentityFailsClosed()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OptimizationOpportunities_DuplicateLocalTypeIdentityFailsClosed(
+        bool useMemberReference)
     {
-        byte[] image = BuildDuplicateLocalTypeAssembly();
+        byte[] image = BuildDuplicateLocalTypeAssembly(
+            useMemberReference);
         var index = LibraryBodyIndex.OpenFromPrefetchedImage(
             "DuplicateLocalTypes.dll",
             [.. image],
@@ -531,7 +759,8 @@ public class LibraryBodyIndexTests
                 == "sync-call-in-async");
     }
 
-    static byte[] BuildDuplicateLocalTypeAssembly()
+    static byte[] BuildDuplicateLocalTypeAssembly(
+        bool useMemberReference)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -587,13 +816,14 @@ public class LibraryBodyIndexTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
-            staticType,
-            metadata.GetOrAddString("Sample"),
-            metadata.GetOrAddString("Service"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(2));
+        TypeDefinitionHandle secondService =
+            metadata.AddTypeDefinition(
+                staticType,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Service"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
         metadata.AddTypeDefinition(
             staticType,
             metadata.GetOrAddString("Sample"),
@@ -649,10 +879,18 @@ public class LibraryBodyIndexTests
                 intSignature,
                 readBody,
                 MetadataTokens.ParameterHandle(1));
+        EntityHandle readOperand = read;
+        if (useMemberReference)
+        {
+            readOperand = metadata.AddMemberReference(
+                secondService,
+                metadata.GetOrAddString("Read"),
+                intSignature);
+        }
         var callerIl = new BlobBuilder();
         callerIl.WriteByte((byte)ILOpCode.Call);
         callerIl.WriteInt32(
-            MetadataTokens.GetToken(read));
+            MetadataTokens.GetToken(readOperand));
         callerIl.WriteByte((byte)ILOpCode.Pop);
         callerIl.WriteByte(
             (byte)ILOpCode.Ldnull);
@@ -1153,6 +1391,17 @@ public class LibraryBodyIndexTests
             metadata.GetOrAddString("MoveNext"),
             metadata.GetOrAddBlob(
                 new byte[] { 0x20, 0x00, 0x01 }),
+            moveNextBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("MoveNext"),
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0x20, 0x01, 0x01, 0x08,
+                }),
             moveNextBody,
             MetadataTokens.ParameterHandle(1));
 
@@ -7258,6 +7507,59 @@ public sealed class UnrelatedVirtualSiblingConsumer
         new();
 
     public async Task<int> LoadAsync()
+    {
+        await Task.Yield();
+        return _service.Load();
+    }
+}
+
+public class NewSlotVirtualSiblingBase
+{
+    public int Load() => 42;
+
+    public virtual Task<int> LoadAsync()
+        => Task.FromResult(42);
+}
+
+public class NewSlotVirtualSiblingMiddle
+    : NewSlotVirtualSiblingBase
+{
+    public new virtual Task<int> LoadAsync()
+        => Task.FromResult(43);
+}
+
+public sealed class NewSlotVirtualSiblingLeaf
+    : NewSlotVirtualSiblingMiddle
+{
+    public override async Task<int> LoadAsync()
+    {
+        await Task.Yield();
+        return ((NewSlotVirtualSiblingBase)this)
+            .Load();
+    }
+}
+
+public class UnrelatedOverrideSiblingBase
+{
+    public virtual Task<int> LoadAsync()
+        => Task.FromResult(41);
+}
+
+public class UnrelatedOverrideSiblingService
+{
+    public int Load() => 42;
+
+    public virtual Task<int> LoadAsync()
+        => Task.FromResult(42);
+}
+
+public sealed class UnrelatedOverrideSiblingConsumer
+    : UnrelatedOverrideSiblingBase
+{
+    readonly UnrelatedOverrideSiblingService _service =
+        new();
+
+    public override async Task<int> LoadAsync()
     {
         await Task.Yield();
         return _service.Load();
