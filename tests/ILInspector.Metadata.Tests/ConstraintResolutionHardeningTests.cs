@@ -1657,7 +1657,6 @@ public class ConstraintResolutionHardeningTests
             resolveBaseTypes: true);
         Assert.Null(
             Assert.Single(surface.Types).BaseTypeResolution);
-            Assert.Single(surface.Types).BaseTypeResolution);
     }
 
     [Fact]
