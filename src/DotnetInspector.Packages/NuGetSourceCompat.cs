@@ -6,6 +6,7 @@ using System.Xml;
 using System.Xml.Linq;
 using NuGetFetch;
 using DotnetInspector.Core;
+using InertText;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;

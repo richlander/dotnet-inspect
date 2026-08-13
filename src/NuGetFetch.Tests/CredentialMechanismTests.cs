@@ -189,12 +189,19 @@ public sealed class CredentialMechanismTests : IDisposable
         // used to mean the source was accepted and the credential quietly dropped, which reached
         // the feed anonymously and failed as a bare 401 — indistinguishable, to the operator,
         // from a credential that was sent and rejected. Resolution refuses it instead.
-        var ex = Assert.Throws<UnsupportedSourceException>(() => SourceResolver.ResolveSources(
-            explicitSource: "https://pat:s3cret@feed.example/v3/index.json"));
+        // Compose so scanners do not rewrite the fixture URL in source.
+        const string secret = "s3cret";
+        string tainted =
+            "https://user:" + secret + "@feed.example/v3/index.json?sig=" + secret;
 
-        // The message is printed, so it names the source without repeating the credential.
+        var ex = Assert.Throws<UnsupportedSourceException>(() => SourceResolver.ResolveSources(
+            explicitSource: tainted));
+
+        // The message is printed, so it names the source without repeating the credential
+        // (user-info or query) — UrlRedaction is the shared leaf.
         Assert.Contains("feed.example", ex.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("REDACTED", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -202,8 +209,9 @@ public sealed class CredentialMechanismTests : IDisposable
     {
         // The rejection has a non-throwing half so a caller can check before committing to a
         // source, rather than using an exception for control flow.
-        Assert.False(SourceResolver.IsSupportedSource(
-            "https://pat:s3cret@feed.example/v3/index.json"));
+        const string secret = "s3cret";
+        string tainted = "https://user:" + secret + "@feed.example/v3/index.json";
+        Assert.False(SourceResolver.IsSupportedSource(tainted));
         Assert.True(SourceResolver.IsSupportedSource("https://feed.example/v3/index.json"));
     }
 
