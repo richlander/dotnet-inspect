@@ -738,6 +738,8 @@ static class AuthoredCorpusExitContract
         bool showHelp,
         bool benchmarkAuthoredCorpus,
         bool verifyAuthoredCorpus,
+        bool appendAuthoredCorpusHistory,
+        bool verifyAuthoredCorpusHistory,
         bool ratchetBaselineSupplied,
         bool integrityOnly)
     {
@@ -746,7 +748,13 @@ static class AuthoredCorpusExitContract
         // away left the whole suite green even though `--verify-authored-corpus --help`
         // then exited 0 again. Every term of this rule has to live where a test can see
         // it, or the rule is only as strong as the last person to read the call site.
-        bool anyGateFlag = benchmarkAuthoredCorpus || verifyAuthoredCorpus || ratchetBaselineSupplied || integrityOnly;
+        bool anyGateFlag =
+            benchmarkAuthoredCorpus
+            || verifyAuthoredCorpus
+            || appendAuthoredCorpusHistory
+            || verifyAuthoredCorpusHistory
+            || ratchetBaselineSupplied
+            || integrityOnly;
 
         if (showHelp && !anyGateFlag)
             return new FlagVerdict(FlagDisposition.PrintUsage, null);
@@ -771,6 +779,21 @@ static class AuthoredCorpusExitContract
         static FlagVerdict Refuse(string message) => new(FlagDisposition.Refuse, message);
     }
 
+    internal static FlagVerdict JudgeGateFlags(
+        bool showHelp,
+        bool benchmarkAuthoredCorpus,
+        bool verifyAuthoredCorpus,
+        bool ratchetBaselineSupplied,
+        bool integrityOnly)
+        => JudgeGateFlags(
+            showHelp,
+            benchmarkAuthoredCorpus,
+            verifyAuthoredCorpus,
+            appendAuthoredCorpusHistory: false,
+            verifyAuthoredCorpusHistory: false,
+            ratchetBaselineSupplied,
+            integrityOnly);
+
     /// <summary>
     /// The gates <see cref="PreemptedGateRefusal"/> protects: every mode whose whole
     /// purpose is to measure something and report a verdict on it.
@@ -790,7 +813,12 @@ static class AuthoredCorpusExitContract
     /// list before the call, and the contents pin runs in the test process where no such
     /// write happened, so it would not notice.</para>
     internal static readonly ImmutableArray<string> ProtectedGates =
-        ["--benchmark-authored-corpus", "--verify-authored-corpus"];
+    [
+        "--benchmark-authored-corpus",
+        "--verify-authored-corpus",
+        "--append-authored-corpus-history",
+        "--verify-authored-corpus-history",
+    ];
 
     /// <summary>
     /// Every mode the harness dispatches, in dispatch order.
@@ -843,6 +871,8 @@ static class AuthoredCorpusExitContract
         "--harvest-evil-corpus",
         "--benchmark-authored-corpus",
         "--verify-authored-corpus",
+        "--append-authored-corpus-history",
+        "--verify-authored-corpus-history",
     ];
 
     /// <summary>
