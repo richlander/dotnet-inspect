@@ -577,8 +577,12 @@ public class ApiCommand
             var retainedSubjects =
                 new HashSet<ApiSurfaceInspectionSubject>();
             var retainedTokens = new HashSet<int>();
+            var retainedDefinitions =
+                new HashSet<MetadataTypeDefinitionName>();
             foreach (ApiType type in surface.Types)
             {
+                if (type.DefinitionName is { } definition)
+                    retainedDefinitions.Add(definition);
                 Add(type.SourceAssemblyPath, type.MetadataToken);
                 foreach (ApiMember member in type.Members)
                 {
@@ -599,6 +603,33 @@ public class ApiCommand
                             new ApiSurfaceInspectionSubject(
                                 null,
                                 subject.SubjectToken))));
+            surface.InspectionFailures.RemoveAll(
+                failure =>
+                    failure.Operation
+                        != ApiSurfaceInspectionFailure
+                            .GenericParameterConstraintResolutionOperation
+                    && ExcludesOwnedFailure(failure));
+
+            bool ExcludesOwnedFailure(
+                ApiSurfaceInspectionFailure failure)
+            {
+                if (failure.OwningTypeDefinition is { } owner)
+                    return !retainedDefinitions.Contains(owner);
+                if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+                {
+                    return !failure.AffectedTypeDefinitions.Any(
+                        retainedDefinitions.Contains);
+                }
+                if (failure.OwningTypeToken is not int token)
+                    return false;
+
+                return !retainedTokens.Contains(token)
+                    || (failure.SourceAssemblyPath is not null
+                        && !retainedSubjects.Contains(
+                            new ApiSurfaceInspectionSubject(
+                                failure.SourceAssemblyPath,
+                                token)));
+            }
 
             void Add(string? path, int? token)
             {

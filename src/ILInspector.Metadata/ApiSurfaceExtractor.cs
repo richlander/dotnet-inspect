@@ -146,6 +146,7 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
+            MetadataTypeDefinitionName? owningTypeDefinition = null;
             int publicMethodCount = surface.PublicMethodCount;
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
@@ -179,18 +180,19 @@ public static class ApiSurfaceExtractor
 
             var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
 
+            owningTypeDefinition =
+                MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    typeDefHandle)
+                is MetadataTypeDefinitionNameReadResult.Read read
+                    ? read.Name
+                    : null;
             var apiType = new ApiType
             {
                 Namespace = typeNamespace,
                 Name = typeName,
                 MetadataName = GetMetadataName(reader, typeDefHandle),
-                DefinitionName =
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        typeDefHandle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : null,
+                DefinitionName = owningTypeDefinition,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
@@ -716,7 +718,9 @@ public static class ApiSurfaceExtractor
                     surface,
                     ex.Operation,
                     typeDefHandle,
-                    ex.Failure);
+                    ex.Failure,
+                    owningType: typeDefHandle,
+                    owningTypeDefinition: owningTypeDefinition);
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
@@ -730,7 +734,9 @@ public static class ApiSurfaceExtractor
                     surface,
                     "type row",
                     typeDefHandle,
-                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
+                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message),
+                    owningType: typeDefHandle,
+                    owningTypeDefinition: owningTypeDefinition);
             }
         }
 
@@ -2348,14 +2354,23 @@ public static class ApiSurfaceExtractor
         string operation,
         EntityHandle subject,
         MetadataTypeNameFailure failure,
-        AssemblyReferenceIdentity? subjectAssembly = null)
-        => surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
-            operation,
-            failure.SubjectToken ?? MetadataTokens.GetToken(subject),
-            failure.Mechanism,
-            failure.Kind,
-            failure.Detail,
-            subjectAssembly));
+        AssemblyReferenceIdentity? subjectAssembly = null,
+        TypeDefinitionHandle owningType = default,
+        MetadataTypeDefinitionName? owningTypeDefinition = null)
+        => surface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                operation,
+                failure.SubjectToken ?? MetadataTokens.GetToken(subject),
+                failure.Mechanism,
+                failure.Kind,
+                failure.Detail,
+                subjectAssembly)
+            {
+                OwningTypeToken = owningType.IsNil
+                    ? null
+                    : MetadataTokens.GetToken(owningType),
+                OwningTypeDefinition = owningTypeDefinition,
+            });
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
         => !typeDef.BaseType.IsNil

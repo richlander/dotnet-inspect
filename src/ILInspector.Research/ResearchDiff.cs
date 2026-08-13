@@ -1398,6 +1398,16 @@ public static class ResearchDiff
             {
             }
 
+            ApiSurface? moduleSurface =
+                AssemblyReader.ExtractModuleApiSurface(
+                    path,
+                    includeAll);
+            if (moduleSurface is not null)
+            {
+                MergeSurface(merged, moduleSurface);
+                continue;
+            }
+
             merged.InspectionFailures.Add(
                 new ApiSurfaceInspectionFailure(
                     "acquire API surface",
@@ -1443,14 +1453,21 @@ public static class ResearchDiff
                     .Surface;
             if (assembly.Path is { } path)
                 surface.SetInspectionSourceAssemblyPath(path);
-            merged.Types.AddRange(surface.Types);
-            merged.MergeInspectionFailuresFrom(surface);
+            MergeSurface(merged, surface);
         }
 
         merged.Types = merged.Types
             .OrderBy(static type => type.FullName)
             .ToList();
         return merged;
+    }
+
+    static void MergeSurface(
+        ApiSurface destination,
+        ApiSurface source)
+    {
+        destination.Types.AddRange(source.Types);
+        destination.MergeInspectionFailuresFrom(source);
     }
 
     sealed class ResearchAssemblyGroupBindingPolicy(

@@ -4,6 +4,10 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 
+internal sealed record TypeDefinitionApiSurfaceFailure(
+    string Kind,
+    string Detail);
+
 /// <summary>
 /// CLI inspection-lifetime owner for structured type resolution from one acquired
 /// assembly. Consumers receive Metadata outcomes and acquisition descriptors rather
@@ -80,9 +84,21 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
     public ApiSurface? ExtractApiSurface(
         ResolvedAssemblyReference source,
         bool includeAll = false,
-        bool typesOnly = false)
+        bool typesOnly = false) =>
+        ExtractApiSurface(
+            source,
+            includeAll,
+            typesOnly,
+            out _);
+
+    internal ApiSurface? ExtractApiSurface(
+        ResolvedAssemblyReference source,
+        bool includeAll,
+        bool typesOnly,
+        out TypeDefinitionApiSurfaceFailure? failure)
     {
         ArgumentNullException.ThrowIfNull(source);
+        failure = null;
         try
         {
             ResolutionAwareApiSurfaceOutcome outcome =
@@ -92,11 +108,16 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                     includeAll,
                     typesOnly);
             if (outcome
-                is not ResolutionAwareApiSurfaceOutcome.Read read)
+                is ResolutionAwareApiSurfaceOutcome.Rejected rejected)
             {
+                failure = new TypeDefinitionApiSurfaceFailure(
+                    rejected.Failure.Kind.ToString(),
+                    rejected.Failure.Detail);
                 return null;
             }
 
+            var read =
+                (ResolutionAwareApiSurfaceOutcome.Read)outcome;
             ApiSurface surface = read.Surface;
             if (source.Path is { } path)
                 surface.SetInspectionSourceAssemblyPath(path);
@@ -109,6 +130,9 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                 or BadImageFormatException
                 or ArgumentException)
         {
+            failure = new TypeDefinitionApiSurfaceFailure(
+                ex.GetType().Name,
+                ex.Message);
             return null;
         }
     }

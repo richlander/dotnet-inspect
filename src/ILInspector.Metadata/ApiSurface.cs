@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using CSharpText;
@@ -370,6 +371,16 @@ public sealed record ApiSurfaceInspectionFailure(
 
     [JsonIgnore]
     public string? SourceAssemblyPath { get; init; }
+
+    [JsonIgnore]
+    public int? OwningTypeToken { get; init; }
+
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? OwningTypeDefinition { get; init; }
+
+    [JsonIgnore]
+    public ImmutableArray<MetadataTypeDefinitionName>
+        AffectedTypeDefinitions { get; init; } = [];
 }
 
 public readonly record struct ApiSurfaceInspectionSubject(

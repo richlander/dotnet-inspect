@@ -340,7 +340,7 @@ public class DiffCommand
                         inputs.FromVersion,
                         inputs.ToVersion,
                         decorateMember: !options.Jsonl);
-                    if (options.Tsv || options.Jsonl)
+                    if (options.Tabular)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
@@ -371,8 +371,7 @@ public class DiffCommand
                                         options.Rows));
                         Console.WriteLine(output);
                     }
-                    if (options.Tsv
-                        || options.Jsonl
+                    if (options.Tabular
                         || options.NameOnly)
                     {
                         WriteIncompleteComparisonDiagnostic(

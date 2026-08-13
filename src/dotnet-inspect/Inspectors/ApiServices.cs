@@ -242,7 +242,8 @@ internal static class ApiServices
         Dictionary<
             AssemblyAcquisitionRegistration,
             (ResolvedAssemblyReference Assembly,
-                HashSet<MetadataTypeDefinitionName> Types)> byAssembly = [];
+                HashSet<MetadataTypeDefinitionName> Types,
+                HashSet<int> TypeTokens)> byAssembly = [];
 
         foreach (TypeForwarder forwarder in api.TypeForwarders)
         {
@@ -269,10 +270,12 @@ internal static class ApiServices
                     assembly.Registration,
                     out var group))
             {
-                group = (assembly, []);
+                group = (assembly, [], []);
                 byAssembly.Add(assembly.Registration, group);
             }
             group.Types.Add(resolved.Definition.Type);
+            group.TypeTokens.Add(
+                resolved.Definition.Address.Definition.Value);
         }
 
         logger.Log(
@@ -284,16 +287,30 @@ internal static class ApiServices
             {
                 ApiSurface? targetApi =
                     resolution.ExtractApiSurface(
-                    group.Assembly,
-                    includeAll);
+                        group.Assembly,
+                        includeAll,
+                        typesOnly: false,
+                        out TypeDefinitionApiSurfaceFailure?
+                            extractionFailure);
                 if (targetApi == null)
+                {
+                    AddForwardedTargetFailure(
+                        api,
+                        group.Assembly,
+                        group.Types,
+                        extractionFailure?.Kind
+                            ?? "Unavailable",
+                        extractionFailure?.Detail
+                            ?? "The forwarded target API surface could not be extracted.");
                     continue;
+                }
 
                 resolvedCount += MergeForwardedTypes(
                     api,
                     targetApi,
                     group.Types,
-                    group.Assembly);
+                    group.Assembly,
+                    group.TypeTokens);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -303,6 +320,12 @@ internal static class ApiServices
                     or NotSupportedException
                     or ArgumentException)
             {
+                AddForwardedTargetFailure(
+                    api,
+                    group.Assembly,
+                    group.Types,
+                    ex.GetType().Name,
+                    ex.Message);
                 logger.Log(
                     $"Error reading resolved assembly '{group.Assembly.Identity.Name}': {ex.Message}");
             }
@@ -345,7 +368,8 @@ internal static class ApiServices
         ApiSurface api,
         ApiSurface targetApi,
         IReadOnlySet<MetadataTypeDefinitionName> forwardedTypes,
-        ResolvedAssemblyReference targetAssembly)
+        ResolvedAssemblyReference targetAssembly,
+        IReadOnlyCollection<int>? forwardedTypeTokens = null)
     {
         List<ApiType> copiedTypes =
         [
@@ -353,10 +377,9 @@ internal static class ApiServices
                 type.DefinitionName is not null
                 && forwardedTypes.Contains(type.DefinitionName)),
         ];
-        if (copiedTypes.Count == 0)
-            return 0;
-
-        var copiedByToken = new HashSet<int>();
+        var copiedByToken = forwardedTypeTokens is null
+            ? []
+            : new HashSet<int>(forwardedTypeTokens);
         foreach (ApiType type in copiedTypes)
         {
             Add(type.MetadataToken);
@@ -374,6 +397,29 @@ internal static class ApiServices
             targetApi,
             subject => copiedByToken.Contains(subject.SubjectToken),
             includeNonConstraintFailures: false);
+        foreach (ApiSurfaceInspectionFailure failure
+            in targetApi.InspectionFailures)
+        {
+            if (failure.Operation
+                    == ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                || !IncludesFailure(failure))
+            {
+                continue;
+            }
+
+            api.InspectionFailures.Add(
+                failure.SubjectToken == 0
+                    ? failure with
+                    {
+                        AffectedTypeDefinitions =
+                            [.. forwardedTypes],
+                    }
+                    : failure);
+        }
+
+        if (copiedTypes.Count == 0)
+            return 0;
 
         foreach (ApiType type in copiedTypes)
         {
@@ -402,5 +448,35 @@ internal static class ApiServices
             if (token is int value)
                 copiedByToken.Add(value);
         }
+
+        bool IncludesFailure(
+            ApiSurfaceInspectionFailure failure) =>
+            failure.SubjectToken == 0
+            || copiedByToken.Contains(
+                failure.OwningTypeToken
+                    ?? failure.SubjectToken);
+    }
+
+    static void AddForwardedTargetFailure(
+        ApiSurface api,
+        ResolvedAssemblyReference targetAssembly,
+        IReadOnlySet<MetadataTypeDefinitionName>
+            affectedTypes,
+        string kind,
+        string detail)
+    {
+        api.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "extract forwarded API surface",
+                0,
+                MetadataTypeNameFailureMechanism.Metadata,
+                kind,
+                detail,
+                targetAssembly.Identity)
+            {
+                SourceAssemblyPath = targetAssembly.Path,
+                AffectedTypeDefinitions =
+                    [.. affectedTypes],
+            });
     }
 }

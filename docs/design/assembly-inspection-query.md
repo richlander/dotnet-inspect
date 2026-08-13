@@ -297,7 +297,8 @@ failures instead of log-only omissions. A successful read remains successful whe
 has no public API, and a managed netmodule uses the existing resolution-unaware module
 extraction path rather than being reported as an assembly acquisition failure
 (`BuildApiSurface_ValidEmptyAssemblyIsRetained` and
-`BuildApiSurface_NetmoduleUsesModuleExtraction`).
+`BuildApiSurface_NetmoduleUsesModuleExtraction`, plus
+`CompareAssemblies_Api_ComparesManagedNetmodules` for the direct Research path).
 `BuildApiSurface_ClassifiesConstraintAcrossAssemblySet` gates cross-library classification
 through this path. The CLI still owns endpoint-range parsing, compatibility filtering,
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
@@ -408,8 +409,20 @@ API surface that copies a resolved forwarded type also carries that target surfa
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
 to the target image rather than appearing to address a row in the facade
-(`ApiServices_PreservesForwardedConstraintFailures`). Research change identities retain the subject assembly when available and otherwise the
-source-image identity, so equal side/token pairs from different inputs do not collapse
+(`ApiServices_PreservesForwardedConstraintFailures`). Rejected target rows retain an internal
+owning-TypeDef token independently of the offending metadata token, so forwarding copies
+non-constraint failures for requested types even when no API type survived, without copying a
+failure from an unrelated target type
+(`ApiServices_PreservesMalformedForwardedTypeFailureEndToEnd` and
+`ApiServices_ExcludesMalformedUnrelatedForwardedTargetType`). A whole-target extraction
+rejection likewise preserves its typed cause, and focused platform type projection retains
+only failures scoped to selected forwarded types
+(`ResolutionSession_PreservesTargetSurfaceRejectionCause`,
+`ApiServices_ScopesTargetWideFailureToRequestedForwardedType`,
+`TypeCommand_PreservesOnlyFailuresForSelectedForwardedTypes`, and
+`TypeCommand_PreservesFailureForRejectedSelectedForwardedType`). Research change identities
+retain the subject assembly when available and otherwise the source-image identity, so equal
+side/token pairs from different inputs do not collapse
 (`FromApiDiff_ScopesInspectionFailureToSubjectAssembly` and
 `FromApiDiff_ScopesInspectionFailureToSourceImage`). Dependency assembly identity also survives
 API, diff, Research, and CLI projection rather than being inferred from display text

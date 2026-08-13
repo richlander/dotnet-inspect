@@ -672,37 +672,12 @@ public static class TypeCommand
                 type.SourceAssemblyPath ??= assemblyPath;
                 merged.Types.Add(type);
             }
-            var selectedSubjects =
-                new HashSet<ApiSurfaceInspectionSubject>();
-            foreach (ApiType type in selectedTypes)
-            {
-                string sourcePath =
-                    type.SourceAssemblyPath ?? assemblyPath;
-                Add(type.MetadataToken);
-                foreach (ApiMember member in type.Members)
-                {
-                    Add(member.MetadataToken);
-                    Add(member.GetterToken);
-                    Add(member.SetterToken);
-                    Add(member.AdderToken);
-                    Add(member.RemoverToken);
-                }
-
-                void Add(int? token)
-                {
-                    if (token is int value)
-                    {
-                        selectedSubjects.Add(
-                            new ApiSurfaceInspectionSubject(
-                                sourcePath,
-                                value));
-                    }
-                }
-            }
-            merged.MergeInspectionFailuresFrom(
+            MergeSelectedInspectionFailures(
+                merged,
                 api,
-                selectedSubjects.Contains,
-                includeNonConstraintFailures: false);
+                selectedTypes,
+                fullNames,
+                assemblyPath);
         }
 
         merged.Types = merged.Types
@@ -712,6 +687,98 @@ public static class TypeCommand
 
         RecomputeSurfaceCounts(merged);
         return merged;
+    }
+
+    internal static void MergeSelectedInspectionFailures(
+        ApiSurface destination,
+        ApiSurface source,
+        IReadOnlyList<ApiType> selectedTypes,
+        IReadOnlySet<string> selectedTypeNames,
+        string defaultSourcePath)
+    {
+        var selectedSubjects =
+            new HashSet<ApiSurfaceInspectionSubject>();
+        var selectedSourcePaths =
+            new HashSet<string>(
+                OperatingSystem.IsWindows()
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal);
+        foreach (ApiType type in selectedTypes)
+        {
+            string sourcePath =
+                type.SourceAssemblyPath ?? defaultSourcePath;
+            selectedSourcePaths.Add(sourcePath);
+            Add(type.MetadataToken);
+            foreach (ApiMember member in type.Members)
+            {
+                Add(member.MetadataToken);
+                Add(member.GetterToken);
+                Add(member.SetterToken);
+                Add(member.AdderToken);
+                Add(member.RemoverToken);
+            }
+
+            void Add(int? token)
+            {
+                if (token is int value)
+                {
+                    selectedSubjects.Add(
+                        new ApiSurfaceInspectionSubject(
+                            sourcePath,
+                            value));
+                }
+            }
+        }
+        destination.MergeInspectionFailuresFrom(
+            source,
+            selectedSubjects.Contains,
+            includeNonConstraintFailures: false);
+        foreach (ApiSurfaceInspectionFailure failure
+            in source.InspectionFailures)
+        {
+            if (failure.Operation
+                    == ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                || !IncludesFailure(failure))
+            {
+                continue;
+            }
+
+            destination.InspectionFailures.Add(failure);
+        }
+
+        bool IncludesFailure(
+            ApiSurfaceInspectionFailure failure)
+        {
+            if (failure.OwningTypeDefinition is { } owner)
+            {
+                return selectedTypeNames.Contains(
+                    owner.ToMetadataFullName());
+            }
+            if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+            {
+                return failure.AffectedTypeDefinitions.Any(
+                    affected =>
+                        selectedTypeNames.Contains(
+                            affected.ToMetadataFullName()));
+            }
+
+            string? sourcePath =
+                failure.SourceAssemblyPath;
+            if (failure.SubjectToken == 0)
+            {
+                return selectedTypes.Count == 0
+                    || (sourcePath is not null
+                        && selectedSourcePaths.Contains(
+                            sourcePath));
+            }
+
+            return selectedSubjects.Contains(
+                new ApiSurfaceInspectionSubject(
+                    sourcePath,
+                    failure.OwningTypeToken
+                        ?? failure.SubjectToken));
+        }
     }
 
     private static int? TryWritePrefixBrowse(

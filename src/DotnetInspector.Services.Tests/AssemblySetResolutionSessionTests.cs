@@ -135,13 +135,21 @@ public class AssemblySetResolutionSessionTests
         File.WriteAllBytes(path, BuildNetmodule());
         try
         {
+            var messages = new List<string>();
             ApiSurface surface =
                 Assert.IsType<ApiSurface>(
-                    AssemblySetSurfaceBuilder.Build([path]));
+                    AssemblySetSurfaceBuilder.Build(
+                        [path],
+                        log: messages.Add));
 
             ApiType type = Assert.Single(surface.Types);
             Assert.Equal("N.Widget", type.FullName);
             Assert.Empty(surface.InspectionFailures);
+            Assert.DoesNotContain(
+                messages,
+                message => message.StartsWith(
+                    "  ! ",
+                    StringComparison.Ordinal));
         }
         finally
         {

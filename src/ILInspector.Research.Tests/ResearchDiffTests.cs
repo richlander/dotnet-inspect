@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
@@ -890,6 +892,49 @@ public class ResearchDiffTests
         Assert.False(changed.ApiSignatureChanged);
         Assert.True(changed.HasChange("api.member-attribute-added"));
         Assert.True(changed.HasChange("api.member-attribute-removed"));
+    }
+
+    [Fact]
+    public void CompareAssemblies_Api_ComparesManagedNetmodules()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"research-netmodules-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath =
+                Path.Combine(directory, "Old.netmodule");
+            string newPath =
+                Path.Combine(directory, "New.netmodule");
+            File.WriteAllBytes(
+                oldPath,
+                BuildNetmodule("Widget"));
+            File.WriteAllBytes(
+                newPath,
+                BuildNetmodule("Widget", "Gadget"));
+
+            ResearchComparison diff =
+                ResearchDiff.CompareAssemblies(
+                    oldPath,
+                    newPath,
+                    new ResearchDiffOptions(
+                        ResearchChangeMechanism.Api));
+
+            Assert.NotNull(diff.ApiDiff);
+            Assert.Empty(diff.ApiDiff.InspectionFailures);
+            Assert.Contains(
+                diff.Changes,
+                change =>
+                    change.Descriptor.Id == "api.type-added"
+                    && change.Subject.Display.Contains(
+                        "Gadget",
+                        StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -2074,5 +2119,50 @@ public class ResearchDiffTests
             },
             Attributes = attributes?.ToList() ?? [],
         };
+
+    static byte[] BuildNetmodule(params string[] typeNames)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    "Research.netmodule"),
+            mvid:
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        AddType("<Module>", TypeAttributes.NotPublic);
+        foreach (string typeName in typeNames)
+            AddType(typeName, TypeAttributes.Public | TypeAttributes.Class);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+
+        void AddType(
+            string name,
+            TypeAttributes attributes)
+        {
+            metadata.AddTypeDefinition(
+                attributes,
+                name == "<Module>"
+                    ? default
+                    : metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(name),
+                baseType: default,
+                fieldList:
+                    MetadataTokens.FieldDefinitionHandle(1),
+                methodList:
+                    MetadataTokens.MethodDefinitionHandle(1));
+        }
+    }
 
 }

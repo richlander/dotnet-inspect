@@ -3399,6 +3399,17 @@ public partial class CommandExecutionTests
                 "--table",
                 "--tips",
                 "q");
+            var analysisTable = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.AnalysisDiff.Name,
+                "--table",
+                "--tips",
+                "q");
 
             Assert.Equal(1, findingMarkdown.Exit);
             Assert.Contains(
@@ -3422,6 +3433,19 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "API comparison is incomplete",
                 findingTable.Error,
+                StringComparison.Ordinal);
+            Assert.Equal(1, analysisTable.Exit);
+            Assert.DoesNotContain(
+                "# Diff",
+                analysisTable.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Inspection Failures",
+                analysisTable.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "API comparison is incomplete",
+                analysisTable.Error,
                 StringComparison.Ordinal);
 
             string[][] singleShapeModes =

@@ -12,6 +12,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
     readonly IReadOnlyList<Participant> _participants;
     readonly IReadOnlyList<AcquisitionFailure> _acquisitionFailures;
     readonly SourceRelativeAssemblyGroupBindingPolicy? _policy;
+    readonly Action<string>? _log;
 
     public AssemblySetResolutionSession(
         AssemblySet assemblySet,
@@ -48,6 +49,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
         IEnumerable<ParticipantInput> inputs,
         Action<string>? log)
     {
+        _log = log;
         var participants = new List<Participant>();
         var failures = new List<AcquisitionFailure>();
         foreach (ParticipantInput input in inputs)
@@ -63,8 +65,6 @@ public sealed class AssemblySetResolutionSession : IDisposable
                     new AcquisitionFailure(
                         input.Path,
                         failure!));
-                log?.Invoke(
-                    $"  ! {Path.GetFileName(input.Path)}: {failure}");
                 continue;
             }
 
@@ -97,6 +97,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
         string? tfm = null,
         Action<string>? log = null)
     {
+        Action<string>? sink = log ?? _log;
         var merged = new ApiSurface
         {
             Name = name,
@@ -116,7 +117,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
                     merged,
                     moduleSurface,
                     failure.Path,
-                    log);
+                    sink);
                 readSurface = true;
                 continue;
             }
@@ -131,6 +132,9 @@ public sealed class AssemblySetResolutionSession : IDisposable
                 {
                     SourceAssemblyPath = failure.Path,
                 });
+            sink?.Invoke(
+                $"  ! {Path.GetFileName(failure.Path)}: "
+                    + failure.Detail);
         }
 
         foreach (Participant participant in _participants)
@@ -155,7 +159,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
                         SourceAssemblyPath =
                             participant.Path,
                     });
-                log?.Invoke(
+                sink?.Invoke(
                     $"  ! {Path.GetFileName(participant.Path)}: "
                         + rejected.Failure.Detail);
                 continue;
@@ -168,7 +172,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
                 merged,
                 surface,
                 participant.Path,
-                log);
+                sink);
             readSurface = true;
         }
 
