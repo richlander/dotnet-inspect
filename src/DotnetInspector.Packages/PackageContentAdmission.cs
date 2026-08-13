@@ -96,6 +96,12 @@ internal static class PackageContentAdmission
             }
         }
 
+        // Product-owned commits always retain an archive. A missing nupkg must
+        // not fall through to foreign walk-only gates (mutated extract + deleted
+        // archive would otherwise admit without CRC/path match).
+        if (content.RequiresArchiveTreeMatch)
+            return Outcome.MissingArchive;
+
         if (content.RootPath is null
             || !HasTopLevelNuspec(content.RootPath))
         {
@@ -187,15 +193,17 @@ internal static class PackageContentAdmission
         if (!Directory.Exists(root) || IsReparsePoint(root))
             return false;
 
-        // First pass: no symlink escape and expanded bytes stay in bound.
-        // Entry-count is not reapplied against FS nodes here — the archive
-        // already paid MaxEntryCount; directory fan-out is constrained below
-        // by matching the expected directory set.
+        // First pass: symlink/expanded-byte gates, plus a node budget so a
+        // mutated product-owned tree cannot force an unbounded walk before the
+        // archive match rejects it. Budget = archive entries + unique dirs +
+        // allowed extras (retained nupkg, commit marker, headroom).
+        int productOwnedNodeBudget = checked(
+            limits.MaxEntryCount + limits.MaxUniqueDirectories + 8);
         if (!WalkExtractedTree(
                 root,
                 retainedNupkgPath,
-                limits,
-                countEveryNodeTowardEntryLimit: false))
+                limits with { MaxEntryCount = productOwnedNodeBudget },
+                countEveryNodeTowardEntryLimit: true))
         {
             return false;
         }

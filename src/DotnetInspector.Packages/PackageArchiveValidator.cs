@@ -380,20 +380,24 @@ public static class PackageArchiveValidator
             fileDestinations.Add(destination);
         }
 
-        int separator = destination.IndexOf('/');
-        while (separator >= 0)
+        // Deepest-first: once an ancestor is already registered, every shorter
+        // prefix was registered with it, so stop. Shared-prefix packages then
+        // pay one lookup per entry instead of reallocating every ancestor.
+        for (int separator = destination.LastIndexOf('/');
+            separator >= 0;
+            separator = destination.LastIndexOf('/', separator - 1))
         {
             string ancestor = destination[..separator];
             if (fileDestinations.Contains(ancestor))
                 return "archive entries resolve to colliding portable destinations";
 
-            if (requiredDirectories.Add(ancestor)
-                && requiredDirectories.Count > maxUniqueDirectories)
+            if (!requiredDirectories.Add(ancestor))
+                break;
+
+            if (requiredDirectories.Count > maxUniqueDirectories)
             {
                 return $"the archive requires more than {maxUniqueDirectories} intermediate directories";
             }
-
-            separator = destination.IndexOf('/', separator + 1);
         }
 
         return null;

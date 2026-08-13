@@ -56,13 +56,12 @@ public sealed class PackageExtractorAdmissionTests
     }
 
     /// <summary>
-    /// Global-packages entries often strip the retained <c>.nupkg</c>. Cache
-    /// admission must still use the extracted tree when it is a valid NuGet
-    /// layout within current expanded limits — including the offline path that
-    /// previously reported "no cached package was found".
+    /// Product-owned app-cache commits retain an archive for tree match.
+    /// Stripping that nupkg must not admit the extract offline (would skip
+    /// CRC/path match and enable a delete-nupkg + mutate-tree downgrade).
     /// </summary>
     [Fact]
-    public async Task ExtractedCacheEntryWithoutRetainedNupkg_IsAdmitted()
+    public async Task ProductOwnedCacheWithoutRetainedNupkg_IsRejectedOffline()
     {
         string cacheRoot = TempDirectory();
         string stagingRoot = TempDirectory();
@@ -89,19 +88,42 @@ public sealed class PackageExtractorAdmissionTests
             Assert.NotNull(nupkgPath);
             File.Delete(nupkgPath);
 
-            using var client = new HttpClient(new FailingHandler());
-            PackageExtractionOutcome outcome =
-                await DotnetInspector.Packages.PackageExtractor
-                    .ExtractPackageAsync(
-                        client,
-                        $"{PackageId}@{Version}",
-                        sourceOptions: Sources(SourceA));
+            bool wasOffline = DotnetInspector.Core.HttpClientFactory.IsOffline;
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new DotnetInspector.Core.HttpClientFactoryOptions
+                {
+                    Offline = true,
+                });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            try
+            {
+                using var client = new HttpClient(new FailingHandler());
+                PackageExtractionOutcome outcome =
+                    await DotnetInspector.Packages.PackageExtractor
+                        .ExtractPackageAsync(
+                            client,
+                            $"{PackageId}@{Version}",
+                            sourceOptions: Sources(SourceA));
 
-            Assert.True(outcome.IsSuccess);
-            Assert.Equal(
-                NuGetCache.GetSourceKey(SourceA),
-                outcome.Result!.ProducerKey);
-            Assert.Null(outcome.Result.NupkgPath);
+                Assert.False(outcome.IsSuccess);
+                Assert.Contains(
+                    "not available offline",
+                    outcome.ErrorMessage,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(
+                    "no retained archive",
+                    outcome.ErrorMessage,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                DotnetInspector.Core.HttpClientFactory.Initialize(
+                    new DotnetInspector.Core.HttpClientFactoryOptions
+                    {
+                        Offline = wasOffline,
+                    });
+                DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            }
         }
         finally
         {

@@ -1291,32 +1291,72 @@ public static class WorkspaceContextLoader
             [assembly]);
     }
 
+    /// <summary>
+    /// Reads at most <paramref name="maxBytes"/> with a single growable buffer
+    /// (probe-before-grow; no <see cref="MemoryStream.ToArray"/> double-copy).
+    /// Matches the package-admission bounded reader discipline.
+    /// </summary>
     static byte[]? ReadBounded(
         Stream source,
         long maxBytes,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (source.CanSeek && source.Length - source.Position > maxBytes)
-            return null;
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        if (maxBytes > int.MaxValue)
+            maxBytes = int.MaxValue;
 
-        var buffer = new MemoryStream();
-        byte[] chunk = new byte[81920];
-        int read;
+        int max = (int)maxBytes;
+        int initial = max == 0 ? 0 : Math.Min(81920, max);
+        // Seekable Length is a fast-reject / sizing hint only.
+        if (source.CanSeek)
+        {
+            long remaining = source.Length - source.Position;
+            if (remaining < 0)
+                remaining = 0;
+            if (remaining > max)
+                return null;
+            if (remaining > initial)
+                initial = (int)remaining;
+        }
+
+        byte[] buffer = initial == 0 ? [] : new byte[initial];
+        int total = 0;
+        Span<byte> probe = stackalloc byte[1];
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            read = source.Read(chunk, 0, chunk.Length);
+
+            if (total == buffer.Length)
+            {
+                int extra = source.Read(probe);
+                if (extra == 0)
+                    return total == 0 ? [] : buffer;
+                if (total == max)
+                    return null;
+
+                int growTo = (int)Math.Min(
+                    max,
+                    Math.Max((long)buffer.Length * 2, 81920));
+                if (growTo <= buffer.Length)
+                    growTo = max;
+                Array.Resize(ref buffer, growTo);
+                buffer[total++] = probe[0];
+                continue;
+            }
+
+            int read = source.Read(buffer.AsSpan(total, buffer.Length - total));
             if (read == 0)
-                break;
+            {
+                if (total == 0)
+                    return [];
+                if (total != buffer.Length)
+                    Array.Resize(ref buffer, total);
+                return buffer;
+            }
 
-            if (buffer.Length + read > maxBytes)
-                return null;
-
-            buffer.Write(chunk, 0, read);
+            total += read;
         }
-
-        return buffer.ToArray();
     }
 
     static Stream OpenPackageEntry(

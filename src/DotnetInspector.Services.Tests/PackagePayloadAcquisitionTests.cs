@@ -100,11 +100,11 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
-    /// A filesystem cache entry whose <c>.nupkg</c> was stripped must still
-    /// answer from the extracted tree when expanded limits allow it.
+    /// Product-owned app-cache slots require the retained archive for tree
+    /// match. Stripping the nupkg must not fall through to walk-only admission.
     /// </summary>
     [Fact]
-    public async Task CacheHitWithoutRetainedNupkg_IsAdmittedFromExtractedTree()
+    public async Task CacheHitWithoutRetainedNupkg_IsNotServedAsProductOwned()
     {
         string cacheRoot = TempDirectory();
         string stagingRoot = TempDirectory();
@@ -114,8 +114,6 @@ public sealed class PackagePayloadAcquisitionTests
             skipNuGetCache: true);
         try
         {
-            // Archive includes a top-level nuspec so the retained-nupkg strip still
-            // leaves an archive-less tree that admission can accept.
             Directory.CreateDirectory(stagingRoot);
             string nupkg = Path.Combine(stagingRoot, "package.nupkg");
             File.WriteAllBytes(
@@ -140,7 +138,7 @@ public sealed class PackagePayloadAcquisitionTests
             File.Delete(retained);
 
             var store = new FileSystemPackageStore();
-            using var client = new HttpClient(new FailingHandler());
+            using var client = new HttpClient(new NotFoundHandler());
 
             PackagePayloadResult result =
                 await PackagePayloadAcquisition.AcquireAsync(
@@ -150,12 +148,7 @@ public sealed class PackagePayloadAcquisitionTests
                     cancellationToken:
                         TestContext.Current.CancellationToken);
 
-            AcquiredPackagePayload payload = Acquired(result);
-            Assert.Equal(PackagePayloadOrigin.Cache, payload.Origin);
-            Assert.Null(payload.Content.NupkgPath);
-            Assert.Contains(
-                "lib/net10.0/Sample.dll",
-                payload.Content.EnumerateEntries());
+            Assert.IsType<PackagePayloadResult.Unavailable>(result);
         }
         finally
         {
@@ -396,6 +389,71 @@ public sealed class PackagePayloadAcquisitionTests
             Assert.False(
                 await PackageContentAdmission.IsAdmissibleAsync(
                     content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Deleting the retained nupkg must not downgrade product-owned content to
+    /// foreign walk-only gates (mutated extract would otherwise admit).
+    /// </summary>
+    [Fact]
+    public async Task ProductOwned_DeletedNupkg_DoesNotAdmitMutatedTree()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] original = [1, 2, 3, 4];
+            byte[] mutated = [9, 9, 9, 9];
+            byte[] nuspec = """<?xml version="1.0"?><package />"""u8.ToArray();
+            byte[] archive = TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/Sample.dll", original),
+                ("Sample.Package.nuspec", nuspec));
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                mutated);
+            File.WriteAllBytes(
+                Path.Combine(root, "Sample.Package.nuspec"),
+                nuspec);
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+
+            // Control: retained archive still rejects the mutation.
+            var withArchive = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: "app-cache",
+                requiresArchiveTreeMatch: true);
+            Assert.False(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    withArchive,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+
+            File.Delete(nupkg);
+            var withoutArchive = new FileSystemPackageContent(
+                root,
+                nupkgPath: null,
+                fromCache: true,
+                producerKey: "app-cache",
+                requiresArchiveTreeMatch: true);
+            Assert.Equal(
+                PackageContentAdmission.Outcome.MissingArchive,
+                await PackageContentAdmission.EvaluateAsync(
+                    withoutArchive,
                     PackagePayloadLimits.Default,
                     CancellationToken.None));
         }
@@ -669,6 +727,59 @@ public sealed class PackagePayloadAcquisitionTests
                 await PackageContentAdmission.IsAdmissibleAsync(
                     content,
                     new PackagePayloadLimits { MaxEntryCount = 50 },
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Product-owned trees still bound filesystem nodes so a mutated cache
+    /// fan-out cannot force an unbounded walk before archive matching rejects.
+    /// </summary>
+    [Fact]
+    public async Task ProductOwnedTree_ExcessNodes_IsRejected()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll",
+                "Sample.Package.nuspec");
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1]);
+            File.WriteAllText(
+                Path.Combine(root, "Sample.Package.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+            for (int i = 0; i < 40; i++)
+                Directory.CreateDirectory(Path.Combine(root, $"pad-{i}"));
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: "app",
+                requiresArchiveTreeMatch: true);
+            // Node budget = MaxEntryCount + MaxUniqueDirectories + 8.
+            Assert.False(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    new PackagePayloadLimits
+                    {
+                        MaxEntryCount = 4,
+                        MaxUniqueDirectories = 4,
+                    },
                     CancellationToken.None));
         }
         finally
