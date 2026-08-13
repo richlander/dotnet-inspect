@@ -7,6 +7,81 @@ itself lives in [value-typed-emission.md](design/value-typed-emission.md) and
 [inverse-architecture.md](design/inverse-architecture.md); this note is how to
 work inside it without re-buying the lessons.
 
+## Raise acceptance contract
+
+A raise is a proof-backed replacement, not merely a pattern that produced
+better C# for one method. Before implementation, write down four proof
+obligations:
+
+1. **Lowering shell:** name the source construct, compiler, build configuration,
+   and exact IL/IR shape being recognized. Keep at least one compiler-produced
+   fixture or pinned real witness; a hand-built graph alone cannot establish
+   that the claimed lowering exists.
+2. **Consumed ownership:** identify every block, node, temporary, label, and
+   storage location the rewrite removes or reinterprets. Prove that no
+   unconsumed edge or use reaches into that region. Scope body-local facts to
+   their nearest function, but inspect globally visible storage across nested
+   functions.
+3. **Control-flow contract:** when the raise consumes or alters control flow,
+   preserve successor identity and multiplicity, exits, exception boundaries,
+   and the owners of `Break`, `Continue`, and `Leave`. Otherwise state why this
+   obligation does not apply. A model-agreement check proves two models
+   describe the same edges; it does not prove that the proposed C# replacement
+   preserves their meaning.
+4. **Replacement contract:** show that the emitted C# binds, preserves
+   observable behavior, and has an independently measured compile-back outcome.
+   If exact IL fidelity is not available, name the missing evidence rather than
+   treating valid-looking output as proof.
+
+Every unsupported or ambiguous obligation is a decline boundary. Leave that
+shape honestly lowered; do not infer ownership from block order, equal text,
+coordinates, node ids from another document, or a convenient fallthrough.
+The PR contract records these four obligations plus the explicit decline
+boundary and a concrete observation that would falsify the raise.
+
+### Fixture family
+
+Each behavior-changing raise needs a fixture family, not one happy-path test:
+
+- a compiler-produced positive that pins the real lowering;
+- the smallest accepted boundary shape;
+- a still-flat negative for each proof obligation the matcher relies on;
+- nested-function, external-entry, successor-multiplicity, and structured
+  transfer negatives when those domains are reachable;
+- a pinned real witness whose Before and After bodies are reviewed.
+
+Synthetic fixtures are appropriate for adversarial states a compiler will not
+emit. They complement rather than replace the compiler-produced positive.
+Assert the IR invariant on accepted and declined results.
+
+### Review evidence
+
+For the real witness, acquire exact base/head `AnnotatedSourceDocument` values
+with `-S "Annotated Source Document"`. When a product owner can also issue real
+cross-document node correspondence, generate the full-body structural review
+introduced by #4092 from one `CSharpStructuralComparison` and paste its
+Before/After caret overlays and structural rows verbatim.
+
+PR #4092 currently supplies the comparison and presentation consumer, not a
+producer that maps base-render C# node ids to head-render C# node ids. Until
+such a producer exists, record `Not generated — no product correspondence
+issuer` and retain the standalone Before and After bodies. Never hand-place
+carets or recover correspondence from equal ids, coordinates, text, labels, or
+display order merely to satisfy the template.
+
+The structural review explains *what changed*; it is not a correctness oracle.
+Keep the independent validity, correctness, compile-back fidelity, and exact
+revision verdicts beside it. The current correspondence-producer gap does not
+change an otherwise supported raise verdict; it changes only which
+presentation artifact is honest. Do not manufacture a persuasive substitute in
+the harness.
+
+Render A/B and corpus evidence remain population checks. Report stable
+changed-method loss/gain identities and classify every changed method; aggregate
+improvements cannot offset one newly invalid or behavior-changing method. The
+PR template at [templates/decompiler-pr.md](templates/decompiler-pr.md) is the
+required review shape.
+
 ## Evidence
 
 - **Render-text A/B is standing evidence for any raise/printer-affecting PR.**
