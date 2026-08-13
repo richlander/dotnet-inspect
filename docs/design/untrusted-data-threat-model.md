@@ -279,13 +279,17 @@ file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
 cache entries use SHA-256-derived keys through `CoreCache`.
 
-The Browser-Wasm package path is filesystem-free and applies host-owned byte
-budgets before content reaches its cache or inspection workspace: 1 MB for a
-version-index response, 128 MB for a downloaded nupkg, 64 MB for one expanded
-assembly entry, and 16 MB for one expanded Markdown or XML entry. It also
-rejects more than 4,096 archive entries by selecting the same highest-offset
-end record as `ZipArchive` and scanning its central directory without allocating
-entry objects, before `ZipArchive` can materialize them.
+The Browser-Wasm package path is filesystem-free but uses the shared
+`PackageCoordinateResolver`, `PackagePayloadAcquisition`,
+`PackageArchiveValidator`, and `PackageResourceUrl` owners. Host policy supplies
+the narrower bounds: the shared 16 MB text-response cap for a version listing,
+128 MB for a downloaded nupkg, 512 MB for aggregate declared archive expansion,
+64 MB for one expanded assembly entry, and 16 MB for one expanded Markdown or
+XML entry. It also rejects more than 4,096 archive entries. The shared archive
+validator selects the same highest-offset end record as `ZipArchive` and scans
+its central directory without allocating entry objects before `ZipArchive` can
+materialize them, then applies its path, directory, compression, CRC, and
+observed-expansion checks.
 `InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
 the caller's limit before allocating that length, then verifies the observed
 expansion against the declaration. `InMemoryPackageContentTests` gates the
@@ -294,8 +298,11 @@ The host's 128 MB package-cache budget is aggregate: an open inspection scope's
 nupkg remains represented in the same LRU, and evicting that package disposes
 every retaining scope before removing the cache entry. Scope reuse therefore
 cannot keep an evicted archive alive outside the advertised budget.
-Package downloads must declare their content length; the host reserves that
-length and evicts unleased entries before allocating the response array.
+Package downloads must declare their content length. The Browser implements
+`IPackagePayloadTransferPolicy`, which reserves that length and evicts unleased
+entries after shared transport receives the headers but before it reads the
+body. The reservation becomes a cache entry only after shared archive validation,
+store commit, and re-admission complete.
 Composite workspace construction temporarily leases each resolved coordinate,
 so a later acquisition cannot evict an earlier pending coordinate. In-flight
 reservations and retained cache entries share the same 12-package/128 MB limit.
@@ -307,6 +314,9 @@ gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
 `PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the
 host-specific central-directory entry limit.
+`PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
+`TransferPolicy_RejectedPayloadDisposesWithoutCompleting`, and
+`TransferPolicy_CanRequireContentLengthBeforeBodyRead` gate the capacity seam.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry

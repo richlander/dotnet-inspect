@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
@@ -121,56 +120,33 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration()
     {
+        const int maxEntries = 4_096;
         _ = new BrowserPackage(
             "Entry.Limit",
             "1.0.0",
-            PackageEntries(BrowserPackageArchiveValidator.MaxEntries),
+            PackageEntries(maxEntries),
             fromCache: false);
-        byte[] nupkg = PackageEntries(BrowserPackageArchiveValidator.MaxEntries + 1);
+        byte[] nupkg = PackageEntries(maxEntries + 1);
 
         InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
             () => new BrowserPackage("Entry.Flood", "1.0.0", nupkg, fromCache: false));
 
-        Assert.Contains("entry-count limit", failure.Message, StringComparison.Ordinal);
-
-        InvalidOperationException zip64Failure = Assert.Throws<InvalidOperationException>(
-            () => BrowserPackageArchiveValidator.Validate(
-                Zip64WithDeclaredEntryCount(BrowserPackageArchiveValidator.MaxEntries + 1)));
-        Assert.Contains("entry-count limit", zip64Failure.Message, StringComparison.Ordinal);
-
-        InvalidOperationException ambiguousFailure = Assert.Throws<InvalidOperationException>(
-            () => BrowserPackageArchiveValidator.Validate(
-                ArchiveWithShadowedEndRecord(
-                    PackageEntries(BrowserPackageArchiveValidator.MaxEntries + 1))));
-        Assert.Contains("entry-count limit", ambiguousFailure.Message, StringComparison.Ordinal);
-
-        byte[] divergent = ArchiveWithIgnoredZip64SizeSentinel(nupkg);
-        using (var archive = new ZipArchive(
-            new MemoryStream(divergent, writable: false),
-            ZipArchiveMode.Read))
-        {
-            Assert.Equal(
-                BrowserPackageArchiveValidator.MaxEntries + 1,
-                archive.Entries.Count);
-        }
-
-        InvalidOperationException divergentFailure = Assert.Throws<InvalidOperationException>(
-            () => BrowserPackageArchiveValidator.Validate(divergent));
-        Assert.Contains("entry-count limit", divergentFailure.Message, StringComparison.Ordinal);
+        Assert.Contains("more than 4096 entries", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void PackageDocumentDiscovery_UsesOneCachedEntryManifestAtTheLimit()
     {
+        const int maxEntries = 4_096;
         var package = new BrowserPackage(
             "Document.Limit",
             "1.0.0",
-            PackageDocuments(BrowserPackageArchiveValidator.MaxEntries),
+            PackageDocuments(maxEntries),
             fromCache: false);
 
         IReadOnlyList<BrowserPackageDocument> documents = package.Documents();
 
-        Assert.Equal(BrowserPackageArchiveValidator.MaxEntries, documents.Count);
+        Assert.Equal(maxEntries, documents.Count);
         Assert.Same(
             package.Content.EnumerateEntriesWithLengths(),
             package.Content.EnumerateEntriesWithLengths());
@@ -216,23 +192,6 @@ public sealed class BrowserEngineBoundaryTests
                 "M:Example.M"));
 
         Assert.Contains("supported element depth", failure.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PackageVersionIndex_RejectsSuccessShapedMalformedEntries()
-    {
-        Assert.Equal(
-            ["1.0.0", "2.0.0-preview.1"],
-            BrowserPackageWorkspace.ParseVersions(
-                """{"versions":["1.0.0","2.0.0-preview.1"]}"""u8.ToArray(),
-                "example"));
-
-        InvalidDataException failure = Assert.Throws<InvalidDataException>(
-            () => BrowserPackageWorkspace.ParseVersions(
-                """{"versions":["1.0.0",null]}"""u8.ToArray(),
-                "example"));
-
-        Assert.Contains("invalid version", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -465,7 +424,7 @@ public sealed class BrowserEngineBoundaryTests
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => BrowserPackageWorkspace.AcquireAsync(packageId, version));
 
-        Assert.Contains("is not a valid NuGet package", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
         BrowserPackageCacheStats after = BrowserPackageWorkspace.Stats();
         Assert.Equal(before.Packages, after.Packages);
         Assert.Equal(before.Resident, after.Resident);
@@ -479,22 +438,7 @@ public sealed class BrowserEngineBoundaryTests
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => BrowserPackageWorkspace.GetVersionsAsync("evil/../other"));
 
-        Assert.Contains("is not a valid NuGet package id", failure.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PackageVersionIndex_RejectsPathBreakingVersionText()
-    {
-        InvalidDataException failure = Assert.Throws<InvalidDataException>(
-            () => BrowserPackageWorkspace.ParseVersions(
-                System.Text.Encoding.UTF8.GetBytes(
-                    """{"versions":["1.0.0","1.0.0/../9.9.9"]}"""),
-                "example"));
-
-        Assert.Contains(
-            "not valid NuGet version text",
-            failure.Message,
-            StringComparison.Ordinal);
+        Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // The default package load runs under explicit bounds and says so when it stops early. Both
@@ -784,100 +728,4 @@ public sealed class BrowserEngineBoundaryTests
         return content.ToArray();
     }
 
-    static byte[] Zip64WithDeclaredEntryCount(int entryCount)
-    {
-        byte[] archive = new byte[56 + 20 + 22];
-        Span<byte> bytes = archive;
-
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes, 0x06064b50);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[4..], 44);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[12..], 45);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[14..], 45);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[24..], (ulong)entryCount);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[32..], (ulong)entryCount);
-
-        int locator = 56;
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[locator..], 0x07064b50);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(locator + 16)..], 1);
-
-        int end = locator + 20;
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[end..], 0x06054b50);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 8)..], ushort.MaxValue);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 10)..], ushort.MaxValue);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 12)..], uint.MaxValue);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 16)..], uint.MaxValue);
-        return archive;
-    }
-
-    static byte[] ArchiveWithShadowedEndRecord(byte[] canonical)
-    {
-        int realEnd = -1;
-        for (int offset = canonical.Length - 22; offset >= 0; offset--)
-        {
-            if (BinaryPrimitives.ReadUInt32LittleEndian(canonical.AsSpan(offset)) == 0x06054b50)
-            {
-                realEnd = offset;
-                break;
-            }
-        }
-        Assert.True(realEnd >= 0);
-
-        byte[] ambiguous = new byte[canonical.Length + 23];
-        canonical.AsSpan(0, realEnd).CopyTo(ambiguous);
-        Span<byte> shadow = ambiguous.AsSpan(realEnd, 22);
-        BinaryPrimitives.WriteUInt32LittleEndian(shadow, 0x06054b50);
-        BinaryPrimitives.WriteUInt16LittleEndian(shadow[20..], 23);
-        canonical.AsSpan(realEnd).CopyTo(ambiguous.AsSpan(realEnd + 22));
-        return ambiguous;
-    }
-
-    static byte[] ArchiveWithIgnoredZip64SizeSentinel(byte[] canonical)
-    {
-        int realEnd = -1;
-        for (int offset = canonical.Length - 22; offset >= 0; offset--)
-        {
-            if (BinaryPrimitives.ReadUInt32LittleEndian(canonical.AsSpan(offset)) == 0x06054b50)
-            {
-                realEnd = offset;
-                break;
-            }
-        }
-        Assert.True(realEnd >= 0);
-
-        ReadOnlySpan<byte> originalEnd = canonical.AsSpan(realEnd, 22);
-        ushort totalEntries = BinaryPrimitives.ReadUInt16LittleEndian(originalEnd[10..]);
-        uint directoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(originalEnd[16..]);
-        ReadOnlySpan<byte> firstHeader = canonical.AsSpan((int)directoryOffset);
-        int firstHeaderLength = 46
-            + BinaryPrimitives.ReadUInt16LittleEndian(firstHeader[28..])
-            + BinaryPrimitives.ReadUInt16LittleEndian(firstHeader[30..])
-            + BinaryPrimitives.ReadUInt16LittleEndian(firstHeader[32..]);
-
-        byte[] divergent = new byte[realEnd + 56 + 20 + 22];
-        canonical.AsSpan(0, realEnd).CopyTo(divergent);
-        Span<byte> bytes = divergent;
-
-        int zip64 = realEnd;
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[zip64..], 0x06064b50);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 4)..], 44);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(zip64 + 12)..], 45);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(zip64 + 14)..], 45);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 24)..], 1);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 32)..], 1);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 40)..], (ulong)firstHeaderLength);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(zip64 + 48)..], directoryOffset);
-
-        int locator = zip64 + 56;
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[locator..], 0x07064b50);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[(locator + 8)..], (ulong)zip64);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(locator + 16)..], 1);
-
-        int end = locator + 20;
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[end..], 0x06054b50);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 8)..], totalEntries);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes[(end + 10)..], totalEntries);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 12)..], uint.MaxValue);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes[(end + 16)..], directoryOffset);
-        return divergent;
-    }
 }

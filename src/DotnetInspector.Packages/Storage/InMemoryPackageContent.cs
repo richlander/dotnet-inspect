@@ -10,7 +10,7 @@ namespace DotnetInspector.Packages;
 /// and <see cref="NupkgPath"/> are always <c>null</c> because nothing is
 /// materialized on disk.
 /// </summary>
-public sealed class InMemoryPackageContent : IPackageContent
+public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEntryManifest
 {
     const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
 
@@ -176,6 +176,3 @@ public sealed class InMemoryPackageContent : IPackageContent
         return null;
     }
 }
-
-/// <summary>One package entry's path and declared expanded length.</summary>
-public readonly record struct PackageContentEntry(string Path, long Length);

@@ -6,16 +6,12 @@ using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InspectWeb.Acquisition;
 using NuGetFetch;
-using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
 namespace InspectWeb.Engine;
 
 /// <summary>
-/// Centralized acquisition: the single owner of package download, the session package cache, the
-/// exact package/version/framework identity every browser query is answered against, and the
-/// bounded registry of open workspaces. Nothing above this type builds a feed URL, ranks a target
-/// framework, or chooses between <c>ref/</c> and <c>lib/</c>; identity comes from
-/// <see cref="PackageCompileAssetSelector"/>.
+/// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
+/// owns the bounded session cache and registry of open workspaces.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,19 +40,30 @@ internal static class BrowserPackageWorkspace
 {
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
-    const long MaxVersionIndexBytes = 1024 * 1024;
     const int MaxOpenScopes = 4;
 
     static readonly HttpClient Http = new();
+    static readonly UniformPackageSourceAuthorization SourceAuthorization =
+        new([PackageSource.NuGetOrg]);
+    static readonly BrowserSessionPackageStore Store = new();
+    static readonly PackagePayloadLimits PayloadLimits = new()
+    {
+        MaxArchiveBytes = MaxCachedPackageBytes,
+        MaxExpandedBytes = 512L * 1024 * 1024,
+        MaxEntryCount = 4_096,
+        MaxUniqueDirectories = 16_384,
+    };
     static readonly Dictionary<string, CacheEntry> Cache = new(StringComparer.Ordinal);
     static readonly Dictionary<string, ScopeEntry> Scopes = new(StringComparer.Ordinal);
-    static readonly Dictionary<string, long> Reservations = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, PackageDownloadReservation> Reservations =
+        new(StringComparer.Ordinal);
     static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
-    static readonly Dictionary<string, Task<byte[]>> PendingDownloads = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, Task<AcquiredPackagePayload>> PendingAcquisitions =
+        new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
-    sealed record CacheEntry(byte[] Bytes, long LastAccess);
+    sealed record CacheEntry(byte[] Bytes, string ProducerKey, long LastAccess);
 
     sealed record ScopeEntry(
         BrowserInspectionScope Scope,
@@ -69,63 +76,78 @@ internal static class BrowserPackageWorkspace
             Cache.Count,
             Scopes.Count,
             Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum());
+                + Reservations.Values.Sum(reservation => reservation.ReservedBytes));
 
-    /// <summary>Acquires one package's content at an exact resolved version.</summary>
+    /// <summary>Resolves and acquires one package through the shared product owners.</summary>
     public static async Task<BrowserPackage> AcquireAsync(string packageId, string? version)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
-        // Validate the coordinate before it can key the cache or reach the network. An id or
-        // version carrying '/', a dot segment, a query, or a fragment would otherwise rewrite the
-        // flat-container request path, or collide with another coordinate's cache key and be
-        // attributed to it.
-        string normalizedId = ValidatedPackageId(packageId).ToLowerInvariant();
-        string resolvedVersion = await ResolveVersionAsync(normalizedId, version);
-        string normalizedVersion = ValidatedVersion(resolvedVersion).ToLowerInvariant();
-        string key = $"{normalizedId}@{normalizedVersion}";
-        (byte[] bytes, bool fromCache) = await GetBytesAsync(
-            normalizedId,
-            normalizedVersion,
-            key);
+        string? requestedVersion =
+            string.IsNullOrWhiteSpace(version)
+            || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : version;
+        var request = new PackageCoordinate(packageId, requestedVersion);
+        if (PackageCoordinateResolver.Validate(request) is { } invalid)
+            throw new InvalidOperationException(invalid.Message);
+
+        string canonicalId = packageId.ToLowerInvariant();
+        PackageSourceAuthorization authorization =
+            SourceAuthorization.AuthorizeSourcesFor(canonicalId);
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                Http,
+                request,
+                authorization.Sources,
+                useVersionCache: false,
+                requireStableFloating: true);
+        ResolvedPackageCoordinate coordinate = resolution switch
+        {
+            PackageCoordinateResolution.Resolved resolved => resolved.Coordinate,
+            PackageCoordinateResolution.Invalid rejected =>
+                throw new InvalidOperationException(rejected.Message),
+            PackageCoordinateResolution.Unavailable unavailable =>
+                throw new InvalidOperationException(unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Package coordinate resolution returned an unknown outcome."),
+        };
+
+        string key = PackageKey(coordinate.PackageId, coordinate.Version);
+        if (!PendingAcquisitions.TryGetValue(
+                key,
+                out Task<AcquiredPackagePayload>? pending))
+        {
+            pending = AcquirePayloadAsync(coordinate);
+            PendingAcquisitions.Add(key, pending);
+        }
+
+        AcquiredPackagePayload payload;
+        try
+        {
+            payload = await pending;
+        }
+        finally
+        {
+            PendingAcquisitions.Remove(key);
+        }
+
+        if (!Cache.TryGetValue(key, out CacheEntry? cached)
+            || !cached.ProducerKey.Equals(
+                payload.ProducerKey,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The shared package acquisition completed without publishing its Browser cache entry.");
+        }
+
+        Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackage(
             packageId,
-            resolvedVersion,
-            bytes,
-            fromCache);
-    }
-
-    /// <summary>
-    /// The package id, or a visible failure. The browser reaches one feed with one URL shape, so
-    /// an id that is not a package id is rejected here rather than escaped and sent.
-    /// </summary>
-    internal static string ValidatedPackageId(string packageId)
-    {
-        if (PackageCoordinateValidator.TryValidatePackageId(
-                packageId,
-                out PackageCoordinateRejectionKind? rejection))
-        {
-            return packageId;
-        }
-
-        throw new InvalidOperationException(
-            $"'{packageId}' is not a valid NuGet package id ({rejection}), so it names no "
-            + "package to acquire.");
-    }
-
-    /// <summary>The exact version text, or a visible failure.</summary>
-    internal static string ValidatedVersion(string version)
-    {
-        if (PackageCoordinateValidator.TryValidatePackageVersion(
-                version,
-                out PackageCoordinateRejectionKind? rejection))
-        {
-            return version;
-        }
-
-        throw new InvalidOperationException(
-            $"'{version}' is not a valid NuGet package version ({rejection}), so it names no "
-            + "package version to acquire.");
+            coordinate.Version,
+            cached.Bytes,
+            payload.Origin == PackagePayloadOrigin.Cache,
+            cached.ProducerKey);
     }
 
     /// <summary>
@@ -160,7 +182,14 @@ internal static class BrowserPackageWorkspace
                     $"Framework '{targetFramework}' is not present. Available frameworks: "
                     + string.Join(", ", selection.AvailableTargetFrameworks)
                     + "."),
-            _ => new BrowserPackageCoordinate(package, selection),
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                throw new InvalidOperationException(
+                    selection.Message
+                    ?? "The package has an invalid implementation-asset layout."),
+            PackageCompileAssetSelectionStatus.Selected when selection.IsSelected =>
+                new BrowserPackageCoordinate(package, selection),
+            _ => throw new InvalidOperationException(
+                "Package compile-asset selection returned an unknown outcome."),
         };
     }
 
@@ -258,175 +287,54 @@ internal static class BrowserPackageWorkspace
         }
     }
 
-    static async Task<string> ResolveVersionAsync(string normalizedId, string? requestedVersion)
+    static async Task<AcquiredPackagePayload> AcquirePayloadAsync(
+        ResolvedPackageCoordinate coordinate)
     {
-        if (!string.IsNullOrWhiteSpace(requestedVersion)
-            && !requestedVersion.Equals("latest", StringComparison.OrdinalIgnoreCase))
+        PackagePayloadResult result = await PackagePayloadAcquisition.AcquireAsync(
+            Http,
+            coordinate,
+            Store,
+            limits: PayloadLimits,
+            transferPolicy: Store);
+        return result switch
         {
-            return requestedVersion;
-        }
-
-        return (await GetVersionsAsync(normalizedId))
-            .LastOrDefault(candidate => !candidate.Contains('-'))
-            ?? throw new InvalidOperationException(
-                $"Package '{normalizedId}' has no stable published version. "
-                + "Specify a prerelease version explicitly.");
+            PackagePayloadResult.Acquired acquired => acquired.Payload,
+            PackagePayloadResult.Unavailable unavailable =>
+                throw new InvalidOperationException(unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
     }
 
     internal static async Task<string[]> GetVersionsAsync(string packageId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        string normalizedId = ValidatedPackageId(packageId).ToLowerInvariant();
-
-        // The product's listed-version owners resolve NuGet.config and the on-disk content cache
-        // before they answer, neither of which exists in a browser. Read the flat-container index
-        // for the product-owned nuget.org base address instead.
-        string index = $"{FlatContainer()}/{Uri.EscapeDataString(normalizedId)}/index.json";
-        byte[] bytes = await DownloadBytesAsync(
-            index,
-            MaxVersionIndexBytes,
-            $"The version index for package '{normalizedId}'");
-        return ParseVersions(bytes, normalizedId);
-    }
-
-    internal static string[] ParseVersions(byte[] bytes, string packageId)
-    {
-        ArgumentNullException.ThrowIfNull(bytes);
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        using var document = System.Text.Json.JsonDocument.Parse(bytes);
-        if (!document.RootElement.TryGetProperty("versions", out var versions)
-            || versions.ValueKind != System.Text.Json.JsonValueKind.Array)
+        if (PackageCoordinateResolver.Validate(new PackageCoordinate(packageId))
+            is { } invalid)
         {
-            throw new InvalidDataException(
-                $"The version index for package '{packageId}' has no versions array.");
+            throw new InvalidOperationException(invalid.Message);
         }
 
-        var result = new List<string>();
-        foreach (System.Text.Json.JsonElement element in versions.EnumerateArray())
-        {
-            if (element.ValueKind != System.Text.Json.JsonValueKind.String
-                || string.IsNullOrWhiteSpace(element.GetString()))
-            {
-                throw new InvalidDataException(
-                    $"The version index for package '{packageId}' contains an invalid version.");
-            }
-
-            // The index is artifact-authored text that becomes a request path segment and a cache
-            // key. A version the NuGet grammar does not accept is rejected here, where it is
-            // visible, rather than skipped — a silently shortened version list reads as a package
-            // that never shipped those versions.
-            if (!PackageCoordinateValidator.IsValidPackageVersion(element.GetString()))
-            {
-                throw new InvalidDataException(
-                    $"The version index for package '{packageId}' contains text that is "
-                    + "not valid NuGet version text.");
-            }
-
-            result.Add(element.GetString()!);
-        }
-
-        return [.. result];
-    }
-
-    static string FlatContainer() =>
-        PackageSource.NuGetOrg.GetFlatContainerUrl()
-        ?? throw new InvalidOperationException(
-            "nuget.org exposes no flat-container endpoint.");
-
-    static async Task<(byte[] Bytes, bool FromCache)> GetBytesAsync(
-        string normalizedId,
-        string normalizedVersion,
-        string key)
-    {
-        if (Cache.TryGetValue(key, out CacheEntry? cached))
-        {
-            Cache[key] = cached with { LastAccess = ++_clock };
-            return (cached.Bytes, true);
-        }
-        if (PendingDownloads.TryGetValue(key, out Task<byte[]>? pending))
-            return (await pending, true);
-
-        Task<byte[]> download = DownloadAndCacheAsync(
-            normalizedId,
-            normalizedVersion,
-            key);
-        PendingDownloads.Add(key, download);
-        try
-        {
-            return (await download, false);
-        }
-        finally
-        {
-            PendingDownloads.Remove(key);
-        }
-    }
-
-    static async Task<byte[]> DownloadAndCacheAsync(
-        string normalizedId,
-        string normalizedVersion,
-        string key)
-    {
-        string url = await PackageExtractor.GetPackageDownloadUrlAsync(
+        PackageSourceAuthorization authorization =
+            SourceAuthorization.AuthorizeSourcesFor(packageId.ToLowerInvariant());
+        PackageVersionListingResult result =
+            await PackageCoordinateResolver.ListVersionsAsync(
                 Http,
-                PackageSource.NuGetOrg,
-                normalizedId,
-                normalizedVersion,
-                log: null)
-            ?? throw new InvalidOperationException(
-                $"nuget.org exposes no download address for {normalizedId} {normalizedVersion}.");
-
-        // The coordinate was validated and the product escapes each path segment, so the address
-        // must still be inside the flat container. Check it rather than assume it: this is the
-        // one place a coordinate becomes a request.
-        string expectedPrefix = $"{FlatContainer()}/{Uri.EscapeDataString(normalizedId)}/"
-            + $"{Uri.EscapeDataString(normalizedVersion)}/";
-        if (!url.StartsWith(expectedPrefix, StringComparison.Ordinal))
+                packageId,
+                authorization.Sources,
+                includePrerelease: true,
+                useVersionCache: false);
+        return result switch
         {
-            throw new InvalidOperationException(
-                $"The download address for {normalizedId} {normalizedVersion} is not inside that "
-                + "coordinate's flat-container path.");
-        }
-        using HttpResponseMessage response = await Http.GetAsync(
-            url,
-            HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-        long declaredLength = response.Content.Headers.ContentLength
-            ?? throw new InvalidOperationException(
-                $"Package '{normalizedId}' {normalizedVersion} did not declare its byte length, "
-                + "so the browser cannot reserve its package-cache budget before download.");
-
-        using PackageDownloadReservation reservation = ReservePackageDownload(
-            key,
-            declaredLength);
-        byte[] bytes;
-        try
-        {
-            using Stream source = await response.Content.ReadAsStreamAsync();
-            bytes = await BoundedContentReader.ReadAllBytesAsync(
-                source,
-                MaxCachedPackageBytes,
-                declaredLength);
-        }
-        catch (InvalidDataException ex)
-        {
-            throw new InvalidOperationException(
-                $"Package '{normalizedId}' {normalizedVersion} exceeds the browser byte limit.",
-                ex);
-        }
-
-        try
-        {
-            BrowserPackageArchiveValidator.Validate(bytes);
-        }
-        catch (InvalidDataException ex)
-        {
-            throw new InvalidOperationException(
-                $"Package '{normalizedId}' {normalizedVersion} is not a supported ZIP archive.",
-                ex);
-        }
-        reservation.Commit(bytes);
-        Downloaded.Add(key);
-        return bytes;
+            PackageVersionListingResult.Available available =>
+                [.. available.Versions],
+            PackageVersionListingResult.Invalid rejected =>
+                throw new InvalidOperationException(rejected.Message),
+            PackageVersionListingResult.Unavailable unavailable =>
+                throw new InvalidOperationException(unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Package version listing returned an unknown outcome."),
+        };
     }
 
     static ImmutableHashSet<string> RetainCoordinatePackages(
@@ -467,7 +375,7 @@ internal static class BrowserPackageWorkspace
     {
         while (Cache.Count + Reservations.Count + additionalEntries > MaxCachedPackages
             || Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum()
+                + Reservations.Values.Sum(reservation => reservation.ReservedBytes)
                 + additionalBytes
                 > MaxCachedPackageBytes)
         {
@@ -516,8 +424,11 @@ internal static class BrowserPackageWorkspace
             throw new InvalidOperationException("The package download is already reserved.");
 
         MakeCacheRoom(declaredLength, additionalEntries: 1);
-        Reservations.Add(packageKey, declaredLength);
-        return new PackageDownloadReservation(packageKey, declaredLength);
+        var reservation = new PackageDownloadReservation(
+            packageKey,
+            declaredLength);
+        Reservations.Add(packageKey, reservation);
+        return reservation;
     }
 
     static void LeasePackage(string packageKey)
@@ -543,7 +454,10 @@ internal static class BrowserPackageWorkspace
         string key = PackageKey(package.PackageId, package.Version);
         Cache.Remove(key);
         MakeCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1);
-        Cache[key] = new CacheEntry(package.RetainedBytes, ++_clock);
+        Cache[key] = new CacheEntry(
+            package.RetainedBytes,
+            package.Content.ProducerKey,
+            ++_clock);
     }
 
     static void TouchPackages(IEnumerable<string> packageKeys)
@@ -566,49 +480,156 @@ internal static class BrowserPackageWorkspace
     static string PackageKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
-    static async Task<byte[]> DownloadBytesAsync(
-        string url,
-        long maxBytes,
-        string description)
+    internal static void ValidateArchive(byte[] archive)
     {
-        using HttpResponseMessage response = await Http.GetAsync(
-            url,
-            HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-        try
-        {
-            using Stream source = await response.Content.ReadAsStreamAsync();
-            return await BoundedContentReader.ReadAllBytesAsync(
-                source,
-                maxBytes,
-                response.Content.Headers.ContentLength);
-        }
-        catch (InvalidDataException ex)
+        if (PackageArchiveValidator.Validate(archive, PayloadLimits)
+            is PackageArchiveValidation.Rejected rejection)
         {
             throw new InvalidOperationException(
-                $"{description} exceeds the browser byte limit.",
-                ex);
+                $"The package is outside the Browser/Wasm payload policy: {rejection.Reason}.");
         }
     }
 
-    internal sealed class PackageDownloadReservation(string packageKey, long reservedBytes)
-        : IDisposable
+    sealed class BrowserSessionPackageStore
+        : IPackageStore, IPackagePayloadTransferPolicy
     {
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+        {
+            string key = PackageKey(packageName, version);
+            if (!Cache.TryGetValue(key, out CacheEntry? entry)
+                || allowedSourceKeys is null
+                || !allowedSourceKeys.Contains(
+                    entry.ProducerKey,
+                    StringComparer.Ordinal))
+            {
+                return null;
+            }
+
+            Cache[key] = entry with { LastAccess = ++_clock };
+            log?.Invoke($"Using cached package: {packageName} {version}");
+            return new InMemoryPackageContent(
+                entry.Bytes,
+                fromCache: true,
+                entry.ProducerKey);
+        }
+
+        public async ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(packageName);
+            ArgumentException.ThrowIfNullOrWhiteSpace(version);
+            ArgumentException.ThrowIfNullOrWhiteSpace(sourceKey);
+            ArgumentNullException.ThrowIfNull(nupkg);
+
+            string key = PackageKey(packageName, version);
+            if (!Reservations.TryGetValue(
+                    key,
+                    out PackageDownloadReservation? reservation))
+            {
+                throw new InvalidOperationException(
+                    "The Browser package store requires a pre-download reservation.");
+            }
+
+            byte[] bytes;
+            if (nupkg is MemoryStream memory
+                && memory.Position == 0
+                && memory.TryGetBuffer(out ArraySegment<byte> segment)
+                && segment.Offset == 0
+                && segment.Count == segment.Array!.Length)
+            {
+                bytes = segment.Array;
+            }
+            else
+            {
+                bytes = await BoundedContentReader.ReadAllBytesAsync(
+                    nupkg,
+                    reservation.ReservedBytes,
+                    reservation.ReservedBytes,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            reservation.Stage(bytes, sourceKey);
+            return new InMemoryPackageContent(
+                bytes,
+                fromCache: false,
+                sourceKey);
+        }
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            ArgumentNullException.ThrowIfNull(transfer);
+            long declaredLength = transfer.AdvertisedLength
+                ?? throw new InvalidOperationException(
+                    $"Package '{transfer.Coordinate.PackageId}' "
+                    + $"{transfer.Coordinate.Version} did not declare its byte length, "
+                    + "so the Browser cannot reserve its package-cache budget before download.");
+            return ReservePackageDownload(
+                PackageKey(
+                    transfer.Coordinate.PackageId,
+                    transfer.Coordinate.Version),
+                declaredLength);
+        }
+    }
+
+    internal sealed class PackageDownloadReservation
+        : IPackagePayloadReservation
+    {
+        readonly string _packageKey;
+        byte[]? _stagedBytes;
+        string? _producerKey;
         bool _completed;
 
-        public void Commit(byte[] bytes)
+        internal PackageDownloadReservation(
+            string packageKey,
+            long reservedBytes)
+        {
+            _packageKey = packageKey;
+            ReservedBytes = reservedBytes;
+        }
+
+        internal long ReservedBytes { get; }
+
+        internal void Stage(byte[] bytes, string producerKey)
         {
             ArgumentNullException.ThrowIfNull(bytes);
-            if (_completed)
+            ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+            if (_completed || _stagedBytes is not null)
                 throw new InvalidOperationException("The package reservation is complete.");
-            if (bytes.LongLength != reservedBytes)
+            if (bytes.LongLength != ReservedBytes)
             {
                 throw new InvalidDataException(
                     "The downloaded package length does not match its reservation.");
             }
 
-            Reservations.Remove(packageKey);
-            Cache[packageKey] = new CacheEntry(bytes, ++_clock);
+            _stagedBytes = bytes;
+            _producerKey = producerKey;
+        }
+
+        public void Complete()
+        {
+            if (_completed)
+                throw new InvalidOperationException("The package reservation is complete.");
+            if (_stagedBytes is null || _producerKey is null)
+            {
+                throw new InvalidOperationException(
+                    "The package reservation has no validated content to publish.");
+            }
+
+            RemoveReservation();
+            Cache[_packageKey] = new CacheEntry(
+                _stagedBytes,
+                _producerKey,
+                ++_clock);
+            Downloaded.Add(_packageKey);
             _completed = true;
         }
 
@@ -616,8 +637,19 @@ internal static class BrowserPackageWorkspace
         {
             if (_completed)
                 return;
-            Reservations.Remove(packageKey);
+            RemoveReservation();
             _completed = true;
+        }
+
+        void RemoveReservation()
+        {
+            if (Reservations.TryGetValue(
+                    _packageKey,
+                    out PackageDownloadReservation? active)
+                && ReferenceEquals(active, this))
+            {
+                Reservations.Remove(_packageKey);
+            }
         }
     }
 }
@@ -647,16 +679,22 @@ internal sealed class BrowserPackage
         string packageId,
         string version,
         byte[] retainedBytes,
-        bool fromCache)
+        bool fromCache,
+        string? producerKey = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ArgumentNullException.ThrowIfNull(retainedBytes);
-        BrowserPackageArchiveValidator.Validate(retainedBytes);
+        producerKey ??= NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url);
+        ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
         PackageId = packageId;
         Version = version;
         RetainedBytes = retainedBytes;
-        Content = new InMemoryPackageContent(retainedBytes, fromCache, "nuget.org");
+        Content = new InMemoryPackageContent(
+            retainedBytes,
+            fromCache,
+            producerKey);
     }
 
     public string PackageId { get; }
@@ -852,7 +890,7 @@ internal sealed class BrowserPackageCoordinate(
     /// <summary>Every assembly the package ships for the selected framework.</summary>
     public IReadOnlyList<PackageCompileAsset> FrameworkAssets => Selection.FrameworkAssets;
 
-    /// <summary>Every implementation assembly the package ships for the selected framework.</summary>
+    /// <summary>Every assembly in the shared selector's effective implementation universe.</summary>
     public IReadOnlyList<PackageCompileAsset> ImplementationAssets =>
         Selection.ImplementationAssets;
 
@@ -868,9 +906,9 @@ internal sealed class BrowserPackageCoordinate(
     }
 
     /// <summary>
-    /// The implementation assembly for one assembly name in the selected framework. Reference
-    /// assemblies carry no method bodies, so body-backed work resolves the <c>lib/</c> asset from
-    /// the same discovered set rather than reasoning about package paths.
+    /// The implementation assembly for one assembly name. Reference assemblies carry no method
+    /// bodies, so body-backed work resolves the matching asset from the shared effective
+    /// implementation universe rather than reasoning about package paths.
     /// </summary>
     public PackageCompileAsset ImplementationAsset(string assemblyIdOrName)
     {

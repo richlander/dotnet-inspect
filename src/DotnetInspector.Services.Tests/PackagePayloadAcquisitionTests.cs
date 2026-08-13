@@ -2252,6 +2252,94 @@ public sealed class PackagePayloadAcquisitionTests
             line => Assert.DoesNotContain(secret, line, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        var policy = new RecordingTransferPolicy(
+            onReserve: transfer =>
+            {
+                Assert.False(bodyRead);
+                Assert.Equal(nupkg.LongLength, transfer.AdvertisedLength);
+            },
+            onComplete: () => Assert.Equal(1, store.Commits));
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() =>
+            {
+                var content = new StreamContent(
+                    new ReadTrackingStream(
+                        nupkg,
+                        () => bodyRead = true));
+                content.Headers.ContentLength = nupkg.LongLength;
+                return content;
+            }));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken,
+                transferPolicy: policy);
+
+        Assert.IsType<PackagePayloadResult.Acquired>(result);
+        Assert.True(bodyRead);
+        Assert.True(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+    }
+
+    [Fact]
+    public async Task TransferPolicy_RejectedPayloadDisposesWithoutCompleting()
+    {
+        byte[] malformed = [0x01, 0x02, 0x03];
+        var policy = new RecordingTransferPolicy();
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() => new ByteArrayContent(malformed)));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                new InMemoryPackageStore(),
+                cancellationToken: TestContext.Current.CancellationToken,
+                transferPolicy: policy);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.False(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+    }
+
+    [Fact]
+    public async Task TransferPolicy_CanRequireContentLengthBeforeBodyRead()
+    {
+        bool bodyRead = false;
+        var policy = new RecordingTransferPolicy(
+            onReserve: transfer =>
+            {
+                Assert.Null(transfer.AdvertisedLength);
+                throw new InvalidOperationException("A length is required.");
+            });
+        using var client = new HttpClient(
+            new NuGetOrgHandler(
+                () => new StreamContent(
+                    new EndlessStream(() => bodyRead = true))));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    new InMemoryPackageStore(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    transferPolicy: policy));
+
+        Assert.Equal("A length is required.", failure.Message);
+        Assert.False(bodyRead);
+    }
+
     static AcquiredPackagePayload Acquired(PackagePayloadResult result)
         => Assert.IsType<PackagePayloadResult.Acquired>(result).Payload;
 
@@ -2524,6 +2612,57 @@ public sealed class PackagePayloadAcquisitionTests
                         Content = content(),
                     }
                     : new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
+    sealed class RecordingTransferPolicy(
+        Action<PackagePayloadTransfer>? onReserve = null,
+        Action? onComplete = null)
+        : IPackagePayloadTransferPolicy
+    {
+        internal RecordingReservation Reservation { get; } =
+            new(onComplete);
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            onReserve?.Invoke(transfer);
+            return Reservation;
+        }
+    }
+
+    sealed class RecordingReservation(Action? onComplete)
+        : IPackagePayloadReservation
+    {
+        internal bool Completed { get; private set; }
+        internal bool Disposed { get; private set; }
+
+        public void Complete()
+        {
+            onComplete?.Invoke();
+            Completed = true;
+        }
+
+        public void Dispose() => Disposed = true;
+    }
+
+    sealed class ReadTrackingStream(byte[] bytes, Action onRead)
+        : MemoryStream(bytes, writable: false)
+    {
+        public override bool CanSeek => false;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            onRead();
+            return base.Read(buffer, offset, count);
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            onRead();
+            return base.ReadAsync(buffer, cancellationToken);
         }
     }
 

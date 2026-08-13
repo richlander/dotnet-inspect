@@ -34,10 +34,14 @@ shortening the selected assembly set.
 
 ## How a workspace is opened
 
-1. **Resolve an exact identity.** A package id, a resolved version, and a target
-   framework — never "whatever the package happens to ship".
-2. **Mint typed participants.** Centralized acquisition downloads the package,
-   selects compile assets with `PackageCompileAssetSelector`, decodes each
+1. **Resolve an exact identity.** `PackageCoordinateResolver` validates the
+   package id and resolves an omitted version through the authorized nuget.org
+   source without a filesystem cache. The Browser adapter then selects one
+   target framework — never "whatever the package happens to ship".
+2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
+   admits the package through the shared source, transport, and archive policy.
+   `PackageCompileAssetSelector` adds reference-group semantics around the
+   implementation universe selected by `PackageAssetSelector`, decodes each
    healthy entry's real metadata identity, and creates one
    `ResolvedAssemblyReference` per selected compile asset and, when the roles
    differ, per matching implementation asset. Malformed selected entries remain
@@ -104,7 +108,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserPackageWorkspace.cs` | acquisition, the package cache, exact package/version/framework identity, participant minting, and the bounded workspace registry |
+| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, participant minting, and the bounded workspace registry |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
 | `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
@@ -129,29 +133,34 @@ declare its content length. The cache reserves that length and evicts enough
 unleased content before allocating the response array; reservations participate
 in the same 12-package/128 MB aggregate while the download is in flight.
 
-A coordinate is validated before it can key the cache or reach the network. The
-package id must satisfy NuGet's own id grammar and the version must be exact,
-parsable NuGet version text — `PackageCoordinateValidator` in
-`DotnetInspector.Packages` owns both rules, and the versions a feed's index
-reports are held to the same rule. The flat-container address then percent-escapes
-each coordinate as one path segment, so a slash, dot segment, query, or fragment
-can neither rewrite the request path nor collide with another coordinate's cache
-key. `PackageCoordinateValidatorTests` and
+A coordinate is validated before it can key the cache or reach the network.
+`PackageCoordinateResolver` owns the same bounded ASCII package-id grammar and
+canonical exact-version grammar used by workspace contexts. Floating versions
+use its listing-aware shared policy, with persistent candidate caching disabled
+for the filesystem-free host. `PackageResourceUrl` composes every feed-declared
+flat-container resource without losing a signed base query or allowing a
+coordinate to rewrite the resource path.
+`PackageCoordinateResolverTests.Coordinate_RejectsAPackageIdOutsideTheGrammar`,
+`ListVersions_UsesAuthorizedSourcesWithoutPersistentCaching`, and
 `BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`
-gate both halves.
+gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A
-version-index response may contain at most 1 MB, one downloaded nupkg at most
-128 MB, one expanded assembly entry at most 64 MB, and one expanded Markdown or
-XML entry at most 16 MB. A nupkg may contain at most 4,096 entries; the host validates and scans the
-highest-offset end record and central directory without allocating entry
-objects before `ZipArchive` can materialize them. `InMemoryPackageContent` checks a ZIP entry's declared
-expanded length before allocation and verifies the observed expansion against
-that declaration. `InMemoryPackageContentTests` gates both the pre-expansion
-rejection and bounded stream reading. These are Browser-Wasm host limits, not a
-product-wide archive-budget policy. XML documentation text is streamed through
-the shared `CSharpText.XmlDocText` grammar and rejects nesting beyond its
-product-owned depth limit. Package Markdown is rendered through a narrow
+version-index response uses the shared 16 MB text-response limit, one downloaded
+nupkg may contain at most 128 MB, the aggregate declared archive expansion is
+limited to 512 MB, one expanded assembly entry to 64 MB, and one expanded
+Markdown or XML entry to 16 MB. A nupkg may contain at most 4,096 entries.
+`PackageArchiveValidator` applies those Browser-supplied limits while retaining
+the shared path, CRC, compression, directory, and expansion admission rules. It
+scans the highest-offset end record and central directory without allocating
+entry objects before `ZipArchive` can materialize them.
+`InMemoryPackageContent` checks a ZIP entry's declared expanded length before
+allocation and verifies the observed expansion against that declaration.
+`PackageArchiveValidatorTests`, `InMemoryPackageContentTests`, and
+`BrowserEngineBoundaryTests.PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration`
+gate the shared rules and the Browser limit. XML documentation text is streamed
+through the shared `CSharpText.XmlDocText` grammar and rejects nesting beyond
+its product-owned depth limit. Package Markdown is rendered through a narrow
 text-only element allow list with styling and resource-loading attributes
 removed.
 `XmlDocTextTests.GetNodeTextWithRefs_AcceptsTheDepthLimitAndRejectsTheNextElement`,
@@ -293,14 +302,11 @@ rather than fixture results or success-shaped empty output.
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
 | every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
 
-Two further gaps are about acquisition rather than inspection:
+One further gap is about acquisition rather than inspection:
 
 - `ResolvedAssemblyReference.CreateFromPathIfManaged` has **no content-shaped
   sibling**, so a filesystem-free acquisition owner must decode assembly identity
   itself before it can mint a participant the group will accept.
-- The product's listed-version owners resolve NuGet.config and the on-disk
-  content cache before answering, so a browser cannot use them; this engine reads
-  the flat-container index for the product-owned nuget.org base address.
 
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.

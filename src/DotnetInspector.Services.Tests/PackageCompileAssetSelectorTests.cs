@@ -72,6 +72,31 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void ReferenceSelection_UsesSharedImplementationFrameworkReduction()
+    {
+        IPackageContent content = InMemory(
+            "ref/net8.0/Example.dll",
+            "lib/net6.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net8.0");
+
+        Assert.Equal(
+            ["ref/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        PackageCompileAsset implementation =
+            Assert.Single(selection.ImplementationAssets);
+        Assert.Equal("lib/net6.0/Example.dll", implementation.Path);
+        Assert.Equal("net6.0", implementation.TargetFramework);
+        Assert.Same(
+            implementation,
+            selection.FindImplementationAsset(selection.DefaultAsset!));
+    }
+
+    [Fact]
     public void Selection_RejectsEmptyAssemblyStem()
     {
         PackageCompileAssetSelection selection =
@@ -118,7 +143,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
-    public void Selection_CaseCollidingPathsAreIndependentOfEnumerationOrder()
+    public void Selection_CaseCollidingImplementationPathsAreRejected()
     {
         string[] entries =
         [
@@ -135,9 +160,11 @@ public class PackageCompileAssetSelectorTests : IDisposable
                 InMemory(entries.Reverse().ToArray()),
                 "Example");
 
-        Assert.Equal(first.Assets, reversed.Assets);
-        Assert.Equal(first.DefaultAsset, reversed.DefaultAsset);
-        Assert.Equal("LIB/NET8.0/example.dll", first.DefaultAsset!.Path);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+            first.Status);
+        Assert.Equal(first.Status, reversed.Status);
+        Assert.Equal(first.Message, reversed.Message);
     }
 
     [Fact]

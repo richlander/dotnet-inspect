@@ -901,6 +901,9 @@ resolution, acquisition, and asset-selection owners. It supplies:
   kinds; and
 - a bounded-publication gate —
   `PackagePayloadAcquisitionTests.UnboundedChunkedPayload_IsRejectedWithoutContentLength`,
+  `TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
+  `TransferPolicy_RejectedPayloadDisposesWithoutCompleting`,
+  `TransferPolicy_CanRequireContentLengthBeforeBodyRead`,
   `ArchiveDeclaringTooManyEntries_IsRejected`,
   `ArchiveDeclaringTooMuchExpandedContent_IsRejected`,
   `CacheHit_IsRevalidatedAgainstCurrentPayloadLimits`,
@@ -912,6 +915,11 @@ resolution, acquisition, and asset-selection owners. It supplies:
   validated before it enters a store or returns from one, an inadmissible
   producer cannot mask another authorized cached producer, and an unusable
   payload stays a typed single-source failure;
+- a cache-optional authorized-listing gate —
+  `PackageCoordinateResolverTests.ListVersions_UsesAuthorizedSourcesWithoutPersistentCaching`
+  and `ListVersions_RequiresAnAuthorizedSource`, so a filesystem-free host uses
+  the shared listed-version and source policy without consulting or populating
+  the persistent candidate cache;
 - an archive-admission gate — `PackageArchiveValidatorTests`, which refuses a
   traversing, rooted, backslash-bearing, control-bearing, or overlong entry
   path under the same rules both stores apply, streams every entry — including

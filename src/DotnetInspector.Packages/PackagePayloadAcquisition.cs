@@ -106,6 +106,10 @@ public abstract record PackagePayloadResult
 /// <c>ArchiveDeclaringTooManyEntries_IsRejected</c>, and
 /// <c>ArchiveDeclaringTooMuchExpandedContent_IsRejected</c> for the bounds —
 /// each of which also asserts the rejected payload is absent from the store —
+/// <c>TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit</c>,
+/// <c>TransferPolicy_RejectedPayloadDisposesWithoutCompleting</c>, and
+/// <c>TransferPolicy_CanRequireContentLengthBeforeBodyRead</c> for the optional
+/// host-capacity seam,
 /// <c>InvalidArchiveFromOneSource_LetsTheNextSourceServe</c> for source
 /// failover without cache poisoning, and
 /// <c>Acquisition_ObservesCancellationDuringDownload</c> for cancellation.
@@ -124,7 +128,8 @@ public static class PackagePayloadAcquisition
         IPackageStore store,
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IPackagePayloadTransferPolicy? transferPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(coordinate);
@@ -189,6 +194,7 @@ public static class PackagePayloadAcquisition
                 store,
                 log,
                 limits,
+                transferPolicy,
                 cancellationToken).ConfigureAwait(false);
             if (content is not null)
                 return Result(content, PackagePayloadOrigin.Download);
@@ -233,6 +239,7 @@ public static class PackagePayloadAcquisition
         IPackageStore store,
         Action<string>? log,
         PackagePayloadLimits limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
         CancellationToken cancellationToken)
     {
         string? nupkgUrl = await PackageExtractor.GetPackageDownloadUrlAsync(
@@ -273,6 +280,13 @@ public static class PackagePayloadAcquisition
                 $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
             return null;
         }
+
+        string producerKey = NuGetCache.GetSourceKey(source.Url);
+        using IPackagePayloadReservation? reservation = transferPolicy?.Reserve(
+            new PackagePayloadTransfer(
+                coordinate,
+                producerKey,
+                response.Content.Headers.ContentLength));
 
         byte[] archive;
         try
@@ -325,8 +339,13 @@ public static class PackagePayloadAcquisition
             IPackageContent committed = await store.CommitAsync(
                 coordinate.PackageId,
                 coordinate.Version,
-                NuGetCache.GetSourceKey(source.Url),
-                new MemoryStream(archive, writable: false),
+                producerKey,
+                new MemoryStream(
+                    archive,
+                    index: 0,
+                    count: archive.Length,
+                    writable: false,
+                    publiclyVisible: true),
                 cancellationToken).ConfigureAwait(false);
             if (!await PackageContentAdmission.IsAdmissibleAsync(
                     committed,
@@ -338,6 +357,7 @@ public static class PackagePayloadAcquisition
                 return null;
             }
 
+            reservation?.Complete();
             return committed;
         }
         catch (HttpRequestException ex)

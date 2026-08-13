@@ -31,6 +31,9 @@ public enum PackageCompileAssetSelectionStatus
     /// a fallback for it.
     /// </summary>
     EmptyCompileGroup,
+
+    /// <summary>The shared implementation-asset selector rejected the package layout.</summary>
+    InvalidImplementationAssets,
 }
 
 /// <summary>
@@ -44,7 +47,9 @@ public sealed record PackageCompileAssetSelection(
     IReadOnlyList<string> AvailableTargetFrameworks,
     IReadOnlyList<PackageCompileAsset> Assets,
     PackageCompileAsset? DefaultAsset,
-    IReadOnlyList<PackageCompileAsset> CandidateAssets)
+    IReadOnlyList<PackageCompileAsset> CandidateAssets,
+    IReadOnlyList<PackageCompileAsset> ImplementationAssets,
+    string? Message = null)
 {
     public bool IsSelected =>
         Status == PackageCompileAssetSelectionStatus.Selected
@@ -60,15 +65,6 @@ public sealed record PackageCompileAssetSelection(
                     TargetFramework,
                     StringComparison.OrdinalIgnoreCase))
                 .ToArray();
-
-    /// <summary>
-    /// Every implementation assembly in the selected target framework. This remains distinct
-    /// from <see cref="Assets"/>, which prefers reference assemblies for API inspection.
-    /// </summary>
-    public IReadOnlyList<PackageCompileAsset> ImplementationAssets =>
-        FrameworkAssets
-            .Where(asset => asset.Kind == PackageCompileAssetKind.Library)
-            .ToArray();
 
     /// <summary>Resolves an opaque asset identity within this selected set.</summary>
     public PackageCompileAsset? FindAsset(string id)
@@ -102,8 +98,8 @@ public sealed record PackageCompileAssetSelection(
 }
 
 /// <summary>
-/// Discovers and selects package compile assets without requiring a filesystem. This is the
-/// shared owner for desktop package selection and in-memory Browser/Wasm package selection.
+/// Adds reference-assembly and explicit-empty-group semantics to the implementation universe
+/// selected by <see cref="PackageAssetSelector"/>, without requiring a filesystem.
 /// </summary>
 public static class PackageCompileAssetSelector
 {
@@ -148,6 +144,7 @@ public static class PackageCompileAssetSelector
                 [],
                 [],
                 null,
+                [],
                 []);
         }
 
@@ -174,7 +171,8 @@ public static class PackageCompileAssetSelector
                 frameworks,
                 [],
                 null,
-                discovered);
+                discovered,
+                []);
         }
 
         PackageCompileAsset[] frameworkAssets =
@@ -184,6 +182,47 @@ public static class PackageCompileAssetSelector
                     selectedFramework,
                     StringComparison.OrdinalIgnoreCase)),
         ];
+        PackageAssetSelection implementationSelection =
+            PackageAssetSelector.Select(content, selectedFramework);
+        if (implementationSelection
+            is PackageAssetSelection.Ambiguous ambiguous)
+        {
+            return new PackageCompileAssetSelection(
+                PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                selectedFramework,
+                frameworks,
+                [],
+                null,
+                discovered,
+                [],
+                ambiguous.Message);
+        }
+        if (implementationSelection is PackageAssetSelection.Invalid invalid)
+        {
+            return new PackageCompileAssetSelection(
+                PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                selectedFramework,
+                frameworks,
+                [],
+                null,
+                discovered,
+                [],
+                invalid.Message);
+        }
+
+        PackageCompileAsset[] implementationAssets =
+            implementationSelection is PackageAssetSelection.Selected implementation
+                ?
+                [
+                    .. implementation.Universe.Assets.Select(asset =>
+                        new PackageCompileAsset(
+                            AssetIdPrefix + asset.EntryPath,
+                            asset.EntryPath,
+                            asset.FileName,
+                            implementation.Universe.TargetFramework,
+                            PackageCompileAssetKind.Library)),
+                ]
+                : [];
 
         // An explicit empty compile group is a statement, not an absence: NuGet's nearest-group
         // rule picks the closest compatible ref group, and when that group is `_._` the package
@@ -199,20 +238,32 @@ public static class PackageCompileAssetSelector
                 frameworks,
                 [],
                 null,
-                discovered);
+                discovered,
+                implementationAssets);
         }
 
-        PackageCompileAssetKind preferredKind = frameworkAssets.Any(
-            asset => asset.Kind == PackageCompileAssetKind.Reference)
-                ? PackageCompileAssetKind.Reference
-                : PackageCompileAssetKind.Library;
+        bool hasReferenceAssets = frameworkAssets.Any(
+            asset => asset.Kind == PackageCompileAssetKind.Reference);
         PackageCompileAsset[] selected =
         [
-            .. frameworkAssets
-                .Where(asset => asset.Kind == preferredKind)
+            .. (hasReferenceAssets
+                    ? frameworkAssets.Where(
+                        asset => asset.Kind == PackageCompileAssetKind.Reference)
+                    : implementationAssets)
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];
+        if (selected.Length == 0)
+        {
+            return new PackageCompileAssetSelection(
+                PackageCompileAssetSelectionStatus.NoCompileAssets,
+                selectedFramework,
+                frameworks,
+                [],
+                null,
+                discovered,
+                implementationAssets);
+        }
 
         PackageCompileAsset defaultAsset = selected.FirstOrDefault(
             asset => Path.GetFileNameWithoutExtension(asset.AssemblyName)
@@ -224,7 +275,8 @@ public static class PackageCompileAssetSelector
             frameworks,
             selected,
             defaultAsset,
-            discovered);
+            discovered,
+            implementationAssets);
     }
 
     static PackageCompileAsset? Parse(string entry)
