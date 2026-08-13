@@ -1,0 +1,1627 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
+using ILInspector.Instructions;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
+
+namespace ILInspector.Analysis;
+
+/// <summary>The execution disposition of one structural-clone comparison.</summary>
+public enum StructuralCloneDisposition
+{
+    Completed,
+    Unsupported,
+    LimitReached,
+    Failed,
+}
+
+/// <summary>The structural relationship measured by a completed comparison.</summary>
+public enum StructuralCloneRelation
+{
+    Exact,
+    Near,
+    Different,
+}
+
+/// <summary>Whether exact correspondence is unique under normalized graph structure.</summary>
+public enum StructuralCloneCorrespondenceKind
+{
+    Unique,
+    Ambiguous,
+}
+
+/// <summary>The side of a comparison to which a blocker applies.</summary>
+public enum StructuralCloneSide
+{
+    Left,
+    Right,
+    Both,
+}
+
+/// <summary>Typed reasons why a comparison did not complete.</summary>
+public enum StructuralCloneBlockerKind
+{
+    NoMethodBody,
+    ExceptionHandling,
+    UnsupportedMethodSignature,
+    UnsupportedLocalSignature,
+    ExternalControlFlow,
+    IncompleteBody,
+    InvalidLocalSlot,
+    InstructionLimit,
+    BlockLimit,
+    LocalLimit,
+    VerificationStepLimit,
+    MetadataReadFailure,
+}
+
+/// <summary>One visible unsupported, limit, or failure receipt.</summary>
+public sealed record StructuralCloneBlocker(
+    StructuralCloneBlockerKind Kind,
+    StructuralCloneSide Side,
+    string Detail);
+
+/// <summary>
+/// One left block and the right blocks in its final normalized refinement class.
+/// A multi-member class is a conservative over-approximation of an automorphism
+/// orbit; its members are not independently selectable correspondences.
+/// </summary>
+public sealed record StructuralCloneBlockClass(
+    int LeftBlock,
+    ImmutableArray<int> RightBlocks);
+
+/// <summary>
+/// One left local and the right locals in its final normalized refinement class.
+/// A multi-member class is a conservative over-approximation of an automorphism
+/// orbit; its members are not independently selectable correspondences.
+/// </summary>
+public sealed record StructuralCloneLocalClass(
+    int LeftLocal,
+    ImmutableArray<int> RightLocals);
+
+/// <summary>Owner-issued block and local correspondence for an exact body pair.</summary>
+public sealed record StructuralCloneCorrespondence(
+    StructuralCloneCorrespondenceKind Kind,
+    ImmutableArray<StructuralCloneBlockClass> Blocks,
+    ImmutableArray<StructuralCloneLocalClass> Locals);
+
+/// <summary>Bounded-work receipt for one comparison.</summary>
+public sealed record StructuralCloneVerificationReceipt(
+    int LeftInstructions,
+    int RightInstructions,
+    int LeftBlocks,
+    int RightBlocks,
+    int LeftLocals,
+    int RightLocals,
+    int SearchSteps,
+    bool SearchExhausted,
+    bool WitnessFound);
+
+/// <summary>Resource limits for exact structural comparison.</summary>
+public sealed record StructuralCloneComparisonLimits(
+    int MaximumInstructions = 10_000,
+    int MaximumBlocks = 128,
+    int MaximumLocals = 256,
+    int MaximumVerificationSteps = 100_000);
+
+/// <summary>
+/// Product-owned result for one A-vs-A structural body comparison.
+/// Disposition and relation are orthogonal: relation is present only when the
+/// comparison completed.
+/// </summary>
+public sealed record StructuralCloneComparison
+{
+    StructuralCloneComparison(
+        MetadataMethodAddress left,
+        MetadataMethodAddress right,
+        StructuralCloneDisposition disposition,
+        StructuralCloneRelation? relation,
+        StructuralCloneCorrespondence? correspondence,
+        ImmutableArray<StructuralCloneBlocker> blockers,
+        StructuralCloneVerificationReceipt receipt)
+    {
+        if (disposition == StructuralCloneDisposition.Completed
+            && relation is null)
+        {
+            throw new ArgumentException(
+                "A completed structural clone comparison requires a relation.",
+                nameof(relation));
+        }
+        if (disposition != StructuralCloneDisposition.Completed
+            && relation is not null)
+        {
+            throw new ArgumentException(
+                "A non-completed structural clone comparison cannot carry a relation.",
+                nameof(relation));
+        }
+        if (relation == StructuralCloneRelation.Exact
+            && correspondence is null)
+        {
+            throw new ArgumentException(
+                "An exact structural clone comparison requires correspondence.",
+                nameof(correspondence));
+        }
+        if (relation != StructuralCloneRelation.Exact
+            && correspondence is not null)
+        {
+            throw new ArgumentException(
+                "Only an exact structural clone comparison carries correspondence.",
+                nameof(correspondence));
+        }
+        if (disposition == StructuralCloneDisposition.Completed
+            && !blockers.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A completed structural clone comparison cannot carry blockers.",
+                nameof(blockers));
+        }
+        if (disposition != StructuralCloneDisposition.Completed
+            && blockers.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A non-completed structural clone comparison requires a blocker.",
+                nameof(blockers));
+        }
+
+        Left = left;
+        Right = right;
+        Disposition = disposition;
+        Relation = relation;
+        Correspondence = correspondence;
+        Blockers = blockers;
+        Receipt = receipt;
+    }
+
+    public MetadataMethodAddress Left { get; }
+    public MetadataMethodAddress Right { get; }
+    public StructuralCloneDisposition Disposition { get; }
+    public StructuralCloneRelation? Relation { get; }
+    public StructuralCloneCorrespondence? Correspondence { get; }
+    public ImmutableArray<StructuralCloneBlocker> Blockers { get; }
+    public StructuralCloneVerificationReceipt Receipt { get; }
+
+    internal static StructuralCloneComparison Completed(
+        MetadataMethodAddress left,
+        MetadataMethodAddress right,
+        StructuralCloneRelation relation,
+        StructuralCloneCorrespondence? correspondence,
+        StructuralCloneVerificationReceipt receipt)
+        => new(
+            left,
+            right,
+            StructuralCloneDisposition.Completed,
+            relation,
+            correspondence,
+            [],
+            receipt);
+
+    internal static StructuralCloneComparison NotCompleted(
+        MetadataMethodAddress left,
+        MetadataMethodAddress right,
+        StructuralCloneDisposition disposition,
+        ImmutableArray<StructuralCloneBlocker> blockers,
+        StructuralCloneVerificationReceipt receipt)
+        => new(left, right, disposition, null, null, blockers, receipt);
+}
+
+/// <summary>
+/// Exact normalized structural comparison over two method bodies in one
+/// retained PE image.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The first slice is deliberately A-vs-A. Metadata operands retain their
+/// reader-local handle identity; A-vs-B requires a separate cross-reader
+/// correspondence owner.
+/// </para>
+/// <para>
+/// Exactness covers normalized opcode encodings, argument positions, explicit
+/// local bijection and local types, <c>InitLocals</c>, constants, metadata
+/// operands, branch roles, and switch-target order. Method parameter/return
+/// types and declared <c>MaxStack</c> are outside this body relation. The
+/// method-signature calling convention, instance/static shape, generic arity,
+/// argument count, and void/value return shape remain exact preconditions.
+/// Nops and redundant branches are retained rather than normalized away.
+/// </para>
+/// </remarks>
+public static class StructuralCloneAnalysis
+{
+    /// <summary>Compares two method definitions from one retained managed PE image.</summary>
+    public static StructuralCloneComparison Compare(
+        PEReader image,
+        MethodDefinitionHandle left,
+        MethodDefinitionHandle right,
+        StructuralCloneComparisonLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        if (!image.HasMetadata)
+            throw new ArgumentException(
+                "Structural clone comparison requires a managed metadata image.",
+                nameof(image));
+
+        MetadataReader reader = image.GetMetadataReader();
+        ValidateHandle(reader, left, nameof(left));
+        ValidateHandle(reader, right, nameof(right));
+        ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
+
+        MetadataMethodAddress leftAddress =
+            MetadataMethodAddress.Create(reader, left);
+        MetadataMethodAddress rightAddress =
+            MetadataMethodAddress.Create(reader, right);
+        BodyProduction leftBody =
+            Produce(image, reader, leftAddress, StructuralCloneSide.Left, limits);
+        BodyProduction rightBody =
+            Produce(image, reader, rightAddress, StructuralCloneSide.Right, limits);
+
+        if (leftBody.Disposition != StructuralCloneDisposition.Completed
+            || rightBody.Disposition != StructuralCloneDisposition.Completed)
+        {
+            StructuralCloneDisposition disposition = MoreSevere(
+                leftBody.Disposition,
+                rightBody.Disposition);
+            return StructuralCloneComparison.NotCompleted(
+                leftAddress,
+                rightAddress,
+                disposition,
+                [.. leftBody.Blockers, .. rightBody.Blockers],
+                Receipt(leftBody.Facts, rightBody.Facts, 0, false, false));
+        }
+
+        return Compare(leftBody.Facts!, rightBody.Facts!, limits);
+    }
+
+    internal static StructuralCloneComparison Compare(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        StructuralCloneComparisonLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+        ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
+
+        ImmutableArray<StructuralCloneBlocker> limitBlockers =
+            LimitsFor(left, right, limits);
+        if (!limitBlockers.IsEmpty)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                left.Method,
+                right.Method,
+                StructuralCloneDisposition.LimitReached,
+                limitBlockers,
+                Receipt(left, right, 0, false, false));
+        }
+
+        if (left.Signature != right.Signature
+            || left.InitLocals != right.InitLocals
+            || left.Locals.Length != right.Locals.Length
+            || left.Graph.Blocks.Length != right.Graph.Blocks.Length)
+        {
+            return StructuralCloneComparison.Completed(
+                left.Method,
+                right.Method,
+                StructuralCloneRelation.Different,
+                correspondence: null,
+                Receipt(left, right, 0, true, false));
+        }
+
+        RefinedColors colors = Refine(left, right);
+        WitnessResult witness =
+            FindWitness(left, right, colors, limits.MaximumVerificationSteps);
+        if (witness.LimitReached)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                left.Method,
+                right.Method,
+                StructuralCloneDisposition.LimitReached,
+                [
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.VerificationStepLimit,
+                        StructuralCloneSide.Both,
+                        $"Exact witness search exceeded {limits.MaximumVerificationSteps} steps."),
+                ],
+                Receipt(left, right, witness.Steps, false, false));
+        }
+        if (!witness.Found)
+        {
+            return StructuralCloneComparison.Completed(
+                left.Method,
+                right.Method,
+                StructuralCloneRelation.Different,
+                correspondence: null,
+                Receipt(left, right, witness.Steps, true, false));
+        }
+
+        StructuralCloneCorrespondence correspondence =
+            BuildCorrespondence(left, right, colors);
+        return StructuralCloneComparison.Completed(
+            left.Method,
+            right.Method,
+            StructuralCloneRelation.Exact,
+            correspondence,
+            Receipt(left, right, witness.Steps, false, true));
+    }
+
+    internal static BodyProduction Produce(
+        MetadataMethodAddress method,
+        MethodInstructions instructions,
+        ImmutableArray<TypeRef> locals,
+        bool initLocals,
+        StructuralCloneMethodSignature signature,
+        StructuralCloneComparisonLimits? limits = null,
+        StructuralCloneSide side = StructuralCloneSide.Left)
+    {
+        ArgumentNullException.ThrowIfNull(instructions);
+        ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
+        if (instructions.Blocks.Blocks.Any(static block =>
+            block.Edges.ExternalTargets.Count > 0
+                || block.Edges.LeavesRegion))
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Unsupported,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.ExternalControlFlow,
+                    side,
+                    "The block graph contains external or region-leaving control flow."));
+        }
+        if (!instructions.IsComplete)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Failed,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.IncompleteBody,
+                    side,
+                    instructions.Blocks.IncompleteReason
+                        ?? "Instruction decode did not complete."));
+        }
+        if (!instructions.Blocks.Regions.IsEmpty)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Unsupported,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.ExceptionHandling,
+                    side,
+                    "Exception-handling bodies are outside the first-slice contract."));
+        }
+        if (locals.Any(static local => !SupportedType(local)))
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Unsupported,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.UnsupportedLocalSignature,
+                    side,
+                    "The local signature contains an unsupported type shape."));
+        }
+
+        ImmutableArray<StructuralCloneBlocker> limitBlockers =
+            LimitsFor(instructions, locals.Length, limits, side);
+        if (!limitBlockers.IsEmpty)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.LimitReached,
+                limitBlockers);
+        }
+        try
+        {
+            StructuralCloneGraph graph =
+                BuildGraph(instructions, locals, side);
+            return BodyProduction.Completed(
+                new StructuralCloneBodyFacts(
+                    method,
+                    instructions.Instructions.Length,
+                    initLocals,
+                    locals,
+                    signature,
+                    graph));
+        }
+        catch (InvalidLocalSlotException ex)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Failed,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.InvalidLocalSlot,
+                    side,
+                    ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Failed,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.IncompleteBody,
+                    side,
+                    ex.Message));
+        }
+    }
+
+    static BodyProduction Produce(
+        PEReader image,
+        MetadataReader reader,
+        MetadataMethodAddress method,
+        StructuralCloneSide side,
+        StructuralCloneComparisonLimits limits)
+    {
+        try
+        {
+            MethodDefinition definition =
+                reader.GetMethodDefinition(method.Handle);
+            if (definition.RelativeVirtualAddress == 0)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.NoMethodBody,
+                        side,
+                        "The method definition has no IL body."));
+            }
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    reader,
+                    definition.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.UnsupportedMethodSignature,
+                        side,
+                        "The method signature exceeds the guarded decode policy."));
+            }
+
+            MethodSignature<TypeRef> decodedSignature =
+                definition.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty);
+            if (!SupportedType(decodedSignature.ReturnType))
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.UnsupportedMethodSignature,
+                        side,
+                        "The method return signature contains an unsupported type shape."));
+            }
+            StructuralCloneMethodSignature signature = new(
+                decodedSignature.Header.RawValue,
+                decodedSignature.GenericParameterCount,
+                decodedSignature.RequiredParameterCount,
+                decodedSignature.ParameterTypes.Length,
+                decodedSignature.ReturnType.Equals(
+                    TypeRef.CoreLib("System", "Void")));
+
+            MethodBodyBlock body =
+                image.GetMethodBody(definition.RelativeVirtualAddress);
+            if (!body.ExceptionRegions.IsEmpty)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.ExceptionHandling,
+                        side,
+                        "Exception-handling bodies are outside the first-slice contract."));
+            }
+
+            ImmutableArray<TypeRef> locals = [];
+            if (!body.LocalSignature.IsNil)
+            {
+                StandaloneSignature localSignature =
+                    reader.GetStandaloneSignature(body.LocalSignature);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        localSignature.Signature,
+                        SignatureBlobGuard.Kind.LocalVariables))
+                {
+                    return BodyProduction.NotCompleted(
+                        StructuralCloneDisposition.Unsupported,
+                        new StructuralCloneBlocker(
+                            StructuralCloneBlockerKind.UnsupportedLocalSignature,
+                            side,
+                            "The local signature exceeds the guarded decode policy."));
+                }
+                locals = localSignature.DecodeLocalSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty);
+            }
+
+            MethodInstructions instructions = MethodInstructions.Decode(body);
+            return Produce(
+                method,
+                instructions,
+                locals,
+                body.LocalVariablesInitialized,
+                signature,
+                limits,
+                side);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or OverflowException)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Failed,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.MetadataReadFailure,
+                    side,
+                    $"{ex.GetType().Name}: {ex.Message}"));
+        }
+    }
+
+    static StructuralCloneGraph BuildGraph(
+        MethodInstructions body,
+        ImmutableArray<TypeRef> locals,
+        StructuralCloneSide side)
+    {
+        ImmutableArray<DecodedInstruction> instructions = body.Instructions;
+        var blockOperations =
+            new ImmutableArray<StructuralCloneOperation>.Builder[
+                body.Blocks.Blocks.Length];
+        var terminators =
+            new DecodedInstruction?[body.Blocks.Blocks.Length];
+        for (int index = 0; index < blockOperations.Length; index++)
+        {
+            blockOperations[index] =
+                ImmutableArray.CreateBuilder<StructuralCloneOperation>();
+        }
+
+        foreach (DecodedInstruction instruction in instructions)
+        {
+            int block = body.BlockIndexAt(instruction.Offset);
+            if (block < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Instruction IL_{instruction.Offset:X4} is not owned by a block.");
+            }
+            StructuralCloneOperation operation =
+                NormalizeOperation(instruction);
+            if (operation.OperandKind == StructuralCloneOperandKind.Local
+                && (uint)operation.Value >= (uint)locals.Length)
+            {
+                throw new InvalidLocalSlotException(
+                    $"The {side.ToString().ToLowerInvariant()} body references local "
+                    + $"{operation.Value}, but its local signature has {locals.Length} entries.");
+            }
+            blockOperations[block].Add(operation);
+            terminators[block] = instruction;
+        }
+
+        var blocks = ImmutableArray.CreateBuilder<StructuralCloneBlock>(
+            body.Blocks.Blocks.Length);
+        foreach (InstructionBlock block in body.Blocks.Blocks)
+        {
+            var outgoing =
+                ImmutableArray.CreateBuilder<StructuralCloneEdge>();
+            if (terminators[block.Index] is { } terminator)
+            {
+                for (int ordinal = 0;
+                    ordinal < terminator.BranchTargets.Length;
+                    ordinal++)
+                {
+                    int target =
+                        body.BlockIndexAt(terminator.BranchTargets[ordinal]);
+                    if (target < 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Branch target IL_{terminator.BranchTargets[ordinal]:X4} "
+                            + "does not resolve to a method block.");
+                    }
+                    outgoing.Add(new StructuralCloneEdge(
+                        new StructuralCloneEdgeRole(
+                            StructuralCloneEdgeKind.Branch,
+                            ordinal),
+                        target));
+                }
+                if (terminator.FallsThrough
+                    && block.Index + 1 < body.Blocks.Blocks.Length)
+                {
+                    outgoing.Add(new StructuralCloneEdge(
+                        new StructuralCloneEdgeRole(
+                            StructuralCloneEdgeKind.FallThrough,
+                            0),
+                        block.Index + 1));
+                }
+            }
+
+            int[] modeledTargets =
+            [
+                .. outgoing
+                    .Select(static edge => edge.Target)
+                    .Distinct()
+                    .Order(),
+            ];
+            if (!modeledTargets.SequenceEqual(block.Edges.Successors))
+            {
+                throw new InvalidOperationException(
+                    $"Block {block.Index} has control-flow successors outside "
+                    + "the exact clone edge model.");
+            }
+
+            blocks.Add(new StructuralCloneBlock(
+                block.Index,
+                block.Start,
+                block.Edges.ExitsMethod,
+                blockOperations[block.Index].ToImmutable(),
+                outgoing.ToImmutable(),
+                Incoming: []));
+        }
+
+        var incoming =
+            new ImmutableArray<StructuralCloneEdge>.Builder[blocks.Count];
+        for (int index = 0; index < incoming.Length; index++)
+            incoming[index] = ImmutableArray.CreateBuilder<StructuralCloneEdge>();
+        foreach (StructuralCloneBlock block in blocks)
+        {
+            foreach (StructuralCloneEdge edge in block.Outgoing)
+            {
+                incoming[edge.Target].Add(
+                    new StructuralCloneEdge(edge.Role, block.Index));
+            }
+        }
+
+        return new StructuralCloneGraph(
+        [
+            .. blocks.Select(block => block with
+            {
+                Incoming = incoming[block.Index].ToImmutable(),
+            }),
+        ]);
+    }
+
+    static StructuralCloneOperation NormalizeOperation(
+        DecodedInstruction instruction)
+    {
+        if (TryLocal(instruction, out ILOpCode localOpcode, out int local))
+        {
+            return new StructuralCloneOperation(
+                localOpcode,
+                StructuralCloneOperandKind.Local,
+                local);
+        }
+        if (TryArgument(
+                instruction,
+                out ILOpCode argumentOpcode,
+                out int argument))
+        {
+            return new StructuralCloneOperation(
+                argumentOpcode,
+                StructuralCloneOperandKind.Argument,
+                argument);
+        }
+        if (TryInt32Constant(instruction, out int int32))
+        {
+            return new StructuralCloneOperation(
+                ILOpCode.Ldc_i4,
+                StructuralCloneOperandKind.Immediate,
+                int32);
+        }
+
+        ILOpCode opcode = NormalizeBranchOpcode(instruction.OpCode);
+        if (instruction.Operand is OperandKind.ShortInlineBrTarget
+            or OperandKind.InlineBrTarget
+            or OperandKind.InlineSwitch)
+        {
+            return new StructuralCloneOperation(
+                opcode,
+                StructuralCloneOperandKind.None,
+                0);
+        }
+
+        StructuralCloneOperandKind operandKind =
+            instruction.Operand switch
+            {
+                OperandKind.ShortInlineI
+                    or OperandKind.InlineI
+                    or OperandKind.InlineI8
+                    or OperandKind.ShortInlineR
+                    or OperandKind.InlineR =>
+                    StructuralCloneOperandKind.Immediate,
+                OperandKind.InlineString =>
+                    StructuralCloneOperandKind.UserStringToken,
+                OperandKind.InlineMethod
+                    or OperandKind.InlineField
+                    or OperandKind.InlineType
+                    or OperandKind.InlineTok =>
+                    StructuralCloneOperandKind.MetadataToken,
+                OperandKind.InlineSig =>
+                    StructuralCloneOperandKind.SignatureToken,
+                _ => StructuralCloneOperandKind.None,
+            };
+        return new StructuralCloneOperation(
+            opcode,
+            operandKind,
+            operandKind == StructuralCloneOperandKind.None
+                ? 0
+                : instruction.OperandValue);
+    }
+
+    static ILOpCode NormalizeBranchOpcode(ILOpCode opcode)
+        => opcode switch
+        {
+            ILOpCode.Br_s => ILOpCode.Br,
+            ILOpCode.Brfalse_s => ILOpCode.Brfalse,
+            ILOpCode.Brtrue_s => ILOpCode.Brtrue,
+            ILOpCode.Beq_s => ILOpCode.Beq,
+            ILOpCode.Bge_s => ILOpCode.Bge,
+            ILOpCode.Bgt_s => ILOpCode.Bgt,
+            ILOpCode.Ble_s => ILOpCode.Ble,
+            ILOpCode.Blt_s => ILOpCode.Blt,
+            ILOpCode.Bne_un_s => ILOpCode.Bne_un,
+            ILOpCode.Bge_un_s => ILOpCode.Bge_un,
+            ILOpCode.Bgt_un_s => ILOpCode.Bgt_un,
+            ILOpCode.Ble_un_s => ILOpCode.Ble_un,
+            ILOpCode.Blt_un_s => ILOpCode.Blt_un,
+            ILOpCode.Leave_s => ILOpCode.Leave,
+            _ => opcode,
+        };
+
+    static bool TryInt32Constant(
+        DecodedInstruction instruction,
+        out int value)
+    {
+        (bool matched, value) = instruction.OpCode switch
+        {
+            ILOpCode.Ldc_i4_m1 => (true, -1),
+            ILOpCode.Ldc_i4_0 => (true, 0),
+            ILOpCode.Ldc_i4_1 => (true, 1),
+            ILOpCode.Ldc_i4_2 => (true, 2),
+            ILOpCode.Ldc_i4_3 => (true, 3),
+            ILOpCode.Ldc_i4_4 => (true, 4),
+            ILOpCode.Ldc_i4_5 => (true, 5),
+            ILOpCode.Ldc_i4_6 => (true, 6),
+            ILOpCode.Ldc_i4_7 => (true, 7),
+            ILOpCode.Ldc_i4_8 => (true, 8),
+            ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 => (
+                true,
+                checked((int)instruction.OperandValue)),
+            _ => (false, 0),
+        };
+        return matched;
+    }
+
+    static bool TryLocal(
+        DecodedInstruction instruction,
+        out ILOpCode opcode,
+        out int slot)
+    {
+        (opcode, slot) = instruction.OpCode switch
+        {
+            ILOpCode.Ldloc_0 => (ILOpCode.Ldloc, 0),
+            ILOpCode.Ldloc_1 => (ILOpCode.Ldloc, 1),
+            ILOpCode.Ldloc_2 => (ILOpCode.Ldloc, 2),
+            ILOpCode.Ldloc_3 => (ILOpCode.Ldloc, 3),
+            ILOpCode.Ldloc_s or ILOpCode.Ldloc => (
+                ILOpCode.Ldloc,
+                checked((int)instruction.OperandValue)),
+            ILOpCode.Ldloca_s or ILOpCode.Ldloca => (
+                ILOpCode.Ldloca,
+                checked((int)instruction.OperandValue)),
+            ILOpCode.Stloc_0 => (ILOpCode.Stloc, 0),
+            ILOpCode.Stloc_1 => (ILOpCode.Stloc, 1),
+            ILOpCode.Stloc_2 => (ILOpCode.Stloc, 2),
+            ILOpCode.Stloc_3 => (ILOpCode.Stloc, 3),
+            ILOpCode.Stloc_s or ILOpCode.Stloc => (
+                ILOpCode.Stloc,
+                checked((int)instruction.OperandValue)),
+            _ => (default, -1),
+        };
+        return slot >= 0;
+    }
+
+    static bool TryArgument(
+        DecodedInstruction instruction,
+        out ILOpCode opcode,
+        out int slot)
+    {
+        (opcode, slot) = instruction.OpCode switch
+        {
+            ILOpCode.Ldarg_0 => (ILOpCode.Ldarg, 0),
+            ILOpCode.Ldarg_1 => (ILOpCode.Ldarg, 1),
+            ILOpCode.Ldarg_2 => (ILOpCode.Ldarg, 2),
+            ILOpCode.Ldarg_3 => (ILOpCode.Ldarg, 3),
+            ILOpCode.Ldarg_s or ILOpCode.Ldarg => (
+                ILOpCode.Ldarg,
+                checked((int)instruction.OperandValue)),
+            ILOpCode.Ldarga_s or ILOpCode.Ldarga => (
+                ILOpCode.Ldarga,
+                checked((int)instruction.OperandValue)),
+            ILOpCode.Starg_s or ILOpCode.Starg => (
+                ILOpCode.Starg,
+                checked((int)instruction.OperandValue)),
+            _ => (default, -1),
+        };
+        return slot >= 0;
+    }
+
+    static RefinedColors Refine(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right)
+    {
+        int[] leftBlocks = new int[left.Graph.Blocks.Length];
+        int[] rightBlocks = new int[right.Graph.Blocks.Length];
+        int[] leftLocals = new int[left.Locals.Length];
+        int[] rightLocals = new int[right.Locals.Length];
+        int rounds = leftBlocks.Length + rightBlocks.Length
+            + leftLocals.Length + rightLocals.Length + 1;
+
+        for (int round = 0; round < rounds; round++)
+        {
+            (leftBlocks, rightBlocks) = AssignColors(
+                BuildBlockKeys(left, leftBlocks, leftLocals),
+                BuildBlockKeys(right, rightBlocks, rightLocals));
+            (leftLocals, rightLocals) = AssignColors(
+                BuildLocalKeys(left, leftBlocks, leftLocals),
+                BuildLocalKeys(right, rightBlocks, rightLocals));
+        }
+
+        return new RefinedColors(
+            leftBlocks,
+            rightBlocks,
+            leftLocals,
+            rightLocals);
+    }
+
+    static BlockRefinementKey[] BuildBlockKeys(
+        StructuralCloneBodyFacts body,
+        int[] blockColors,
+        int[] localColors)
+        =>
+        [
+            .. body.Graph.Blocks.Select(block =>
+                new BlockRefinementKey(
+                    blockColors[block.Index],
+                    block.Index == 0,
+                    block.ExitsMethod,
+                    [
+                        .. block.Operations.Select(operation =>
+                            new OperationRefinementKey(
+                                operation.OpCode,
+                                operation.OperandKind,
+                                operation.OperandKind
+                                    == StructuralCloneOperandKind.Local
+                                    ? localColors[checked((int)operation.Value)]
+                                    : operation.Value)),
+                    ],
+                    [
+                        .. block.Outgoing
+                            .Select(edge => new EdgeRefinementKey(
+                                edge.Role,
+                                blockColors[edge.Target]))
+                            .OrderBy(static edge => edge.Role.Kind)
+                            .ThenBy(static edge => edge.Role.Ordinal)
+                            .ThenBy(static edge => edge.TargetColor),
+                    ],
+                    [
+                        .. block.Incoming
+                            .Select(edge => new EdgeRefinementKey(
+                                edge.Role,
+                                blockColors[edge.Target]))
+                            .OrderBy(static edge => edge.Role.Kind)
+                            .ThenBy(static edge => edge.Role.Ordinal)
+                            .ThenBy(static edge => edge.TargetColor),
+                    ])),
+        ];
+
+    static LocalRefinementKey[] BuildLocalKeys(
+        StructuralCloneBodyFacts body,
+        int[] blockColors,
+        int[] localColors)
+    {
+        var uses =
+            new ImmutableArray<LocalUseRefinementKey>.Builder[body.Locals.Length];
+        for (int local = 0; local < uses.Length; local++)
+            uses[local] = ImmutableArray.CreateBuilder<LocalUseRefinementKey>();
+
+        foreach (StructuralCloneBlock block in body.Graph.Blocks)
+        {
+            for (int ordinal = 0; ordinal < block.Operations.Length; ordinal++)
+            {
+                StructuralCloneOperation operation = block.Operations[ordinal];
+                if (operation.OperandKind != StructuralCloneOperandKind.Local)
+                    continue;
+                uses[checked((int)operation.Value)].Add(
+                    new LocalUseRefinementKey(
+                        operation.OpCode,
+                        blockColors[block.Index],
+                        ordinal));
+            }
+        }
+
+        return
+        [
+            .. body.Locals.Select((local, index) =>
+                new LocalRefinementKey(
+                    localColors[index],
+                    local,
+                    [
+                        .. uses[index]
+                            .OrderBy(static use => use.BlockColor)
+                            .ThenBy(static use => use.Operation)
+                            .ThenBy(static use => use.Ordinal),
+                    ])),
+        ];
+    }
+
+    static (int[] Left, int[] Right) AssignColors<T>(
+        IReadOnlyList<T> left,
+        IReadOnlyList<T> right)
+        where T : notnull
+    {
+        var colors = new Dictionary<T, int>();
+        var leftColors = new int[left.Count];
+        var rightColors = new int[right.Count];
+        int next = 0;
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (!colors.TryGetValue(left[index], out int color))
+                colors.Add(left[index], color = next++);
+            leftColors[index] = color;
+        }
+        for (int index = 0; index < right.Count; index++)
+        {
+            if (!colors.TryGetValue(right[index], out int color))
+                colors.Add(right[index], color = next++);
+            rightColors[index] = color;
+        }
+        return (leftColors, rightColors);
+    }
+
+    static WitnessResult FindWitness(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        RefinedColors colors,
+        int maximumSteps)
+    {
+        var blockMap = new int[left.Graph.Blocks.Length];
+        var reverseBlocks = new int[right.Graph.Blocks.Length];
+        var localMap = new int[left.Locals.Length];
+        var reverseLocals = new int[right.Locals.Length];
+        Array.Fill(blockMap, -1);
+        Array.Fill(reverseBlocks, -1);
+        Array.Fill(localMap, -1);
+        Array.Fill(reverseLocals, -1);
+        int steps = 0;
+        bool limitReached = false;
+
+        if (colors.LeftBlocks[0] != colors.RightBlocks[0])
+            return new WitnessResult(false, false, steps);
+        var entryAssignments = new List<(int Left, int Right)>();
+        if (!TryMatchBlockOperations(
+                left,
+                right,
+                0,
+                0,
+                colors,
+                localMap,
+                reverseLocals,
+                entryAssignments))
+        {
+            return new WitnessResult(false, false, steps);
+        }
+        blockMap[0] = 0;
+        reverseBlocks[0] = 0;
+
+        bool SearchBlocks()
+        {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
+
+            int nextLeft = -1;
+            List<int>? candidates = null;
+            for (int leftIndex = 0;
+                leftIndex < left.Graph.Blocks.Length;
+                leftIndex++)
+            {
+                if (blockMap[leftIndex] >= 0)
+                    continue;
+                var current = new List<int>();
+                for (int rightIndex = 0;
+                    rightIndex < right.Graph.Blocks.Length;
+                    rightIndex++)
+                {
+                    if (reverseBlocks[rightIndex] < 0
+                        && colors.LeftBlocks[leftIndex]
+                            == colors.RightBlocks[rightIndex]
+                        && EdgesConsistent(
+                            left,
+                            right,
+                            leftIndex,
+                            rightIndex,
+                            blockMap,
+                            reverseBlocks))
+                    {
+                        current.Add(rightIndex);
+                    }
+                }
+                if (current.Count == 0)
+                    return false;
+                if (candidates is null || current.Count < candidates.Count)
+                {
+                    nextLeft = leftIndex;
+                    candidates = current;
+                }
+            }
+
+            if (candidates is null)
+                return CompleteLocals();
+
+            foreach (int rightIndex in candidates)
+            {
+                var assignments = new List<(int Left, int Right)>();
+                if (!TryMatchBlockOperations(
+                        left,
+                        right,
+                        nextLeft,
+                        rightIndex,
+                        colors,
+                        localMap,
+                        reverseLocals,
+                        assignments))
+                {
+                    continue;
+                }
+
+                blockMap[nextLeft] = rightIndex;
+                reverseBlocks[rightIndex] = nextLeft;
+                if (SearchBlocks())
+                    return true;
+                blockMap[nextLeft] = -1;
+                reverseBlocks[rightIndex] = -1;
+                RollBackLocals(assignments, localMap, reverseLocals);
+                if (limitReached)
+                    return false;
+            }
+            return false;
+        }
+
+        bool CompleteLocals()
+        {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
+
+            int nextLeft = Array.FindIndex(localMap, static value => value < 0);
+            if (nextLeft < 0)
+                return true;
+            for (int rightIndex = 0; rightIndex < reverseLocals.Length; rightIndex++)
+            {
+                if (reverseLocals[rightIndex] >= 0
+                    || colors.LeftLocals[nextLeft]
+                        != colors.RightLocals[rightIndex]
+                    || !left.Locals[nextLeft].Equals(right.Locals[rightIndex]))
+                {
+                    continue;
+                }
+                localMap[nextLeft] = rightIndex;
+                reverseLocals[rightIndex] = nextLeft;
+                if (CompleteLocals())
+                    return true;
+                localMap[nextLeft] = -1;
+                reverseLocals[rightIndex] = -1;
+                if (limitReached)
+                    return false;
+            }
+            return false;
+        }
+
+        bool found = SearchBlocks();
+        return new WitnessResult(found, limitReached, steps);
+    }
+
+    static bool TryMatchBlockOperations(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        int leftBlock,
+        int rightBlock,
+        RefinedColors colors,
+        int[] localMap,
+        int[] reverseLocals,
+        List<(int Left, int Right)> assignments)
+    {
+        StructuralCloneBlock leftValue = left.Graph.Blocks[leftBlock];
+        StructuralCloneBlock rightValue = right.Graph.Blocks[rightBlock];
+        if (leftValue.ExitsMethod != rightValue.ExitsMethod
+            || leftValue.Operations.Length != rightValue.Operations.Length)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < leftValue.Operations.Length; index++)
+        {
+            StructuralCloneOperation leftOperation =
+                leftValue.Operations[index];
+            StructuralCloneOperation rightOperation =
+                rightValue.Operations[index];
+            if (leftOperation.OpCode != rightOperation.OpCode
+                || leftOperation.OperandKind != rightOperation.OperandKind)
+            {
+                RollBackLocals(assignments, localMap, reverseLocals);
+                return false;
+            }
+            if (leftOperation.OperandKind
+                != StructuralCloneOperandKind.Local)
+            {
+                if (leftOperation.Value != rightOperation.Value)
+                {
+                    RollBackLocals(assignments, localMap, reverseLocals);
+                    return false;
+                }
+                continue;
+            }
+
+            int leftLocal = checked((int)leftOperation.Value);
+            int rightLocal = checked((int)rightOperation.Value);
+            if (colors.LeftLocals[leftLocal]
+                    != colors.RightLocals[rightLocal]
+                || !left.Locals[leftLocal].Equals(right.Locals[rightLocal]))
+            {
+                RollBackLocals(assignments, localMap, reverseLocals);
+                return false;
+            }
+            if (localMap[leftLocal] >= 0)
+            {
+                if (localMap[leftLocal] != rightLocal)
+                {
+                    RollBackLocals(assignments, localMap, reverseLocals);
+                    return false;
+                }
+                continue;
+            }
+            if (reverseLocals[rightLocal] >= 0)
+            {
+                RollBackLocals(assignments, localMap, reverseLocals);
+                return false;
+            }
+            localMap[leftLocal] = rightLocal;
+            reverseLocals[rightLocal] = leftLocal;
+            assignments.Add((leftLocal, rightLocal));
+        }
+        return true;
+    }
+
+    static bool EdgesConsistent(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        int leftBlock,
+        int rightBlock,
+        int[] blockMap,
+        int[] reverseBlocks)
+    {
+        foreach (StructuralCloneEdge edge
+            in left.Graph.Blocks[leftBlock].Outgoing)
+        {
+            if (blockMap[edge.Target] >= 0
+                && !right.Graph.Blocks[rightBlock].Outgoing.Contains(
+                    new StructuralCloneEdge(
+                        edge.Role,
+                        blockMap[edge.Target])))
+            {
+                return false;
+            }
+        }
+        foreach (StructuralCloneEdge edge
+            in left.Graph.Blocks[leftBlock].Incoming)
+        {
+            if (blockMap[edge.Target] >= 0
+                && !right.Graph.Blocks[rightBlock].Incoming.Contains(
+                    new StructuralCloneEdge(
+                        edge.Role,
+                        blockMap[edge.Target])))
+            {
+                return false;
+            }
+        }
+        foreach (StructuralCloneEdge edge
+            in right.Graph.Blocks[rightBlock].Outgoing)
+        {
+            if (reverseBlocks[edge.Target] >= 0
+                && !left.Graph.Blocks[leftBlock].Outgoing.Contains(
+                    new StructuralCloneEdge(
+                        edge.Role,
+                        reverseBlocks[edge.Target])))
+            {
+                return false;
+            }
+        }
+        foreach (StructuralCloneEdge edge
+            in right.Graph.Blocks[rightBlock].Incoming)
+        {
+            if (reverseBlocks[edge.Target] >= 0
+                && !left.Graph.Blocks[leftBlock].Incoming.Contains(
+                    new StructuralCloneEdge(
+                        edge.Role,
+                        reverseBlocks[edge.Target])))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static void RollBackLocals(
+        IEnumerable<(int Left, int Right)> assignments,
+        int[] localMap,
+        int[] reverseLocals)
+    {
+        foreach ((int left, int right) in assignments)
+        {
+            localMap[left] = -1;
+            reverseLocals[right] = -1;
+        }
+    }
+
+    static StructuralCloneCorrespondence BuildCorrespondence(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        RefinedColors colors)
+    {
+        ImmutableArray<StructuralCloneBlockClass> blocks =
+        [
+            .. Enumerable.Range(0, left.Graph.Blocks.Length)
+                .Select(leftBlock => new StructuralCloneBlockClass(
+                    leftBlock,
+                    [
+                        .. Enumerable.Range(0, right.Graph.Blocks.Length)
+                            .Where(rightBlock =>
+                                colors.LeftBlocks[leftBlock]
+                                    == colors.RightBlocks[rightBlock]),
+                    ])),
+        ];
+        ImmutableArray<StructuralCloneLocalClass> locals =
+        [
+            .. Enumerable.Range(0, left.Locals.Length)
+                .Select(leftLocal => new StructuralCloneLocalClass(
+                    leftLocal,
+                    [
+                        .. Enumerable.Range(0, right.Locals.Length)
+                            .Where(rightLocal =>
+                                colors.LeftLocals[leftLocal]
+                                    == colors.RightLocals[rightLocal]),
+                    ])),
+        ];
+        bool unique =
+            blocks.All(static block => block.RightBlocks.Length == 1)
+            && locals.All(static local => local.RightLocals.Length == 1);
+        return new StructuralCloneCorrespondence(
+            unique
+                ? StructuralCloneCorrespondenceKind.Unique
+                : StructuralCloneCorrespondenceKind.Ambiguous,
+            blocks,
+            locals);
+    }
+
+    static ImmutableArray<StructuralCloneBlocker> LimitsFor(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        StructuralCloneComparisonLimits limits)
+        =>
+        [
+            .. LimitsFor(
+                left.InstructionCount,
+                left.Graph.Blocks.Length,
+                left.Locals.Length,
+                limits,
+                StructuralCloneSide.Left),
+            .. LimitsFor(
+                right.InstructionCount,
+                right.Graph.Blocks.Length,
+                right.Locals.Length,
+                limits,
+                StructuralCloneSide.Right),
+        ];
+
+    static ImmutableArray<StructuralCloneBlocker> LimitsFor(
+        MethodInstructions instructions,
+        int locals,
+        StructuralCloneComparisonLimits limits,
+        StructuralCloneSide side)
+        => LimitsFor(
+            instructions.Instructions.Length,
+            instructions.Blocks.Blocks.Length,
+            locals,
+            limits,
+            side);
+
+    static ImmutableArray<StructuralCloneBlocker> LimitsFor(
+        int instructions,
+        int blocks,
+        int locals,
+        StructuralCloneComparisonLimits limits,
+        StructuralCloneSide side)
+    {
+        var blockers = ImmutableArray.CreateBuilder<StructuralCloneBlocker>();
+        if (instructions > limits.MaximumInstructions)
+        {
+            blockers.Add(new StructuralCloneBlocker(
+                StructuralCloneBlockerKind.InstructionLimit,
+                side,
+                $"Instruction count {instructions} exceeds "
+                + $"{limits.MaximumInstructions}."));
+        }
+        if (blocks > limits.MaximumBlocks)
+        {
+            blockers.Add(new StructuralCloneBlocker(
+                StructuralCloneBlockerKind.BlockLimit,
+                side,
+                $"Block count {blocks} exceeds {limits.MaximumBlocks}."));
+        }
+        if (locals > limits.MaximumLocals)
+        {
+            blockers.Add(new StructuralCloneBlocker(
+                StructuralCloneBlockerKind.LocalLimit,
+                side,
+                $"Local count {locals} exceeds {limits.MaximumLocals}."));
+        }
+        return blockers.ToImmutable();
+    }
+
+    static StructuralCloneVerificationReceipt Receipt(
+        StructuralCloneBodyFacts? left,
+        StructuralCloneBodyFacts? right,
+        int steps,
+        bool exhausted,
+        bool witness)
+        => new(
+            left?.InstructionCount ?? 0,
+            right?.InstructionCount ?? 0,
+            left?.Graph.Blocks.Length ?? 0,
+            right?.Graph.Blocks.Length ?? 0,
+            left?.Locals.Length ?? 0,
+            right?.Locals.Length ?? 0,
+            steps,
+            exhausted,
+            witness);
+
+    static bool SupportedType(TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.Unsupported)
+            return false;
+        if (type.ElementType is { } element && !SupportedType(element))
+            return false;
+        return type.TypeArguments.All(SupportedType);
+    }
+
+    static StructuralCloneDisposition MoreSevere(
+        StructuralCloneDisposition left,
+        StructuralCloneDisposition right)
+    {
+        static int Rank(StructuralCloneDisposition value)
+            => value switch
+            {
+                StructuralCloneDisposition.Failed => 3,
+                StructuralCloneDisposition.LimitReached => 2,
+                StructuralCloneDisposition.Unsupported => 1,
+                _ => 0,
+            };
+        return Rank(left) >= Rank(right) ? left : right;
+    }
+
+    static void ValidateHandle(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        string parameter)
+    {
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (handle.IsNil
+            || row > reader.GetTableRowCount(TableIndex.MethodDef))
+        {
+            throw new ArgumentOutOfRangeException(
+                parameter,
+                "The method handle is outside the image's MethodDef table.");
+        }
+    }
+
+    static void ValidateLimits(StructuralCloneComparisonLimits limits)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumInstructions,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumBlocks,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumLocals,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumVerificationSteps,
+            1);
+    }
+}
+
+internal enum StructuralCloneOperandKind
+{
+    None,
+    Immediate,
+    Argument,
+    Local,
+    MetadataToken,
+    UserStringToken,
+    SignatureToken,
+}
+
+internal enum StructuralCloneEdgeKind
+{
+    Branch,
+    FallThrough,
+}
+
+internal readonly record struct StructuralCloneMethodSignature(
+    byte Header,
+    int GenericArity,
+    int RequiredParameterCount,
+    int ParameterCount,
+    bool ReturnsVoid);
+
+internal readonly record struct StructuralCloneOperation(
+    ILOpCode OpCode,
+    StructuralCloneOperandKind OperandKind,
+    long Value);
+
+internal readonly record struct StructuralCloneEdgeRole(
+    StructuralCloneEdgeKind Kind,
+    int Ordinal);
+
+internal readonly record struct StructuralCloneEdge(
+    StructuralCloneEdgeRole Role,
+    int Target);
+
+internal sealed record StructuralCloneBlock(
+    int Index,
+    int Offset,
+    bool ExitsMethod,
+    ImmutableArray<StructuralCloneOperation> Operations,
+    ImmutableArray<StructuralCloneEdge> Outgoing,
+    ImmutableArray<StructuralCloneEdge> Incoming);
+
+internal sealed record StructuralCloneGraph(
+    ImmutableArray<StructuralCloneBlock> Blocks);
+
+internal sealed record StructuralCloneBodyFacts(
+    MetadataMethodAddress Method,
+    int InstructionCount,
+    bool InitLocals,
+    ImmutableArray<TypeRef> Locals,
+    StructuralCloneMethodSignature Signature,
+    StructuralCloneGraph Graph);
+
+internal sealed record BodyProduction(
+    StructuralCloneDisposition Disposition,
+    StructuralCloneBodyFacts? Facts,
+    ImmutableArray<StructuralCloneBlocker> Blockers)
+{
+    public static BodyProduction Completed(StructuralCloneBodyFacts facts)
+        => new(StructuralCloneDisposition.Completed, facts, []);
+
+    public static BodyProduction NotCompleted(
+        StructuralCloneDisposition disposition,
+        StructuralCloneBlocker blocker)
+        => new(disposition, null, [blocker]);
+
+    public static BodyProduction NotCompleted(
+        StructuralCloneDisposition disposition,
+        ImmutableArray<StructuralCloneBlocker> blockers)
+        => new(disposition, null, blockers);
+}
+
+internal sealed class BlockRefinementKey : IEquatable<BlockRefinementKey>
+{
+    public BlockRefinementKey(
+        int previousColor,
+        bool entry,
+        bool exitsMethod,
+        ImmutableArray<OperationRefinementKey> operations,
+        ImmutableArray<EdgeRefinementKey> outgoing,
+        ImmutableArray<EdgeRefinementKey> incoming)
+    {
+        PreviousColor = previousColor;
+        Entry = entry;
+        ExitsMethod = exitsMethod;
+        Operations = operations;
+        Outgoing = outgoing;
+        Incoming = incoming;
+    }
+
+    public int PreviousColor { get; }
+    public bool Entry { get; }
+    public bool ExitsMethod { get; }
+    public ImmutableArray<OperationRefinementKey> Operations { get; }
+    public ImmutableArray<EdgeRefinementKey> Outgoing { get; }
+    public ImmutableArray<EdgeRefinementKey> Incoming { get; }
+
+    public bool Equals(BlockRefinementKey? other)
+        => other is not null
+            && PreviousColor == other.PreviousColor
+            && Entry == other.Entry
+            && ExitsMethod == other.ExitsMethod
+            && Operations.AsSpan().SequenceEqual(other.Operations.AsSpan())
+            && Outgoing.AsSpan().SequenceEqual(other.Outgoing.AsSpan())
+            && Incoming.AsSpan().SequenceEqual(other.Incoming.AsSpan());
+
+    public override bool Equals(object? obj)
+        => obj is BlockRefinementKey other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(PreviousColor);
+        hash.Add(Entry);
+        hash.Add(ExitsMethod);
+        foreach (OperationRefinementKey operation in Operations)
+            hash.Add(operation);
+        foreach (EdgeRefinementKey edge in Outgoing)
+            hash.Add(edge);
+        foreach (EdgeRefinementKey edge in Incoming)
+            hash.Add(edge);
+        return hash.ToHashCode();
+    }
+}
+
+internal sealed class LocalRefinementKey : IEquatable<LocalRefinementKey>
+{
+    public LocalRefinementKey(
+        int previousColor,
+        TypeRef type,
+        ImmutableArray<LocalUseRefinementKey> uses)
+    {
+        PreviousColor = previousColor;
+        Type = type;
+        Uses = uses;
+    }
+
+    public int PreviousColor { get; }
+    public TypeRef Type { get; }
+    public ImmutableArray<LocalUseRefinementKey> Uses { get; }
+
+    public bool Equals(LocalRefinementKey? other)
+        => other is not null
+            && PreviousColor == other.PreviousColor
+            && Type.Equals(other.Type)
+            && Uses.AsSpan().SequenceEqual(other.Uses.AsSpan());
+
+    public override bool Equals(object? obj)
+        => obj is LocalRefinementKey other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(PreviousColor);
+        hash.Add(Type);
+        foreach (LocalUseRefinementKey use in Uses)
+            hash.Add(use);
+        return hash.ToHashCode();
+    }
+}
+
+internal readonly record struct OperationRefinementKey(
+    ILOpCode Operation,
+    StructuralCloneOperandKind OperandKind,
+    long Value);
+
+internal readonly record struct EdgeRefinementKey(
+    StructuralCloneEdgeRole Role,
+    int TargetColor);
+
+internal readonly record struct LocalUseRefinementKey(
+    ILOpCode Operation,
+    int BlockColor,
+    int Ordinal);
+
+internal sealed record RefinedColors(
+    int[] LeftBlocks,
+    int[] RightBlocks,
+    int[] LeftLocals,
+    int[] RightLocals);
+
+internal readonly record struct WitnessResult(
+    bool Found,
+    bool LimitReached,
+    int Steps);
+
+sealed class InvalidLocalSlotException(string message)
+    : InvalidOperationException(message);

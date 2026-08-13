@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <Content Include="corpus/paydirt-reference.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/paydirt-reference.json" />
+    <Content Include="corpus/structural-clone-relationships.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/structural-clone-relationships.json" />
   </ItemGroup>
 
 </Project>

@@ -26,6 +26,11 @@ const string Usage =
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
 
+      --clone-corpus <assembly> [--relationship-ledger <file>] [--json]
+          Grade the product-owned structural clone comparator against the committed relationship
+          corpus. The ledger owns candidate pairs and expected disposition/relation; the harness
+          resolves typed metadata identities and does not reconstruct normalization or verification.
+
       --allocation-readout <file> [--top N] [--json]
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
@@ -99,6 +104,8 @@ bool list = false;
 string? recallAssembly = null;
 string? referenceFile = null;
 string? precisionAssembly = null;
+string? cloneCorpusAssembly = null;
+string? relationshipLedger = null;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
@@ -139,6 +146,12 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--precision-sample":
             precisionAssembly = NextValue(args, ref i);
+            break;
+        case "--clone-corpus":
+            cloneCorpusAssembly = NextPathValue(args, ref i);
+            break;
+        case "--relationship-ledger":
+            relationshipLedger = NextPathValue(args, ref i);
             break;
         case "--allocation-readout":
             allocationReadoutList = NextValue(args, ref i);
@@ -224,6 +237,9 @@ if (recallAssembly is not null)
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);
 
+if (cloneCorpusAssembly is not null)
+    return RunCloneCorpus(cloneCorpusAssembly, relationshipLedger, json);
+
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
 
@@ -283,6 +299,38 @@ static int RunPrecision(string assembly, int top)
     if (!File.Exists(assembly)) { Console.Error.WriteLine($"Assembly not found: {assembly}"); return 2; }
     Console.WriteLine(PrecisionRecall.ToJson(PrecisionRecall.Sample(assembly, top)));
     return 0;
+}
+
+static int RunCloneCorpus(
+    string assembly,
+    string? relationshipLedger,
+    bool json)
+{
+    if (!File.Exists(assembly))
+    {
+        Console.Error.WriteLine($"Assembly not found: {assembly}");
+        return 2;
+    }
+    string ledger =
+        relationshipLedger
+        ?? Path.Combine(
+            AppContext.BaseDirectory,
+            "corpus",
+            "structural-clone-relationships.json");
+    if (!File.Exists(ledger))
+    {
+        Console.Error.WriteLine($"Relationship ledger not found: {ledger}");
+        return 2;
+    }
+
+    StructuralCloneCorpusReport report = StructuralCloneCorpus.Run(
+        assembly,
+        StructuralCloneCorpus.Load(File.ReadAllText(ledger)));
+    Console.Write(
+        json
+            ? StructuralCloneCorpus.ToJson(report) + Environment.NewLine
+            : StructuralCloneCorpus.Format(report));
+    return report.Success ? 0 : 1;
 }
 
 static int RunAllocationReadout(string corpusList, int top, bool json)

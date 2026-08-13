@@ -24,6 +24,28 @@ dotnet "$DLL" --generated-fixtures alloc --json  # grade a subset (id/prefix/tag
 dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep temp projects
 ```
 
+The structural clone relationship corpus is a separate product/harness
+boundary:
+
+```bash
+dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
+dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
+```
+
+The committed
+`corpus/structural-clone-relationships.json` ledger supplies candidate pairs
+and separately expected disposition/relation. It also records orthogonal
+difficulty, intent, actionability, and tag axes. The harness resolves the
+declared type and method names to SRM handles, then grades only
+`StructuralCloneAnalysis.Compare`; it owns no clone normalization,
+correspondence, or verification logic.
+
+The ledger is strict: schema versions, duplicate IDs, unknown axis values,
+incomplete identities, and relation/disposition contradictions fail instead of
+silently shrinking coverage. `StructuralCloneCorpusTests` also requires every
+public method in the dedicated fixture type to appear in the ledger, preventing
+fixture or relationship inventory drift.
+
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the
 name-collision case). Isolation keeps same-fully-qualified-name and alias fixtures from clashing
