@@ -48,8 +48,12 @@ internal static class PackageContentAdmission
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Concurrent delete/permission change on a retained archive must not
-            // escape admission as an unhandled fault; reject this entry.
-            return Outcome.LimitsExceeded;
+            // escape admission as an unhandled fault. Product-owned content
+            // without a readable archive is MissingArchive (same as TryOpen
+            // returning false); do not mis-report it as a payload-limit failure.
+            return content.RequiresArchiveTreeMatch
+                ? Outcome.MissingArchive
+                : Outcome.LimitsExceeded;
         }
 
         if (opened && archiveStream is not null)
@@ -196,9 +200,14 @@ internal static class PackageContentAdmission
         // First pass: symlink/expanded-byte gates, plus a node budget so a
         // mutated product-owned tree cannot force an unbounded walk before the
         // archive match rejects it. Budget = archive entries + unique dirs +
-        // allowed extras (retained nupkg, commit marker, headroom).
-        int productOwnedNodeBudget = checked(
-            limits.MaxEntryCount + limits.MaxUniqueDirectories + 8);
+        // allowed extras (retained nupkg, commit marker, headroom). Saturate
+        // rather than checked-add so hostile MaxUniqueDirectories cannot throw
+        // OverflowException out of admission.
+        long nodeBudget =
+            (long)limits.MaxEntryCount + limits.MaxUniqueDirectories + 8;
+        int productOwnedNodeBudget = nodeBudget > int.MaxValue
+            ? int.MaxValue
+            : (int)nodeBudget;
         if (!WalkExtractedTree(
                 root,
                 retainedNupkgPath,

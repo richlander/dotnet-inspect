@@ -400,6 +400,91 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
+    /// Product-owned archive open I/O failures classify as MissingArchive, not
+    /// LimitsExceeded (offline diagnostics stay accurate).
+    /// </summary>
+    [Fact]
+    public async Task ProductOwned_UnreadableArchivePath_IsMissingArchive()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            // Directory at the nupkg path: OpenRead throws IOException.
+            string nupkgDir = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            Directory.CreateDirectory(nupkgDir);
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkgDir,
+                fromCache: true,
+                producerKey: "app-cache",
+                requiresArchiveTreeMatch: true);
+            Assert.Equal(
+                PackageContentAdmission.Outcome.MissingArchive,
+                await PackageContentAdmission.EvaluateAsync(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Product-owned node budget saturates instead of throwing on huge limits.
+    /// </summary>
+    [Fact]
+    public void ProductOwned_NodeBudget_SaturatesWithoutOverflow()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll",
+                "Sample.Package.nuspec");
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1]);
+            File.WriteAllText(
+                Path.Combine(root, "Sample.Package.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+
+            // Exact match will fail (archive bytes vs written stub) but must not
+            // throw OverflowException while computing the walk budget.
+            Assert.False(
+                PackageContentAdmission.ExtractedTreeMatchesArchive(
+                    root,
+                    archive,
+                    nupkg,
+                    new PackagePayloadLimits
+                    {
+                        MaxEntryCount = int.MaxValue,
+                        MaxUniqueDirectories = int.MaxValue,
+                    },
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Deleting the retained nupkg must not downgrade product-owned content to
     /// foreign walk-only gates (mutated extract would otherwise admit).
     /// </summary>
