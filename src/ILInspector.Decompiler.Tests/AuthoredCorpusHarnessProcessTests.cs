@@ -48,6 +48,332 @@ public class AuthoredCorpusHarnessProcessTests
         Assert.Contains(state, new[] { "clean", "dirty" });
     }
 
+    [Fact]
+    public void Harness_RendersStructuralReviewFromOwnerIssuedComparison()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, StructuralReviewJson("break;", "BreakStatement", 6));
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("raise: Return case body", run.Output, StringComparison.Ordinal);
+            Assert.Contains("raise: Break case body", run.Output, StringComparison.Ordinal);
+            Assert.Contains("Return -&gt; Break", run.Output, StringComparison.Ordinal);
+            Assert.Contains("OpcodeDiff -&gt; Exact", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RendersExplicitNoChangeStructuralReview()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, StructuralReviewJson("return;", "ReturnStatement", 7));
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("## Before", run.Output, StringComparison.Ordinal);
+            Assert.Contains("## After", run.Output, StringComparison.Ordinal);
+            Assert.Contains("No structural changes.", run.Output, StringComparison.Ordinal);
+            Assert.Contains("Fidelity: ` OpcodeDiff -> Exact; terminal IL_0072: ret `", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("raise:", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsMissingRequiredStructuralCorrespondenceField()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace("\"after_node_id\": 0, ", "", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_ContainsUntrustedStructuralMarkdownCells()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"kind\": \"BreakStatement\"",
+                "\"kind\": \"Break | ![remote](https://example.test/image)\"",
+                StringComparison.Ordinal)
+            .Replace(
+                "\"note\": \"terminal IL_0072: ret\"",
+                "\"note\": \"retained | ![remote](https://example.test/image)\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            string richDiff = run.Output[run.Output.IndexOf("## Structural diff", StringComparison.Ordinal)..];
+            Assert.Contains("&#124;", richDiff, StringComparison.Ordinal);
+            Assert.Contains("&#33;&#91;remote&#93;", richDiff, StringComparison.Ordinal);
+            Assert.DoesNotContain(" | ![remote]", richDiff, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_DispatchesStructuralReviewBeforeFixtureInventory()
+    {
+        var run = RunHarness(
+            "--fixture-source-inventory",
+            "--structural-review",
+            "/does-not-exist/structural-review.json");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("--structural-review is an exclusive mode", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Fixture source inventory", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_RejectsHelpCombinedWithStructuralReview()
+    {
+        var run = RunHarness(
+            "--structural-review",
+            "/does-not-exist/structural-review.json",
+            "--help");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("--structural-review is an exclusive mode", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Usage:", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_ContainsStructuralTerminalControls()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"subject\": \"M\"",
+                "\"subject\": \"M\\u001B[31m\"",
+                StringComparison.Ordinal)
+            .Replace(
+                "\"kind\": \"BreakStatement\"",
+                "\"kind\": \"Break\\u001B[31m\"",
+                StringComparison.Ordinal)
+            .Replace(
+                "\"note\": \"terminal IL_0072: ret\"",
+                "\"note\": \"retained\\u001B[31m\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.DoesNotContain("\u001B", run.Output, StringComparison.Ordinal);
+            Assert.Contains("\\u001B", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsUnknownStructuralFidelityOutcome()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace("\"before\": \"OpcodeDiff\"", "\"before\": 999", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unknown IL body-diff outcome", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsCompositeStructuralFidelityOutcome()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"before\": \"OpcodeDiff\"",
+                "\"before\": \"Exact, OperandDiff\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unknown IL body-diff outcome", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsCompositeStructuralRegionRole()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"role\": \"Case\"",
+                "\"role\": \"Header, Body\"",
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("unknown PrintedRegionRole value", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("\"start\": 0, ", "", "start")]
+    [InlineData("\"start\": 0, \"length\": 7", "\"start\": 0", "length")]
+    public void Harness_RejectsMissingStructuralSpanField(
+        string oldValue,
+        string newValue,
+        string expected)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(oldValue, newValue, StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(expected, run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsMissingStructuralFactField()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"facts\": []",
+                """
+                "facts": [
+                  {
+                    "id": 0,
+                    "descriptor": "test",
+                    "category": "Semantics",
+                    "conditionality": "Always",
+                    "detail": null,
+                    "source_offset": -1
+                  }
+                ]
+                """,
+                StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("origin", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RejectsMissingStructuralTargetField()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6)
+            .Replace(
+                "\"facts\": []",
+                """
+                "facts": [
+                  {
+                    "id": 0,
+                    "descriptor": "test",
+                    "category": "Semantics",
+                    "conditionality": "Always",
+                    "detail": null,
+                    "source_offset": -1,
+                    "origin": "Body"
+                  }
+                ]
+                """,
+                StringComparison.Ordinal)
+            .Replace("\"targets\": []", "\"targets\": [ { \"fact_id\": 0 } ]", StringComparison.Ordinal);
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("missing required properties", run.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("node_id", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     /// <summary>
     /// Every mode that dispatches before a gate must refuse rather than run instead of
     /// it. One representative earlier mode per gate is enough here: which modes precede
@@ -353,6 +679,7 @@ public class AuthoredCorpusHarnessProcessTests
     /// </summary>
     static readonly (string Mode, string[] Invocation)[] PreemptingModeInvocations =
     [
+        ("--structural-review", ["--structural-review", UnusedOutputPath]),
         ("--fixture-source-inventory", ["--fixture-source-inventory"]),
         ("--history-card", ["--history-card"]),
         ("--generated-fixtures", ["--generated-fixtures"]),
@@ -390,6 +717,61 @@ public class AuthoredCorpusHarnessProcessTests
     /// before dispatch, so nothing is ever written here.
     /// </summary>
     const string UnusedOutputPath = "/does-not-exist/unused-output.json";
+
+    static string StructuralReviewJson(string afterText, string afterKind, int afterLength)
+        => $$"""
+            {
+              "subject": "M",
+              "before": {
+                "text": "return;",
+                "nodes": [
+                  {
+                    "id": 0,
+                    "kind": "ReturnStatement",
+                    "medium": "CSharp",
+                    "spans": [ { "start": 0, "length": 7 } ]
+                  }
+                ],
+                "regions": [
+                  {
+                    "role": "Case",
+                    "spans": [ { "start": 0, "length": 7 } ]
+                  }
+                ],
+                "facts": [],
+                "targets": []
+              },
+              "after": {
+                "text": "{{afterText}}",
+                "nodes": [
+                  {
+                    "id": 0,
+                    "kind": "{{afterKind}}",
+                    "medium": "CSharp",
+                    "spans": [ { "start": 0, "length": {{afterLength}} } ]
+                  }
+                ],
+                "regions": [
+                  {
+                    "role": "Case",
+                    "spans": [ { "start": 0, "length": {{afterLength}} } ]
+                  }
+                ],
+                "facts": [],
+                "targets": []
+              },
+              "before_node_ids": [ 0 ],
+              "after_node_ids": [ 0 ],
+              "correspondences": [
+                { "before_node_id": 0, "after_node_id": 0, "moved": false }
+              ],
+              "fidelity": {
+                "before": "OpcodeDiff",
+                "after": "Exact",
+                "note": "terminal IL_0072: ret"
+              }
+            }
+            """;
 
     /// <summary>
     /// A requested <c>--ratchet-baseline</c> must reach the benchmark.

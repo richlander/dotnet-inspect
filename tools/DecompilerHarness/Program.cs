@@ -58,6 +58,7 @@ static class Program
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
         bool fixtureSourceInventory = false;
+        string? structuralReview = null;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -348,6 +349,7 @@ static class Program
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
+                    case "--structural-review": structuralReview = NextArg(args, ref i, flag); break;
                     case "--help" or "-h": showHelp = true; break;
                     default: inputs.Add(args[i]); break;
                 }
@@ -360,6 +362,11 @@ static class Program
         catch (ArgumentException ex)
         {
             return Fail(ex.Message);
+        }
+
+        if (structuralReview is not null && showHelp)
+        {
+            return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
         }
 
         // --help is answered after flag validation, not during parsing: returning 0 from
@@ -412,6 +419,7 @@ static class Program
         // the first fix was written as a hand-maintained array next to one of them.
         (string Flag, bool Selected)[] dispatchOrder =
         [
+            ("--structural-review", structuralReview is not null),
             ("--fixture-source-inventory", fixtureSourceInventory),
             ("--history-card", historyCard),
             ("--generated-fixtures", generatedFixtures),
@@ -440,6 +448,11 @@ static class Program
         {
             return Fail(preempted);
         }
+        if (structuralReview is not null
+            && (args.Length != 2 || !string.Equals(args[0], "--structural-review", StringComparison.Ordinal)))
+        {
+            return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
+        }
 
         s_protectedGateRequested = dispatchOrder.Any(
             entry => entry.Selected && AuthoredCorpusExitContract.ProtectedGates.Contains(entry.Flag));
@@ -456,6 +469,13 @@ static class Program
         if (emitHarnessReport is not null && harnessReportModes != 1)
         {
             return Fail("--emit-harness-report requires exactly one of --return-address, --not-my-type, --return-to-sender-catalog, or --source-correspondence-census.");
+        }
+
+        if (structuralReview is not null)
+        {
+            if (inputs.Count > 0 || packages.Count > 0)
+                return Fail("--structural-review reads its documents from the comparison artifact; do not pass assembly or package inputs.");
+            return StructuralReview.Run(structuralReview);
         }
 
         if (fixtureSourceInventory)
@@ -2094,6 +2114,12 @@ static class Program
                                 (GeneratedFixtureCatalog). Use --json for a
                                 machine-readable inventory. Migrated Dynamic
                                 sites must appear here as Built or Generated.
+          --structural-review <comparison.json>
+                                render full-body Before/After structural carets
+                                plus a rich diff from two C# annotated documents,
+                                selected node ids, and owner-issued correspondence.
+                                The JSON shape is CSharpStructuralComparisonInput;
+                                node ids remain local to their own document.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL

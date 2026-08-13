@@ -11,12 +11,12 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-manifest-resource, SourceLink, Integrations, implementation relationships,
-type/member search, extension reachability, API-comparison, Analysis body-signal
-comparison, and Implementation comparison inspection. The `diff` Changes,
-Analysis Diff, and Implementation Diff sections consume producer-owned
-comparison results over host-resolved surfaces, body indexes, and retained
-assembly content.
+manifest-resource, type-forwarder, SourceLink, Integrations, implementation
+relationships, type/member search, extension reachability, API-comparison,
+Analysis body-signal comparison, and Implementation comparison inspection. The
+`diff` Changes, Analysis Diff, and Implementation Diff sections consume
+producer-owned comparison results over host-resolved surfaces, body indexes,
+and retained assembly content.
 The library CLI, package `--all-libraries`, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
@@ -28,9 +28,9 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, extension-method, custom-attribute,
-  manifest-resource, SourceLink, implementation-relationship, type/member search,
-  extension-reachability, API-comparison, and progressive call-graph queries.
-  It has no Markout, console, or filesystem-path dependency.
+  manifest-resource, type-forwarder, SourceLink, implementation-relationship,
+  type/member search, extension-reachability, API-comparison, and progressive
+  call-graph queries. It has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It compares already-acquired Analysis body indexes and
   retained implementation assembly content, returning Research-owned results
@@ -52,6 +52,10 @@ substrates, and inspection producers that will extend that space.
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
   and nuspec parsing.
+- `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
+  Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
+  `AsyncCache`), the single `HttpClientFactory` seam with offline and
+  network-policy enforcement, network telemetry, and hardened XML/JSON readers.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
