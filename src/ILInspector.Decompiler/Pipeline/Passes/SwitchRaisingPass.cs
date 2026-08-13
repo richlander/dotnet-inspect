@@ -75,11 +75,18 @@ public sealed class SwitchRaisingPass : IIrPass
 
     static bool FoldOne(IrFunction function, Stepper stepper)
     {
-        var leaveTargets = function.Descendants.OfType<Leave>()
-            .Select(leave => leave.TargetOffset)
-            .ToHashSet();
+        var leaveTargetsByScope = new Dictionary<IrNode, HashSet<int>>(ReferenceEqualityComparer.Instance);
+        foreach (var leave in function.Descendants.OfType<Leave>())
+        {
+            var scope = FunctionScopeOf(leave, function);
+            (leaveTargetsByScope.TryGetValue(scope, out var targets)
+                ? targets
+                : leaveTargetsByScope[scope] = []).Add(leave.TargetOffset);
+        }
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
+            if (!leaveTargetsByScope.TryGetValue(FunctionScopeOf(container, function), out var leaveTargets))
+                leaveTargets = [];
             var blocks = container.Blocks;
             for (int s = 0; s < blocks.Count; s++)
             {
@@ -98,6 +105,18 @@ public sealed class SwitchRaisingPass : IIrPass
             }
         }
         return false;
+    }
+
+    static IrNode FunctionScopeOf(IrNode node, IrFunction function)
+    {
+        for (var current = node.Parent;
+            current is not null && !ReferenceEquals(current, function);
+            current = current.Parent)
+        {
+            if (current is Lambda or LocalFunctionStatement)
+                return current;
+        }
+        return function;
     }
 
     static bool Raise(
@@ -1292,12 +1311,16 @@ public sealed class SwitchRaisingPass : IIrPass
             return false;
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if (idx == s || owned.Contains(idx))
-                continue;   // the switch dispatches the table; owned-internal edges are fine
+            if (owned.Contains(idx))
+                continue;
             foreach (var node in blocks[idx].Children)
+            {
+                if (idx == s && node is Branch or ConditionalBranch or SwitchBranch)
+                    continue;   // direct dispatch scaffolding is expected; nested entries are not
                 foreach (int target in TargetsInFunctionScope(node))
                     if (ownedOffsets.Contains(target))
                         return false;
+            }
         }
         return true;
     }
@@ -1943,12 +1966,20 @@ public sealed class SwitchRaisingPass : IIrPass
             return false;
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if ((idx >= s && idx <= dispatchEnd) || owned.Contains(idx))
-                continue;   // the dispatch chain legitimately jumps into the bodies
+            if (owned.Contains(idx))
+                continue;
             foreach (var node in blocks[idx].Children)
+            {
+                if (idx >= s
+                    && idx <= dispatchEnd
+                    && node is Branch or ConditionalBranch or SwitchBranch)
+                {
+                    continue;   // direct chain dispatches are expected; nested entries are not
+                }
                 foreach (int target in TargetsInFunctionScope(node))
                     if (ownedOffsets.Contains(target))
                         return false;
+            }
         }
         return true;
     }

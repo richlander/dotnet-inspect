@@ -117,6 +117,19 @@ public class ControlFlowModelDifferentialTests
         externalBranch.Add(new Branch(0xDEAD));
         CompareContainer([externalBranch], "synthetic/external-branch", comparison);
 
+        var conditionalToNext = new Block(0x1A);
+        conditionalToNext.Add(new ConditionalBranch(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            0x1B));
+        var conditionalToNextTarget = new Block(0x1B);
+        conditionalToNextTarget.Add(new Return(null));
+        Block[] conditionalToNextBlocks = [conditionalToNext, conditionalToNextTarget];
+        CompareContainer(
+            conditionalToNextBlocks,
+            "synthetic/conditional-targets-next",
+            comparison);
+        AssertSwitchSuccessors(conditionalToNextBlocks, 0, [1, 1]);
+
         var breakBlock = new Block(0x20);
         breakBlock.Add(new Break());
         var afterBreak = new Block(0x28);
@@ -385,10 +398,11 @@ public class ControlFlowModelDifferentialTests
             if (switchModelsBlock)
             {
                 comparison.SwitchSuccessorBlocks++;
+                int[] orderedSwitchSuccessors = [.. switchSuccessors.Order()];
                 if (switchSuccessors.Any(successor => (uint)successor >= (uint)blocks.Count)
                     || cfg[from].LeavesRegion
                     || cfg[from].ExternalTargets.Count > 0
-                    || !switchSuccessors.ToHashSet().SetEquals(cfg[from].Successors))
+                    || !orderedSwitchSuccessors.SequenceEqual(actualSuccessors))
                 {
                     AddDifference(comparison,
                         $"{identity}: switch successor view for block {from} "

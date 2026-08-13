@@ -277,6 +277,47 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
+    public void DispatchHeadNestedBranchEnteringContinueCase_RemainsFlat()
+    {
+        var loopBody = new BlockContainer();
+
+        var enteringArm = new Block();
+        enteringArm.Add(new Branch(0x20));
+        var dispatch = new Block(0);
+        dispatch.Add(new IfStatement(
+            new LoadArgument(1, "enterCase", s_bool),
+            enteringArm,
+            elseArm: null));
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x20, 0x30]));
+        loopBody.Add(dispatch);
+
+        var defaultBody = new Block(0x18);
+        defaultBody.Add(new Continue());
+        loopBody.Add(defaultBody);
+
+        var firstCase = new Block(0x20);
+        firstCase.Add(new Continue());
+        loopBody.Add(firstCase);
+
+        var secondCase = new Block(0x30);
+        secondCase.Add(new Continue());
+        loopBody.Add(secondCase);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [new Parameter("value", s_int), new Parameter("enterCase", s_bool)]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+    }
+
+    [Fact]
     public void NestedFunctionBranchOffset_DoesNotEnterOuterContinueCase()
     {
         var loopBody = new BlockContainer();
@@ -328,6 +369,60 @@ public class SwitchRaisingTerminalContinuationTests
         Assert.Single(function.Descendants.OfType<Switch>());
         Assert.Empty(function.Descendants.OfType<SwitchBranch>());
         Assert.Single(localBody.Descendants.OfType<Branch>());
+    }
+
+    [Fact]
+    public void NestedFunctionLeaveOffset_DoesNotEnterOuterContinueCase()
+    {
+        var loopBody = new BlockContainer();
+
+        var localBody = new BlockContainer();
+        var localBlock = new Block();
+        localBlock.Add(new Leave(0x20));
+        localBody.Add(localBlock);
+
+        var preceding = new Block(0);
+        preceding.Add(new LocalFunctionStatement(
+            "Local",
+            s_void,
+            [],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody));
+        loopBody.Add(preceding);
+
+        var dispatch = new Block(0x10);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x20, 0x30]));
+        loopBody.Add(dispatch);
+
+        var defaultBody = new Block(0x18);
+        defaultBody.Add(new Continue());
+        loopBody.Add(defaultBody);
+
+        var firstCase = new Block(0x20);
+        firstCase.Add(new Continue());
+        loopBody.Add(firstCase);
+
+        var secondCase = new Block(0x30);
+        secondCase.Add(new Continue());
+        loopBody.Add(secondCase);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [new Parameter("value", s_int)]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(localBody.Descendants.OfType<Leave>());
     }
 
     [Fact]
