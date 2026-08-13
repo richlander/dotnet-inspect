@@ -212,6 +212,22 @@ public class FeedFailureTelemetryTests
         Assert.Contains("outer.", described, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void NestedScope_CanDiscardFailuresWhenMergeDisabled()
+    {
+        using var outer = FeedFailureTelemetry.Scope();
+        using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
+        {
+            FeedFailureTelemetry.Record(
+                "https://search.example/query",
+                HttpStatusCode.InternalServerError);
+            Assert.True(FeedFailureTelemetry.Current!.HasFailures);
+        }
+
+        Assert.False(FeedFailureTelemetry.Current!.HasFailures);
+        Assert.Null(FeedFailureTelemetry.Current.DescribeFailure("markout"));
+    }
+
     /// <summary>
     /// The failure text is printed to the console, and a source URL can carry a secret: operators
     /// do try userinfo in the URL (the auth design doc calls it out), and feeds hand out tokens as

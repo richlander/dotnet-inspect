@@ -1927,16 +1927,22 @@ public static class PackageExtractor
     {
         using var failureScope = FeedFailureTelemetry.Scope();
 
-        // For nuget.org, use the search API — returns latest version directly without listing all versions
+        // For nuget.org, use the search API — returns latest version directly without listing all versions.
+        // Throwaway scope: search is best-effort before the authoritative flat-container
+        // / registration path. A 500 here must not merge into the parent and convert a
+        // later authoritative 404 into "source did not answer".
         if (source.IsNuGetOrg && !includePrerelease)
         {
-            var version = await GetLatestVersionFromSearchAsync(
-                client,
-                packageName,
-                log,
-                cancellationToken).ConfigureAwait(false);
-            if (version != null)
-                return SourceLatestVersion.Found(version);
+            using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
+            {
+                var version = await GetLatestVersionFromSearchAsync(
+                    client,
+                    packageName,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
+                if (version != null)
+                    return SourceLatestVersion.Found(version);
+            }
         }
 
         // For nuget.org, the flat-container/prerelease path must exclude unlisted versions.

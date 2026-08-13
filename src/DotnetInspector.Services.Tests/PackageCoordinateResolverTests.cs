@@ -812,6 +812,38 @@ public sealed class PackageCoordinateResolverTests
     }
 
     /// <summary>
+    /// The safety half of the nuget.org delta: a non-404 outage must still make
+    /// complete-source floating Unavailable rather than resolving from the
+    /// surviving feed alone.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_TreatsANuGetOrgOutageAsCompleteSourceFailure()
+    {
+        using var client = new HttpClient(
+            new NuGetOrgAbsentPrivatePresentHandler(outage: true));
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(
+                    NuGetOrgAbsentPrivatePresentHandler.PackageId),
+                [
+                    NuGetOrgAbsentPrivatePresentHandler.NuGetOrgSource,
+                    NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
+                ],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The CLI's own floating resolution reaches this resolver, so the
     /// workspace's stricter rule must be opt-in rather than the default. This
     /// is the shape that failed Windows CI twice from a cold cache: a
@@ -1210,7 +1242,8 @@ public sealed class PackageCoordinateResolverTests
         }
     }
 
-    sealed class NuGetOrgAbsentPrivatePresentHandler : HttpMessageHandler
+    sealed class NuGetOrgAbsentPrivatePresentHandler(bool outage = false)
+        : HttpMessageHandler
     {
         internal const string PackageId = "contoso.internal";
         internal static readonly PackageSource NuGetOrgSource =
@@ -1237,7 +1270,10 @@ public sealed class PackageCoordinateResolverTests
                         """{"resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json" =>
                     Task.FromResult(
-                        new HttpResponseMessage(HttpStatusCode.NotFound)),
+                        new HttpResponseMessage(
+                            outage
+                                ? HttpStatusCode.ServiceUnavailable
+                                : HttpStatusCode.NotFound)),
                 "https://private.test/v3/index.json" =>
                     Json(
                         """{"resources":[{"@id":"https://private.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
