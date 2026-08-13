@@ -642,6 +642,32 @@ local names` choice, off by default. The setting is byte-preserving (names do
 not affect IL), so it is not part of the oracle-endorsed
 [taste](#style-configuration) aggregate and carries its own tool-owned key.
 
+## Shared enum case-label order
+
+When multiple named enum labels share one `switch` section body, their authored
+order is no longer present in IL. The shipped spelling sorts those labels by
+ordinal member name for predictable scanning. Set
+`dotnet_inspect_style_enum_case_label_order = value` to retain the recovered
+numeric order instead.
+
+The choice is class-3 and byte-neutral: only labels already attached to the same
+body move. Sections containing an unnamed or non-enum label retain value order;
+`default`, switch sections, and bodies never move. Pattern arms, guards, and
+source comments/trivia are represented by different nodes or are absent at this
+IR layer, so this constant-label printer path cannot reorder them.
+
+`ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff`
+enforces the byte-neutral claim, and
+`EnumCaseLabelOrderTests.AlphabeticalDefault_IsACompileDecompileFixedPoint`
+enforces the compile/decompile fixed point.
+
+The declared runtime oracle is silent: no `dotnet_style_*` or `csharp_style_*`
+rule governs case-label ordering. The revealed runtime source is mixed rather
+than dominant: examples exist in alphabetical, declaration/numeric, and
+conceptual orders. Consequently neither value is declared- or
+corpus-endorsed. Alphabetical is an explicit tool-owned default, not an oracle
+claim.
+
 ## Style configuration
 
 The oracle settles a single shipped default per equivalence class, but a few
@@ -669,6 +695,7 @@ dotnet_style_qualification_for_property = true
 dotnet_style_qualification_for_method = true
 dotnet_style_qualification_for_event = true
 dotnet_style_prefer_conditional_expression_over_return = true
+dotnet_inspect_style_enum_case_label_order = value
 ```
 
 - `#` and `;` comment lines and `[section]` headers are ignored.
@@ -683,7 +710,9 @@ dotnet_style_prefer_conditional_expression_over_return = true
   `dotnet_style_prefer_conditional_expression_over_return` (the oracle-endorsed
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)),
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
-  branchless lens, under a tool-owned key), and
+  branchless lens, under a tool-owned key),
+  `dotnet_inspect_style_enum_case_label_order` (`alphabetical` by default or
+  `value` for recovered numeric order), and
   `dotnet_inspect_style_slot_local_names` (the registry's default-off opt-out
   that keeps `V_index` names), plus
   `dotnet_inspect_style_readable_local_names` (byte-preserving readable-name
@@ -711,9 +740,9 @@ dotnet_style_prefer_conditional_expression_over_return = true
   surface cannot drift. The resolver has two deliberate tool-owned exceptions:
   the `dotnet_inspect_style_full_taste` aggregate and the original
   `dotnet_inspect_style_readable_local_names` compatibility spelling.
-- Unknown keys, malformed lines, and non-boolean values are reported as a
-  `Warning:` on stderr and skipped — the rest of the file still applies. A bad
-  config never fails the run silently.
+- Unknown keys, malformed lines, invalid boolean values, and invalid
+  multi-value tokens are reported as a `Warning:` on stderr and skipped — the
+  rest of the file still applies. A bad config never fails the run silently.
 
 Config warnings are emitted at the point styled C# is actually shown, exactly
 once: Decompiled Source, source diff, Annotated Source, Cost Overlay, and
@@ -767,7 +796,8 @@ its `.dotnet-inspectconfig` key (`null` for values without a persistent CLI
 spelling), and NativeAOT-safe `IsSelected`/`SetSelected`
 delegates that read and drive that value's backing state without reflection. The
 descriptor reads and single-selects the whole axis through
-`GetValue`/`WithValue`.
+`GetValue`/`WithValue`; a mutually-exclusive multi-value axis may instead carry
+one descriptor-level `ValueConfigKey` whose config value is one of those tokens.
 
 The tier itself is described by the catalog too, one level above the knobs:
 `StyleOptionCatalog.Tiers` lists a `StyleOptionTierDescriptor` per
@@ -805,8 +835,9 @@ fold declared ∪ revealed while "full taste" stays declared-only
 
 This makes the option surface discoverable and drift-proof for every host, not
 just the CLI: the config resolver derives its recognized keys from every value's
-`ConfigKey`, a Wasm UI can enumerate the knobs (presenting each axis's `Values` as
-a mutually-exclusive choice and driving it through `GetValue`/`WithValue`), and the
+`ConfigKey` and descriptor's `ValueConfigKey`, a Wasm UI can enumerate the knobs
+(presenting each axis's `Values` as a mutually-exclusive choice and driving it
+through `GetValue`/`WithValue`), and the
 "full taste" aggregate is exactly the endorsed value of each participating axis.
 The catalog exposes the participating knobs as `OracleEndorsedOptions` and applies
 the aggregate with `ApplyFullTaste(PrinterOptions, enabled)` — selecting each
@@ -821,8 +852,13 @@ Every opt-in knob's value domain is carried by the descriptor directly: the
 two-state knobs (including the expression-body arrow wrap, `WrapExpressionBodyArrow`)
 have a `false`/`true` domain, and the guarded-boolean-return family is one
 three-token axis rather than two coupled booleans. The catalog is exhaustive: a
-test-only drift guard asserts every backing `PrinterOptions` boolean is reachable
+test-only drift guard asserts every backing `PrinterOptions` property is reachable
 through some descriptor value, so a new knob cannot land without a catalog entry.
+
+The enum-label ordering family is a two-token `Spelling` axis:
+`alphabetical` (the tool-owned default) and `value`. It is endorsed by neither
+oracle facet. Its descriptor-level
+`dotnet_inspect_style_enum_case_label_order` key selects either token directly.
 
 The `var`-spelling family is a second multi-value axis, modeled as one
 `var-spelling-style` descriptor with four tokens — `explicit` (the default) plus

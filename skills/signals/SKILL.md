@@ -56,9 +56,14 @@ explicitly.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -D @SourceLink
+dnx dotnet-inspect -y -- library System.Text.Json -D @SourceLink --effective
+dnx dotnet-inspect -y -- package System.Text.Json -D @SourceLink
 dnx dotnet-inspect -y -- library MyLib.dll -S "Signals,SourceLink: Diagnostics"
 dnx dotnet-inspect -y -- library System.Text.Json \
   -S "SourceLink: Availability,SourceLink: Missing Files"
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Integrity"
 dnx dotnet-inspect -y -- package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 ```
+
+On `library`, category discovery is structural until `--effective` is added.
+On `package`, target discovery is effective by default.

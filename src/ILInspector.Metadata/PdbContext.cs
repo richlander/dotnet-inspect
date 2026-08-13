@@ -68,13 +68,23 @@ public sealed record PdbILOffsetLocation(
     string? MethodName,
     string FilePath,
     int Line,
-    int MatchedOffset);
+    int MatchedOffset,
+    int DocumentRowId);
+
+/// <summary>A portable-PDB document identity and its authored path.</summary>
+public sealed record PdbDocumentReference(
+    int DocumentRowId,
+    string FilePath);
 
 /// <summary>Documents associated with one metadata type through method debug information.</summary>
 public sealed record PdbTypeDocumentInfo(
     string TypeFullName,
     string TypeSimpleName,
-    IReadOnlyList<string> FilePaths);
+    IReadOnlyList<PdbDocumentReference> Documents)
+{
+    public IReadOnlyList<string> FilePaths =>
+        Documents.Select(static document => document.FilePath).ToArray();
+}
 
 public record ILOffsetMemberContextInfo(
     string? Assembly,
@@ -1048,8 +1058,8 @@ public class PdbContext : IDisposable
             if (string.IsNullOrEmpty(fullName) || fullName == "<Module>")
                 continue;
 
-            List<string> paths = [];
-            HashSet<string> seenPaths = new(StringComparer.Ordinal);
+            List<PdbDocumentReference> documents = [];
+            HashSet<int> seenDocumentRows = [];
             foreach (var methodHandle in type.GetMethods())
             {
                 try
@@ -1062,8 +1072,9 @@ public class PdbContext : IDisposable
                         continue;
                     var document = _pdbReader.GetDocument(debugInfo.Document);
                     string path = _pdbReader.GetString(document.Name);
-                    if (!string.IsNullOrEmpty(path) && seenPaths.Add(path))
-                        paths.Add(path);
+                    int documentRowId = MetadataTokens.GetRowNumber(debugInfo.Document);
+                    if (!string.IsNullOrEmpty(path) && seenDocumentRows.Add(documentRowId))
+                        documents.Add(new PdbDocumentReference(documentRowId, path));
                 }
                 catch (Exception ex) when (ex is BadImageFormatException
                     or InvalidOperationException
@@ -1075,7 +1086,7 @@ public class PdbContext : IDisposable
             yield return new PdbTypeDocumentInfo(
                 fullName,
                 metadata.GetString(type.Name),
-                paths);
+                documents);
         }
     }
 
@@ -1298,7 +1309,8 @@ public class PdbContext : IDisposable
                 methodName,
                 _pdbReader.GetString(document.Name),
                 matched.StartLine,
-                matched.Offset);
+                matched.Offset,
+                MetadataTokens.GetRowNumber(matched.Document));
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or ArgumentException
