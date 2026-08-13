@@ -3,6 +3,7 @@
 
 using System.Net.Http.Headers;
 using System.Text;
+using DotnetInspector.Core;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -165,8 +166,8 @@ public static class NuGetCredentialScope
         }
 
         log?.Invoke(
-            $"Withholding credentials for source '{source.Name}': discovered endpoint '{endpointUrl}' "
-            + "is not on the source's origin.");
+            $"Withholding credentials for source '{PackageSourceDisplay.ForDiagnostics(source)}': discovered endpoint "
+            + $"'{UrlRedaction.ForDiagnostics(endpointUrl)}' is not on the source's origin.");
         return null;
     }
 }
