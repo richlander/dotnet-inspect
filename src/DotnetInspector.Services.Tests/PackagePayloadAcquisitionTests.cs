@@ -359,6 +359,43 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
+    /// A retained nupkg with no extracted package layout must not admit as
+    /// foreign/global-packages content — filesystem consumers never fall back
+    /// to reading assets from the archive.
+    /// </summary>
+    [Fact]
+    public async Task GlobalPackages_ArchiveOnlyWithoutNuspec_IsRejected()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll",
+                "Sample.Package.nuspec");
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+            // No extracted .nuspec or lib/ — only the retained archive.
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: "global");
+            Assert.False(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// NuGet global-packages trees are not 1:1 archive extracts (OPC omitted,
     /// sidecar metadata, nuspec casing). Without a product commit marker they
     /// must still admit under walk-only gates.

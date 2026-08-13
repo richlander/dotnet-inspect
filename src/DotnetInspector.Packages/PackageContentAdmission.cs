@@ -129,7 +129,9 @@ internal static class PackageContentAdmission
 
     /// <summary>
     /// Product-owned extracts (commit marker present) must match the archive.
-    /// Foreign layouts (global-packages) get walk-only safety gates.
+    /// Foreign layouts (global-packages) get walk-only safety gates plus the
+    /// same top-level <c>.nuspec</c> usability gate as archive-less slots so a
+    /// retained nupkg beside an empty folder is not published as content.
     /// </summary>
     internal static bool AdmitExtractedTreeWithArchive(
         string root,
@@ -144,11 +146,12 @@ internal static class PackageContentAdmission
                 retainedNupkgPath,
                 limits,
                 cancellationToken)
-            : WalkExtractedTree(
-                root,
-                retainedNupkgPath,
-                limits,
-                countEveryNodeTowardEntryLimit: false);
+            : HasTopLevelNuspec(root)
+                && WalkExtractedTree(
+                    root,
+                    retainedNupkgPath,
+                    limits,
+                    countEveryNodeTowardEntryLimit: false);
 
     static bool HasCommitMarker(string root)
     {
@@ -510,12 +513,13 @@ internal static class PackageContentAdmission
             return true;
         }
 
-        // Keep trailing-slash directory markers addressable: empty segments from
-        // leading/trailing separators are ignored; an empty path is already
-        // skipped by the caller.
+        // Match PackageArchiveValidator: do not TrimEntries — a segment that is
+        // only whitespace or padded " .. " must keep its original spelling so
+        // IsSafeSegment agrees with archive admission. Empty segments from
+        // leading/trailing '/' (directory markers) are skipped.
         foreach (string segment in relative.Split(
                      '/',
-                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                     StringSplitOptions.RemoveEmptyEntries))
         {
             if (segment.Length > PackageArchiveValidator.MaxEntrySegmentLength
                 || !StorePath.IsSafeSegment(segment))
