@@ -275,8 +275,12 @@ Integrations inspection are the first vertical L1 canaries:
   returns an explicit `Available` / `NoMetadata` / `Failed` result instead of
   mutating `LibraryInspection`.
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
-  a flat immutable reference result. The CLI projects Findings and owns
-  path-based transitive tree resolution.
+  flat immutable metadata identities. The CLI separately projects the legacy
+  display rows and carries the typed identities through `LibraryInspection` to
+  transitive tree traversal, while shared Services resolves each identity
+  without deriving a path from `AssemblyRef.Name`. That tree resolves
+  enumerated siblings relative to each parent first, then installed platform
+  assets; it does not import the inspecting process's dependency closure.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.
