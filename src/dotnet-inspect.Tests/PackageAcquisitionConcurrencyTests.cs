@@ -569,6 +569,71 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             > NuGetCache.MaxCommitMarkerBytes);
     }
 
+    /// <summary>
+    /// Marker-valid cache slots must still bound nuspec materialization
+    /// (dependency-resolution hot path).
+    /// </summary>
+    [Fact]
+    public async Task TryGetNuspecXmlAsync_OversizedCachedNuspec_ReturnsNull()
+    {
+        const string PackageName = "Nuspec.Bound.Test";
+        const string Version = "1.0.0";
+        string sourceDir = Path.Combine(_testRoot, "nuspec-bound-src");
+        Directory.CreateDirectory(sourceDir);
+        File.WriteAllText(
+            Path.Combine(sourceDir, $"{PackageName}.nuspec"),
+            """<?xml version="1.0"?><package><metadata><id>Nuspec.Bound.Test</id><version>1.0.0</version></metadata></package>""");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "lib", "net10.0"));
+        File.WriteAllBytes(
+            Path.Combine(sourceDir, "lib", "net10.0", "t.dll"),
+            [1]);
+
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            sourceDir,
+            nupkgPath: null,
+            PackageName,
+            Version,
+            TestSourceKey);
+
+        string nuspecPath = Directory
+            .GetFiles(committed.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly)
+            .Single();
+        File.WriteAllBytes(
+            nuspecPath,
+            new byte[PackageExtractor.MaxNuspecBytes + 1]);
+
+        // Cache path is present but unusable; network fallthrough must not throw.
+        using var client = new HttpClient(new NotFoundHandler());
+        Assert.Null(
+            await PackageExtractor.TryGetNuspecXmlAsync(
+                client,
+                PackageName,
+                Version,
+                sourceOptions: s_nugetOrgSource));
+    }
+
+    /// <summary>
+    /// Direct file helper rejects oversize without loading the body as text.
+    /// </summary>
+    [Fact]
+    public async Task TryReadNuspecFileAsync_Oversized_ReturnsNull()
+    {
+        Directory.CreateDirectory(_testRoot);
+        string path = Path.Combine(_testRoot, "huge.nuspec");
+        File.WriteAllBytes(path, new byte[PackageExtractor.MaxNuspecBytes + 1]);
+        Assert.Null(
+            await PackageExtractor.TryReadNuspecFileAsync(
+                path,
+                TestContext.Current.CancellationToken));
+
+        File.WriteAllText(path, """<?xml version="1.0"?><package />""");
+        Assert.Equal(
+            """<?xml version="1.0"?><package />""",
+            await PackageExtractor.TryReadNuspecFileAsync(
+                path,
+                TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task EnsurePackAsync_ConcurrentRequestsPublishOneImmutablePack()
     {
@@ -2142,5 +2207,16 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             CancellationToken cancellationToken)
             => throw new InvalidOperationException(
                 $"Unexpected network request: {request.RequestUri}");
+    }
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            });
     }
 }

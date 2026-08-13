@@ -69,6 +69,14 @@ internal sealed record PackageVersionResolution(
 public static class PackageExtractor
 {
     private const int MaxToolWrapperRedirectHops = 8;
+
+    /// <summary>
+    /// Hard cap on package <c>.nuspec</c> bodies (cache file or remote manifest
+    /// GET). Real nuspecs are small XML; an unbounded string read would let a
+    /// hostile app-cache slot or feed OOM dependency-resolution hot paths.
+    /// </summary>
+    internal const int MaxNuspecBytes = 1 * 1024 * 1024;
+
     internal static TimeSpan CachedVersionResolutionTimeout { get; } =
         TimeSpan.FromSeconds(1);
 
@@ -864,7 +872,9 @@ public static class PackageExtractor
         string normalizedName = packageId.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
 
-        // Cache hit: read the nuspec straight from the already-extracted package.
+        // Cache hit: read the nuspec straight from the already-extracted package,
+        // under the same byte ceiling as the remote path. Marker presence alone
+        // is not a size admission gate.
         var cachedPath = NuGetCache.TryGetCachedPackage(
             normalizedName,
             normalizedVersion,
@@ -877,7 +887,12 @@ public static class PackageExtractor
                 .GetFiles(cachedPath, "*.nuspec", SearchOption.TopDirectoryOnly)
                 .FirstOrDefault();
             if (cachedNuspec != null)
-                return await File.ReadAllTextAsync(cachedNuspec).ConfigureAwait(false);
+            {
+                string? cachedXml = await TryReadNuspecFileAsync(cachedNuspec)
+                    .ConfigureAwait(false);
+                if (cachedXml != null)
+                    return cachedXml;
+            }
         }
 
         foreach (var source in NuGetSourceResolver.ResolveSourcesForPackage(
@@ -890,11 +905,27 @@ public static class PackageExtractor
 
             try
             {
-                var xml = await HttpRetryHelper.GetStringWithRetryAsync(
-                    client, url, log: log, auth: NuGetCredentialScope.AuthFor(source, url, log),
-                    trafficKind: NetworkTrafficKind.PackageManifest).ConfigureAwait(false);
-                if (xml != null)
-                    return xml;
+                HttpRetryHelper.HttpBodyFetchResult body =
+                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                        client,
+                        url,
+                        static _ => true,
+                        log: log,
+                        auth: NuGetCredentialScope.AuthFor(source, url, log),
+                        trafficKind: NetworkTrafficKind.PackageManifest,
+                        maxDownloadSize: MaxNuspecBytes).ConfigureAwait(false);
+                if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
+                    && body.Bytes is { Length: > 0 })
+                {
+                    return Encoding.UTF8.GetString(body.Bytes);
+                }
+
+                if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                {
+                    log?.Invoke(
+                        $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
+                        + $"exceeded {MaxNuspecBytes} byte cap.");
+                }
             }
             catch (HttpRequestException ex)
             {
@@ -905,6 +936,46 @@ public static class PackageExtractor
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Reads a local <c>.nuspec</c> under <see cref="MaxNuspecBytes"/>. Returns
+    /// null when missing, unreadable, empty, or oversize.
+    /// </summary>
+    internal static async Task<string?> TryReadNuspecFileAsync(
+        string nuspecPath,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var info = new FileInfo(nuspecPath);
+            if (!info.Exists || info.Length <= 0 || info.Length > MaxNuspecBytes)
+                return null;
+
+            await using FileStream stream = new(
+                nuspecPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            byte[]? bytes = await PackageContentAdmission.ReadBoundedAsync(
+                stream,
+                MaxNuspecBytes,
+                cancellationToken).ConfigureAwait(false);
+            if (bytes is null || bytes.Length == 0)
+                return null;
+
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
