@@ -799,6 +799,9 @@ public class SourceForwarderResolutionTests
             Assert.Single(
                 destination.InspectionFailures)
                 .Detail);
+        Assert.True(
+            TypeCommand.HasPlatformPrefixBrowseResult(
+                destination));
     }
 
     [Fact]

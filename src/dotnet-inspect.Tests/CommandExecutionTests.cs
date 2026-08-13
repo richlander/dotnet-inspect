@@ -10350,6 +10350,83 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("m")]
+    [InlineData("n")]
+    [InlineData("d")]
+    public async Task TypeListing_RendersInspectionFailuresAtRaisedVerbosity(
+        string verbosity)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-list-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                $"-v:{verbosity}",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "## Inspection Failures",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "inventory assembly adjacency",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task TypeListing_InspectionFailuresSectionIsSelectable()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-section-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-S",
+                "Inspection Failures",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "## Inspection Failures",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Classes",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {

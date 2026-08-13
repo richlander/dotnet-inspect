@@ -518,7 +518,8 @@ public static class TypeCommand
             return null;
 
         var api = await BuildPlatformPrefixSurfaceAsync(query, options, context, logger);
-        if (api == null || api.Types.Count == 0)
+        if (api is null
+            || !HasPlatformPrefixBrowseResult(api))
             return null;
 
         var browseOptions = options with
@@ -558,6 +559,12 @@ public static class TypeCommand
 
         return ApiCommand.WriteFullApiOutput(api, browseOptions);
     }
+
+    internal static bool HasPlatformPrefixBrowseResult(
+        ApiSurface? api) =>
+        api is not null
+        && (api.Types.Count > 0
+            || api.InspectionFailures.Count > 0);
 
     private static string ToFindPrefixPattern(string query)
         => query.EndsWith('*') ? query : $"{query}*";

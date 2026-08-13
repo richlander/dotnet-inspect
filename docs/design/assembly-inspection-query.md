@@ -404,7 +404,9 @@ withholds kind-incomplete resolutions from catalog promotion. The reproduced tra
 missing-binding outcome retains typed kind-failure evidence rather than becoming a
 success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
 case. The equivalent unavailable, missing-type, and ambiguity arms are typed but remain
-unverified. An
+unverified. A failed binding after one or more forwarding hops retains the terminal assembly
+identity rather than being attributed to the initial facade
+(`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity`). An
 API surface that copies a resolved forwarded type also carries that target surface's bounded,
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
@@ -433,7 +435,14 @@ failure set, document JSON/Markdown renders contained failure rows, and single-s
 reports an explicit incomplete-comparison diagnostic; every incomplete comparison exits
 nonzero (`FilterApiDiffByMemberTargets_PreservesInspectionFailures`,
 `BuildDocumentView_ProjectsInspectionFailuresToJson`, and
-`Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes`). Type listings, selected types, and
+`Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes`). Assembly-set extraction
+uses implementation assets and platform-version roll-forward so valid package and framework
+constraints do not become false incomplete-comparison failures
+(`BuildApiSurface_RollsForwardPlatformConstraintReferences`). Type listings render failure
+rows at raised verbosity rather than suppressing their only diagnostic
+(`TypeListing_RendersInspectionFailuresAtRaisedVerbosity`), and failure-only focused platform
+results remain renderable
+(`TypeCommand_PreservesFailureForRejectedSelectedForwardedType`). Type listings, selected types, and
 selected members present these failures consistently as nonfatal constraint-classification
 diagnostics rather than rejected metadata rows
 (`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). True rejected-row

@@ -74,7 +74,11 @@ public sealed class AssemblySetResolutionSession : IDisposable
                     assembly,
                     new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(
-                            input.Path))));
+                            input.Path)
+                        {
+                            PreferImplementationAssemblies = true,
+                            AllowPlatformAssemblyVersionRollForward = true,
+                        })));
         }
 
         _participants = participants;

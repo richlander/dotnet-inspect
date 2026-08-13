@@ -945,7 +945,10 @@ public class ApiCommand
             !options.Count
             && (options.JsonOutput
                 || (!options.Tabular
-                    && options.Verbosity >= Verbosity.Normal));
+                    && ApiOutputFormatter
+                        .RendersInspectionFailures(
+                            api,
+                            options)));
         bool constraintDetailsRendered =
             options.JsonOutput
             && !options.Count;
@@ -956,7 +959,7 @@ public class ApiCommand
             {
                 CommandError.WriteWarning(
                     $"API inspection rejected {rejectedRows} metadata row(s); "
-                    + "use normal verbosity or JSON for failure details.");
+                    + "use default Markdown verbosity or JSON for failure details.");
             }
         }
         if (!constraintDetailsRendered)

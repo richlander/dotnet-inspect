@@ -11,6 +11,9 @@ namespace ILInspector.Metadata.Tests;
 
 public class ConstraintResolutionHardeningTests
 {
+    const TypeAttributes Forwarder =
+        (TypeAttributes)0x00200000;
+
     [Fact]
     public void CompilerProducedSameImageConstraintAuthenticatesExternalConstructedBase()
     {
@@ -829,6 +832,42 @@ public class ConstraintResolutionHardeningTests
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
             "Dependency",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
+    public void ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity()
+    {
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Facade",
+                "ForwardedType",
+                constructed: false);
+        byte[] facadeImage =
+            BuildForwarder(
+                "Facade",
+                "Target",
+                "ForwardedType");
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference facade =
+            Descriptor(facadeImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(facade));
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "Target",
             Assert.IsType<AssemblyReferenceIdentity>(
                 failure.DependencyAssembly)
             .Name);
@@ -1943,6 +1982,25 @@ public class ConstraintResolutionHardeningTests
         metadata.AddGenericParameterConstraint(
             parameter,
             constraint);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildForwarder(
+        string assemblyName,
+        string targetAssembly,
+        string targetType)
+    {
+        MetadataBuilder metadata =
+            NewMetadata(assemblyName);
+        AddModule(metadata);
+        AssemblyReferenceHandle target =
+            AddReference(metadata, targetAssembly);
+        metadata.AddExportedType(
+            TypeAttributes.Public | Forwarder,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(targetType),
+            target,
+            typeDefinitionId: 0);
         return Serialize(metadata);
     }
 

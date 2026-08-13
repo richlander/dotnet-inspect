@@ -5369,6 +5369,15 @@ public class SectionPipelineTests
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var surface = new ApiSurface
         {
+            InspectionFailures =
+            [
+                new ApiSurfaceInspectionFailure(
+                    "test",
+                    0,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "Rejected",
+                    "test"),
+            ],
             Types =
             [
                 new ApiType { Name = "C", Kind = "class" },
@@ -5445,7 +5454,7 @@ public class SectionPipelineTests
     public void ApiTypePipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        Assert.Equal(6, pipeline.AllSectionNames.Length);
+        Assert.Equal(7, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -5460,6 +5469,9 @@ public class SectionPipelineTests
         Assert.Contains("Interfaces", names);
         Assert.Contains("Enums", names);
         Assert.Contains("Delegates", names);
+        Assert.Contains(
+            SectionNames.InspectionFailures,
+            names);
     }
 
     [Fact]

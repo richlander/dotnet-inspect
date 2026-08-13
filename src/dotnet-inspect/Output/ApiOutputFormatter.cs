@@ -90,8 +90,7 @@ public static class ApiOutputFormatter
             }
         };
 
-        if (api.InspectionFailures.Count > 0
-            && options.Verbosity >= Verbosity.Normal)
+        if (RendersInspectionFailures(api, options))
         {
             view.InspectionFailures = api.InspectionFailures
                 .Select(failure => new ApiInspectionFailureRow(
@@ -142,6 +141,21 @@ public static class ApiOutputFormatter
         }
 
         return (view, truncatedCount);
+    }
+
+    internal static bool RendersInspectionFailures(
+        ApiSurface api,
+        ApiOptions options)
+    {
+        if (api.InspectionFailures.Count == 0)
+            return false;
+
+        HashSet<string>? includeSections =
+            BuildWriterOptions(api, options)
+                .IncludeSections;
+        return includeSections is null
+            || includeSections.Contains(
+                SectionNames.InspectionFailures);
     }
 
     private static void PopulateTypeSections(CliApiSurface view, List<ApiType> types, bool showDocs)

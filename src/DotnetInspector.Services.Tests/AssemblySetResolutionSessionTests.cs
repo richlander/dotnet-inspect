@@ -80,6 +80,38 @@ public class AssemblySetResolutionSessionTests
     }
 
     [Fact]
+    public void BuildApiSurface_RollsForwardPlatformConstraintReferences()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"platform-constraint-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            path,
+            BuildPlatformConstraintConsumer());
+        try
+        {
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build([path]));
+
+            ApiType consumer =
+                Assert.Single(
+                    surface.Types,
+                    static type =>
+                        type.Name == "Consumer`1");
+            Assert.Equal(
+                TypeParameterTypeKind.ReferenceType,
+                Assert.Single(consumer.TypeParameters)
+                    .TypeKind);
+            Assert.Empty(surface.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void BuildApiSurface_ForwarderOnlyAssemblyIsRetained()
     {
         string path = Path.Combine(
@@ -187,6 +219,44 @@ public class AssemblySetResolutionSessionTests
                 dependency,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Base"));
+        AddType(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildPlatformConstraintConsumer()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("PlatformConstraintConsumer");
+        AssemblyReferenceHandle runtime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(10, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken:
+                    metadata.GetOrAddBlob(
+                        Convert.FromHexString(
+                            "B03F5F7F11D50A3A")),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Exception"));
         AddType(
             metadata,
             "<Module>",

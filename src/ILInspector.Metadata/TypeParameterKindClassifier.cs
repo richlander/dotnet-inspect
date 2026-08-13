@@ -428,31 +428,39 @@ internal static class TypeParameterKindClassifier
                         handle,
                         "A generic-constraint dependency assembly was "
                             + $"unavailable: '{unavailable.Failure.Kind}'.",
-                        request);
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(unavailable));
                     break;
-                case TypeResolutionOutcome.NotFound:
+                case TypeResolutionOutcome.NotFound notFound:
                     RecordResolutionFailure(
                         handle,
                         $"Generic-constraint dependency "
                             + $"'{request.Type.ToMetadataFullName()}' "
                             + "was not found.",
-                        request);
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(notFound));
                     break;
-                case TypeResolutionOutcome.UnboundBinding:
+                case TypeResolutionOutcome.UnboundBinding unbound:
                     RecordResolutionFailure(
                         handle,
                         $"Generic-constraint dependency "
                             + $"'{request.Type.ToMetadataFullName()}' "
                             + "could not be bound to an acquired assembly.",
-                        request);
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(unbound));
                     break;
-                case TypeResolutionOutcome.Ambiguous:
+                case TypeResolutionOutcome.Ambiguous ambiguous:
                     RecordResolutionFailure(
                         handle,
                         $"Generic-constraint dependency "
                             + $"'{request.Type.ToMetadataFullName()}' "
                             + "resolved ambiguously.",
-                        request);
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(ambiguous));
                     break;
             }
         }
@@ -548,7 +556,8 @@ internal static class TypeParameterKindClassifier
             EntityHandle handle,
             string detail,
             TypeResolutionRequest? request = null,
-            TypeResolutionFailure? failure = null)
+            TypeResolutionFailure? failure = null,
+            AssemblyReferenceIdentity? dependencyAssembly = null)
         {
             int subjectToken = handle.IsNil
                 ? 0
@@ -556,7 +565,7 @@ internal static class TypeParameterKindClassifier
             TypeResolutionManifestKey? requestKey = request is null
                 ? null
                 : TypeResolutionManifestKey.From(request);
-            AssemblyReferenceIdentity? dependencyAssembly =
+            dependencyAssembly ??=
                 GetDependencyAssembly(request, failure);
             if (dependencyAssembly is not null)
             {
@@ -622,6 +631,37 @@ internal static class TypeParameterKindClassifier
                         ? reference.Value
                         : null);
         }
+
+        static AssemblyReferenceIdentity? GetDependencyAssembly(
+            TypeResolutionOutcome outcome) =>
+            outcome switch
+            {
+                TypeResolutionOutcome.Unavailable
+                {
+                    Target:
+                        AssemblyBindingTarget.AssemblyReference target,
+                } => target.Identity,
+                TypeResolutionOutcome.NotFound notFound =>
+                    notFound.LastAssembly.Assembly.Identity,
+                TypeResolutionOutcome.UnboundBinding
+                {
+                    Target:
+                        AssemblyBindingTarget.AssemblyReference target,
+                } => target.Identity,
+                TypeResolutionOutcome.Ambiguous
+                {
+                    Ambiguity:
+                        TypeResolutionAmbiguity.AssemblyBinding ambiguity,
+                } when ambiguity.Target
+                    is AssemblyBindingTarget.AssemblyReference target =>
+                        target.Identity,
+                TypeResolutionOutcome.Ambiguous
+                {
+                    Ambiguity:
+                        TypeResolutionAmbiguity.TypeDeclaration ambiguity,
+                } => ambiguity.Assembly.Assembly.Identity,
+                _ => null,
+            };
 
         TypeResolutionRequest? CreateRequest(
             MetadataReader reader,
