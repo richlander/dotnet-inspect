@@ -3822,7 +3822,10 @@ static class FidelityCheck
                         if (member.MetadataToken is { } token)
                             index[token] = (type, member);
             }
-            catch { /* honest degradation: targets fall back to the harness signature path */ }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Honest degradation: targets fall back to the harness signature path.
+            }
             return index;
         });
 
@@ -3889,7 +3892,7 @@ static class FidelityCheck
                     pdbPath: null,
                     attributeMode: MemberRenderAttributeMode.CompilationRequired);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return null;
         }
@@ -3926,7 +3929,7 @@ static class FidelityCheck
                     pdbPath: null,
                     attributeMode: MemberRenderAttributeMode.CompilationRequired);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return new Dictionary<ApiMember, MemberRenderResult>();
         }

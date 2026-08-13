@@ -114,9 +114,24 @@ public sealed class MemberBodyProducerMemberRenderTests
     {
         var type = Specimen();
         var constructor = Assert.Single(type.Members, member => member.Kind == "constructor");
-        constructor.SignatureModel = null;
         constructor.Signature =
-            "void .ctor([External.Marker(typeof(Gamma.Widget))] Alpha.Widget value)";
+            "void .ctor([System.Runtime.InteropServices.Optional, "
+            + "System.Runtime.CompilerServices.DateTimeConstant(42L)] "
+            + "System.DateTime when)";
+        constructor.SignatureModel = new ApiSignature
+        {
+            MemberName = ".ctor",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Type = "System.DateTime",
+                    Name = "when",
+                    HasDefault = true
+                }
+            ]
+        };
 
         var single = MemberBodyProducer.ProduceMember(
             type,
@@ -131,7 +146,7 @@ public sealed class MemberBodyProducerMemberRenderTests
             attributeMode: MemberRenderAttributeMode.CompilationRequired);
 
         Assert.Equal(MemberBodyProductionStatus.Failed, single.Status);
-        Assert.DoesNotContain("External.Marker", single.Text);
+        Assert.DoesNotContain("DateTimeConstant", single.Text);
         Assert.Equal(type.Members.Count, batch.Count);
         Assert.Equal(single, batch[constructor]);
     }

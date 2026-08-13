@@ -948,6 +948,47 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void SignatureSuppressionDeclinesMetadataOnlyDefaultCompatibilityText()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature =
+                "void .ctor([System.Runtime.InteropServices.Optional, "
+                + "System.Runtime.CompilerServices.DateTimeConstant(42L)] "
+                + "System.DateTime when)",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = ".ctor",
+                ReturnType = "void",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.DateTime",
+                        Name = "when",
+                        HasDefault = true
+                    }
+                ]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeSignatureAttributes = false
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => formatter.FormatMember(type, constructor));
+
+        Assert.Contains(
+            "signature attributes cannot be suppressed safely",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OmittedPrimaryConstructorAttributesDoNotAffectTypeNames()
     {
         var type = new ApiType

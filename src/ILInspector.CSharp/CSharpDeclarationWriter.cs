@@ -1232,7 +1232,10 @@ internal static class CSharpDeclarationWriter
     static bool CanSafelySuppressCompatibilitySignatureAttributes(ApiMember member)
         => member.SignatureModel is { } model
             && model.ReturnAttributes.Count == 0
-            && model.Parameters.All(parameter => parameter.Attributes.Count == 0)
+            && model.Parameters.All(parameter =>
+                parameter.Attributes.Count == 0
+                && (!parameter.HasDefault
+                    || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
             && model.Accessors.All(accessor => accessor.ReturnAttributes.Count == 0);
 
     static IEnumerable<string> CollectTypeReferences(ApiType type)
