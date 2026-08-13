@@ -55,6 +55,51 @@ public class SourceLinkProvenanceTests
         Assert.Equal(Sha, result.Origin!.Value.Revision);
     }
 
+    [Fact]
+    public void FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin()
+    {
+        string requested =
+            $"{AzureItems}api-version=7.1&versionType=commit&version={Sha}&path=/A.cs";
+        string otherRevision =
+            $"{AzureItems}api-version=7.1&versionType=commit&version={OtherSha}&path=/A.cs";
+
+        var preserved = SLF.SourceLinkProvenance.ValidateFetchOrigin(requested, requested);
+        var changed = SLF.SourceLinkProvenance.ValidateFetchOrigin(requested, otherRevision);
+
+        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Preserved, preserved.Status);
+        Assert.True(preserved.IsAllowed);
+        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Changed, changed.Status);
+        Assert.False(changed.IsAllowed);
+        Assert.Equal("the response URL names a different source origin", changed.Reason);
+    }
+
+    [Fact]
+    public void FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository()
+    {
+        string requested =
+            $"{AzureItems}api-version=7.1&versionType=commit&version={Sha}&path=/A.cs";
+        const string Final =
+            "https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com";
+
+        var result = SLF.SourceLinkProvenance.ValidateFetchOrigin(requested, Final);
+
+        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Changed, result.Status);
+        Assert.False(result.IsAllowed);
+        Assert.Equal("the response URL has no attributable origin", result.Reason);
+    }
+
+    [Fact]
+    public void FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim()
+    {
+        var result = SLF.SourceLinkProvenance.ValidateFetchOrigin(
+            "https://gitlab.example/project/raw/commit/A.cs",
+            "https://cdn.example/content/A.cs");
+
+        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Unattributed, result.Status);
+        Assert.True(result.IsAllowed);
+        Assert.Empty(result.Reason);
+    }
+
     /// <summary>
     /// A URL that merely mentions the GitHub raw host somewhere inside it is not GitHub's.
     /// </summary>
