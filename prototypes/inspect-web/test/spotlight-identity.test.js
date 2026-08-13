@@ -208,6 +208,47 @@ test("call graph navigation rejects assembly identity skew", () => {
   assert.equal(
     callGraphAssemblyIdentityMatches(target, { ...exact, version: "2.0.0.0" }),
     false);
+  assert.equal(
+    callGraphAssemblyIdentityMatches(
+      { ...target, assemblyVersion: null },
+      exact),
+    false);
+  assert.equal(
+    callGraphAssemblyIdentityMatches(
+      { assembly: "Example", typeMetadataId: "Example.Widget" },
+      exact),
+    true);
+});
+
+test("call graph navigation joins asset names through metadata identity", () => {
+  const type = {
+    assembly: "Physical.dll",
+    assemblyName: "Logical",
+    metadataId: "Example.Widget"
+  };
+  const pkg = {
+    ...packageAt("1.0.0", "net8.0"),
+    types: [type],
+    assemblies: [{
+      name: "Logical",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null
+    }]
+  };
+  const target = {
+    assembly: "Logical",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Widget"
+  };
+
+  assert.deepEqual(resolveLoadedGraphTargetCandidate([pkg], target), {
+    status: "unique",
+    pkg,
+    type
+  });
 });
 
 test("relationship navigation rejects ambiguous dotted identities", () => {
@@ -337,6 +378,15 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /if \(!pkg && tabs\.length\) \{\s+const target = tabs\[/);
+  assert.match(
+    appSource,
+    /state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+state\.home = true;/);
+  assert.match(
+    appSource,
+    /\(\) => \(state\.retryAction \?\? bootstrap\)\(\)/);
+  assert.match(
+    appSource,
+    /state\.retryAction = openRuntimePackFromHome/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

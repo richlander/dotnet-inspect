@@ -218,6 +218,7 @@ const state = {
   error: "",
   errorTitle: "",
   errorDetail: "",
+  retryAction: null,
   diag: null
 };
 
@@ -4802,8 +4803,8 @@ async function ensureDotnetReleases() {
 // pseudo-package and its accumulated drilled libraries, then loads a fresh Platform for the
 // chosen TFM and lands on its overview — mirroring the in-place version switch for ordinary
 // packages. The engine resolves the exact latest patch for that major.
-async function switchPlatformVersion(tfm) {
-  const pkg = runtimePackPackage();
+async function switchPlatformVersion(tfm, retryPackage = null) {
+  const pkg = runtimePackPackage() ?? retryPackage;
   if (!pkg || !tfm || tfm === pkg.activeFramework) return;
   const navigationSeq = ++state.navigationSeq;
   state.packages = state.packages.filter(item => !item.isRuntimePack);
@@ -4812,6 +4813,7 @@ async function switchPlatformVersion(tfm) {
   state.home = false;
   state.loading = true;
   state.error = "";
+  state.retryAction = null;
   state.loadingMessage = "Loading the .NET Platform…";
   state.loadingSubtitle = `.NET Platform · ${tfm}`;
   render();
@@ -4824,6 +4826,7 @@ async function switchPlatformVersion(tfm) {
     state.loading = false;
     state.error = state.runtimePackError || "Couldn’t load the .NET Platform.";
     state.errorTitle = "Platform failed";
+    state.retryAction = () => switchPlatformVersion(tfm, pkg);
     render();
     return;
   }
@@ -4993,6 +4996,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
     state.home = false;
     state.loading = true;
     state.error = "";
+    state.retryAction = null;
     state.loadingMessage = "Loading the platform library…";
     state.loadingSubtitle = `${key} · ${tfm}`;
     render();
@@ -5008,6 +5012,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
         ? `Couldn’t load ${key}: ${state.runtimePackError}`
         : `Couldn’t load ${key} from the .NET runtime pack.`;
       state.errorTitle = "Platform library failed";
+      state.retryAction = () => openPlatformLibrary(assembly, pack);
       render();
       return;
     }
@@ -5628,6 +5633,7 @@ async function openRuntimePackFromHome() {
   state.home = false;
   state.loading = true;
   state.error = "";
+  state.retryAction = null;
   state.loadingMessage = "Loading the .NET Platform…";
   state.loadingSubtitle = ".NET Platform · net10.0";
   render();
@@ -5639,6 +5645,7 @@ async function openRuntimePackFromHome() {
     state.loading = false;
     state.error = "Couldn’t load the .NET runtime pack. Retry, or open a different package.";
     state.errorTitle = "Runtime pack failed";
+    state.retryAction = openRuntimePackFromHome;
     render();
     return;
   }
@@ -5705,7 +5712,9 @@ function renderLoading() {
            </div>`
         : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
-  document.querySelector("#retry-load")?.addEventListener("click", bootstrap);
+  document.querySelector("#retry-load")?.addEventListener(
+    "click",
+    () => (state.retryAction ?? bootstrap)());
   document.querySelector("#error-package-query")?.addEventListener("submit", event => {
     event.preventDefault();
     const value = document.querySelector("#error-package-input").value.trim();
@@ -7408,6 +7417,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
   if (!background) {
     state.loading = true;
     state.error = "";
+    state.retryAction = null;
     state.home = false;
     state.queryNotice = options.queryNotice || "";
     state.requestedPackage = packageId;
@@ -7501,6 +7511,11 @@ async function loadPackage(packageId, version, framework, options = {}) {
         : friendly.message;
       state.errorTitle = friendly.title;
       state.errorDetail = String(error?.stack || error);
+      state.retryAction = () => loadPackage(
+        packageId,
+        version,
+        framework,
+        { ...options, navigationSeq: undefined });
       render();
     }
     return null;
@@ -7810,6 +7825,7 @@ async function restoreWorkspaceFromLocation(
   state.home = false;
   state.loading = true;
   state.error = "";
+  state.retryAction = null;
   clearWorkspacePackages();
   render();
   const target = {
@@ -7898,6 +7914,7 @@ async function restoreWorkspaceFromLocation(
       ? `${state.queryNotice} ${failure}`
       : failure;
     state.errorTitle = "Platform failed";
+    state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
     render();
   }
 }
@@ -7918,6 +7935,7 @@ async function restoreInitialWorkspace() {
 async function bootstrap() {
   state.loading = true;
   state.error = "";
+  state.retryAction = null;
   render();
   const tStart = performance.now();
   try {
@@ -7952,6 +7970,7 @@ async function bootstrap() {
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
     state.errorDetail = String(error?.stack || error);
+    state.retryAction = bootstrap;
     render();
   }
 }
@@ -8118,6 +8137,10 @@ window.addEventListener("popstate", () => {
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     // Navigated back to the bare root — show the intro/home page (engine stays warm).
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
     state.home = true;
     render();
     return;

@@ -53,6 +53,28 @@ public sealed class ContentShapedWorkspaceParticipantTests
         Assert.Equal(CandidateOpenFailureKind.InvalidImage, rejected.Failure.Kind);
     }
 
+    [Fact]
+    public void EquivalentDescriptorIdentity_RetainsAcquiredSnapshot()
+    {
+        ImmutableArray<byte> image = Image();
+        AssemblyReferenceIdentity identity = ContentIdentity(image);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextParticipant participant = Participant(
+            image,
+            identity with
+            {
+                Name = identity.Name.ToUpperInvariant(),
+                Culture = identity.Culture is null ? "neutral" : identity.Culture,
+            });
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+
+        ResolvedAssemblyReference retained = Available(
+            group.RetainAssemblyReference(participant.Assembly));
+
+        Assert.Same(participant.Assembly.Registration, retained.Registration);
+    }
+
     static ImmutableArray<byte> Image() => ImmutableCollectionsMarshal.AsImmutableArray(
         File.ReadAllBytes(
             typeof(ContentShapedWorkspaceParticipantTests).Assembly.Location));

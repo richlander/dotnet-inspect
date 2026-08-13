@@ -20,7 +20,10 @@ internal static class BrowserSurfaceProjection
     internal static BrowserAccessibilityDescriptor Descriptor(ApiAccessibilityBucket bucket) =>
         new(bucket.Id, bucket.Label, bucket.Order, bucket.IsDefault, bucket.Count);
 
-    internal static BrowserTypeSurface Type(ApiType type, string assembly)
+    internal static BrowserTypeSurface Type(
+        ApiType type,
+        string assembly,
+        string assemblyName)
     {
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
         // parameter names the surface carries. Identity stays the metadata form so deep links,
@@ -53,6 +56,7 @@ internal static class BrowserSurfaceProjection
             accessibility,
             bucket.Id,
             assembly,
+            assemblyName,
             members.Length,
             string.Join(' ', modifiers),
             members);

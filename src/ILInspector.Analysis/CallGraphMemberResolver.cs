@@ -308,12 +308,13 @@ public static class CallGraphMemberResolver
             return PrimitiveTypeNames.ToClrFullName(keyword);
         }
 
-        string name = string.Join(
-            '.',
-            type.Name.Split('+').Select(StripArity));
-        return string.IsNullOrEmpty(type.Namespace)
+        string[] segments = type.Resolution?.Type.Segments.ToArray()
+            ?? type.Name.Split('+');
+        string name = string.Join('.', segments.Select(StripArity));
+        string ns = type.Resolution?.Type.Namespace ?? type.Namespace;
+        return string.IsNullOrEmpty(ns)
             ? name
-            : $"{type.Namespace}.{name}";
+            : $"{ns}.{name}";
     }
 
     static string NamedGenericTypeIdentity(
@@ -323,7 +324,8 @@ public static class CallGraphMemberResolver
         if (definition.Kind != TypeRefKind.Definition)
             return $"{TypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
 
-        string[] segments = definition.Name.Split('+');
+        string[] segments = definition.Resolution?.Type.Segments.ToArray()
+            ?? definition.Name.Split('+');
         int totalArity = segments.Sum(segment =>
         {
             int tick = segment.IndexOf('`');
@@ -336,8 +338,9 @@ public static class CallGraphMemberResolver
             return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
 
         var result = new StringBuilder();
-        if (!string.IsNullOrEmpty(definition.Namespace))
-            result.Append(definition.Namespace).Append('.');
+        string ns = definition.Resolution?.Type.Namespace ?? definition.Namespace;
+        if (!string.IsNullOrEmpty(ns))
+            result.Append(ns).Append('.');
         int argumentIndex = 0;
         for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
         {

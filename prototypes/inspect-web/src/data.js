@@ -164,7 +164,11 @@ export function uniqueTypeByQueryId(types, queryId) {
 }
 
 export function callGraphAssemblyIdentityMatches(target, assembly) {
-  if (!target?.assemblyVersion) return true;
+  const hasVersion = Object.prototype.hasOwnProperty.call(
+    target ?? {},
+    "assemblyVersion");
+  if (!hasVersion) return true;
+  if (!target?.assemblyVersion) return false;
   if (!assembly) return false;
   const normalizeCulture = value => {
     const normalized = String(value ?? "").toLowerCase();
@@ -185,7 +189,9 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
     for (const type of pkg.types ?? []) {
-      const assembly = String(type.assembly ?? pkg.assembly ?? "").replace(/\.dll$/i, "");
+      const assembly = String(
+        type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
+        .replace(/\.dll$/i, "");
       const descriptor = (pkg.assemblies ?? []).find(candidate =>
         String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
           === assembly.toLowerCase());

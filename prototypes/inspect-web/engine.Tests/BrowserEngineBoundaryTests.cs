@@ -319,9 +319,14 @@ public sealed class BrowserEngineBoundaryTests
             Kind = "class",
         };
 
-        BrowserTypeSurface projected = BrowserSurfaceProjection.Type(type, "Sample.dll");
+        BrowserTypeSurface projected = BrowserSurfaceProjection.Type(
+            type,
+            "Physical.dll",
+            "Sample");
 
         Assert.Equal("Sample.Outer+Inner", projected.Id);
+        Assert.Equal("Physical.dll", projected.Assembly);
+        Assert.Equal("Sample", projected.AssemblyName);
         Assert.Equal(projected.Id, projected.DefinitionId);
         Assert.Equal("Sample.Outer.Inner", projected.QueryId);
         Assert.Equal(projected.Id, projected.MetadataId);
@@ -339,7 +344,7 @@ public sealed class BrowserEngineBoundaryTests
             Kind = "class",
         };
         BrowserTypeSurface projectedLiteral =
-            BrowserSurfaceProjection.Type(literalPlus, "Sample.dll");
+            BrowserSurfaceProjection.Type(literalPlus, "Physical.dll", "Sample");
 
         Assert.Equal(@"Sample.Outer\+Inner", projectedLiteral.Id);
         Assert.Equal(projectedLiteral.Id, projectedLiteral.DefinitionId);

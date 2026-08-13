@@ -203,6 +203,7 @@ public static class PackageCompileAssetSelector
         if (parts.Length != 3
             || parts.Any(part => part is "." or "..")
             || !parts[2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[2]))
             || !TfmResolver.IsTfmLike(parts[1]))
         {
             return null;

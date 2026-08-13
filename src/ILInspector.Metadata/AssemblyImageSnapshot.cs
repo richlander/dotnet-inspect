@@ -77,7 +77,7 @@ public sealed class AssemblyImageSnapshot
     {
         ArgumentNullException.ThrowIfNull(assembly);
         if (!ReferenceEquals(assembly.Registration, Registration)
-            || assembly.Identity != Identity)
+            || !assembly.Identity.IsEquivalentTo(Identity))
         {
             throw new ArgumentException(
                 "The assembly descriptor does not own this snapshot.",

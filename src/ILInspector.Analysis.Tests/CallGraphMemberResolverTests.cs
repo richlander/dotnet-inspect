@@ -267,6 +267,52 @@ public sealed class CallGraphMemberResolverTests
             graph.Key);
     }
 
+    [Fact]
+    public void Selector_DistinguishesNestedTypeFromLiteralPlusName()
+    {
+        MetadataTypeDefinitionName literalName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Samples", ["Outer+Inner"]))
+            .Name;
+        TypeRef literal = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                literalName));
+        TypeRef nested = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Samples",
+                        ["Outer", "Inner"]))
+                .Name));
+
+        CallGraphMemberSelector literalSelector =
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [literal],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+        CallGraphMemberSelector nestedSelector =
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [nested],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        Assert.Equal("Samples.Outer+Inner", literalSelector.ParameterTypes[0]);
+        Assert.Equal("Samples.Outer.Inner", nestedSelector.ParameterTypes[0]);
+        Assert.NotEqual(literalSelector.Key, nestedSelector.Key);
+    }
+
     static ApiMember Method(string parameterType) => new()
     {
         Name = "M",

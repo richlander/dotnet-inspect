@@ -72,6 +72,21 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void Selection_RejectsEmptyAssemblyStem()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory("lib/net8.0/.dll"),
+                "Example",
+                "net8.0");
+
+        Assert.False(selection.IsSelected);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            selection.Status);
+    }
+
+    [Fact]
     public void Selection_RanksTargetFrameworksCaseInsensitively()
     {
         IPackageContent content = InMemory(
