@@ -483,6 +483,76 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    /// <summary>
+    /// Only the package-root commit marker is internal metadata. A nested file
+    /// reusing the marker name must still consume MaxExpandedBytes.
+    /// </summary>
+    [Fact]
+    public void NestedCommitMarkerNamedFile_CountsTowardExpandedBytes()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            string nested = Path.Combine(root, "sub");
+            Directory.CreateDirectory(nested);
+            File.WriteAllBytes(
+                Path.Combine(nested, NuGetCache.CommitMarkerFileName),
+                new byte[4096]);
+
+            Assert.False(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    retainedNupkgPath: null,
+                    new PackagePayloadLimits { MaxExpandedBytes = 1024 }));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// On case-sensitive volumes, a case-only sibling of the retained nupkg is
+    /// a distinct file and must count toward MaxExpandedBytes.
+    /// </summary>
+    [Fact]
+    public void CaseOnlyNupkgSibling_CountsTowardExpandedBytesOnCaseSensitiveFs()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            string retained = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(retained, new byte[16]);
+            string sibling = Path.Combine(
+                root,
+                $"{PackageId}.{Version}.NUPKG");
+            File.WriteAllBytes(sibling, new byte[4096]);
+
+            Assert.False(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    retainedNupkgPath: retained,
+                    new PackagePayloadLimits { MaxExpandedBytes = 1024 }));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task CacheHitWithArchive_StillRejectsSymlinkDamagedExtractedTree()
     {

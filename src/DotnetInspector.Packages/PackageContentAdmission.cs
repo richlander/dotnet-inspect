@@ -336,9 +336,14 @@ internal static class PackageContentAdmission
         if (IsReparsePoint(root))
             return false;
 
+        StringComparison pathComparison = PathComparison;
         string? normalizedRetained = retainedNupkgPath is null
             ? null
             : Path.GetFullPath(retainedNupkgPath);
+        // Only the product marker at the package root is internal metadata —
+        // nested files that reuse the marker name still count toward budget.
+        string normalizedMarker = Path.GetFullPath(
+            Path.Combine(root, NuGetCache.CommitMarkerFileName));
 
         long expandedBytes = 0;
         int entryCount = 0;
@@ -389,8 +394,12 @@ internal static class PackageContentAdmission
                 }
 
                 // Skip retained archive (bounded by MaxArchiveBytes) and the
-                // internal commit marker (not package content).
-                if (IsExcludedFromExpandedBytes(entry, normalizedRetained))
+                // root commit marker only (not package content).
+                if (IsExcludedFromExpandedBytes(
+                        entry,
+                        normalizedRetained,
+                        normalizedMarker,
+                        pathComparison))
                     continue;
 
                 long length;
@@ -415,22 +424,35 @@ internal static class PackageContentAdmission
 
     static bool IsExcludedFromExpandedBytes(
         string path,
-        string? normalizedRetainedNupkg)
+        string? normalizedRetainedNupkg,
+        string normalizedRootMarker,
+        StringComparison pathComparison)
     {
+        string fullPath = Path.GetFullPath(path);
         if (normalizedRetainedNupkg is not null
             && string.Equals(
-                Path.GetFullPath(path),
+                fullPath,
                 normalizedRetainedNupkg,
-                StringComparison.OrdinalIgnoreCase))
+                pathComparison))
         {
             return true;
         }
 
         return string.Equals(
-            Path.GetFileName(path),
-            NuGetCache.CommitMarkerFileName,
-            StringComparison.OrdinalIgnoreCase);
+            fullPath,
+            normalizedRootMarker,
+            pathComparison);
     }
+
+    /// <summary>
+    /// Match filesystem identity the way the host volume does: case-insensitive
+    /// on Windows, case-sensitive elsewhere. Avoids excluding case-only nupkg
+    /// siblings on Linux while still treating Windows paths as the same file.
+    /// </summary>
+    static StringComparison PathComparison { get; } =
+        OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
     internal static bool HasTopLevelNuspec(string root)
     {
