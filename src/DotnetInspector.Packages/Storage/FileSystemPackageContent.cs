@@ -16,7 +16,8 @@ public sealed class FileSystemPackageContent : IPackageContent
         string rootPath,
         string? nupkgPath,
         bool fromCache,
-        string producerKey)
+        string producerKey,
+        bool requiresArchiveTreeMatch = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(rootPath);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
@@ -25,6 +26,7 @@ public sealed class FileSystemPackageContent : IPackageContent
         NupkgPath = nupkgPath;
         FromCache = fromCache;
         ProducerKey = producerKey;
+        RequiresArchiveTreeMatch = requiresArchiveTreeMatch;
     }
 
     /// <inheritdoc />
@@ -38,6 +40,22 @@ public sealed class FileSystemPackageContent : IPackageContent
 
     /// <inheritdoc />
     public string ProducerKey { get; }
+
+    /// <inheritdoc />
+    public bool RequiresArchiveTreeMatch { get; }
+
+    /// <inheritdoc />
+    public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
+    {
+        if (NupkgPath is null || !File.Exists(NupkgPath))
+        {
+            stream = null;
+            return false;
+        }
+
+        stream = File.OpenRead(NupkgPath);
+        return true;
+    }
 
     /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
