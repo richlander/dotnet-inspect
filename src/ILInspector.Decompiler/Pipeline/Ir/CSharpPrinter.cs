@@ -2419,9 +2419,10 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
-                .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
+            sb.Append(usingStatement.IsAwait ? "await using (" : "using (");
+            if (usingStatement.DeclaresResourceVariable)
+                sb.Append(TypeText(usingStatement.ResourceType)).Append(' ').Append(LocalName(usingStatement.LocalIndex)).Append(" = ");
+            sb.Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;

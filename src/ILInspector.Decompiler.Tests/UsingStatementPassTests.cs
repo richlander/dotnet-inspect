@@ -25,6 +25,9 @@ public class UsingStatementPassTests
         Assert.IsType<NewObject>(usingStatement.Resource);
         Assert.Contains(usingStatement.ConsumedMemberRefs, method => method.Name == "Dispose");
         Assert.Empty(function.Descendants.OfType<TryFinally>());
+        // The body reads the resource (`reader.Read()`), so the raise must keep
+        // declaring the variable rather than eliding it (#3346 decline case).
+        Assert.True(usingStatement.DeclaresResourceVariable);
     }
 
     [Fact]
@@ -36,6 +39,36 @@ public class UsingStatementPassTests
         Assert.Contains("using (StringReader reader = new StringReader(s))", output);
         Assert.Contains("return reader.Read();", output);
         Assert.DoesNotContain("finally", output);
+    }
+
+    [Fact]
+    public void DisposedOnlyResource_RaisesToVariableLessUsingStatement()
+    {
+        // The lookalike try body never reads the resource local — it is
+        // disposed-only, referenced solely by the reference-type null-guarded
+        // dispose this pass consumes — so the idiomatic raise is the
+        // variable-less `using (resource)` rather than `using (T V_n = resource)`
+        // (#3346).
+        var function = BuildUsingLookalike(TypeRef.CoreLib("System", "IDisposable"), reassignInsideTry: false);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.False(usingStatement.DeclaresResourceVariable);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DisposedOnlyResource_PrintsVariableLessUsingHeader()
+    {
+        var function = BuildUsingLookalike(TypeRef.CoreLib("System", "IDisposable"), reassignInsideTry: false);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("using (null)", output);
+        Assert.DoesNotContain("IDisposable", output);
     }
 
     [Fact]

@@ -567,6 +567,24 @@ public class IrImporterTests
         AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanUsingResource));
     }
 
+    [Fact]
+    public void InlineArraySpanUsingResource_RaisesToVariableLessUsing()
+    {
+        // Real compiled witness for #3346: SpanScope.Dispose() is a no-op and the
+        // body (`n = 1;`) never reads the resource local — it is disposed-only,
+        // referenced solely by the compiler-generated dispose guard. That makes
+        // `using (DisposableFromObjectSpan([a, b]))` the idiomatic, fully raised
+        // endpoint rather than `using (IDisposable V_2 = ...)`.
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArraySpanUsingResource));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.False(usingStatement.DeclaresResourceVariable);
+        Assert.Contains("using (DisposableFromObjectSpan([a, b]))", output);
+        Assert.DoesNotContain("IDisposable", output);
+    }
+
     static void AssertRunOnceEdgeSpanRaises(string methodName)
     {
         var function = ImportFixture(methodName);

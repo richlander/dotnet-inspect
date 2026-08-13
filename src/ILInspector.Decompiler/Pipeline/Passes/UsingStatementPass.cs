@@ -21,7 +21,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </code>
 /// all become <c>using (T V_0 = resource) { BODY }</c>. The dispose receiver is
 /// a <c>LoadLocal</c> (reference type) or <c>LoadLocalAddress</c> (value type,
-/// constrained callvirt).
+/// constrained callvirt). When BODY never reads the resource local — it is
+/// disposed-only, referenced solely by the dispose guard this pass consumes —
+/// the raise instead becomes the idiomatic variable-less <c>using (resource)
+/// { BODY }</c> (#3346); the underlying slot is still consumed and typed the
+/// same way, only its printed declaration is elided.
 ///
 /// <para>Runtime-async disposal regions use a catch-object / awaited-dispose /
 /// ExceptionDispatchInfo rethrow scaffold. The pass first raises that exact
@@ -142,8 +146,14 @@ public sealed class UsingStatementPass : IIrPass
 
                 var resource = (IrExpression)match.StoreResource.DetachChildren()[0];
                 var body = match.TryFinally.TryBody;
+                // The resource local is disposed-only — never read by the raised
+                // body, only by the dispose guard this pass just consumed — when
+                // no descendant of the body references its slot (#3346). That
+                // shape raises to the idiomatic variable-less `using (expr)`
+                // instead of `using (T V_n = expr)`.
+                bool declaresResourceVariable = ReferenceOwnership.SubtreeReferencesLocal(body, match.StoreResource.Index);
                 body.Detach();
-                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, consumedMemberRefs: [match.Dispose]);
+                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, consumedMemberRefs: [match.Dispose], declaresResourceVariable: declaresResourceVariable);
                 stepper.StepOver("raise dispose try/finally to using", match.TryFinally);
                 match.TryFinally.ReplaceWith(usingStatement);
                 match.StoreResource.Detach();

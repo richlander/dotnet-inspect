@@ -1345,6 +1345,14 @@ public sealed class Fixed : IrNode
 /// immediately before a try/finally whose finally null-checks the resource and
 /// calls <c>IDisposable.Dispose</c>. <see cref="LocalIndex"/> is the resource
 /// slot declared by the using header.
+/// <para>
+/// <see cref="DeclaresResourceVariable"/> is <see langword="false"/> when the
+/// resource local is disposed-only: never read by the raised body, only by
+/// the compiler-generated dispose guard the pass consumed. The idiomatic C#
+/// for that shape omits the local entirely — <c>using (expr)</c> rather than
+/// <c>using (T V_n = expr)</c> — and <see cref="LocalIndex"/> keeps identifying
+/// the consumed IL slot even though the printer no longer names it (#3346).
+/// </para>
 /// </summary>
 public sealed class UsingStatement : IrNode
 {
@@ -1354,12 +1362,14 @@ public sealed class UsingStatement : IrNode
         IrExpression resource,
         BlockContainer body,
         bool isAwait = false,
-        ImmutableArray<MethodRef> consumedMemberRefs = default)
+        ImmutableArray<MethodRef> consumedMemberRefs = default,
+        bool declaresResourceVariable = true)
     {
         LocalIndex = localIndex;
         ResourceType = resourceType;
         IsAwait = isAwait;
         ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
+        DeclaresResourceVariable = declaresResourceVariable;
         AddChild(resource);
         AddChild(body);
     }
@@ -1368,6 +1378,7 @@ public sealed class UsingStatement : IrNode
     public TypeRef ResourceType { get; }
     public bool IsAwait { get; }
     public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
+    public bool DeclaresResourceVariable { get; }
     public IrExpression Resource => (IrExpression)Children[0];
     public BlockContainer Body => (BlockContainer)Children[1];
 

@@ -5106,7 +5106,11 @@ public class CfgSampleClass
 
     // Span on the resource of a using statement (the body is a separate block, so
     // the using statement itself is the span consumer) — exercises
-    // `UsingStatement.Resource`.
+    // `UsingStatement.Resource`. SpanScope.Dispose() is a no-op and the body
+    // never reads the resource, so this is also the real compiled witness for
+    // the disposed-only variable-less `using` raise (#3346): the idiomatic
+    // endpoint is `using (DisposableFromObjectSpan([a, b]))`, not
+    // `using (IDisposable V_n = ...)`.
     public static int InlineArraySpanUsingResource(object a, object b)
     {
         int n = 0;
