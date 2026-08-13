@@ -6,11 +6,11 @@ namespace DotnetInspector.Packages;
 /// <remarks>
 /// Cache hits with a retained archive are revalidated against the full limit
 /// set (archive bytes, expanded bytes, entry count, structural ZIP rules).
-/// Entries that keep only an extracted tree — common when a host or image
-/// strips <c>.nupkg</c> files from global-packages — cannot prove archive-byte
-/// or ZIP structure limits; they are admitted only when the tree has a
-/// top-level <c>.nuspec</c> and the full filesystem walk (files and
-/// directories) stays within the expanded-size and entry-count limits.
+/// When a filesystem <c>RootPath</c> is also present, the extracted tree is
+/// measured as well: consumers open files under that root, so a valid archive
+/// must not launder a damaged or symlink-escaping tree. Entries that keep only
+/// an extracted tree (stripped <c>.nupkg</c>) require a top-level
+/// <c>.nuspec</c> and the same tree walk.
 /// </remarks>
 internal static class PackageContentAdmission
 {
@@ -36,28 +36,38 @@ internal static class PackageContentAdmission
     {
         if (content.TryOpenArchive(out Stream? archiveStream))
         {
-            await using (archiveStream.ConfigureAwait(false))
+            await using (archiveStream!.ConfigureAwait(false))
             {
                 byte[]? archive = await ReadBoundedAsync(
                         archiveStream,
                         limits.MaxArchiveBytes,
                         cancellationToken)
                     .ConfigureAwait(false);
-                return archive is not null
-                    && PackageArchiveValidator.Validate(
+                if (archive is null
+                    || PackageArchiveValidator.Validate(
                         archive,
                         limits,
                         cancellationToken)
-                    is PackageArchiveValidation.Valid
+                        is not PackageArchiveValidation.Valid)
+                {
+                    return Outcome.LimitsExceeded;
+                }
+            }
+
+            // Archive alone is not enough when consumers will open RootPath.
+            if (content.RootPath is not null)
+            {
+                return IsExtractedTreeWithinLimits(content.RootPath, limits)
                     ? Outcome.Admissible
                     : Outcome.LimitsExceeded;
             }
+
+            return Outcome.Admissible;
         }
 
-        // No retained archive. In-memory content always exposes one; a
-        // filesystem entry without a .nupkg is the NuGet global-packages case.
-        // Require a top-level .nuspec — empty lib/tools directories alone are not
-        // a usable package and must not mask a downloadable copy.
+        // No retained archive. Require a top-level .nuspec — empty lib/tools
+        // directories alone are not a usable package and must not mask a
+        // downloadable copy.
         if (content.RootPath is null
             || !HasTopLevelNuspec(content.RootPath))
         {
@@ -70,16 +80,21 @@ internal static class PackageContentAdmission
     }
 
     /// <summary>
-    /// Walks files and directories under <paramref name="root"/>, counting every
-    /// filesystem entry toward <see cref="PackagePayloadLimits.MaxEntryCount"/>
-    /// and file bytes toward <see cref="PackagePayloadLimits.MaxExpandedBytes"/>.
-    /// Stops as soon as either limit is crossed.
+    /// Walks files and directories under <paramref name="root"/> without
+    /// following reparse points. Every filesystem entry counts toward
+    /// <see cref="PackagePayloadLimits.MaxEntryCount"/>; file bytes count
+    /// toward <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Stops as
+    /// soon as either limit is crossed or a symlink/junction is observed.
     /// </summary>
     internal static bool IsExtractedTreeWithinLimits(
         string root,
         PackagePayloadLimits limits)
     {
         if (!Directory.Exists(root))
+            return false;
+
+        // Reject a RootPath that is itself a reparse point (symlink/junction).
+        if (IsReparsePoint(root))
             return false;
 
         long expandedBytes = 0;
@@ -90,10 +105,14 @@ internal static class PackageContentAdmission
         while (pending.Count > 0)
         {
             string directory = pending.Pop();
-            IEnumerable<string> children;
+            List<string> children;
             try
             {
-                children = Directory.EnumerateFileSystemEntries(directory);
+                // Materialize inside the guard: EnumerateFileSystemEntries is
+                // lazy and MoveNext can throw after the constructor returns.
+                children = Directory
+                    .EnumerateFileSystemEntries(directory)
+                    .ToList();
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -109,12 +128,16 @@ internal static class PackageContentAdmission
                 FileAttributes attributes;
                 try
                 {
+                    // Do not follow the final component when reading attributes.
                     attributes = File.GetAttributes(entry);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     return false;
                 }
+
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    return false;
 
                 if ((attributes & FileAttributes.Directory) != 0)
                 {
@@ -154,6 +177,18 @@ internal static class PackageContentAdmission
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
         }
     }
 

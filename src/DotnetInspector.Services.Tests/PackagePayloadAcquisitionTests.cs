@@ -170,6 +170,103 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public void ExtractedTree_RejectsSymlinkEscape()
+    {
+        string root = TempDirectory();
+        string outside = TempDirectory();
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(outside);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            File.WriteAllBytes(Path.Combine(outside, "Outside.dll"), [1]);
+            File.CreateSymbolicLink(Path.Combine(root, "lib"), outside);
+
+            Assert.False(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    PackagePayloadLimits.Default));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+            if (Directory.Exists(outside))
+                Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CacheHitWithArchive_StillRejectsDamagedExtractedTree()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            string extracted = Path.Combine(stagingRoot, "extracted");
+            string assembly = Path.Combine(
+                extracted,
+                "lib",
+                "net10.0",
+                "Sample.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
+            File.WriteAllBytes(assembly, [1]);
+            File.WriteAllText(
+                Path.Combine(extracted, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            string nupkg = Path.Combine(stagingRoot, "package.nupkg");
+            File.WriteAllBytes(
+                nupkg,
+                TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+            NuGetCache.CommitPackage(
+                extracted,
+                nupkg,
+                PackageId,
+                Version,
+                NuGetCache.GetSourceKey(NuGetOrg.Url));
+
+            // Leave the retained nupkg intact but replace the extracted tree
+            // with an oversize entry set that would fail MaxEntryCount.
+            string committedRoot = Directory
+                .EnumerateFiles(
+                    cacheRoot,
+                    $"{PackageId}.{Version}.nupkg",
+                    SearchOption.AllDirectories)
+                .Select(Path.GetDirectoryName)
+                .Single()!;
+            for (int i = 0; i < 10; i++)
+                Directory.CreateDirectory(Path.Combine(committedRoot, $"pad{i}"));
+
+            var store = new FileSystemPackageStore();
+            using var client = new HttpClient(new NotFoundHandler());
+
+            PackagePayloadResult result =
+                await PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    store,
+                    limits: new PackagePayloadLimits { MaxEntryCount = 5 },
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ExtractedTree_WithBackslashFileName_DoesNotThrow()
     {
         string root = TempDirectory();
