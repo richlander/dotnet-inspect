@@ -201,6 +201,14 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
     }
 
+    internal ResolvedAssemblyReference? RetainAssemblyReference(
+        ResolvedAssemblyCandidate candidate)
+        => OpenSession(candidate)
+            is CandidateSessionResult.Ready ready
+                ? ready.Session.RetainAssemblyReference(
+                    candidate.Assembly)
+                : null;
+
     CandidateRegistrationResult ReadInventory(CandidateEntry entry)
     {
         _sourceOpenGate.Enter();

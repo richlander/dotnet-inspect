@@ -36,6 +36,18 @@ public sealed class AssemblyInspectionSession : IDisposable
     internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
 
+    internal ResolvedAssemblyReference RetainAssemblyReference(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        _image.EnsureAlive();
+        byte[] content =
+            _image.PEReader.GetEntireImage().GetContent().ToArray();
+        return assembly.WithOpenRead(
+            () => new MemoryStream(content, writable: false),
+            assembly.LastWriteTimeUtc);
+    }
+
     /// <summary>
     /// A session over an image a <see cref="PdbContext"/> already opened, so a caller that holds
     /// one can reach the facets without opening the path a second time.

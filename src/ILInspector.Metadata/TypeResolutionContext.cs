@@ -661,6 +661,40 @@ public sealed class TypeResolutionContext : IDisposable
     }
 
     /// <summary>
+    /// Returns the candidate descriptor backed by this generation's retained
+    /// immutable image rather than its original acquisition source.
+    /// </summary>
+    /// <remarks>
+    /// <c>CrossAssemblyMetadataResolver_UsesRetainedCandidateImage</c>
+    /// gates that consumers do not reopen the mutable source.
+    /// </remarks>
+    public ResolvedAssemblyReference? RetainAssemblyReference(
+        ResolvedAssemblyCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                if (!_candidates.TryGetValue(
+                        candidate.Assembly.Registration,
+                        out ResolvedAssemblyCandidate? owned)
+                    || !ReferenceEquals(owned, candidate))
+                {
+                    throw new ArgumentException(
+                        "The candidate does not belong to this generation.",
+                        nameof(candidate));
+                }
+
+                return _catalog.Acquisition
+                    .RetainAssemblyReference(candidate);
+            }
+        }
+    }
+
+    /// <summary>
     /// Creates a standalone context that owns its private catalog and its
     /// retained candidate sessions.
     /// </summary>
