@@ -6653,6 +6653,23 @@ public partial class CommandExecutionTests
         Assert.Contains($"{first.Split('=')[0]} requires at least one name.", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Find_InlineEmptyThenValidRepeatedProjection_UsesTheValidName()
+    {
+        // Repeated list values form one projection before RemoveEmptyEntries is applied. An empty
+        // occurrence is rejected only when the aggregate list has no names; a later valid name
+        // therefore remains a valid one-column request.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns=", "--columns", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var firstRow = document.RootElement.GetProperty("results").EnumerateArray().First();
+        Assert.Equal(["type"], firstRow.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
     [Theory]
     [InlineData("--columns")]
     [InlineData("--fields")]
@@ -6778,6 +6795,29 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("No columns matched projection", error);
+    }
+
+    [Theory]
+    [InlineData(false, "Type", "No types found matching the pattern.")]
+    [InlineData(true, "Member", "No members found matching the pattern.")]
+    public async Task Find_NoMatchesUnderProjectedJson_PreservesTheEstablishedDiagnostic(
+        bool members,
+        string column,
+        string diagnostic)
+    {
+        var args = new List<string>
+        {
+            "find", "ZzzNoSuchResult", "--library", TestAssemblyPath,
+            "--columns", column, "--json",
+        };
+        if (members)
+            args.Insert(2, "--members");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(diagnostic, error, StringComparison.Ordinal);
     }
 
     [Fact]

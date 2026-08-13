@@ -57,6 +57,9 @@ internal sealed class JsonSectionFormatter :
 
     private sealed class Section(string name, SectionKind kind)
     {
+        private bool _hasContent;
+        private bool _hasHeaders;
+
         public string Name { get; } = name;
         public SectionKind Kind { get; private set; } = kind;
         public string[] Headers { get; private set; } = [];
@@ -82,8 +85,7 @@ internal sealed class JsonSectionFormatter :
         /// </remarks>
         public void Adopt(SectionKind incoming)
         {
-            var occupied = Rows.Count > 0 || Fields.Count > 0 || Items.Count > 0 || Tree.Count > 0;
-            if (occupied && Kind != incoming)
+            if (_hasContent && Kind != incoming)
             {
                 throw new NotSupportedException(
                     $"Section '{(Name.Length == 0 ? "<unnamed>" : Name)}' mixes {Kind} and {incoming} content, " +
@@ -91,6 +93,7 @@ internal sealed class JsonSectionFormatter :
             }
 
             Kind = incoming;
+            _hasContent = true;
         }
 
         /// <summary>
@@ -100,7 +103,7 @@ internal sealed class JsonSectionFormatter :
         /// </summary>
         public void SetHeaders(ReadOnlySpan<string> headers)
         {
-            if (Rows.Count > 0 && !headers.SequenceEqual(Headers))
+            if (_hasHeaders && !headers.SequenceEqual(Headers))
             {
                 throw new NotSupportedException(
                     $"Section '{(Name.Length == 0 ? "<unnamed>" : Name)}' holds two tables with different columns " +
@@ -125,6 +128,7 @@ internal sealed class JsonSectionFormatter :
             }
 
             Headers = headers.ToArray();
+            _hasHeaders = true;
         }
     }
 
@@ -201,16 +205,29 @@ internal sealed class JsonSectionFormatter :
 
     public void BeginTable(TextWriter writer, ReadOnlySpan<string> headers, MarkoutWriterOptions options)
     {
+        if (_streamingTable is not null)
+            throw new InvalidOperationException("Cannot begin a table while another streaming table is active.");
+
         var section = RequireSection(SectionKind.Table);
         section.SetHeaders(headers);
         _streamingTable = section;
     }
 
     public void WriteRow(TextWriter writer, ReadOnlySpan<string> values)
-        => _streamingTable?.Rows.Add(values.ToArray());
+    {
+        if (_streamingTable is null)
+            throw new InvalidOperationException("Cannot write a row without an active streaming table.");
+
+        _streamingTable.Rows.Add(values.ToArray());
+    }
 
     public void EndTable(TextWriter writer, int skippedRows)
-        => _streamingTable = null;
+    {
+        if (_streamingTable is null)
+            throw new InvalidOperationException("Cannot end a table without an active streaming table.");
+
+        _streamingTable = null;
+    }
 
     public void FormatArray(TextWriter writer, string name, ReadOnlySpan<string> values, bool bold)
     {
@@ -243,6 +260,9 @@ internal sealed class JsonSectionFormatter :
     /// </summary>
     internal string Finish(bool indented = true)
     {
+        if (_streamingTable is not null)
+            throw new InvalidOperationException("Cannot finish the document while a streaming table is active.");
+
         var buffer = new ArrayBufferWriter<byte>();
         using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = indented }))
         {

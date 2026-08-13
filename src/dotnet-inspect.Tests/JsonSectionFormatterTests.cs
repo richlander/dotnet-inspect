@@ -126,6 +126,23 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void EmptyTableThenFields_FailsRatherThanReplacingTheTable()
+    {
+        // An empty table still establishes the section's shape. Counting buffered rows would let
+        // the fields replace that shape and silently discard its headers.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatTable(TextWriter.Null, ["Type"], [], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatFields(TextWriter.Null, [new MarkoutField("Package", "Contoso")], false));
+
+        Assert.Contains("Overview", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SameKindContentInOneSection_Accumulates()
     {
         // The negative case that keeps the guard honest: appending content of the kind a section
@@ -160,6 +177,72 @@ public class JsonSectionFormatterTests
             formatter.FormatTable(TextWriter.Null, ["Member"], [["Dispose"]], 0, new MarkoutWriterOptions()));
 
         Assert.Contains("Results", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SecondEmptyTableWithDifferentColumns_FailsRatherThanReplacingHeaders()
+    {
+        // Header ownership is independent of row count: two empty tables with different schemas
+        // are still two incompatible shapes.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["Type"], [], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(TextWriter.Null, ["Member"], [], 0, new MarkoutWriterOptions()));
+
+        Assert.Contains("Results", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StreamingRowWithoutActiveTable_FailsRatherThanDroppingTheRow()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.WriteRow(TextWriter.Null, ["lost"]));
+
+        Assert.Contains("active streaming table", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EndingInactiveStreamingTable_Fails()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.EndTable(TextWriter.Null, 0));
+
+        Assert.Contains("active streaming table", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedStreamingTable_Fails()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.BeginTable(TextWriter.Null, ["Member"], new MarkoutWriterOptions()));
+
+        Assert.Contains("another streaming table", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FinishingWithAnOpenStreamingTable_Fails()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() => formatter.Finish());
+
+        Assert.Contains("streaming table is active", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
