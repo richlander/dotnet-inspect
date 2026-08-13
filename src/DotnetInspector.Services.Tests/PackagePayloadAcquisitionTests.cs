@@ -1426,6 +1426,13 @@ public sealed class PackagePayloadAcquisitionTests
     [Fact]
     public async Task ExtractedTree_WithBackslashFileName_DoesNotThrow()
     {
+        // Windows path APIs cannot create a single filename containing '\' —
+        // Path.Combine treats it as a separator. The product still must not
+        // throw when such a name appears after Linux extract; that probe is
+        // Unix-only.
+        if (OperatingSystem.IsWindows())
+            return;
+
         string root = TempDirectory();
         Directory.CreateDirectory(root);
         try

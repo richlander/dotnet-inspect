@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Core;
@@ -444,7 +445,11 @@ public static class NuGetCache
     /// already committed winner.
     /// </summary>
     /// <param name="extractedPath">Path to the extracted package contents</param>
-    /// <param name="nupkgPath">Optional source archive to retain with the committed contents</param>
+    /// <param name="nupkgPath">
+    /// Source archive to retain with the committed contents. When null, a
+    /// matching <c>.nupkg</c> is synthesized from the staged extract so
+    /// product-owned admission (<c>RequiresArchiveTreeMatch</c>) can open it.
+    /// </param>
     /// <param name="packageName">The package name</param>
     /// <param name="version">The package version</param>
     /// <param name="sourceKey">
@@ -518,19 +523,43 @@ public static class NuGetCache
         {
             CopyDirectory(extractedPath, stagingPath);
 
-            string? committedNupkgPath = null;
-            if (nupkgPath is not null)
-            {
-                committedNupkgPath = Path.Combine(
-                    stagingPath,
-                    $"{normalizedName}.{normalizedVersion}.nupkg");
-                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
-            }
-
             if (!IsCachedPackageValid(stagingPath))
             {
                 throw new InvalidDataException(
                     $"Package '{packageName}@{version}' has no valid extracted package structure.");
+            }
+
+            // Product-owned admission requires a retained archive that matches
+            // the extract (RequiresArchiveTreeMatch). Always publish one: copy
+            // the caller's nupkg when provided, otherwise zip the staged extract
+            // before the commit marker is written so the archive does not
+            // contain the marker (marker + nupkg remain the only allowed extras).
+            string committedNupkgPath = Path.Combine(
+                stagingPath,
+                $"{normalizedName}.{normalizedVersion}.nupkg");
+            if (nupkgPath is not null)
+            {
+                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
+            }
+            else
+            {
+                string tempNupkg = Path.Combine(
+                    parentDir,
+                    $".{sourceKey}.nupkg-{Guid.NewGuid():N}");
+                try
+                {
+                    ZipFile.CreateFromDirectory(
+                        stagingPath,
+                        tempNupkg,
+                        CompressionLevel.NoCompression,
+                        includeBaseDirectory: false);
+                    File.Move(tempNupkg, committedNupkgPath);
+                }
+                finally
+                {
+                    if (File.Exists(tempNupkg))
+                        File.Delete(tempNupkg);
+                }
             }
 
             using (var marker = new FileStream(
@@ -571,9 +600,7 @@ public static class NuGetCache
 
             return new CommittedPackage(
                 targetPath,
-                committedNupkgPath is null
-                    ? null
-                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
+                Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
                 sourceKey);
         }
         finally
