@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using DotnetInspector.Packages;
 using NuGetFetch;
@@ -113,21 +114,17 @@ public sealed class PackagePayloadAcquisitionTests
             skipNuGetCache: true);
         try
         {
-            string extracted = Path.Combine(stagingRoot, "extracted");
-            string assembly = Path.Combine(
-                extracted,
-                "lib",
-                "net10.0",
-                "Sample.dll");
-            Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
-            File.WriteAllBytes(assembly, [1]);
-            File.WriteAllText(
-                Path.Combine(extracted, $"{PackageId}.nuspec"),
-                """<?xml version="1.0"?><package />""");
+            // Archive includes a top-level nuspec so the retained-nupkg strip still
+            // leaves an archive-less tree that admission can accept.
+            Directory.CreateDirectory(stagingRoot);
             string nupkg = Path.Combine(stagingRoot, "package.nupkg");
             File.WriteAllBytes(
                 nupkg,
-                TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+                TestPackageArchive.Create(
+                    "lib/net10.0/Sample.dll",
+                    $"{PackageId}.nuspec"));
+            string extracted = Path.Combine(stagingRoot, "from-nupkg");
+            ZipFile.ExtractToDirectory(nupkg, extracted);
             NuGetCache.CommitPackage(
                 extracted,
                 nupkg,
@@ -187,6 +184,7 @@ public sealed class PackagePayloadAcquisitionTests
             Assert.False(
                 PackageContentAdmission.IsExtractedTreeWithinLimits(
                     root,
+                    retainedNupkgPath: null,
                     PackagePayloadLimits.Default));
         }
         finally
@@ -195,6 +193,95 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(root, recursive: true);
             if (Directory.Exists(outside))
                 Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CacheHitWithArchive_RejectsMutatedExtractedDll()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            byte[] nupkgBytes = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll");
+            Directory.CreateDirectory(stagingRoot);
+            string nupkg = Path.Combine(stagingRoot, "package.nupkg");
+            File.WriteAllBytes(nupkg, nupkgBytes);
+            string realExtract = Path.Combine(stagingRoot, "from-nupkg");
+            ZipFile.ExtractToDirectory(nupkg, realExtract);
+            NuGetCache.CommitPackage(
+                realExtract,
+                nupkg,
+                PackageId,
+                Version,
+                NuGetCache.GetSourceKey(NuGetOrg.Url));
+
+            string committedRoot = Directory
+                .EnumerateFiles(
+                    cacheRoot,
+                    $"{PackageId}.{Version}.nupkg",
+                    SearchOption.AllDirectories)
+                .Select(Path.GetDirectoryName)
+                .Single()!;
+            string dll = Directory
+                .EnumerateFiles(
+                    committedRoot,
+                    "Sample.dll",
+                    SearchOption.AllDirectories)
+                .Single();
+            File.WriteAllBytes(dll, [9, 9, 9, 9, 9]);
+
+            var store = new FileSystemPackageStore();
+            using var client = new HttpClient(new NotFoundHandler());
+
+            PackagePayloadResult result =
+                await PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArchiveLessTree_CountsDecoyNupkgTowardExpandedBytes()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            File.WriteAllBytes(
+                Path.Combine(root, "payload.nupkg"),
+                new byte[4096]);
+
+            Assert.False(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    retainedNupkgPath: null,
+                    new PackagePayloadLimits { MaxExpandedBytes = 1024 }));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 
@@ -213,21 +300,13 @@ public sealed class PackagePayloadAcquisitionTests
             Directory.CreateDirectory(outside);
             File.WriteAllBytes(Path.Combine(outside, "Outside.dll"), [9]);
 
-            string extracted = Path.Combine(stagingRoot, "extracted");
-            string assembly = Path.Combine(
-                extracted,
-                "lib",
-                "net10.0",
-                "Sample.dll");
-            Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
-            File.WriteAllBytes(assembly, [1]);
-            File.WriteAllText(
-                Path.Combine(extracted, $"{PackageId}.nuspec"),
-                """<?xml version="1.0"?><package />""");
+            Directory.CreateDirectory(stagingRoot);
             string nupkg = Path.Combine(stagingRoot, "package.nupkg");
             File.WriteAllBytes(
                 nupkg,
                 TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+            string extracted = Path.Combine(stagingRoot, "from-nupkg");
+            ZipFile.ExtractToDirectory(nupkg, extracted);
             NuGetCache.CommitPackage(
                 extracted,
                 nupkg,
@@ -321,10 +400,12 @@ public sealed class PackagePayloadAcquisitionTests
             Assert.False(
                 PackageContentAdmission.IsExtractedTreeWithinLimits(
                     root,
+                    retainedNupkgPath: null,
                     new PackagePayloadLimits { MaxEntryCount = 3 }));
             Assert.True(
                 PackageContentAdmission.IsExtractedTreeWithinLimits(
                     root,
+                    retainedNupkgPath: null,
                     new PackagePayloadLimits { MaxEntryCount = 20 }));
         }
         finally

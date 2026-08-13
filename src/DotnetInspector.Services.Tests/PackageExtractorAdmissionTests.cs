@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using DotnetInspector.Packages;
 
@@ -75,7 +76,9 @@ public sealed class PackageExtractorAdmissionTests
             Commit(
                 stagingRoot,
                 "only",
-                TestPackageArchive.Create("lib/net10.0/Sample.dll"),
+                TestPackageArchive.Create(
+                    "lib/net10.0/Sample.dll",
+                    $"{PackageId}.nuspec"),
                 SourceA);
             string? nupkgPath = Directory
                 .EnumerateFiles(
@@ -227,26 +230,67 @@ public sealed class PackageExtractorAdmissionTests
         byte[] archive,
         string sourceUrl)
     {
+        // Prefer an extracted tree that matches the archive entry set so
+        // retained-nupkg admission (path/size agreement) can accept it. Fall
+        // back to a hand-built tree only when the archive is intentionally
+        // invalid (e.g. zip-slip fixtures) — those fail archive validation
+        // before the tree match runs.
         string extracted = Path.Combine(stagingRoot, name, "extracted");
-        string assembly = Path.Combine(
-            extracted,
-            "lib",
-            "net10.0",
-            "Sample.dll");
-        Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
-        File.WriteAllBytes(assembly, [1]);
-        File.WriteAllText(
-            Path.Combine(extracted, $"{PackageId}.nuspec"),
-            """<?xml version="1.0"?><package />""");
+        Directory.CreateDirectory(extracted);
         string nupkg = Path.Combine(stagingRoot, name, "package.nupkg");
         Directory.CreateDirectory(Path.GetDirectoryName(nupkg)!);
         File.WriteAllBytes(nupkg, archive);
+        if (!TryExtractMatchingTree(nupkg, extracted))
+        {
+            string assembly = Path.Combine(
+                extracted,
+                "lib",
+                "net10.0",
+                "Sample.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
+            File.WriteAllBytes(assembly, [1]);
+            File.WriteAllText(
+                Path.Combine(extracted, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+        }
+
         NuGetCache.CommitPackage(
             extracted,
             nupkg,
             PackageId,
             Version,
             NuGetCache.GetSourceKey(sourceUrl));
+    }
+
+    static bool TryExtractMatchingTree(string nupkgPath, string destination)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(nupkgPath);
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                string relative = entry.FullName.Replace('\\', '/');
+                if (string.IsNullOrEmpty(relative) || relative.EndsWith('/'))
+                    continue;
+                if (relative.Contains("..", StringComparison.Ordinal)
+                    || Path.IsPathRooted(relative))
+                {
+                    return false;
+                }
+
+                string target = Path.Combine(
+                    destination,
+                    relative.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                entry.ExtractToFile(target, overwrite: true);
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            return false;
+        }
     }
 
     static string TempDirectory() =>

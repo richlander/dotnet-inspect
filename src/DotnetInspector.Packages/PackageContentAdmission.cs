@@ -1,3 +1,5 @@
+using System.IO.Compression;
+
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -5,13 +7,12 @@ namespace DotnetInspector.Packages;
 /// </summary>
 /// <remarks>
 /// Cache hits with a retained archive are revalidated against the full archive
-/// limit set. When a filesystem <c>RootPath</c> is also present, the extracted
-/// tree is checked for reparse-point escape and expanded-byte limits — not for
-/// archive entry count, which is a ZIP central-directory concept and is always
-/// lower than the post-extract filesystem node count (directories, retained
-/// nupkg, commit marker). Archive-less entries (stripped <c>.nupkg</c>) require
-/// a top-level <c>.nuspec</c> and a full tree walk that counts every filesystem
-/// node toward <see cref="PackagePayloadLimits.MaxEntryCount"/>.
+/// limit set, then the extracted <c>RootPath</c> is checked for reparse-point
+/// escape and for agreement with the archive's entry paths and sizes (so a
+/// valid nupkg cannot launder a mutated tree). Archive-less entries require a
+/// top-level <c>.nuspec</c> and a full tree walk that counts every filesystem
+/// node toward <see cref="PackagePayloadLimits.MaxEntryCount"/>; only the
+/// retained archive path (when present) is excluded from expanded-byte tally.
 /// </remarks>
 internal static class PackageContentAdmission
 {
@@ -37,30 +38,33 @@ internal static class PackageContentAdmission
     {
         if (content.TryOpenArchive(out Stream? archiveStream))
         {
+            byte[]? archive;
             await using (archiveStream!.ConfigureAwait(false))
             {
-                byte[]? archive = await ReadBoundedAsync(
+                archive = await ReadBoundedAsync(
                         archiveStream,
                         limits.MaxArchiveBytes,
                         cancellationToken)
                     .ConfigureAwait(false);
-                if (archive is null
-                    || PackageArchiveValidator.Validate(
-                        archive,
-                        limits,
-                        cancellationToken)
-                        is not PackageArchiveValidation.Valid)
-                {
-                    return Outcome.LimitsExceeded;
-                }
             }
 
-            // Archive limits already bound ZIP structure. The tree check only
-            // rejects symlink escape and expanded-byte growth under RootPath.
+            if (archive is null
+                || PackageArchiveValidator.Validate(
+                    archive,
+                    limits,
+                    cancellationToken)
+                    is not PackageArchiveValidation.Valid)
+            {
+                return Outcome.LimitsExceeded;
+            }
+
             if (content.RootPath is not null
-                && !IsExtractedTreeSafeAfterArchive(
+                && !ExtractedTreeMatchesArchive(
                     content.RootPath,
-                    limits))
+                    archive,
+                    content.NupkgPath,
+                    limits,
+                    cancellationToken))
             {
                 return Outcome.LimitsExceeded;
             }
@@ -74,7 +78,10 @@ internal static class PackageContentAdmission
             return Outcome.MissingArchive;
         }
 
-        return IsExtractedTreeWithinLimits(content.RootPath, limits)
+        return IsExtractedTreeWithinLimits(
+                content.RootPath,
+                retainedNupkgPath: null,
+                limits)
             ? Outcome.Admissible
             : Outcome.LimitsExceeded;
     }
@@ -83,30 +90,134 @@ internal static class PackageContentAdmission
     /// Archive-less walk: every filesystem node counts toward
     /// <see cref="PackagePayloadLimits.MaxEntryCount"/>; file bytes toward
     /// <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Reparse points
-    /// fail closed.
+    /// fail closed. Only <paramref name="retainedNupkgPath"/> (when set) is
+    /// omitted from the expanded-byte tally.
     /// </summary>
     internal static bool IsExtractedTreeWithinLimits(
         string root,
+        string? retainedNupkgPath,
         PackagePayloadLimits limits) =>
         WalkExtractedTree(
             root,
+            retainedNupkgPath,
             limits,
             countEveryNodeTowardEntryLimit: true);
 
     /// <summary>
-    /// Post-archive walk: do not re-apply ZIP entry count to filesystem nodes;
-    /// still reject reparse points and enforce expanded bytes.
+    /// After a valid archive, require the extracted tree to match archive entry
+    /// paths/sizes and reject reparse points. Extra files allowed only for the
+    /// retained nupkg and the commit marker.
     /// </summary>
-    internal static bool IsExtractedTreeSafeAfterArchive(
+    internal static bool ExtractedTreeMatchesArchive(
         string root,
-        PackagePayloadLimits limits) =>
-        WalkExtractedTree(
-            root,
-            limits,
-            countEveryNodeTowardEntryLimit: false);
+        byte[] archive,
+        string? retainedNupkgPath,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(root) || IsReparsePoint(root))
+            return false;
+
+        // First pass: no symlink escape and expanded bytes stay in bound.
+        if (!WalkExtractedTree(
+                root,
+                retainedNupkgPath,
+                limits,
+                countEveryNodeTowardEntryLimit: false))
+        {
+            return false;
+        }
+
+        HashSet<string> allowedExtras = new(StringComparer.OrdinalIgnoreCase)
+        {
+            NuGetCache.CommitMarkerFileName,
+        };
+        if (retainedNupkgPath is not null)
+        {
+            allowedExtras.Add(
+                Path.GetRelativePath(root, retainedNupkgPath)
+                    .Replace('\\', '/'));
+        }
+
+        HashSet<string> archivePaths = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var zip = new ZipArchive(
+                new MemoryStream(archive, writable: false),
+                ZipArchiveMode.Read);
+            foreach (ZipArchiveEntry entry in zip.Entries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string relative = entry.FullName.Replace('\\', '/');
+                if (string.IsNullOrEmpty(relative)
+                    || relative.EndsWith('/'))
+                {
+                    continue;
+                }
+
+                if (relative.Contains("..", StringComparison.Ordinal)
+                    || Path.IsPathRooted(relative))
+                {
+                    return false;
+                }
+
+                archivePaths.Add(relative);
+                string onDisk = Path.Combine(
+                    root,
+                    relative.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(onDisk))
+                    return false;
+
+                long length;
+                try
+                {
+                    length = new FileInfo(onDisk).Length;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+
+                if (length != entry.Length)
+                    return false;
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            return false;
+        }
+
+        // No unexpected files under root (commit marker + retained nupkg OK).
+        try
+        {
+            foreach (string file in Directory.EnumerateFiles(
+                         root,
+                         "*",
+                         SearchOption.AllDirectories))
+            {
+                string relative = Path
+                    .GetRelativePath(root, file)
+                    .Replace('\\', '/');
+                if (archivePaths.Contains(relative)
+                    || allowedExtras.Contains(relative))
+                {
+                    continue;
+                }
+
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        return true;
+    }
 
     static bool WalkExtractedTree(
         string root,
+        string? retainedNupkgPath,
         PackagePayloadLimits limits,
         bool countEveryNodeTowardEntryLimit)
     {
@@ -115,6 +226,10 @@ internal static class PackageContentAdmission
 
         if (IsReparsePoint(root))
             return false;
+
+        string? normalizedRetained = retainedNupkgPath is null
+            ? null
+            : Path.GetFullPath(retainedNupkgPath);
 
         long expandedBytes = 0;
         int entryCount = 0;
@@ -164,6 +279,17 @@ internal static class PackageContentAdmission
                     continue;
                 }
 
+                // Skip only the retained archive path from expanded tally —
+                // those bytes were already bounded by MaxArchiveBytes.
+                if (normalizedRetained is not null
+                    && string.Equals(
+                        Path.GetFullPath(entry),
+                        normalizedRetained,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 long length;
                 try
                 {
@@ -173,10 +299,6 @@ internal static class PackageContentAdmission
                 {
                     return false;
                 }
-
-                // Retained nupkg bytes were already bounded by MaxArchiveBytes.
-                if (entry.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-                    continue;
 
                 if (length > limits.MaxExpandedBytes - expandedBytes)
                     return false;
