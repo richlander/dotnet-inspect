@@ -11,9 +11,10 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-manifest-resource, type-forwarder, SourceLink, Integrations, implementation
-relationships, type/member search, extension reachability, API-comparison,
-Analysis body-signal comparison, and Implementation comparison inspection. The
+manifest-resource, type-forwarder, union-type, SourceLink, Integrations,
+implementation relationships, type/member search, extension reachability,
+API-comparison, Analysis body-signal comparison, and Implementation comparison
+inspection. The
 `diff` Changes, Analysis Diff, and Implementation Diff sections consume
 producer-owned comparison results over host-resolved surfaces, body indexes,
 and retained assembly content.
@@ -28,9 +29,10 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, extension-method, custom-attribute,
-  manifest-resource, type-forwarder, SourceLink, implementation-relationship,
-  type/member search, extension-reachability, API-comparison, and progressive
-  call-graph queries. It has no Markout, console, or filesystem-path dependency.
+  manifest-resource, type-forwarder, union-type, SourceLink,
+  implementation-relationship, type/member search, extension-reachability,
+  API-comparison, and progressive call-graph queries. It has no Markout,
+  console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It compares already-acquired Analysis body indexes and
   retained implementation assembly content, returning Research-owned results
