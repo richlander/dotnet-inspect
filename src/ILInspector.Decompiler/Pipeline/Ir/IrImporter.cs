@@ -51,9 +51,11 @@ public static class IrImporter
     /// <summary>
     /// Imports a method body addressed by a <see cref="MethodRef"/> — the
     /// reference form a pass already holds (e.g. a delegate creation's target
-    /// method). Resolves the declaring type's metadata full name from the ref
-    /// (<see cref="TypeRef.Name"/> spells nesting with <c>+</c>; the importer
-    /// matches the <c>.</c> form) and forwards to the by-name front door. The
+    /// method). Resolves the declaring type definition's metadata full name from
+    /// the ref (a generic instance stores that name on
+    /// <see cref="TypeRef.ElementType"/>; <see cref="TypeRef.Name"/> spells
+    /// nesting with <c>+</c>, while the importer matches the <c>.</c> form) and
+    /// forwards to the by-name front door. The
     /// synthesized lambda/local-function methods this serves have unique names,
     /// so overload index 0 is exact.
     /// </summary>
@@ -90,6 +92,8 @@ public static class IrImporter
 
     static string ImporterTypeName(TypeRef type)
     {
+        if (type.Kind == TypeRefKind.GenericInstance)
+            type = type.ElementType!;
         string name = type.Name.Replace('+', '.');
         return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
     }
