@@ -725,6 +725,7 @@ public class HttpRetryHelperTests
         byte[] body = Encoding.UTF8.GetBytes(new string('x', 64));
         using var client = new HttpClient(new ByteHandler(body));
         var messages = new List<string>();
+        using var telemetry = FeedFailureTelemetry.Scope();
 
         string? text = await HttpRetryHelper.GetStringWithRetryAsync(
             client,
@@ -737,6 +738,8 @@ public class HttpRetryHelperTests
         Assert.Contains(
             messages,
             message => message.Contains("byte cap", StringComparison.Ordinal));
+        // Oversize must count as a feed failure (not silent Absent).
+        Assert.NotEmpty(FeedFailureTelemetry.Current!.Failures);
     }
 
     [Fact]
@@ -750,6 +753,31 @@ public class HttpRetryHelperTests
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("{\"ok\":true}", text);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_TimesOutAStalledBodyAfterHeaders()
+    {
+        var handler = new StallingBodyHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+        var messages = new List<string>();
+        using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: overall.Token);
+
+        Assert.Null(text);
+        Assert.False(overall.IsCancellationRequested);
+        Assert.Contains(
+            messages,
+            message => message.Contains("body timeout", StringComparison.Ordinal));
     }
 
     [Fact]
