@@ -944,15 +944,15 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
-      # Serializing the ten fidelity workload classes (#3827, #3872) removes the
+      # Serializing the fidelity workload classes (#3827, #3872) removes the
       # Roslyn reference-binding overlap but necessarily raises wall time. The
       # first PR run measured the former 45-test preset at 27m24s on this runner
       # (build 2m38s, discovery 1s, checker 4s, job total 30m37s), up from
       # 21m30s in parallel. The four theory-bearing classes contribute only 42
       # cases in 2.4s locally. SkeletonEmitTests adds eight cases, but method
       # selection reduced that class from 374.25s to 13.31s locally while
-      # retaining whole-module emit. The resulting 94-case serialized preset
-      # completes in 729.56s locally. The 45-minute step therefore remains well
+      # retaining whole-module emit. That measured serialized preset completed
+      # in 729.56s locally. The 45-minute step therefore remains well
       # below the 65-minute job timeout, which is what keeps a hang loud.
       #
       # Re-measure and re-tune both numbers together whenever the preset or its
