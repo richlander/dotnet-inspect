@@ -163,6 +163,20 @@ Each row contains these fields:
    A methodology-bump PR therefore leaves the newest stored methodology one
    version behind while it is under review. After the change lands, append its
    first row from the resulting `main` commit in a follow-up.
+
+   Build from a clean checkout and leave it clean through the run. The harness
+   embeds whether the repository was `clean`, `dirty`, or `unknown` when the
+   binary was compiled, and records the repository state again when the
+   benchmark executes. The append command accepts only a build-time `clean`
+   artifact with a clean execution-time checkout and a build revision matching
+   `HEAD`. This prevents a dirty binary from being cleaned or stashed after the
+   build and then presented as an immutable measurement. Builds from source
+   archives without Git remain supported, but their `unknown` provenance is not
+   eligible for the tracked history.
+   `RepositoryBuildStateTarget_DistinguishesCleanDirtyAndClean` gates the
+   build-time discrimination, and
+   `GitRepository_RejectsBenchmarklessNonMainAndDuplicateMethodologyCommits`
+   gates the real Git refusal paths.
 2. Prepare or reuse the EVIL pool:
 
    ```bash
@@ -174,12 +188,14 @@ Each row contains these fields:
    ```bash
    dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
      --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
-     --json $(cat /tmp/evil-pool/assemblies.txt) > evil-run-YYYYMMDD-SHA.json
+     --json $(cat /tmp/evil-pool/assemblies.txt) > /tmp/evil-run-YYYYMMDD-SHA.json
    ```
 
-   The run reports the `poolSha256` the recorded row needs without being asked:
-   the identity is derived from the assemblies passed in, so an appended row can
-   never fail to identify its pool.
+   The run records the build's full commit, UTC run date, build-time source
+   state, execution-time source state, `poolSha256`, and `corpusSha256` without
+   being asked. The commit comes from the built assembly rather than the command
+   line, and the two source-state checks expose a stale or dirty build even if
+   the checkout is cleaned before execution.
 
    Exit code 1 is expected while `invalid`, `drift`, or `unsupported` is
    non-zero; the JSON is still authoritative. That contract is unchanged, and
@@ -188,22 +204,28 @@ Each row contains these fields:
    perfection, see [The regression ratchet](#the-regression-ratchet).
 
 4. Archive the full JSON and `/tmp/evil-pool/sweep-manifest.json` out-of-tree.
-5. Record the UTC date and short SHA, and copy `poolSha256` and
-   `corpusSha256` from the run JSON. Do not compute these by hand: both are
-   defined by the tool (see [Comparability](#comparability-and-the-difference-between-a-skip-and-a-pass)),
-   and a hand-derived value that disagrees makes the row uncomparable.
-6. Copy the run JSON's top-level `methodologyVersion` into the row, **and its
-   `invalidBreakdown`**. For v3 and later, also copy
-   `validBreakdown.frontierIlDiffAttribution`. A row that stamps a methodology
-   but omits a metric that methodology defines is refused.
-7. Append one compact JSON object to `history.jsonl`, copying **every** bucket —
-   the full `validDifferent` partition (including zeros), `notFull`, `drift`,
-   `unsupported`, and `unknownOutcome`. A row that omits a bucket shrinks the
-   partition silently, which is the defect #3244 fixed. The row's
-   `validDifferent` member is the run JSON's `validBreakdown` object copied
-   whole; it carries `total` for exactly this reason, because that total is what
-   the ratchet's `valid` metric is built from.
-8. Validate every line parses before committing.
+5. Append the row through the typed projector:
+
+   ```bash
+   dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+     --append-authored-corpus-history /tmp/evil-run-YYYYMMDD-SHA.json
+   ```
+
+   The command accepts no date, commit, methodology, digest, count, or partition
+   arguments. It recomputes every compact metric from the artifact's per-row
+   classifications, requires the producer summaries to agree, proves the
+   recorded commit is on `origin/main`, reads the methodology implemented at
+   that commit, verifies the complete existing store, and appends one canonical
+   JSONL object.
+6. Re-run the verifier before committing:
+
+   ```bash
+   dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+     --verify-authored-corpus-history
+   ```
+
+   CI runs the same command. `--history-path <file>` selects a non-default store
+   for either command.
 
 ### The partition is enforced, not assumed
 
@@ -382,9 +404,8 @@ closure alone, pushing one bucket above the run's own size stays expressible by
 driving another negative, so 100 `productBodyDefect` on a 60-target run is
 reachable by recording `-40` somewhere else.
 
-When you append a row by hand, this is the rule most likely to reject it: take
-`invalidBreakdown` from the run JSON verbatim rather than filling in the reason
-you care about and zeroing the rest.
+The typed append command recomputes this partition from the per-row artifact and
+rejects any disagreement with the producer summary.
 
 A recorded identity must also be **well formed**: `poolSha256` and
 `corpusSha256` are either absent or exactly 64 lowercase hex characters, the
@@ -530,7 +551,7 @@ identity already detects the change loudly and precisely, while a pin adds a
 second place that must be kept in sync and delays every corpus improvement from
 reaching the lane until someone remembers to bump it.
 
-One caveat when appending by hand: `eng/restore-authored-source-corpus.sh` exits
+One caveat when preparing an append run: `eng/restore-authored-source-corpus.sh` exits
 early if `external/authored-source-corpus` already exists, and it only fetches
 when the local branch is missing. A worktree restored weeks ago therefore
 measures whatever it was restored at, not the current tip. CI is unaffected
@@ -541,7 +562,7 @@ branch is current before treating its run as a baseline.
 
 - **Every PR**: `AuthoredCorpusRatchetTests` ratchets the newest row of this
   tracked store against the newest earlier row it is comparable with, so a
-  hand-appended row that halves the quality fails review. Rows recorded before
+  newly appended row that halves the quality fails review. Rows recorded before
   the ratchet existed are data, not a contract, so only the new row is judged.
   The gate asserts that the comparison actually *happened*, not merely that it
   found no regressions — an empty-regressions assertion alone passes for a skip,

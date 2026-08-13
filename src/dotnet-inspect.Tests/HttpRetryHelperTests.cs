@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -236,7 +237,7 @@ public class HttpRetryHelperTests
             message.Contains("(not retryable)", StringComparison.Ordinal));
         Assert.DoesNotContain(Secret, branchLog, StringComparison.Ordinal);
         Assert.Contains(
-            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            "https:///F/feed/auth/REDACTED/api?REDACTED",
             branchLog,
             StringComparison.Ordinal);
     }
@@ -583,6 +584,313 @@ public class HttpRetryHelperTests
         Assert.NotNull(response);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported(
+        bool underReportLength)
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-bounded-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(
+                new byte[17],
+                underReportLength ? 1 : null));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.RejectedPayload,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFile_AcceptsExactlyTheByteLimit()
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-bounded-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(new byte[16], contentLength: null));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.Succeeded,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+            Assert.Equal(16, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFile_RejectsAdvertisedOversizeAsTypedResult()
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-oversize-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(new byte[1], contentLength: 600_000_000));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.RejectedPayload,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody()
+    {
+        var handler = new StallingBodyHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(25),
+        };
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                retryCount: 1,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Unavailable, result.Status);
+        Assert.Null(result.Bytes);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes()
+    {
+        using var client = new HttpClient(new ByteHandler("123456789"u8.ToArray()));
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                maxDownloadSize: 8,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.TooLarge, result.Status);
+        Assert.Null(result.Bytes);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_CapsBodyAndReturnsNullWhenOversize()
+    {
+        byte[] body = Encoding.UTF8.GetBytes(new string('x', 64));
+        using var client = new HttpClient(new ByteHandler(body));
+        var messages = new List<string>();
+        using var telemetry = FeedFailureTelemetry.Scope();
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            log: messages.Add,
+            maxDownloadSize: 32,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(text);
+        Assert.Contains(
+            messages,
+            message => message.Contains("byte cap", StringComparison.Ordinal));
+        // Oversize must count as a feed failure (not silent Absent).
+        Assert.NotEmpty(FeedFailureTelemetry.Current!.Failures);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_ReturnsUtf8BodyWhenUnderCap()
+    {
+        using var client = new HttpClient(new ByteHandler("{\"ok\":true}"u8.ToArray()));
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("{\"ok\":true}", text);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_TimesOutAStalledBodyAfterHeaders()
+    {
+        var handler = new StallingBodyHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+        var messages = new List<string>();
+        using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: overall.Token);
+
+        Assert.Null(text);
+        Assert.False(overall.IsCancellationRequested);
+        Assert.Contains(
+            messages,
+            message => message.Contains("body timeout", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_MidBodyIo_ReturnsNullAndRecordsFailure()
+    {
+        using var telemetry = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new RetryingBodyHandler("unused"u8.ToArray()));
+        var messages = new List<string>();
+
+        // retryCount 0: headers succeed once; body stream throws IOException.
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            trafficKind: NetworkTrafficKind.PackageVersionList,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(text);
+        Assert.Contains(
+            messages,
+            message => message.Contains("body failed", StringComparison.Ordinal));
+        FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_BodyFailure_UsesCallerTrafficKindNotOuterScope()
+    {
+        using var telemetry = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new RetryingBodyHandler("unused"u8.ToArray()));
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch))
+        {
+            string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+                client,
+                "https://example.test/index.json",
+                retryCount: 0,
+                trafficKind: NetworkTrafficKind.PackageVersionList,
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Null(text);
+        }
+
+        FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+        Assert.NotEqual(NetworkTrafficKind.PackageSearch, failure.Phase);
+    }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_RetriesAMidBodyIoFailure()
+    {
+        var handler = new RetryingBodyHandler("complete"u8.ToArray());
+        using var client = new HttpClient(handler);
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                retryCount: 1,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Success, result.Status);
+        Assert.Equal("complete"u8.ToArray(), result.Bytes);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task HeaderFirstBodyRead_RequiresBrowserStreamingResponse()
+    {
+        var handler = new BrowserStreamingOptionHandler();
+        using var client = new HttpClient(handler);
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                "https://example.test/source.cs",
+                static _ => true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Success, result.Status);
+        Assert.True(handler.StreamingRequested);
+    }
+
+    [Theory]
+    [InlineData(RetryFailureMode.NonRetryableStatus)]
+    [InlineData(RetryFailureMode.NonRetryableSocket)]
+    [InlineData(RetryFailureMode.RetryableStatus)]
+    [InlineData(RetryFailureMode.RetryableSocket)]
+    [InlineData(RetryFailureMode.Timeout)]
+    [InlineData(RetryFailureMode.Unsupported)]
+    public async Task HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText(
+        RetryFailureMode mode)
+    {
+        const string Secret = "sup3rs3cret";
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(mode));
+
+        HttpRetryHelper.HttpBodyFetchResult result =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                client,
+                $"https://user:{Secret}@private.example/F/auth/{Secret}/source.cs?sig={Secret}#{Secret}",
+                static _ => true,
+                retryCount: 0,
+                log: messages.Add,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Unavailable, result.Status);
+        Assert.NotEmpty(messages);
+        Assert.DoesNotContain(messages, message =>
+            message.Contains(Secret, StringComparison.Ordinal)
+            || message.Contains("private.example", StringComparison.Ordinal));
+    }
+
     private sealed class FailureHandler(RetryFailureMode mode) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -747,6 +1055,43 @@ public class HttpRetryHelperTests
             });
     }
 
+    private sealed class DownloadHandler(
+        byte[] content,
+        long? contentLength)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var responseContent = new UnknownLengthContent(content);
+            responseContent.Headers.ContentLength = contentLength;
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = responseContent,
+                });
+        }
+    }
+
+    private sealed class UnknownLengthContent(byte[] content) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+            => stream.WriteAsync(content).AsTask();
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(
+                new MemoryStream(content, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
     private sealed class ThrowingContent : HttpContent
     {
         protected override Task SerializeToStreamAsync(
@@ -759,5 +1104,197 @@ public class HttpRetryHelperTests
             length = 0;
             return false;
         }
+    }
+
+    sealed class BrowserStreamingOptionHandler : HttpMessageHandler
+    {
+        static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+            new("WebAssemblyEnableStreamingResponse");
+
+        public bool StreamingRequested { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            StreamingRequested = request.Options.TryGetValue(
+                BrowserStreamingResponse,
+                out bool enabled)
+                && enabled;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent("source"u8.ToArray()),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    sealed class StallingBodyHandler : HttpMessageHandler
+    {
+        int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new StallingStream()),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    sealed class ByteHandler(byte[] body) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new NonSeekableStream(body)),
+                RequestMessage = request,
+            });
+    }
+
+    sealed class RetryingBodyHandler(byte[] successfulBody) : HttpMessageHandler
+    {
+        int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            int attempt = Interlocked.Increment(ref _requestCount);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    attempt == 1
+                        ? new FailingBodyStream()
+                        : new NonSeekableStream(successfulBody)),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    sealed class StallingStream : Stream
+    {
+        bool _sentByte;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_sentByte)
+            {
+                _sentByte = true;
+                buffer.Span[0] = (byte)'x';
+                return 1;
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    sealed class FailingBodyStream : Stream
+    {
+        bool _sentByte;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_sentByte)
+                throw new IOException("mid-body failure");
+
+            _sentByte = true;
+            buffer.Span[0] = (byte)'x';
+            return ValueTask.FromResult(1);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    sealed class NonSeekableStream(byte[] body) : Stream
+    {
+        int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int count = Math.Min(buffer.Length, body.Length - _position);
+            if (count == 0)
+                return ValueTask.FromResult(0);
+
+            body.AsMemory(_position, count).CopyTo(buffer);
+            _position += count;
+            return ValueTask.FromResult(count);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 }

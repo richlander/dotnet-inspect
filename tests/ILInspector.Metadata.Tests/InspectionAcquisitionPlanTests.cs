@@ -44,6 +44,10 @@ public class InspectionAcquisitionPlanTests
             "Microsoft.NETCore.App",
             "10.0.0",
             "test");
+        var embedded = AssemblyResolutionProvenance.Embedded(
+            "assemblies/Example.dll",
+            "sha256-example",
+            "Example");
 
         Assert.Equal(package, samePackage);
         Assert.NotEqual(package, platform);
@@ -51,6 +55,10 @@ public class InspectionAcquisitionPlanTests
             "Example.Package",
             Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(package)
                 .PackageId);
+        Assert.Equal(
+            "assemblies/Example.dll",
+            Assert.IsType<AssemblyResolutionProvenance.EmbeddedAsset>(embedded)
+                .ContentRef);
     }
 
     [Fact]

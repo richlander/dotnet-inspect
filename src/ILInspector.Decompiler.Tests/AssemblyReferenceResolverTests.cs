@@ -8,6 +8,39 @@ namespace ILInspector.Decompiler.Tests;
 public class AssemblyReferenceResolverTests
 {
     [Fact]
+    public void SiblingResolver_BareOwnerPathUsesCurrentDirectory()
+    {
+        string source = typeof(AssemblyReferenceResolverTests).Assembly.Location;
+        string candidate = Path.Combine(
+            Environment.CurrentDirectory,
+            Path.GetFileName(source));
+        bool copied = !Path.GetFullPath(source).Equals(
+            Path.GetFullPath(candidate),
+            StringComparison.Ordinal);
+        try
+        {
+            if (copied)
+                File.Copy(source, candidate);
+
+            AssemblyReferenceIdentity identity = ReadIdentity(source);
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver("Owner.dll");
+
+            ResolvedAssemblyReference? result = resolver.Resolve(
+                identity,
+                AssemblyResolutionScope.Any);
+
+            Assert.NotNull(result);
+            Assert.Equal(Path.GetFullPath(candidate), result.Path);
+        }
+        finally
+        {
+            if (copied)
+                File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public void SiblingResolver_ReusesSelectedDescriptorWithoutReopeningPath()
     {
         string directory = Path.Combine(
@@ -67,6 +100,110 @@ public class AssemblyReferenceResolverTests
                 AssemblyResolutionScope.Any);
 
             Assert.Null(result);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SiblingResolver_AssemblyReferenceNameCannotEscapeDirectory()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"resolver-{Guid.NewGuid():N}");
+        string assemblyDirectory = Path.Combine(root, "app");
+        Directory.CreateDirectory(assemblyDirectory);
+        string payload = Path.Combine(root, "payload.dll");
+        try
+        {
+            File.Copy(typeof(object).Assembly.Location, payload);
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver(
+                    Path.Combine(assemblyDirectory, "Owner.dll"));
+
+            ResolvedAssemblyReference? result = resolver.Resolve(
+                new AssemblyReferenceIdentity(
+                    "../payload",
+                    Version: null,
+                    Culture: null,
+                    PublicKeyToken: null),
+                AssemblyResolutionScope.Any);
+
+            Assert.Null(result);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SiblingResolver_RequiresCandidateMetadataIdentity()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"resolver-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string misleadingPath = Path.Combine(directory, "Expected.dll");
+        try
+        {
+            File.Copy(typeof(object).Assembly.Location, misleadingPath);
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver(
+                    Path.Combine(directory, "Owner.dll"));
+
+            ResolvedAssemblyReference? result = resolver.Resolve(
+                new AssemblyReferenceIdentity(
+                    "Expected",
+                    Version: null,
+                    Culture: null,
+                    PublicKeyToken: null),
+                AssemblyResolutionScope.Any);
+
+            Assert.Null(result);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SiblingResolver_VersionIsDescriptiveButTokenStillBinds()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"resolver-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string sibling = Path.Combine(
+            directory,
+            Path.GetFileName(typeof(object).Assembly.Location));
+        try
+        {
+            File.Copy(typeof(object).Assembly.Location, sibling);
+            AssemblyReferenceIdentity identity = ReadIdentity(sibling);
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver(
+                    Path.Combine(directory, "Owner.dll"));
+
+            ResolvedAssemblyReference? versionSkewed = resolver.Resolve(
+                identity with
+                {
+                    Version = new Version(
+                        identity.Version!.Major + 50,
+                        0,
+                        0,
+                        0)
+                },
+                AssemblyResolutionScope.Any);
+            ResolvedAssemblyReference? wrongToken = resolver.Resolve(
+                identity with { PublicKeyToken = "0000000000000000" },
+                AssemblyResolutionScope.Any);
+
+            Assert.NotNull(versionSkewed);
+            Assert.Null(wrongToken);
         }
         finally
         {
