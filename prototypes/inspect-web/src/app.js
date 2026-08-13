@@ -5491,6 +5491,7 @@ async function share() {
     showToast("selection link copied");
   } catch (error) {
     state.queryNotice = String(error?.message || error);
+    state.queryNoticeRetryAction = null;
     render();
   }
 }
@@ -5523,11 +5524,12 @@ function friendlyLoadError(error, packageId, version) {
   };
 }
 
-function appendQueryNotice(message) {
+function appendQueryNotice(message, retryAction = null) {
   if (!message) return;
   state.queryNotice = state.queryNotice
     ? `${state.queryNotice} ${message}`
     : message;
+  state.queryNoticeRetryAction = retryAction;
 }
 
 async function copyText(value, confirmation) {
@@ -7559,13 +7561,14 @@ async function loadPackage(packageId, version, framework, options = {}) {
       state.requestedVersion = prevRequested.version;
       state.requestedFramework = prevRequested.framework;
       state.error = "";
-      appendQueryNotice(friendly.message);
-      state.queryNoticeRetryAction = options.retryAction
+      appendQueryNotice(
+        friendly.message,
+        options.retryAction
         ?? (() => loadPackage(
           packageId,
           version,
           framework,
-          { ...options, navigationSeq: undefined }));
+          { ...options, navigationSeq: undefined })));
       render();
     } else {
       state.error = state.queryNotice
@@ -7907,6 +7910,7 @@ async function restoreWorkspaceFromLocation(
   navigationSeq = ++state.navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
   state.queryNotice = loc.workspaceNotice || "";
+  state.queryNoticeRetryAction = null;
   state.home = false;
   state.loading = true;
   state.error = "";
@@ -8222,6 +8226,7 @@ window.addEventListener("popstate", () => {
   state.loading = false;
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
+  state.queryNoticeRetryAction = null;
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     // Navigated back to the bare root — show the intro/home page (engine stays warm).

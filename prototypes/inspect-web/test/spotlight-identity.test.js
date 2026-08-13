@@ -480,7 +480,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /state\.retryAction = runCallGraphDemo/);
   assert.match(
     appSource,
-    /state\.queryNoticeRetryAction = options\.retryAction/);
+    /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
   assert.match(
     appSource,
     /data-package-close=/);
