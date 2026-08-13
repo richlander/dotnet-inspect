@@ -95,6 +95,7 @@ public abstract record PackagePayloadResult
 /// <c>CachedContentOfAnUnauthorizedProducer_IsNotServed</c> for the rule that a
 /// cache fulfills only an authorized producer,
 /// <c>CacheHit_IsRevalidatedAgainstCurrentPayloadLimits</c> and
+/// <c>InadmissibleCacheEntry_DoesNotMaskAnotherProducer</c> and
 /// <c>CommitThatLosesToInadmissibleCachedContent_IsNotServed</c> for
 /// admission at both cache-return seams,
 /// <c>SourcesAreTriedInOrderUntilOneServesThePayload</c> for source order and
@@ -144,24 +145,31 @@ public static class PackagePayloadAcquisition
 
         IReadOnlyList<string> producerKeys =
             NuGetSourceResolver.SourceKeys(coordinate.Sources);
-        if (store.TryGetCached(
-                coordinate.PackageId,
-                coordinate.Version,
-                producerKeys,
-                log)
-            is { } cached)
+        foreach (string producerKey in producerKeys)
         {
-            if (await IsAdmissibleCachedContentAsync(
+            if (store.TryGetCached(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    [producerKey],
+                    log)
+                is not { } cached)
+            {
+                continue;
+            }
+
+            if (!await IsAdmissibleCachedContentAsync(
                     cached,
                     limits,
                     cancellationToken).ConfigureAwait(false))
             {
-                return Result(cached, PackagePayloadOrigin.Cache);
+                log?.Invoke(
+                    $"Cached content for package '{coordinate.PackageId}' version "
+                    + $"'{coordinate.Version}' from one authorized producer does "
+                    + "not satisfy the current payload limits.");
+                continue;
             }
 
-            log?.Invoke(
-                $"Cached content for package '{coordinate.PackageId}' version "
-                + $"'{coordinate.Version}' does not satisfy the current payload limits.");
+            return Result(cached, PackagePayloadOrigin.Cache);
         }
 
         List<string> failedSources = [];

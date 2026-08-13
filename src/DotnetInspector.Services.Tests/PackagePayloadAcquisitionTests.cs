@@ -99,6 +99,46 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task InadmissibleCacheEntry_DoesNotMaskAnotherProducer()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(Primary.Url),
+            new MemoryStream(
+                TestPackageArchive.Create(
+                    "lib/net10.0/One.dll",
+                    "lib/net10.0/Two.dll")),
+            TestContext.Current.CancellationToken);
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            new MemoryStream(
+                TestPackageArchive.Create("lib/net10.0/Only.dll")),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary, NuGetOrg),
+                store,
+                limits: new PackagePayloadLimits { MaxEntryCount = 1 },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        AcquiredPackagePayload payload = Acquired(result);
+        Assert.Equal(PackagePayloadOrigin.Cache, payload.Origin);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            payload.ProducerKey);
+        Assert.Equal(
+            "lib/net10.0/Only.dll",
+            Assert.Single(payload.Content.EnumerateEntries()));
+    }
+
+    [Fact]
     public async Task CachedContentOfAnUnauthorizedProducer_IsNotServed()
     {
         byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");

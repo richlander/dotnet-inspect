@@ -1264,9 +1264,12 @@ public static class PackageExtractor
         CancellationToken cancellationToken = default)
     {
         string normalizedName = packageName.ToLowerInvariant();
-        NuGet.Versioning.NuGetVersion? best = null;
-        string? bestOriginal = null;
-        List<NuGetSource> reporters = [];
+        NuGet.Versioning.NuGetVersion? bestStable = null;
+        string? bestStableOriginal = null;
+        List<NuGetSource> stableReporters = [];
+        NuGet.Versioning.NuGetVersion? bestAny = null;
+        string? bestAnyOriginal = null;
+        List<NuGetSource> anyReporters = [];
 
         foreach (var source in sources)
         {
@@ -1315,23 +1318,43 @@ public static class PackageExtractor
 
             if (NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
             {
-                if (best == null || parsed > best)
+                if (bestAny == null || parsed > bestAny)
                 {
-                    best = parsed;
-                    bestOriginal = version;
-                    reporters.Clear();
-                    reporters.Add(source);
+                    bestAny = parsed;
+                    bestAnyOriginal = version;
+                    anyReporters.Clear();
+                    anyReporters.Add(source);
                 }
-                else if (parsed == best)
+                else if (parsed == bestAny)
                 {
-                    AddReporter(reporters, source);
+                    AddReporter(anyReporters, source);
+                }
+
+                if (!parsed.IsPrerelease
+                    && (bestStable == null || parsed > bestStable))
+                {
+                    bestStable = parsed;
+                    bestStableOriginal = version;
+                    stableReporters.Clear();
+                    stableReporters.Add(source);
+                }
+                else if (!parsed.IsPrerelease && parsed == bestStable)
+                {
+                    AddReporter(stableReporters, source);
                 }
             }
         }
 
-        return bestOriginal is null
+        string? selected = includePrerelease
+            ? bestAnyOriginal
+            : bestStableOriginal ?? bestAnyOriginal;
+        IReadOnlyList<NuGetSource> selectedReporters =
+            includePrerelease || bestStableOriginal is null
+                ? anyReporters
+                : stableReporters;
+        return selected is null
             ? null
-            : new PackageVersionResolution(bestOriginal, reporters);
+            : new PackageVersionResolution(selected, selectedReporters);
     }
 
     /// <summary>

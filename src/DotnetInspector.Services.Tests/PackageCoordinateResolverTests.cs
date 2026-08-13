@@ -684,6 +684,36 @@ public sealed class PackageCoordinateResolverTests
         Assert.Equal("1.0.0", resolution?.Version);
     }
 
+    [Theory]
+    [InlineData(false, "1.0.0")]
+    [InlineData(true, "2.0.0-beta")]
+    public async Task FloatingCoordinate_AppliesStablePreferenceAcrossSources(
+        bool includePrerelease,
+        string expectedVersion)
+    {
+        using var client = new HttpClient(new SplitVersionSourcesHandler());
+
+        var resolved = Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(SplitVersionSourcesHandler.PackageId),
+                [
+                    SplitVersionSourcesHandler.PreviewSource,
+                    SplitVersionSourcesHandler.StableSource,
+                ],
+                includePrerelease: includePrerelease,
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(expectedVersion, resolved.Coordinate.Version);
+        Assert.Equal(
+            includePrerelease
+                ? SplitVersionSourcesHandler.PreviewSource
+                : SplitVersionSourcesHandler.StableSource,
+            Assert.Single(resolved.Coordinate.Sources));
+    }
+
     /// <summary>
     /// The CLI's own floating resolution reaches this resolver, so the
     /// workspace's stricter rule must be opt-in rather than the default. This
@@ -946,6 +976,44 @@ public sealed class PackageCoordinateResolverTests
                 ? Json("""{"versions":["1.0.0","1.5.0"]}""")
                 : Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.NotFound));
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
+    sealed class SplitVersionSourcesHandler : HttpMessageHandler
+    {
+        internal const string PackageId = "split.package";
+        internal static readonly PackageSource PreviewSource =
+            new("preview", "https://preview.test/v3/index.json");
+        internal static readonly PackageSource StableSource =
+            new("stable", "https://stable.test/v3/index.json");
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            return url switch
+            {
+                "https://preview.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://preview.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                "https://stable.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://stable.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                $"https://preview.test/flat/{PackageId}/index.json" =>
+                    Json("""{"versions":["2.0.0-beta"]}"""),
+                $"https://stable.test/flat/{PackageId}/index.json" =>
+                    Json("""{"versions":["1.0.0"]}"""),
+                _ => Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound)),
+            };
 
             static Task<HttpResponseMessage> Json(string body) =>
                 Task.FromResult(

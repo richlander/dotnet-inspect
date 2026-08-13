@@ -429,8 +429,14 @@ public static class HttpRetryHelper
     /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
     /// the payload is never fully buffered in memory — important for large packages. Returns true on
     /// success, false if the request ultimately failed. Throws if the advertised size exceeds the cap.
+    /// Bytes actually received are counted against the same cap, so a chunked
+    /// or under-reported response cannot grow the destination without bound.
     /// Note: a failure that occurs mid-body (after headers) is not retried.
     /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>HttpRetryHelperTests.DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported</c>.
+    /// </remarks>
     public static async Task<bool> DownloadToFileWithRetryAsync(
         HttpClient client,
         string url,
@@ -439,8 +445,11 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        long maxDownloadedBytes = MaxDownloadSize)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadedBytes);
+
         using var response = await GetStreamedWithRetryAsync(
             client,
             url,
@@ -448,13 +457,53 @@ public static class HttpRetryHelper
             log,
             cancellationToken,
             auth,
-            trafficKind).ConfigureAwait(false);
+            trafficKind,
+            maxAdvertisedContentLength: maxDownloadedBytes)
+            .ConfigureAwait(false);
         if (response == null)
             return false;
 
-        await using var fs = File.Create(destinationPath);
-        await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
-        return true;
+        bool destinationCreated = false;
+        bool completed = false;
+        try
+        {
+            await using Stream source = await response.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await using FileStream destination = File.Create(destinationPath);
+            destinationCreated = true;
+            byte[] buffer = new byte[81920];
+            long received = 0;
+            while (true)
+            {
+                int read = await source.ReadAsync(
+                        buffer,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (read == 0)
+                    break;
+
+                if (read > maxDownloadedBytes - received)
+                {
+                    throw new IOException(
+                        $"Download exceeds the {maxDownloadedBytes}-byte limit.");
+                }
+
+                await destination.WriteAsync(
+                        buffer.AsMemory(0, read),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                received += read;
+            }
+
+            completed = true;
+            return true;
+        }
+        finally
+        {
+            if (destinationCreated && !completed)
+                File.Delete(destinationPath);
+        }
     }
 
     /// <summary>

@@ -583,6 +583,70 @@ public class HttpRetryHelperTests
         Assert.NotNull(response);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported(
+        bool underReportLength)
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-bounded-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(
+                new byte[17],
+                underReportLength ? 1 : null));
+
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(
+                () => HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFile_AcceptsExactlyTheByteLimit()
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-bounded-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(new byte[16], contentLength: null));
+
+        try
+        {
+            Assert.True(
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+            Assert.Equal(16, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
     private sealed class FailureHandler(RetryFailureMode mode) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -745,6 +809,43 @@ public class HttpRetryHelperTests
             {
                 Content = new ThrowingContent(),
             });
+    }
+
+    private sealed class DownloadHandler(
+        byte[] content,
+        long? contentLength)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var responseContent = new UnknownLengthContent(content);
+            responseContent.Headers.ContentLength = contentLength;
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = responseContent,
+                });
+        }
+    }
+
+    private sealed class UnknownLengthContent(byte[] content) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+            => stream.WriteAsync(content).AsTask();
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(
+                new MemoryStream(content, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     private sealed class ThrowingContent : HttpContent
