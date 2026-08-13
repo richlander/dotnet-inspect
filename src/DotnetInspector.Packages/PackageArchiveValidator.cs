@@ -120,6 +120,17 @@ public static class PackageArchiveValidator
     public const int MaxEntrySegmentLength = 255;
 
     /// <summary>
+    /// The deepest entry path (segment count) an archive may carry.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MaxEntryPathLength"/> alone still allows hundreds of short
+    /// segments per entry. Each segment implies an intermediate directory the
+    /// collision set and extract path must retain, so depth is bounded
+    /// separately from total path length.
+    /// </remarks>
+    public const int MaxEntryPathDepth = 64;
+
+    /// <summary>
     /// Validates <paramref name="archive"/> against <paramref name="limits"/>.
     /// </summary>
     public static PackageArchiveValidation Validate(
@@ -231,15 +242,15 @@ public static class PackageArchiveValidator
             string destination = isDirectory
                 ? entry.FullName[..^1]
                 : entry.FullName;
-            if (HasDestinationCollision(
+            if (TryRegisterDestination(
                     destination,
                     isDirectory,
                     explicitDestinations,
                     fileDestinations,
-                    requiredDirectories))
+                    requiredDirectories,
+                    limits.MaxUniqueDirectories) is { } destinationProblem)
             {
-                return new PackageArchiveValidation.Rejected(
-                    "archive entries resolve to colliding portable destinations");
+                return new PackageArchiveValidation.Rejected(destinationProblem);
             }
 
             // A directory-shaped entry is a name, not content: every store
@@ -340,25 +351,31 @@ public static class PackageArchiveValidator
         return new PackageArchiveValidation.Valid(entryCount, expandedBytes);
     }
 
-    static bool HasDestinationCollision(
+    /// <summary>
+    /// Registers a portable destination and its implied ancestors. Returns a
+    /// rejection reason on collision or when unique intermediate directories
+    /// would exceed <paramref name="maxUniqueDirectories"/>.
+    /// </summary>
+    static string? TryRegisterDestination(
         string destination,
         bool isDirectory,
         HashSet<string> explicitDestinations,
         HashSet<string> fileDestinations,
-        HashSet<string> requiredDirectories)
+        HashSet<string> requiredDirectories,
+        int maxUniqueDirectories)
     {
         if (!explicitDestinations.Add(destination))
-            return true;
+            return "archive entries resolve to colliding portable destinations";
 
         if (isDirectory)
         {
             if (fileDestinations.Contains(destination))
-                return true;
+                return "archive entries resolve to colliding portable destinations";
         }
         else
         {
             if (requiredDirectories.Contains(destination))
-                return true;
+                return "archive entries resolve to colliding portable destinations";
 
             fileDestinations.Add(destination);
         }
@@ -368,13 +385,18 @@ public static class PackageArchiveValidator
         {
             string ancestor = destination[..separator];
             if (fileDestinations.Contains(ancestor))
-                return true;
+                return "archive entries resolve to colliding portable destinations";
 
-            requiredDirectories.Add(ancestor);
+            if (requiredDirectories.Add(ancestor)
+                && requiredDirectories.Count > maxUniqueDirectories)
+            {
+                return $"the archive requires more than {maxUniqueDirectories} intermediate directories";
+            }
+
             separator = destination.IndexOf('/', separator + 1);
         }
 
-        return false;
+        return null;
     }
 
     /// <summary>
@@ -393,9 +415,12 @@ public static class PackageArchiveValidator
         if (path.Length == 0 || path.Any(char.IsControl))
             return false;
 
+        int depth = 0;
         foreach (string segment in path.Split('/'))
         {
-            if (segment.Length > MaxEntrySegmentLength
+            depth++;
+            if (depth > MaxEntryPathDepth
+                || segment.Length > MaxEntrySegmentLength
                 || !StorePath.IsSafeSegment(segment))
             {
                 return false;

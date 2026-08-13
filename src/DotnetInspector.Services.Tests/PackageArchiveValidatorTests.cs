@@ -351,6 +351,66 @@ public sealed class PackageArchiveValidatorTests
                 cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public void Validate_RejectsAnOverdeepEntryPath()
+    {
+        // MaxEntryPathLength still allows many short segments; depth is separate.
+        string deep = string.Join(
+            '/',
+            Enumerable.Repeat("d", PackageArchiveValidator.MaxEntryPathDepth + 1))
+            + "/f.dll";
+        Assert.True(deep.Length <= PackageArchiveValidator.MaxEntryPathLength);
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            PackageArchiveValidator.Validate(
+                ArchiveWithNames((deep, [1])),
+                cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void Validate_AcceptsEntryPathAtMaxDepth()
+    {
+        string deep = string.Join(
+            '/',
+            Enumerable.Repeat("d", PackageArchiveValidator.MaxEntryPathDepth - 1))
+            + "/f.dll";
+
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            PackageArchiveValidator.Validate(
+                ArchiveWithNames((deep, [1])),
+                cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// Unique intermediate directories are bounded by MaxEntryCount so a
+    /// fan-out of distinct short paths cannot allocate an unbounded ancestor
+    /// set during collision registration.
+    /// </summary>
+    [Fact]
+    public void Validate_RejectsTooManyUniqueIntermediateDirectories()
+    {
+        // Four unique top-level dirs under a ceiling of three.
+        byte[] archive = ArchiveWithNames(
+            ("a/f.dll", [1]),
+            ("b/f.dll", [1]),
+            ("c/f.dll", [1]),
+            ("d/f.dll", [1]));
+
+        var rejected = Assert.IsType<PackageArchiveValidation.Rejected>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits
+                {
+                    MaxEntryCount = 10,
+                    MaxUniqueDirectories = 3,
+                },
+                TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "intermediate directories",
+            rejected.Reason,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A compression method this runtime cannot decode declares an ordinary
     /// length and only fails when something opens the entry. Without streaming

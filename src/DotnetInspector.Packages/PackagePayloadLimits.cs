@@ -45,4 +45,12 @@ public sealed record PackagePayloadLimits
     /// separately from <see cref="MaxExpandedBytes"/>.
     /// </summary>
     public int MaxEntryCount { get; init; } = 50_000;
+
+    /// <summary>
+    /// The largest number of unique intermediate directories entry paths may
+    /// imply. Together with <see cref="PackageArchiveValidator.MaxEntryPathDepth"/>
+    /// this keeps the validator's ancestor set from growing into multi-GB
+    /// allocations when every entry uses a distinct deep prefix.
+    /// </summary>
+    public int MaxUniqueDirectories { get; init; } = 100_000;
 }
