@@ -543,14 +543,14 @@ jobs:
         run: bash eng/restore-authored-source-corpus.sh
 
       - name: Prepare the EVIL assembly pool
-        run: bash eng/prepare-evil-corpus.sh evil-pool
+        run: bash eng/prepare-evil-corpus.sh "$RUNNER_TEMP/evil-pool"
 
       - name: Run the authored-corpus benchmark (regression ratchet)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/deep-inspect
-          mapfile -t assemblies < evil-pool/assemblies.txt
+          mapfile -t assemblies < "$RUNNER_TEMP/evil-pool/assemblies.txt"
           dotnet run --project tools/DecompilerHarness -c Release -- \
             --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
             --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \

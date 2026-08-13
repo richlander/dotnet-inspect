@@ -275,15 +275,16 @@ static class AuthoredCorpusHistoryCard
 /// that only grandfathered rows may omit them.
 /// </summary>
 internal sealed record HistoryRunValidDifferent(
-    int Total,
-    int FrontierIlExact,
-    int FrontierIlDiff,
+    [property: JsonRequired] int Total,
+    [property: JsonRequired] int FrontierIlExact,
+    [property: JsonRequired] int FrontierIlDiff,
     int? Lowering = null,
     int? KnownTaste = null,
     int? FrontierIlNoVerdict = null,
     HistoryRunFrontierIlDiffAttribution? FrontierIlDiffAttribution = null)
 {
     /// <summary>True when every sub-bucket was recorded, so the partition is checkable.</summary>
+    [JsonIgnore]
     public bool IsComplete => Lowering is not null && KnownTaste is not null && FrontierIlNoVerdict is not null;
 
     /// <summary>
@@ -294,11 +295,13 @@ internal sealed record HistoryRunValidDifferent(
     /// <c>int.MaxValue, int.MaxValue, 51</c> summed as <see cref="int"/> to exactly 49 —
     /// a partition that "closed" only because it overflowed.</para>
     /// </summary>
+    [JsonIgnore]
     public long? SubBucketSum => IsComplete
         ? (long)Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
         : null;
 
     /// <summary>True when no recorded sub-bucket is a negative count.</summary>
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => Total >= 0
             && FrontierIlExact >= 0
@@ -316,9 +319,11 @@ internal sealed record HistoryRunFrontierIlDiffAttribution(
     [property: JsonRequired] int CompileBackFloor,
     [property: JsonRequired] int Unclassified)
 {
+    [JsonIgnore]
     public long Sum
         => (long)ProductBodyDefect + HarnessShellReconstruction + CompileBackFloor + Unclassified;
 
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => Total >= 0
             && ProductBodyDefect >= 0
@@ -333,16 +338,18 @@ internal sealed record HistoryRunInvalidBreakdown(
     [property: JsonRequired] int Unclassified)
 {
     /// <summary>Sum of the recorded reason buckets, to compare against <c>invalid</c>.</summary>
+    [JsonIgnore]
     public long Sum => (long)ProductBodyDefect + HarnessShellReconstruction + Unclassified;
 
     /// <summary>True when no recorded reason bucket is a negative count.</summary>
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => ProductBodyDefect >= 0 && HarnessShellReconstruction >= 0 && Unclassified >= 0;
 }
 
 internal sealed record HistoryRun(
     [property: JsonRequired] string? Date,
-    string? Commit,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Commit,
     int PoolMatched,
     int PoolTotal,
     int Evaluated,
@@ -350,7 +357,7 @@ internal sealed record HistoryRun(
     [property: JsonRequired] int Correct,
     HistoryRunValidDifferent? ValidDifferent,
     [property: JsonRequired] int Invalid,
-    HistoryRunInvalidBreakdown? InvalidBreakdown,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] HistoryRunInvalidBreakdown? InvalidBreakdown,
     int Unsupported,
     int Drift,
     [property: JsonPropertyName("inputsComplete")] bool InputsComplete,
@@ -375,12 +382,14 @@ internal sealed record HistoryRun(
 {
     // Unidentified rows predating the span-attribution change carry no
     // methodologyVersion; treat them as v1 (substitution lower bound).
+    [JsonIgnore]
     public int Methodology => MethodologyVersion ?? 1;
 
     /// <summary>
     /// True when every top-level bucket was recorded, so
     /// <see cref="TopLevelSum"/> can be compared against <see cref="Evaluated"/>.
     /// </summary>
+    [JsonIgnore]
     public bool TopLevelIsComplete => ValidDifferent is not null && NotFull is not null && UnknownOutcome is not null;
 
     /// <summary>
@@ -388,6 +397,7 @@ internal sealed record HistoryRun(
     /// to <see cref="long"/> for the same reason as <see cref="HistoryRunValidDifferent.SubBucketSum"/>:
     /// a sum that can wrap is not a partition check.
     /// </summary>
+    [JsonIgnore]
     public long? TopLevelSum => TopLevelIsComplete
         ? (long)Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
         : null;
@@ -402,6 +412,7 @@ internal sealed record HistoryRun(
     /// <c>productBodyDefect: 100</c>. Non-negativity is what makes closure mean every
     /// bucket is bounded by the run's own size.</para>
     /// </summary>
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => Evaluated >= 0
             && PoolMatched >= 0

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
@@ -173,21 +174,41 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         string version,
         string sourceKey)
     {
+        // Retained nupkg and extract must agree: product-owned admission matches
+        // path/size/CRC against the archive after the commit marker is written.
+        string entryName = $"{packageName.ToLowerInvariant()}.nuspec";
+        const string NuspecContent = "<package />";
+        Directory.CreateDirectory(_cacheDir);
+        string nupkg = Path.Combine(
+            _cacheDir,
+            $"stage-{Guid.NewGuid():N}.nupkg");
+        File.WriteAllBytes(nupkg, CreateArchive(entryName, NuspecContent));
         string staged = Path.Combine(
             _cacheDir,
             $"stage-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(staged);
-        File.WriteAllText(
-            Path.Combine(
-                staged,
-                $"{packageName.ToLowerInvariant()}.nuspec"),
-            "<package />");
+        ZipFile.ExtractToDirectory(nupkg, staged);
         NuGetCache.CommitPackage(
             staged,
-            nupkgPath: null,
+            nupkg,
             packageName,
             version,
             sourceKey);
+    }
+
+    private static byte[] CreateArchive(string entryPath, string content)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream stream = archive.CreateEntry(entryPath).Open();
+            using var writer = new StreamWriter(stream);
+            writer.Write(content);
+        }
+
+        return buffer.ToArray();
     }
 
     [Fact]

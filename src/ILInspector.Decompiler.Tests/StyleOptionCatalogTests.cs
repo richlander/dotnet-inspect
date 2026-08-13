@@ -23,37 +23,36 @@ public class StyleOptionCatalogTests
 
     private const string GuardedReturnId = "guarded-boolean-return-style";
 
-    // Every public instance boolean property on PrinterOptions is backing state a
-    // host may want to discover and drive through the catalog. Reflection here is a
-    // test-only drift guard (never a product path): if a new boolean knob lands
+    // Every public instance option property is backing state a host may want to
+    // discover and drive through the catalog. Reflection here is a test-only drift
+    // guard (never a product path): if a new knob lands
     // without a catalog value that reaches it, the coverage test below fails and
     // forces the catalog — the single source of truth — to be updated.
-    private static IReadOnlyList<PropertyInfo> BooleanKnobProperties =>
+    private static IReadOnlyList<PropertyInfo> OptionProperties =>
         typeof(PrinterOptions)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.PropertyType == typeof(bool))
             .ToArray();
 
     private static IReadOnlyList<StyleOptionValue> AllValues =>
         Options.SelectMany(o => o.Values).ToArray();
 
-    private static ISet<string> ChangedBoolProps(PrinterOptions before, PrinterOptions after) =>
-        BooleanKnobProperties
-            .Where(p => (bool)p.GetValue(before)! != (bool)p.GetValue(after)!)
+    private static ISet<string> ChangedProps(PrinterOptions before, PrinterOptions after) =>
+        OptionProperties
+            .Where(p => !Equals(p.GetValue(before), p.GetValue(after)))
             .Select(p => p.Name)
             .ToHashSet(StringComparer.Ordinal);
 
     [Fact]
-    public void EveryBackingBooleanProperty_IsReachableThroughSomeCatalogValue()
+    public void EveryBackingProperty_IsReachableThroughSomeCatalogValue()
     {
         // Drift guard: selecting each value (from the shipped default) must, taken
         // together, be able to drive every backing PrinterOptions boolean. A new
         // boolean knob with no catalog value to set it fails here.
         var reached = new HashSet<string>(StringComparer.Ordinal);
         foreach (var value in AllValues)
-            reached.UnionWith(ChangedBoolProps(PrinterOptions.Default, value.SetSelected(PrinterOptions.Default, true)));
+            reached.UnionWith(ChangedProps(PrinterOptions.Default, value.SetSelected(PrinterOptions.Default, true)));
 
-        var expected = BooleanKnobProperties.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        var expected = OptionProperties.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
         Assert.Equal(expected, reached);
     }
 
@@ -93,7 +92,10 @@ public class StyleOptionCatalogTests
     [Fact]
     public void ConfigKeys_WherePresent_AreUnique()
     {
-        var keys = AllValues.Select(v => v.ConfigKey).Where(k => k is not null).ToArray();
+        var keys = AllValues.Select(v => v.ConfigKey)
+            .Concat(Options.Select(o => o.ValueConfigKey))
+            .Where(k => k is not null)
+            .ToArray();
         Assert.Equal(keys.Length, keys.Distinct(StringComparer.Ordinal).Count());
     }
 
@@ -453,6 +455,21 @@ public class StyleOptionCatalogTests
         // Full taste leaves the axis on its explicit default.
         var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
         Assert.Equal("explicit", varStyle.GetValue(full));
+    }
+
+    [Fact]
+    public void EnumCaseLabelOrder_IsAByteNeutralTwoValueSpellingAxis()
+    {
+        var order = Options.Single(o => o.Id == "enum-case-label-order");
+
+        Assert.Equal(StyleOptionTier.Spelling, order.Tier);
+        Assert.False(order.ByteDivergent);
+        Assert.Equal("dotnet_inspect_style_enum_case_label_order", order.ValueConfigKey);
+        Assert.Equal(new[] { "alphabetical", "value" }, order.Values.Select(v => v.Token).ToArray());
+        Assert.Equal("alphabetical", order.DefaultValue);
+        Assert.Equal("alphabetical", order.GetValue(PrinterOptions.Default));
+        Assert.False(order.OracleEndorsed);
+        Assert.False(order.CorpusEndorsed);
     }
 
     [Fact]
