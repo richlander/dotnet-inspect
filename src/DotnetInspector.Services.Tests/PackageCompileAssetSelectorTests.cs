@@ -216,6 +216,147 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(expected.CandidateAssets, actual.CandidateAssets);
     }
 
+    // NuGet reads `ref/<tfm>/_._` as an explicit statement that the package contributes no
+    // compile-time assembly for that framework. Falling back to lib/ there would compile against
+    // assets the package deliberately withheld.
+    [Fact]
+    public void EmptyReferenceGroup_AtTheSelectedFramework_SuppressesLibraryFallback()
+    {
+        IPackageContent content = InMemory(
+            "ref/net8.0/_._",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.False(selection.IsSelected);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            selection.Status);
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Empty(selection.Assets);
+        Assert.Null(selection.DefaultAsset);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.CandidateAssets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void EmptyReferenceGroup_NearestCompatibleGroupSuppressesLibraryFallback()
+    {
+        IPackageContent content = InMemory(
+            "ref/netstandard2.0/_._",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            selection.Status);
+        Assert.Equal("net8.0", selection.TargetFramework);
+    }
+
+    [Fact]
+    public void EmptyReferenceGroup_NewerThanTheSelectedFramework_PreservesLibraryFallback()
+    {
+        IPackageContent content = InMemory(
+            "ref/net10.0/_._",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void EmptyReferenceGroup_IncompatibleFamily_PreservesLibraryFallback()
+    {
+        IPackageContent content = InMemory(
+            "ref/net472/_._",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework()
+    {
+        IPackageContent content = InMemory(
+            "ref/netstandard2.0/_._",
+            "ref/net8.0/Example.dll",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            ["ref/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Theory]
+    // A library empty group says nothing about compile assets.
+    [InlineData("lib/net8.0/_._")]
+    // Only the exact marker name is the marker.
+    [InlineData("ref/net8.0/__._")]
+    [InlineData("ref/net8.0/_")]
+    // Not a TFM-shaped group, and not a three-segment entry.
+    [InlineData("ref/any/_._")]
+    [InlineData("ref/net8.0/sub/_._")]
+    [InlineData("ref\\net8.0\\_._")]
+    public void NonMarkerEntries_PreserveLibraryFallback(string entry)
+    {
+        IPackageContent content = InMemory(entry, "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    // "_._.dll" is an ordinary reference assembly whose stem happens to be the marker text, not
+    // an empty group: it is selected, and the group is not empty.
+    [Fact]
+    public void MarkerNamedAssembly_IsAnOrdinaryReferenceAsset()
+    {
+        PackageCompileAssetSelection selection = PackageCompileAssetSelector.Select(
+            InMemory("ref/net8.0/_._.dll", "lib/net8.0/Example.dll"),
+            "Example",
+            "net8.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            ["ref/net8.0/_._.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void EmptyReferenceGroup_AloneStillReportsNoCompileAssets()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(InMemory("ref/net8.0/_._"), "Example");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            selection.Status);
+    }
+
     static IPackageContent InMemory(params string[] entries)
     {
         using var buffer = new MemoryStream();

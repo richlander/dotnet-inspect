@@ -23,6 +23,14 @@ public enum PackageCompileAssetSelectionStatus
     Selected,
     NoCompileAssets,
     NoMatchingTargetFramework,
+
+    /// <summary>
+    /// The package declares an explicit empty compile group (<c>ref/&lt;tfm&gt;/_._</c>) that
+    /// covers the selected target framework. NuGet reads that marker as "this package
+    /// deliberately contributes no compile-time assembly here", so the <c>lib/</c> assets are not
+    /// a fallback for it.
+    /// </summary>
+    EmptyCompileGroup,
 }
 
 /// <summary>
@@ -101,6 +109,9 @@ public static class PackageCompileAssetSelector
 {
     const string AssetIdPrefix = "compile:";
 
+    /// <summary>NuGet's empty-group marker file name.</summary>
+    const string EmptyGroupMarker = "_._";
+
     public static PackageCompileAssetSelection Select(
         IPackageContent content,
         string packageId,
@@ -109,9 +120,10 @@ public static class PackageCompileAssetSelector
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
+        string[] entries = [.. content.EnumerateEntries()];
         PackageCompileAsset[] discovered =
         [
-            .. content.EnumerateEntries()
+            .. entries
                 .Select(Parse)
                 .OfType<PackageCompileAsset>()
                 .GroupBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
@@ -120,6 +132,13 @@ public static class PackageCompileAssetSelector
                     .First())
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
+        ];
+        string[] emptyReferenceGroups =
+        [
+            .. entries
+                .Select(ParseEmptyReferenceGroup)
+                .OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
         if (discovered.Length == 0)
         {
@@ -165,6 +184,24 @@ public static class PackageCompileAssetSelector
                     selectedFramework,
                     StringComparison.OrdinalIgnoreCase)),
         ];
+
+        // An explicit empty compile group is a statement, not an absence: NuGet's nearest-group
+        // rule picks the closest compatible ref group, and when that group is `_._` the package
+        // contributes no compile-time assembly for the selected framework. Falling back to lib/
+        // there would compile against assets the package deliberately withheld. A real ref group
+        // at the selected framework is nearer than any compatible empty group, so it still wins.
+        if (!frameworkAssets.Any(asset => asset.Kind == PackageCompileAssetKind.Reference)
+            && NearestCompatibleEmptyGroup(emptyReferenceGroups, selectedFramework) is not null)
+        {
+            return new PackageCompileAssetSelection(
+                PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                selectedFramework,
+                frameworks,
+                [],
+                null,
+                discovered);
+        }
+
         PackageCompileAssetKind preferredKind = frameworkAssets.Any(
             asset => asset.Kind == PackageCompileAssetKind.Reference)
                 ? PackageCompileAssetKind.Reference
@@ -192,17 +229,11 @@ public static class PackageCompileAssetSelector
 
     static PackageCompileAsset? Parse(string entry)
     {
-        if (string.IsNullOrWhiteSpace(entry))
-            return null;
-
-        if (entry.Contains('\\'))
+        if (!TryParsePathParts(entry, out string[]? parts))
             return null;
 
         string path = entry;
-        string[] parts = path.Split('/');
-        if (parts.Length != 3
-            || parts.Any(part => part is "." or "..")
-            || !parts[2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+        if (!parts![2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[2]))
             || !TfmResolver.IsTfmLike(parts[1]))
         {
@@ -223,5 +254,73 @@ public static class PackageCompileAssetSelector
                 parts[2],
                 parts[1],
                 kind.Value);
+    }
+
+    /// <summary>
+    /// The target framework of an explicit empty reference group (<c>ref/&lt;tfm&gt;/_._</c>), or
+    /// null for any other entry. Only the exact marker name counts; a file that merely resembles
+    /// it is an ordinary entry.
+    /// </summary>
+    static string? ParseEmptyReferenceGroup(string entry)
+    {
+        if (!TryParsePathParts(entry, out string[]? parts))
+            return null;
+
+        return parts![0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+            && parts[2].Equals(EmptyGroupMarker, StringComparison.Ordinal)
+            && TfmResolver.IsTfmLike(parts[1])
+                ? parts[1]
+                : null;
+    }
+
+    /// <summary>
+    /// The nearest empty reference group that a consumer of <paramref name="selectedFramework"/>
+    /// would bind to: family-compatible and no newer than the selected framework, highest
+    /// priority first. An exact framework match is its own nearest group.
+    /// </summary>
+    static string? NearestCompatibleEmptyGroup(
+        IReadOnlyList<string> emptyGroups,
+        string selectedFramework)
+    {
+        int selectedPriority = TfmResolver.GetTfmPriority(selectedFramework.ToLowerInvariant());
+        string? nearest = null;
+        int nearestPriority = int.MinValue;
+        foreach (string group in emptyGroups)
+        {
+            if (group.Equals(selectedFramework, StringComparison.OrdinalIgnoreCase))
+                return group;
+
+            int priority = TfmResolver.GetTfmPriority(group.ToLowerInvariant());
+            if (!TfmResolver.IsTfmCompatible(group, selectedFramework)
+                || priority > selectedPriority
+                || priority <= nearestPriority)
+            {
+                continue;
+            }
+
+            nearest = group;
+            nearestPriority = priority;
+        }
+
+        return nearest;
+    }
+
+    /// <summary>
+    /// The three <c>&lt;root&gt;/&lt;tfm&gt;/&lt;file&gt;</c> segments of a package entry, or
+    /// false for an entry that is not shaped like one — including traversal-shaped and
+    /// backslash-separated spellings.
+    /// </summary>
+    static bool TryParsePathParts(string entry, out string[]? parts)
+    {
+        parts = null;
+        if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))
+            return false;
+
+        string[] candidate = entry.Split('/');
+        if (candidate.Length != 3 || candidate.Any(part => part is "." or ".."))
+            return false;
+
+        parts = candidate;
+        return true;
     }
 }
