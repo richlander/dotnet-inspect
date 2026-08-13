@@ -58,6 +58,44 @@ public class RenderAbSensorTests
         Assert.Contains("return 1++;", output);
     }
 
+    [Fact]
+    public void RenderAbSemanticLane_BindsCrossMethodRaisedBodies()
+    {
+        var type = typeof(UnraisedLocalFunctionSamples);
+        string assemblyPath = type.Assembly.Location;
+        string methodName = nameof(UnraisedLocalFunctionSamples.CallsRaisedIf);
+        using var source = MetadataSource.Open(assemblyPath);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
+        Assert.NotNull(function);
+
+        string before = RenderAbSensor.Render(source, function!)!.Trim();
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        var sample = new RenderAbSensor.RenderedMethod(
+            type.FullName!,
+            methodName,
+            CorpusMethodIdentity.SignatureText(function.Signature),
+            assemblyPath,
+            CorpusSensor.PortablePath(assemblyPath),
+            "return \"bad\";");
+        var baseline = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [sample.Key] = before,
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(StringComparer.Ordinal)
+        {
+            [sample.Key] = sample,
+        };
+
+        string output = CaptureConsole(
+            () => RenderAbSensor.Compare(baseline, current, maxExamples: 5),
+            expectedExitCode: 2);
+
+        Assert.Contains(
+            "Semantic: valid->valid: 0, invalid->valid: 0, valid->invalid: 1, invalid->invalid: 0",
+            output);
+        Assert.Contains("CS0029", output);
+    }
+
     static IrFunction SyntheticFunction()
         => new(
             "M",
@@ -80,7 +118,9 @@ public class RenderAbSensorTests
             {
                 Console.SetOut(writer);
                 int exitCode = action();
-                Assert.Equal(expectedExitCode, exitCode);
+                Assert.True(
+                    exitCode == expectedExitCode,
+                    $"Expected exit code {expectedExitCode}, got {exitCode}.{Environment.NewLine}{writer}");
                 return writer.ToString();
             }
             finally

@@ -326,7 +326,7 @@ internal static class RenderAbSensor
 
             try
             {
-                _ = CSharpPrinter.PrintRaised(function).Output;
+                _ = Render(source, function);
             }
             catch
             {
