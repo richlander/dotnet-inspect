@@ -170,6 +170,38 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task ExtractedTree_WithBackslashFileName_DoesNotThrow()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            // Linux can host a literal backslash in a filename after ZipFile.ExtractToDirectory.
+            File.WriteAllBytes(Path.Combine(root, @"lib\net45\Foo.dll"), [1]);
+
+            PackageContentAdmission.Outcome outcome =
+                await PackageContentAdmission.EvaluateAsync(
+                    new FileSystemPackageContent(
+                        root,
+                        nupkgPath: null,
+                        fromCache: true,
+                        producerKey: "test"),
+                    PackagePayloadLimits.Default,
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(PackageContentAdmission.Outcome.Admissible, outcome);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExtractedTree_CountsDirectoriesTowardEntryLimit()
     {
         string root = TempDirectory();
