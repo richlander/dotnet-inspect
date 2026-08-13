@@ -345,11 +345,20 @@ internal static class AuditSignalBuilder
             new(FormatBool(context.Inspection.IsDeterministic), "PE debug directory and path normalization");
 
         private static SignalValue? ResolveIdentityIdentifierConfusion(
-            in LibrarySignalContext context) =>
-            IdentifierConfusionAudit.Summarize(
+            in LibrarySignalContext context)
+        {
+            if (context.Inspection.IdentifierConfusionFailure is { } failure)
+            {
+                return new(
+                    "Unavailable",
+                    IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            return IdentifierConfusionAudit.Summarize(
                     IdentifierConfusionAudit.InspectLibrarySummary(context.Inspection),
                     "assembly names")
                 .ToSignalValue();
+        }
 
         private static SignalValue? ResolveDependenciesDirectAssemblyReferences(
             in LibrarySignalContext context) =>

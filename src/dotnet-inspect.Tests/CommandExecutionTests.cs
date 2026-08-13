@@ -205,6 +205,34 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteMalformedAssemblyReferenceNameAssembly(
+        string path)
+    {
+        WriteReferenceFixtureAssembly(
+            path,
+            "Malformed.Reference.Root",
+            "System.Runtime");
+        byte[] bytes = File.ReadAllBytes(path);
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        Assert.True(
+            reader.GetHeapSize(HeapIndex.Blob) <= ushort.MaxValue
+            && reader.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int assemblyReferenceNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.AssemblyRef)
+            + (4 * sizeof(ushort))
+            + sizeof(uint)
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(
+                assemblyReferenceNameOffset,
+                sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
+    }
+
     private static (string RootPath, string TempDir)
         CreateIdentifierConfusionReferenceGraph()
     {
@@ -11736,8 +11764,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains(
-                "Failed to inspect resolved assembly reference 'Bridge'",
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
                 error);
 
             var relative = await RunAppInDirectoryAsync(
@@ -11751,8 +11781,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, relative.Exit);
             Assert.Empty(relative.Output);
-            Assert.Contains(
-                "Failed to inspect resolved assembly reference 'Bridge'",
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
                 relative.Error);
         }
         finally
@@ -11793,14 +11825,152 @@ public partial class CommandExecutionTests
                 [
                     "Using TFM: net8.0",
                     "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll' while inspecting reference "
-                    + "'Bridge': BadImageFormatException",
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
                 ],
                 error.ReplaceLineEndings("\n")
                     .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("Bridge", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-decode-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            var signals = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.Signals,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, signals.Exit);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                signals.Error);
+            Assert.Contains(
+                "| Identity | Identifier confusion | Unavailable "
+                + "| invalid assembly metadata |",
+                signals.Output);
             Assert.DoesNotContain(
-                "IdentifierConfusionReferenceTraversalException",
-                error);
+                "| Identity | Identifier confusion | None |",
+                signals.Output);
+
+            var audit = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, audit.Exit);
+            Assert.Empty(audit.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                audit.Error);
+            Assert.DoesNotContain(rootPath, audit.Error);
+
+            var discovery = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.IdentifierConfusion,
+                "--effective");
+
+            Assert.Equal(1, discovery.Exit);
+            Assert.Empty(discovery.Output);
+            Assert.Equal(audit.Error, discovery.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-decode-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(libraryDirectory, "A.Valid.dll"),
+                "\u0405ystem.Valid");
+            WriteMalformedAssemblyReferenceNameAssembly(
+                Path.Combine(libraryDirectory, "Root.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "Identifier.Reference.Decode.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("U+0405→S", output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("System.Runtime", error);
+
+            var signals = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.Signals,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, signals.Exit);
+            Assert.Contains(
+                "| Identity | Identifier confusion | Unavailable "
+                + "| invalid assembly metadata |",
+                signals.Output);
+            Assert.DoesNotContain(
+                "| Identity | Identifier confusion | None |",
+                signals.Output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                signals.Error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {
@@ -11853,6 +12023,45 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("Micr\u03bFsoft.Transitive", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryReferenceTree_ReadFailureDiagnosticIsContentFree()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "not a managed assembly");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--verbose",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## References", output);
+            Assert.Equal(
+                [
+                    "Inspecting: Root.dll",
+                    "Warning: Could not inspect a resolved assembly "
+                    + "reference: invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("Bridge", error);
+            Assert.DoesNotContain(tempDir, error);
         }
         finally
         {

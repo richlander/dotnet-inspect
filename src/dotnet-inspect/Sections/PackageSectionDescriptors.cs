@@ -186,6 +186,8 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        // Alternate-package IDs require bounded registry metadata acquisition.
+        public static SectionCost Cost => SectionCost.Moderated;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => IdentifierConfusionAudit.InspectPackage(model).Count > 0;

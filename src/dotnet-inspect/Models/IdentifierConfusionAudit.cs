@@ -10,8 +10,31 @@ internal readonly record struct IdentifierConfusionCase(
     string Kind,
     IdentifierConfusion Confusion);
 
+internal enum IdentifierConfusionAuditFailureKind
+{
+    InvalidAssemblyMetadata,
+    AssemblyUnreadable,
+    InspectionFailed,
+}
+
 internal static class IdentifierConfusionAudit
 {
+    public static string DescribeFailure(
+        IdentifierConfusionAuditFailureKind failure) =>
+        failure switch
+        {
+            IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata =>
+                "invalid assembly metadata",
+            IdentifierConfusionAuditFailureKind.AssemblyUnreadable =>
+                "assembly could not be read",
+            IdentifierConfusionAuditFailureKind.InspectionFailed =>
+                "assembly inspection failed",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(failure),
+                failure,
+                null),
+        };
+
     public static IReadOnlyList<IdentifierConfusionCase> InspectPackage(InspectionResult model)
     {
         List<IdentifierConfusionCase> cases = [];

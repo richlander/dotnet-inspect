@@ -88,6 +88,7 @@ rather than entering Signals.
 | ----- | ------- |
 | `None` | Every identifier inspected in that scope uses only ASCII characters. |
 | `Detected` | At least one inspected identifier contains a non-ASCII character. Evidence reports counts and any confirmed reserved prefixes. |
+| `Unavailable` | Required assembly-reference metadata could not be inspected. The command returns nonzero rather than claiming a clean identity scope. |
 
 The detector first applies a non-ASCII filter. It then compares the leading
 characters of each candidate with `System`, `Microsoft`, and `Azure`. A raw
@@ -106,6 +107,10 @@ Select `Audit: Identifier Confusion` for the detected cases, or select
 dotnet-inspect library X -S "Audit: Identifier Confusion"
 dotnet-inspect package X -S "Signals,Audit: Identifier Confusion"
 ```
+
+For remotely acquired packages, the package audit performs bounded registry
+metadata acquisition so that alternate package IDs are part of the declared
+scope even when the identifier audit is selected by itself.
 
 The detail table reports `Location`, `Kind`, `Concern`, `Reserved Prefix`,
 `Similarity`, and `Characters`. `Characters` contains code-point evidence such
@@ -136,6 +141,15 @@ gates visible traversal failure for absolute and bare relative library paths.
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure.
+`LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+and
+`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+gate visible root AssemblyRef decode failure without a false `None` result.
+`LibraryReferenceTree_ReadFailureDiagnosticIsContentFree` gates the same
+content-free failure category on the public reference-tree projection.
+`PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata` and
+`InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId` gate the
+alternate-package metadata demand, producer result, and moderated network cost.
 
 ## Build Audit Fields
 

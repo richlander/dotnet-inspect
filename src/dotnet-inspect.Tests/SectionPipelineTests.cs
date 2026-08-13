@@ -5735,6 +5735,38 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var options = new InspectionOptions
+        {
+            IncludeSections =
+            [
+                PackageSections.AuditIdentifierConfusion,
+            ],
+        };
+
+        Assert.True(
+            PackageCommand.RequiresPackageMetadata(options, pipeline));
+        Assert.True(
+            PackageCommand.AllowsVulnerabilityTraffic(options));
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(options.IncludeSections));
+        Assert.True(
+            PackageCommand.RequiresPackageMetadata(
+                options with
+                {
+                    IncludeSections = null,
+                    Discover =
+                    [
+                        PackageSections.AuditIdentifierConfusion,
+                    ],
+                },
+                pipeline));
+    }
+
+    [Fact]
     public void PackagePipeline_VerbosityAutoPromote_ForPackage()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();

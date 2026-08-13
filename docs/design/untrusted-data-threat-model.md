@@ -1058,6 +1058,20 @@ gates visible traversal failure for absolute and bare relative library paths,
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure, and
+`LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+plus
+`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+gate visible root AssemblyRef decode failure without a success-shaped clean
+result. Traversal diagnostics retain caller-known command context, while survey
+warnings identify the package-relative library and a bounded failure category;
+neither repeats the AssemblyRef value, product-owned extraction path, or inner
+exception message.
+`LibraryReferenceTree_ReadFailureDiagnosticIsContentFree` gates that same
+diagnostic contract on the public reference-tree projection.
+`PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata` plus
+`InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId` gate the
+alternate-package metadata demand, producer result, and moderated network
+cost, and
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates content-free Markdown and structured output.
 

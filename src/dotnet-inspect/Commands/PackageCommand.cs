@@ -650,6 +650,8 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
+            bool wantsPackageMetadata =
+                RequiresPackageMetadata(options, pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
@@ -659,7 +661,7 @@ public class PackageCommand
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
                 options.ForceLatest, options.Verbosity,
-                fetchMetadata: wantsSignals,
+                fetchMetadata: wantsPackageMetadata,
                 sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
@@ -1907,7 +1909,12 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, PackageSectionDescriptors.CreatePipeline());
+                || DiscoverRequestsSection(
+                    options.Discover,
+                    PackageSections.Signals,
+                    pipeline);
+            bool wantsPackageMetadata =
+                RequiresPackageMetadata(options, pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
@@ -1922,7 +1929,7 @@ public class PackageCommand
                 logger,
                 options.ForceLatest,
                 options.Verbosity,
-                fetchMetadata: wantsSignals,
+                fetchMetadata: wantsPackageMetadata,
                 sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)
@@ -3179,10 +3186,13 @@ public class PackageCommand
 
     private static bool IsNetworkUsingPackageSection(string section) =>
         section.Equals(PackageSections.Signals, StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            PackageSections.AuditIdentifierConfusion,
+            StringComparison.OrdinalIgnoreCase)
         || section.Equals(PackageSections.Statistics, StringComparison.OrdinalIgnoreCase)
         || section.Equals(PackageSections.Vulnerabilities, StringComparison.OrdinalIgnoreCase);
 
-    private static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
+    internal static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
         options.Verbosity >= Verbosity.Detailed
         || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
 
@@ -3336,7 +3346,7 @@ public class PackageCommand
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
-        List<(string FileName, string ReferenceName, string FailureKind)>
+        List<(string FileName, IdentifierConfusionAuditFailureKind FailureKind)>
             identifierAuditFailures = [];
         foreach (var selection in selected)
         {
@@ -3384,7 +3394,6 @@ public class PackageCommand
                 identifierAuditFailures.Add(
                     (
                         relativePath,
-                        ex.ReferenceName,
                         ex.FailureKind));
                 continue;
             }
@@ -3406,6 +3415,16 @@ public class PackageCommand
             integrationsWorkspace is not null
             && WriteGroupedIntegrationsFailures(
                 groupedIntegrationsFailures);
+        identifierAuditFailures.AddRange(
+            inspections
+                .Where(
+                    inspection =>
+                        inspection.IdentifierConfusionFailure is not null)
+                .Select(
+                    inspection =>
+                        (
+                            inspection.FileName,
+                            inspection.IdentifierConfusionFailure!.Value)));
         bool identifierAuditIncomplete =
             WriteIdentifierAuditFailures(identifierAuditFailures);
         int completionExitCode =
@@ -3557,8 +3576,7 @@ public class PackageCommand
     internal static bool WriteIdentifierAuditFailures(
         IEnumerable<(
             string FileName,
-            string ReferenceName,
-            string FailureKind)> auditFailures)
+            IdentifierConfusionAuditFailureKind FailureKind)> auditFailures)
     {
         ArgumentNullException.ThrowIfNull(auditFailures);
 
@@ -3566,11 +3584,11 @@ public class PackageCommand
             .Distinct()
             .ToList();
 
-        foreach (var (fileName, referenceName, failureKind) in failures)
+        foreach (var (fileName, failureKind) in failures)
         {
             CommandError.WriteWarning(
-                $"Identifier audit failed for '{fileName}' while inspecting "
-                + $"reference '{referenceName}': {failureKind}");
+                $"Identifier audit failed for '{fileName}': "
+                + IdentifierConfusionAudit.DescribeFailure(failureKind));
         }
 
         return failures.Count > 0;
@@ -3579,6 +3597,26 @@ public class PackageCommand
     internal static int AllLibrariesCompletionExitCode(
         bool incomplete) =>
         incomplete ? 1 : 0;
+
+    internal static bool RequiresPackageMetadata(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        return options.IncludeSections?.Contains(PackageSections.Signals) == true
+            || options.IncludeSections?.Contains(
+                PackageSections.AuditIdentifierConfusion) == true
+            || DiscoverRequestsSection(
+                options.Discover,
+                PackageSections.Signals,
+                pipeline)
+            || DiscoverRequestsSection(
+                options.Discover,
+                PackageSections.AuditIdentifierConfusion,
+                pipeline);
+    }
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()

@@ -293,6 +293,20 @@ public class LibraryInspection
         set;
     }
 
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind? IdentifierConfusionFailure
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind? AssemblyReferenceFailureKind
+    {
+        get;
+        set;
+    }
+
     private FindingInspection<AssemblyReference>? _assemblyReferenceInspection;
 
     [JsonIgnore]

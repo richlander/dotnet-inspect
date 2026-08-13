@@ -874,7 +874,28 @@ public class LibraryCommand
 
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
     {
-        return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
+        var identifierFailures = inspections
+            .Where(
+                inspection =>
+                    inspection.IdentifierConfusionFailure is not null)
+            .Select(
+                inspection =>
+                    inspection.IdentifierConfusionFailure!.Value)
+            .Distinct()
+            .ToList();
+        foreach (IdentifierConfusionAuditFailureKind failure in identifierFailures)
+        {
+            CommandError.WriteWarning(
+                "Identifier audit failed: "
+                + IdentifierConfusionAudit.DescribeFailure(failure));
+        }
+
+        return inspections.Any(
+                inspection =>
+                    inspection.SourceIntegrityMismatches is { Count: > 0 })
+            || identifierFailures.Count > 0
+            ? 1
+            : 0;
     }
 
     private static async Task<int> WriteILCoordinateBatchAsync(

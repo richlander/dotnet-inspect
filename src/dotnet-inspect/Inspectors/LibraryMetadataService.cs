@@ -332,6 +332,22 @@ internal static class LibraryMetadataService
                 }
             }
 
+            if ((needsAuditSignals
+                    || options.CollectIdentifierConfusionReferenceTree)
+                && inspection.AssemblyReferenceInspection
+                    is FindingInspection<AssemblyReference>.Failed)
+            {
+                IdentifierConfusionAuditFailureKind failure =
+                    inspection.AssemblyReferenceFailureKind
+                    ?? IdentifierConfusionAuditFailureKind.InspectionFailed;
+                inspection.IdentifierConfusionFailure = failure;
+                if (options.CollectIdentifierConfusionReferenceTree)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+            }
+
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
             if (collectReferenceTree
@@ -876,13 +892,14 @@ internal static class LibraryMetadataService
                     if (failOnReadError)
                     {
                         throw new IdentifierConfusionReferenceTraversalException(
-                            reference.Name,
-                            resolved.Path ?? string.Empty,
+                            ClassifyIdentifierConfusionReferenceFailure(ex),
                             ex);
                     }
 
                     logger.LogWarning(
-                        "A resolved assembly reference could not be read; its children were omitted.");
+                        "Could not inspect a resolved assembly reference: "
+                        + IdentifierConfusionAudit.DescribeFailure(
+                            ClassifyIdentifierConfusionReferenceFailure(ex)));
                 }
             }
         }
@@ -890,25 +907,38 @@ internal static class LibraryMetadataService
         return nodes;
     }
 
+    private static IdentifierConfusionAuditFailureKind
+        ClassifyIdentifierConfusionReferenceFailure(Exception exception) =>
+        exception switch
+        {
+            BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ObjectDisposedException =>
+                IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
+        };
+
     internal sealed class IdentifierConfusionReferenceTraversalException
         : InvalidOperationException
     {
         public IdentifierConfusionReferenceTraversalException(
-            string referenceName,
-            string resolvedPath,
-            Exception innerException)
+            IdentifierConfusionAuditFailureKind failureKind,
+            Exception? innerException = null)
             : base(
-                $"Failed to inspect resolved assembly reference "
-                + $"'{referenceName}' at '{resolvedPath}': {innerException.Message}",
+                "Identifier audit could not inspect assembly references: "
+                + IdentifierConfusionAudit.DescribeFailure(failureKind)
+                + ".",
                 innerException)
         {
-            ReferenceName = referenceName;
-            FailureKind = innerException.GetType().Name;
+            FailureKind = failureKind;
         }
 
-        public string ReferenceName { get; }
-
-        public string FailureKind { get; }
+        public IdentifierConfusionAuditFailureKind FailureKind { get; }
     }
 
     /// <summary>
@@ -1878,6 +1908,7 @@ internal static class LibraryMetadataService
         {
             case AssemblyReferencesResult.Available available:
                 inspection.AssemblyReferenceIdentities = available.Identities;
+                inspection.AssemblyReferenceFailureKind = null;
                 if (inspection.AssemblyInfo is not null)
                 {
                     inspection.AssemblyInfo.References = available.References.IsEmpty
@@ -1893,6 +1924,9 @@ internal static class LibraryMetadataService
             case AssemblyReferencesResult.Failed failed:
                 logger.LogWarning(
                     $"Error reading assembly references of {path}: {failed.Error.Message}");
+                inspection.AssemblyReferenceFailureKind =
+                    ClassifyIdentifierConfusionReferenceFailure(
+                        failed.Error);
                 inspection.AssemblyReferenceInspection =
                     FailedInspection<AssemblyReference>(
                         path,
