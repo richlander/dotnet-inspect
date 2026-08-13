@@ -182,7 +182,9 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            var authoredSelection = effectiveOptions;
+            var authoredSelection = effectiveOptions.CallerScopeSectionImplicitlySelected
+                ? ExcludeCallersSection(effectiveOptions)
+                : effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -623,6 +625,15 @@ public static class MemberCommand
         }
 
         return members;
+    }
+
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
     }
 
     private static readonly string[] SingleOverloadSectionNames =

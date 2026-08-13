@@ -320,7 +320,8 @@ public class ApiCommand
         if (!options.HasCallerScope
             || options.Tree
             || IsStandaloneMermaid(options)
-            || options.IncludeSections is not null
+            || !options.CallerScopeSectionImplicitlySelected
+            && options.IncludeSections is not null
             && UsesSingleSectionOutput(options)
             || !pipeline.SelectableSectionNames.Contains(
                 SectionNames.Callers,
@@ -333,7 +334,11 @@ public class ApiCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected = true
+        };
     }
 
     private static bool UsesSingleSectionOutput(MemberOptions options)

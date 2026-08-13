@@ -425,6 +425,22 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallerScope_ImplicitCallers_DoesNotRequireOneOverload()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallsFixture).FullName!,
+            AssemblyPath = typeof(MemberCallsFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallsFixture).Assembly.Location)!],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("requires a single selected overload", result.Error);
+    }
+
+    [Fact]
     public async Task CallerScope_DoesNotAcquireScopeForNonGraphSelection()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
