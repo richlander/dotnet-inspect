@@ -1038,6 +1038,15 @@ public class ApiCommand
                 options.IncludeSections,
                 explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+        {
+            sections.UnionWith(
+                ApiMemberOverloadSectionDescriptors.CreatePipeline().GetEffectiveSections(
+                    type,
+                    options.Verbosity,
+                    options.IncludeSections,
+                    explicitInclude: explicitInclude));
+        }
         if (options.Discover is { Length: > 0 } discover)
         {
             var resolved = SelectResolver.ResolveSelectAsSections(
@@ -1535,49 +1544,57 @@ public class ApiCommand
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options is MemberOptions { OverloadIndex: not null })
+            var selectedOverload = options is MemberOptions { OverloadIndex: not null };
+            var autoSelectedOverload =
+                options is MemberOptions { AutoSelectedSingleOverload: true };
+            if (selectedOverload)
             {
                 ApiOutputFormatter.PopulateMemberSignature(view, type, options);
             }
-            else if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
-                && type.Members.Any(m => m.Kind == "constructor"))
+            if (!selectedOverload || autoSelectedOverload)
             {
-                ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
-            }
-            else
-            {
-                var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
-                var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
-                var renderSupplementalRows = ApiOutputFormatter.ShouldRenderSupplementalMemberRows(options);
-                if (renderMemberGroups)
+                if (!selectedOverload
+                    && options is MemberOptions { CtorOnly: true }
+                    && options.Verbosity >= Verbosity.Normal
+                    && type.Members.Any(m => m.Kind == "constructor"))
                 {
-                    methodGroupsView ??= new MethodGroupsView();
-                    eventsView ??= new EventsView();
-                    ApiOutputFormatter.PopulateMemberSummarySections(
-                        view, methodGroupsView, eventsView, type, options, methodGroupsOnly: renderMemberRows);
+                    ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
                 }
-                if (renderMemberRows || renderSupplementalRows)
+                else
                 {
-                    methodsView ??= new MethodsView();
-                    operatorsView ??= new OperatorsView();
-                    explicitInterfaceImplementationsView ??= new ExplicitInterfaceImplementationsView();
-                    extensionMethodsView ??= new ExtensionMethodsView();
-                    eventsView ??= new EventsView();
-                    ApiOutputFormatter.PopulateMemberSections(
-                        view,
-                        methodsView,
-                        operatorsView,
-                        explicitInterfaceImplementationsView,
-                        extensionMethodsView,
-                        eventsView,
-                        type,
-                        options,
-                        renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
-                }
-                if (ShouldRenderMemberIndex(options))
-                {
-                    memberIndexView ??= new MemberIndexView();
-                    ApiOutputFormatter.PopulateMemberIndex(memberIndexView, type, options);
+                    var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
+                    var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
+                    var renderSupplementalRows = ApiOutputFormatter.ShouldRenderSupplementalMemberRows(options);
+                    if (renderMemberGroups)
+                    {
+                        methodGroupsView ??= new MethodGroupsView();
+                        eventsView ??= new EventsView();
+                        ApiOutputFormatter.PopulateMemberSummarySections(
+                            view, methodGroupsView, eventsView, type, options, methodGroupsOnly: renderMemberRows);
+                    }
+                    if (renderMemberRows || renderSupplementalRows)
+                    {
+                        methodsView ??= new MethodsView();
+                        operatorsView ??= new OperatorsView();
+                        explicitInterfaceImplementationsView ??= new ExplicitInterfaceImplementationsView();
+                        extensionMethodsView ??= new ExtensionMethodsView();
+                        eventsView ??= new EventsView();
+                        ApiOutputFormatter.PopulateMemberSections(
+                            view,
+                            methodsView,
+                            operatorsView,
+                            explicitInterfaceImplementationsView,
+                            extensionMethodsView,
+                            eventsView,
+                            type,
+                            options,
+                            renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
+                    }
+                    if (ShouldRenderMemberIndex(options))
+                    {
+                        memberIndexView ??= new MemberIndexView();
+                        ApiOutputFormatter.PopulateMemberIndex(memberIndexView, type, options);
+                    }
                 }
             }
 
@@ -2452,9 +2469,13 @@ public class ApiCommand
 
         if (view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (renderOptions is MemberOptions { OverloadIndex: not null })
+            var selectedOverload =
+                renderOptions is MemberOptions { OverloadIndex: not null };
+            var autoSelectedOverload =
+                renderOptions is MemberOptions { AutoSelectedSingleOverload: true };
+            if (selectedOverload)
                 ApiOutputFormatter.PopulateMemberSignature(view, type, renderOptions);
-            else
+            if (!selectedOverload || autoSelectedOverload)
             {
                 var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(renderOptions);
                 var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(renderOptions);
@@ -2756,7 +2777,8 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+           && (options is MemberOptions { MemberSectionsPreResolved: true }
+               || HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
         => options.JsonOutput
@@ -2764,9 +2786,11 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
-           && (sections.Count != 1
-               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+           && (options is MemberOptions { MemberSectionsPreResolved: true }
+               ? sections.Count != 1
+               : options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+                 && (sections.Count != 1
+                     || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options)));
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
         => options.Select is { Length: > 0 } selectors

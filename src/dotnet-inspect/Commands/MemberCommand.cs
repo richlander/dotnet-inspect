@@ -171,6 +171,9 @@ public static class MemberCommand
                 && effectiveOptions.IncludeSections?.Contains(SectionNames.Callers) != true;
             if (callersImplicitlySelected)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
+            var authoredSelection = callersImplicitlySelected
+                ? ExcludeCallersSection(effectiveOptions)
+                : effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -184,14 +187,22 @@ public static class MemberCommand
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
                 if (autoOverloads.Count == 1)
                 {
-                    effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
-                    var detailPipeline = ApiMemberSectionPipelines.Create(effectiveOptions);
-                    var authoredSelection = callersImplicitlySelected
-                        ? ExcludeCallersSection(effectiveOptions)
-                        : effectiveOptions;
-                    if (ApiCommand.RevalidateResolvedMemberSections(authoredSelection, detailPipeline)
-                        is not { } detailSections
-                        || ApiCommand.FinalizeResolvedMemberSelection(detailSections, detailPipeline)
+                    var inventoryPipeline = ApiMemberSectionPipelines.Create(authoredSelection);
+                    if (ApiCommand.RevalidateResolvedMemberSections(
+                            authoredSelection,
+                            inventoryPipeline)
+                        is not { } inventorySections)
+                        return 1;
+
+                    inventorySections = inventorySections with
+                    {
+                        OverloadIndex = 1,
+                        AutoSelectedSingleOverload = true
+                    };
+                    var detailPipeline = ApiMemberSectionPipelines.Create(inventorySections);
+                    if (ApiCommand.FinalizeResolvedMemberSelection(
+                            inventorySections,
+                            detailPipeline)
                         is not { } detailOptions)
                         return 1;
                     effectiveOptions = callersImplicitlySelected

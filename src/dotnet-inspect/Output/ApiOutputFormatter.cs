@@ -207,6 +207,16 @@ public static class ApiOutputFormatter
             options.IncludeSections,
             selectAll,
             explicitInclude: sectionsPreResolved);
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+        {
+            includeSections ??= [];
+            includeSections.UnionWith(
+                ApiMemberOverloadSectionDescriptors.CreatePipeline().GetEffectiveSections(
+                    type,
+                    effectiveVerbosity,
+                    options.IncludeSections,
+                    explicitInclude: sectionsPreResolved));
+        }
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -300,6 +310,12 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections.Count: 0
+            })
+            return true;
         if (options.IncludeSections is { Count: 1 })
             return true;
         if (!ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options))

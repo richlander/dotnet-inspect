@@ -306,6 +306,13 @@ public record MemberOptions : ApiOptions
     /// </summary>
     public bool MemberSectionsPreResolved { get; init; }
 
+    /// <summary>
+    /// True when a member-name inventory contained one overload and the command selected it to
+    /// produce requested detail evidence. The authored command remains an overload-inventory
+    /// query, so its advertised inventory sections stay valid alongside detail sections.
+    /// </summary>
+    internal bool AutoSelectedSingleOverload { get; init; }
+
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }

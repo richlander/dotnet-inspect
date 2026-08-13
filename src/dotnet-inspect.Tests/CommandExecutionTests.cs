@@ -4723,18 +4723,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_AutoSelectedDetail_RejectsInventoryOnlySections()
+    public async Task Member_AutoSelectedDetail_PreservesAdvertisedInventorySections()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.String.Clone", "--platform", "System.Runtime",
             "-S", SectionNames.Methods, "-S", SectionNames.Signature, "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Equal(string.Empty, output.Trim());
-        Assert.Contains(
-            $"Select value '{SectionNames.Methods}' not found.",
-            error,
-            StringComparison.Ordinal);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"## {SectionNames.Methods}", output);
+        Assert.Contains($"## {SectionNames.Signature}", output);
     }
 
     [Fact]
@@ -8109,6 +8107,56 @@ public partial class CommandExecutionTests
             fact.GetProperty("conditionality").GetString(),
             fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
             fact.GetProperty("origin").GetString());
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_IgnoresStaleSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections = [SectionNames.AnnotatedSourceDocument],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("name", out _));
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_RejectsAuthoritativeComposition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSourceDocument,
+                    SectionNames.Signature
+                ],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.",
+            result.Error);
     }
 
     [Fact]

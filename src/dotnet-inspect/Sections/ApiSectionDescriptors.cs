@@ -566,10 +566,10 @@ public static class ApiMemberSectionPipelines
     public static bool UsesOverloadInventoryPipeline(ApiOptions options)
         => options is MemberOptions
            {
-              OverloadIndex: null,
               MemberDigest: null,
               MemberFilter.Count: > 0
-           };
+           } member
+           && (member.OverloadIndex is null || member.AutoSelectedSingleOverload);
 }
 
 /// <summary>

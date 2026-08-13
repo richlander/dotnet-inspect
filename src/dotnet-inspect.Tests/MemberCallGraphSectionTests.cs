@@ -178,6 +178,32 @@ public class MemberCallGraphSectionTests
                 explicitInclude: true));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task EmptyPreResolvedSection_SelectsNoDefaultTabularRows(
+        bool tsv,
+        bool jsonl)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                IncludeSections = [],
+                Tabular = true,
+                Tsv = tsv,
+                Jsonl = jsonl,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Detailed
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(string.Empty, result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
     [Fact]
     public async Task PreResolvedDetailSection_IgnoresStaleAllSelectorDuringAutoSelection()
     {
@@ -287,6 +313,29 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.NotEqual(string.Empty, result.Output.Trim());
         Assert.DoesNotContain("Error:", result.Error);
+    }
+
+    [Fact]
+    public async Task ImplicitCallers_DoesNotInvalidateAuthoredInventorySection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                IncludeSections = [SectionNames.MemberIndex],
+                CallerScopeDirectories =
+                [
+                    Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!
+                ],
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains($"## {SectionNames.MemberIndex}", result.Output);
+        Assert.Contains($"## {SectionNames.Callers}", result.Output);
     }
 
     [Fact]

@@ -328,14 +328,28 @@ public static class TypeMatcher
             };
         }
 
-        // Exact match via Matches (handles namespace prefix, generic arity, case-insensitive)
-        // When pattern has generic notation (e.g., Option<T>), prefer matching arity
-        var patternArity = GetPatternArity(pattern);
+        // Exact match via Matches (handles namespace prefix, generic arity, case-insensitive).
         var matches = list.Where(c => Matches(c, pattern)).ToList();
 
         if (matches.Count > 0)
         {
+            // Preserve every nested segment's arity before falling back to the legacy
+            // single-arity preference below. Otherwise Outer`1.Inner`2 and
+            // Outer`1.Inner`3 both compare only as Outer`1 and the first sibling wins.
+            var normalizedPattern = NormalizeForLookup(pattern);
+            var exactNormalizedMatch = matches.FirstOrDefault(candidate =>
+            {
+                var normalizedCandidate = NormalizeForLookup(candidate);
+                return normalizedCandidate.Equals(
+                           normalizedPattern,
+                           StringComparison.OrdinalIgnoreCase)
+                       || EndsWithDottedSuffix(normalizedCandidate, normalizedPattern);
+            });
+            if (exactNormalizedMatch != null)
+                return new LookupResult(exactNormalizedMatch, []);
+
             // If pattern specified arity (e.g., Option<T>), prefer candidate with matching arity
+            var patternArity = GetPatternArity(pattern);
             if (patternArity >= 0)
             {
                 var arityMatch = matches.FirstOrDefault(c => GetGenericArity(c) == patternArity);
@@ -343,7 +357,6 @@ public static class TypeMatcher
                     return new LookupResult(arityMatch, []);
             }
 
-            var normalizedPattern = FqnParser.NormalizeTypeName(pattern);
             var exactSimpleNameMatch = matches.FirstOrDefault(c =>
                 GetGenericArity(GetSimpleName(c)) == 0
                 && GetSimpleName(c).Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase));

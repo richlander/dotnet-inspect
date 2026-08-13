@@ -66,6 +66,22 @@ public class SourceResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_BareNestedGenericType_ResolvesWholePlatformType()
+    {
+        const string typeName =
+            "System.Collections.Frozen.FrozenDictionary`2.AlternateLookup`1";
+
+        var source = await SourceResolver.ResolveAsync(
+            [typeName], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.Equal("System.Collections.Immutable", source.PlatformAssembly);
+        Assert.Equal(typeName, source.TypeName);
+        Assert.Null(source.PackagePath);
+        Assert.Null(source.AssemblyPath);
+    }
+
+    [Fact]
     public async Task ResolveAsync_UnknownBareName_KeepsPackageFallback()
     {
         SkipIfCoreLibUnavailable();

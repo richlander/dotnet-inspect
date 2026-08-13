@@ -414,26 +414,24 @@ public static class SourceResolver
             // Detect bare type names (e.g., "Dictionary`2", "List`1") passed without a source.
             // Backticks never appear in package names — they're .NET generic arity notation.
             // Try to auto-resolve the containing library from platform ref assemblies.
-            // Exception: if the value also contains a dot after the containing type's first
-            // backtick, it might be a Type.Member pattern (e.g., "List`1.ConvertAll`1"), so
-            // skip this check and let MemberOptionsParser handle the splitting.
+            // A dot after a backtick may be either a nested generic type or Type.Member.
+            // Resolve the whole value first so an exact nested type keeps its identity;
+            // only a miss falls through to MemberOptionsParser for member peeling.
             if (packagePath != null && typeName == null && packagePath.Contains('`'))
             {
-                // Check if this might be Type.Member (has a dot after the type part)
                 bool mightBeTypeDotMember = packagePath.LastIndexOf('.') > packagePath.IndexOf('`');
-                
-                if (!mightBeTypeDotMember)
+                PlatformTypeLookupOutcome lookup =
+                    PlatformResolver.LookupType(packagePath);
+                if (lookup is PlatformTypeLookupOutcome.Resolved resolved)
                 {
-                    PlatformTypeLookupOutcome lookup =
-                        PlatformResolver.LookupType(packagePath);
-                    if (lookup is PlatformTypeLookupOutcome.Resolved resolved)
-                    {
-                        typeName = packagePath;
-                        packagePath = null;
-                        platformAssembly =
-                            resolved.Candidate.Assembly.Identity.Name;
-                    }
-                    else if (lookup is PlatformTypeLookupOutcome.Missing)
+                    typeName = packagePath;
+                    packagePath = null;
+                    platformAssembly =
+                        resolved.Candidate.Assembly.Identity.Name;
+                }
+                else if (!mightBeTypeDotMember)
+                {
+                    if (lookup is PlatformTypeLookupOutcome.Missing)
                     {
                         // Convert backtick notation back to C#-style for display
                         var displayName = MetadataTypeNameFormatter.FormatGenericTypeName(packagePath);
