@@ -394,6 +394,7 @@ jobs:
             # checks registry/resource parity without paying for the full
             # product matrix. Other documents under skills/ need only linting.
             case "$file" in
+              .github/workflows/ci.yml) SKILLS=true ;;
               skills/*/*/SKILL.md) ;;
               skills/*/SKILL.md) SKILLS=true ;;
             esac

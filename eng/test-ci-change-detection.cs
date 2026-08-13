@@ -67,6 +67,18 @@ if (source["code"] != "true")
         $"Source canary did not select code: {FormatValues(source)}");
 }
 
+Dictionary<string, string> workflow = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    ".github/workflows/ci.yml",
+    outputs);
+if (workflow["code"] != "true" || workflow["skills"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Workflow canary did not select code and skills: {FormatValues(workflow)}");
+}
+
 Dictionary<string, string> skill = RunDetection(
     repository,
     body,
