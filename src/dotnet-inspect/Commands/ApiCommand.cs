@@ -1074,8 +1074,8 @@ public class ApiCommand
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes)
-                    .Replace("\r\n", "\n").Replace("\r", "\n");
+                content = NormalizeAuthoredSourceLineEndings(
+                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -1085,8 +1085,8 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes)
-                    .Replace("\r\n", "\n").Replace("\r", "\n");
+                content = NormalizeAuthoredSourceLineEndings(
+                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
@@ -1096,7 +1096,9 @@ public class ApiCommand
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum);
-                content = fetch.Text?.ReplaceLineEndings("\n");
+                content = fetch.Text is null
+                    ? null
+                    : NormalizeAuthoredSourceLineEndings(fetch.Text);
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
@@ -1118,6 +1120,11 @@ public class ApiCommand
             return new ResolvedMethodSource(null, null);
         }
     }
+
+    internal static string NormalizeAuthoredSourceLineEndings(string content)
+        // Normalize only CR/LF forms. Other characters recognized by string.ReplaceLineEndings,
+        // including form feed, are not C# physical line breaks and must not shift PDB coordinates.
+        => content.Replace("\r\n", "\n").Replace('\r', '\n');
 
     internal static ResolvedMethodSource SliceResolvedMethodSource(
         string content,

@@ -5132,6 +5132,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void OriginalSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
+    {
+        const string source =
+            "class C\n{\n"
+            + "    string S = @\"a\fb\";\n"
+            + "    void A() { }\n"
+            + "    void B() { }\n"
+            + "}";
+
+        string normalized = ApiCommand.NormalizeAuthoredSourceLineEndings(source);
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            normalized,
+            startLine: 4,
+            endLine: 4,
+            methodName: "A",
+            sourceLocation: "fixture.cs",
+            pdbPath: null);
+
+        Assert.Contains('\f', normalized);
+        Assert.Equal("void A() { }", resolved.Source?.SourceCode);
+    }
+
+    [Fact]
     public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
     {
         string source = "class C { void M() { "
