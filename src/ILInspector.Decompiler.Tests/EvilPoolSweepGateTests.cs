@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -232,7 +233,10 @@ public class EvilPoolSweepGateTests
     {
         using var world = SweepWorld.Create();
         byte[] impostor = [.. world.FixtureBytes, 0];
-        File.WriteAllBytes(world.CachedAssemblyPath, impostor);
+        // Plant a still-admissible package (extract + retained nupkg match). Product-owned
+        // slots refuse extract-only mutation as MissingArchive; pin-mismatch needs the
+        // cache to answer with different bytes that still pass admission.
+        world.PlantCachedAssembly(world.CachedAssemblyPath, impostor);
 
         var sweep = world.Run();
 
@@ -316,7 +320,7 @@ public class EvilPoolSweepGateTests
     public void ASweepRefusesBytesThePinDoesNotNameAtTheFirstRankToo()
     {
         using var world = SweepWorld.Create();
-        File.WriteAllBytes(world.LeadCachedAssemblyPath, [.. world.LeadBytes, 0]);
+        world.PlantCachedAssembly(world.LeadCachedAssemblyPath, [.. world.LeadBytes, 0]);
 
         var sweep = world.Run();
 
@@ -1790,10 +1794,59 @@ public class EvilPoolSweepGateTests
         /// </summary>
         public void ReplaceSubjectBytesAndPin(byte[] bytes)
         {
-            File.WriteAllBytes(CachedAssemblyPath, bytes);
+            PlantCachedAssembly(CachedAssemblyPath, bytes);
             WriteListAndPin(
                 Path.Combine(FakeRoot, "docs", "data"), FixturePackage, FixtureVersion, FixtureTfm,
                 Sha256Of(bytes));
+        }
+
+        /// <summary>
+        /// Overwrites a committed assembly and rebuilds the retained <c>.nupkg</c> so the
+        /// product-owned slot still admits (archive tree match). Extract-only mutation is
+        /// rejected as <c>MissingArchive</c>; pin and pool cases need an answering package.
+        /// </summary>
+        public void PlantCachedAssembly(string assemblyPath, byte[] bytes)
+        {
+            File.WriteAllBytes(assemblyPath, bytes);
+
+            // .../id/ver/sourceKey/lib/tfm/assembly.dll → package root
+            string packageRoot = Path.GetFullPath(
+                Path.Combine(assemblyPath, "..", "..", ".."));
+            string markerPath = Path.Combine(
+                packageRoot,
+                NuGetCache.CommitMarkerFileName);
+            string? marker = File.Exists(markerPath)
+                ? File.ReadAllText(markerPath)
+                : null;
+            if (File.Exists(markerPath))
+                File.Delete(markerPath);
+
+            foreach (string existing in Directory.GetFiles(packageRoot, "*.nupkg"))
+                File.Delete(existing);
+
+            var dir = new DirectoryInfo(packageRoot);
+            string version = dir.Parent!.Name;
+            string id = dir.Parent.Parent!.Name;
+            string nupkgPath = Path.Combine(packageRoot, $"{id}.{version}.nupkg");
+            string tempNupkg = Path.Combine(
+                Path.GetTempPath(),
+                $"evil-pool-plant-{Guid.NewGuid():N}.nupkg");
+            try
+            {
+                ZipFile.CreateFromDirectory(
+                    packageRoot,
+                    tempNupkg,
+                    CompressionLevel.NoCompression,
+                    includeBaseDirectory: false);
+                File.Move(tempNupkg, nupkgPath);
+            }
+            finally
+            {
+                if (File.Exists(tempNupkg))
+                    File.Delete(tempNupkg);
+                if (marker is not null)
+                    File.WriteAllText(markerPath, marker);
+            }
         }
 
         /// <summary>

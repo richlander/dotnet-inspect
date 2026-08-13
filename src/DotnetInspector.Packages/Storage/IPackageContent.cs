@@ -40,6 +40,23 @@ public interface IPackageContent
     string ProducerKey { get; }
 
     /// <summary>
+    /// When true, admission must require archive/tree matching for any
+    /// extracted root paired with a retained archive. This is immutable store
+    /// provenance (product-owned app-cache commit), not a re-read of the
+    /// commit marker file — so concurrent marker deletion cannot downgrade
+    /// product-owned content to foreign walk-only gates.
+    /// </summary>
+    bool RequiresArchiveTreeMatch { get; }
+
+    /// <summary>
+    /// Opens the retained package archive so a caller can apply its current
+    /// admission limits. Returns <c>false</c> when the cache entry has no
+    /// retained archive; admission then falls back to measuring the extracted
+    /// tree when <see cref="RootPath"/> is present.
+    /// </summary>
+    bool TryOpenArchive([NotNullWhen(true)] out Stream? stream);
+
+    /// <summary>
     /// Opens a package entry addressed by its <c>/</c>-separated, package-root
     /// relative path (for example <c>lib/net8.0/Foo.dll</c>). Returns
     /// <c>false</c> when no such entry exists.

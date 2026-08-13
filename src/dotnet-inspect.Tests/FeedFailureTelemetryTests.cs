@@ -175,6 +175,60 @@ public class FeedFailureTelemetryTests
     }
 
     /// <summary>
+    /// Nested scopes isolate <see cref="FeedFailureTelemetry.Current"/> while
+    /// they run (so a per-source Failed/Absent decision is not poisoned by a
+    /// sibling source) but must still merge into the parent on dispose so a
+    /// 401 is not reported as "package not found".
+    /// </summary>
+    [Fact]
+    public void NestedScope_IsolatesCurrentThenMergesIntoParentOnDispose()
+    {
+        using var outer = FeedFailureTelemetry.Scope();
+        FeedFailureTelemetry.Record(
+            "https://outer.example/v3/index.json",
+            HttpStatusCode.Forbidden);
+
+        using (FeedFailureTelemetry.Scope())
+        {
+            FeedFailureTelemetry.Record(
+                "https://inner.example/v3/index.json",
+                HttpStatusCode.Unauthorized);
+            Assert.True(FeedFailureTelemetry.Current!.HasFailures);
+            Assert.Contains(
+                "inner.",
+                Assert.Single(FeedFailureTelemetry.Current.Failures)
+                    .Url
+                    .ToString(),
+                StringComparison.Ordinal);
+        }
+
+        Assert.Equal(2, FeedFailureTelemetry.Current!.Failures.Count);
+        string described = FeedFailureTelemetry.Current
+            .DescribeFailure("markout")!
+            .Value
+            .ToString();
+        Assert.Contains("requires credentials", described, StringComparison.Ordinal);
+        Assert.Contains("inner.", described, StringComparison.Ordinal);
+        Assert.Contains("outer.", described, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedScope_CanDiscardFailuresWhenMergeDisabled()
+    {
+        using var outer = FeedFailureTelemetry.Scope();
+        using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
+        {
+            FeedFailureTelemetry.Record(
+                "https://search.example/query",
+                HttpStatusCode.InternalServerError);
+            Assert.True(FeedFailureTelemetry.Current!.HasFailures);
+        }
+
+        Assert.False(FeedFailureTelemetry.Current!.HasFailures);
+        Assert.Null(FeedFailureTelemetry.Current.DescribeFailure("markout"));
+    }
+
+    /// <summary>
     /// The failure text is printed to the console, and a source URL can carry a secret: operators
     /// do try userinfo in the URL (the auth design doc calls it out), and feeds hand out tokens as
     /// query parameters. A URL recorded verbatim would print that secret. Redaction happens on the
@@ -248,7 +302,7 @@ public class FeedFailureTelemetryTests
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal(
-            "//private.example/F/auth/REDACTED/api?access_token=REDACTED",
+            "//private.example/F/auth/REDACTED/api?REDACTED",
             failure.Url.ToString());
     }
 
@@ -265,7 +319,7 @@ public class FeedFailureTelemetryTests
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal(
-            "https://[invalid.example/F/auth/REDACTED/api?access_token=REDACTED",
+            "<unparsable-url>?REDACTED",
             failure.Url.ToString());
     }
 
@@ -286,7 +340,7 @@ public class FeedFailureTelemetryTests
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.DoesNotContain(Secret, failure.Url.ToString(), StringComparison.Ordinal);
         Assert.Equal(
-            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            "https:///F/feed/auth/REDACTED/api?REDACTED",
             failure.Url.ToString());
     }
 

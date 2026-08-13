@@ -12,6 +12,8 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public sealed class InMemoryPackageContent : IPackageContent
 {
+    const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
+
     private readonly byte[] _nupkgBytes;
     private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
 
@@ -44,8 +46,22 @@ public sealed class InMemoryPackageContent : IPackageContent
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// In-memory content has no extracted tree; archive validation alone
+    /// admits the payload.
+    /// </remarks>
+    public bool RequiresArchiveTreeMatch => false;
+
+    /// <inheritdoc />
+    public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
+    {
+        stream = new MemoryStream(_nupkgBytes, writable: false);
+        return true;
+    }
+
+    /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
-        => TryOpenEntry(relativePath, Array.MaxLength, out stream);
+        => TryOpenEntry(relativePath, MaxEntryMaterializationBytes, out stream);
 
     /// <summary>
     /// Opens one expanded entry only when its declared and observed lengths fit within
@@ -67,8 +83,15 @@ public sealed class InMemoryPackageContent : IPackageContent
             return false;
         }
 
-        if (entry.Length > maxExpandedBytes || entry.Length > Array.MaxLength)
+        long effectiveLimit = Math.Min(
+            maxExpandedBytes,
+            MaxEntryMaterializationBytes);
+        if (entry.Length < 0
+            || entry.Length > effectiveLimit
+            || entry.Length > Array.MaxLength)
+        {
             throw new InvalidDataException("Package entry exceeds the configured byte limit.");
+        }
 
         byte[] bytes = GC.AllocateUninitializedArray<byte>((int)entry.Length);
         using var entryStream = entry.Open();
@@ -109,7 +132,6 @@ public sealed class InMemoryPackageContent : IPackageContent
     /// </summary>
     public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
         => _entries.Value;
-
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>
         EnumerateEntriesWithLengths().Select(entry => entry.Path);

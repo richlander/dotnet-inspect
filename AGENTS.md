@@ -109,7 +109,8 @@ change ready to merge.
 | Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
-| Decompiler behavior or harnesses | `docs/decompiler-correctness-pipeline.md` |
+| Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
+| Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Release and publishing | `docs/release-workflow.md` |
