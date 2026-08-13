@@ -41,31 +41,27 @@ public sealed class FileSystemPackageStore : IPackageStore
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
-        IReadOnlyList<CachedPackage> candidates;
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+        // Lazy tiers: do not materialize global-packages until the caller
+        // advances past earlier candidates (typically after admission reject).
+        foreach (CachedPackage cached in NuGetCache.EnumerateCachedPackageContent(
+                     normalizedName,
+                     normalizedVersion,
+                     allowedSourceKeys))
         {
-            candidates = NuGetCache.ListCachedPackageContent(
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
-        }
-
-        // Layout/archive admission is PackageContentAdmission's job. Returning
-        // each slot even when damaged lets the caller try the next tier and
-        // still surface a typed offline diagnostic when none admit.
-        foreach (CachedPackage cached in candidates)
-        {
-            log?.Invoke($"Using cached package: {cached.ExtractPath}");
-            var cachedNupkg = FindNupkgInDirectory(
-                cached.ExtractPath,
-                normalizedName,
-                normalizedVersion);
-            yield return new FileSystemPackageContent(
-                cached.ExtractPath,
-                cachedNupkg,
-                fromCache: true,
-                cached.ProducerKey,
-                requiresArchiveTreeMatch: cached.RequiresArchiveTreeMatch);
+            using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+            {
+                log?.Invoke($"Using cached package: {cached.ExtractPath}");
+                var cachedNupkg = FindNupkgInDirectory(
+                    cached.ExtractPath,
+                    normalizedName,
+                    normalizedVersion);
+                yield return new FileSystemPackageContent(
+                    cached.ExtractPath,
+                    cachedNupkg,
+                    fromCache: true,
+                    cached.ProducerKey,
+                    requiresArchiveTreeMatch: cached.RequiresArchiveTreeMatch);
+            }
         }
     }
 

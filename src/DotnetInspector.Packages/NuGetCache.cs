@@ -177,21 +177,41 @@ public static class NuGetCache
         IReadOnlyList<string>? allowedSourceKeys,
         string? globalPackagesPath = null)
     {
-        IReadOnlyList<CachedPackage> candidates = ListCachedPackageContent(
-            packageName,
-            version,
-            allowedSourceKeys,
-            globalPackagesPath);
-        return candidates.Count == 0 ? null : candidates[0];
+        foreach (CachedPackage candidate in EnumerateCachedPackageContent(
+                     packageName,
+                     version,
+                     allowedSourceKeys,
+                     globalPackagesPath))
+        {
+            return candidate;
+        }
+
+        return null;
     }
 
     /// <summary>
-    /// Cache tiers for a coordinate, preferred order: product-owned app-cache
-    /// slots (configured producer order), then NuGet global-packages. Listing
-    /// both lets admission fall through a damaged global extract to a usable
-    /// app-cache entry for the same producer.
+    /// Materializes <see cref="EnumerateCachedPackageContent"/> (tests / callers
+    /// that need the full tier set). Prefer the lazy enumerator on admission
+    /// paths so global-packages is not touched when an earlier tier admits.
     /// </summary>
     internal static IReadOnlyList<CachedPackage> ListCachedPackageContent(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        string? globalPackagesPath = null)
+        => [.. EnumerateCachedPackageContent(
+            packageName,
+            version,
+            allowedSourceKeys,
+            globalPackagesPath)];
+
+    /// <summary>
+    /// Cache tiers for a coordinate, preferred order: product-owned app-cache
+    /// slots (configured producer order), then NuGet global-packages. Yields
+    /// lazily so a usable app-cache hit never opens global
+    /// <c>.nupkg.metadata</c> or inspects a corrupt foreign tree.
+    /// </summary>
+    internal static IEnumerable<CachedPackage> EnumerateCachedPackageContent(
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
@@ -203,7 +223,7 @@ public static class NuGetCache
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{normalizedVersion}";
-        List<CachedPackage> candidates = [];
+        bool any = false;
 
         // App cache first: product-owned and preferred when both tiers exist.
         // A read happens before the tool knows which source would serve the
@@ -230,16 +250,26 @@ public static class NuGetCache
                     normalizedVersion,
                     sourceKey))
                 {
-                    candidates.Add(
-                        new CachedPackage(
-                            appPackageDir,
-                            sourceKey,
-                            RequiresArchiveTreeMatch: true));
+                    if (!any)
+                    {
+                        any = true;
+                        InfoTracker.RecordCacheHit();
+                        CacheTelemetry.Record(
+                            "packages",
+                            cacheKey,
+                            CacheAccessResult.Hit);
+                    }
+
+                    yield return new CachedPackage(
+                        appPackageDir,
+                        sourceKey,
+                        RequiresArchiveTreeMatch: true);
                 }
             }
         }
 
-        // Global-packages last so a rejected foreign tree does not mask app-cache.
+        // Global-packages only after the caller has exhausted earlier tiers
+        // (admission rejected them or none existed).
         if (!_skipNuGetCache)
         {
             var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
@@ -249,24 +279,26 @@ public static class NuGetCache
                 normalizedVersion,
                 allowedSourceKeys);
             if (global is not null)
-                candidates.Add(global);
+            {
+                if (!any)
+                {
+                    any = true;
+                    InfoTracker.RecordCacheHit();
+                    CacheTelemetry.Record(
+                        "nuget-global-packages",
+                        cacheKey,
+                        CacheAccessResult.Hit);
+                }
+
+                yield return global;
+            }
         }
 
-        if (candidates.Count == 0)
+        if (!any)
         {
             CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
             InfoTracker.RecordCacheMiss();
-            return candidates;
         }
-
-        InfoTracker.RecordCacheHit();
-        CacheTelemetry.Record(
-            candidates[0].RequiresArchiveTreeMatch
-                ? "packages"
-                : "nuget-global-packages",
-            cacheKey,
-            CacheAccessResult.Hit);
-        return candidates;
     }
 
     internal static CachedPackage? TryGetGlobalPackageContent(
@@ -297,6 +329,13 @@ public static class NuGetCache
             RequiresArchiveTreeMatch: false);
     }
 
+    /// <summary>
+    /// Hard cap on NuGet's <c>.nupkg.metadata</c> sidecar. Real files are tiny
+    /// JSON; an unbounded read would let a hostile global-packages tree OOM
+    /// the host when the tier is consulted.
+    /// </summary>
+    internal const int MaxGlobalPackageMetadataBytes = 64 * 1024;
+
     private static bool TryReadGlobalPackageSourceKey(
         string packageDirectory,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey)
@@ -304,7 +343,43 @@ public static class NuGetCache
         string metadataPath = Path.Combine(packageDirectory, ".nupkg.metadata");
         try
         {
-            byte[] metadata = File.ReadAllBytes(metadataPath);
+            var info = new FileInfo(metadataPath);
+            if (!info.Exists
+                || info.Length <= 0
+                || info.Length > MaxGlobalPackageMetadataBytes)
+            {
+                sourceKey = null;
+                return false;
+            }
+
+            byte[] metadata = new byte[checked((int)info.Length)];
+            using (FileStream stream = new(
+                metadataPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                int offset = 0;
+                while (offset < metadata.Length)
+                {
+                    int read = stream.Read(metadata.AsSpan(offset));
+                    if (read == 0)
+                    {
+                        sourceKey = null;
+                        return false;
+                    }
+
+                    offset += read;
+                }
+
+                // One more byte means the file grew past the admitted length.
+                if (stream.ReadByte() != -1)
+                {
+                    sourceKey = null;
+                    return false;
+                }
+            }
+
             using var document = HardenedJson.Parse(metadata);
             if (!document.RootElement.TryGetProperty("source", out var source)
                 || source.ValueKind != System.Text.Json.JsonValueKind.String
@@ -321,7 +396,8 @@ public static class NuGetCache
             IOException
             or UnauthorizedAccessException
             or System.Text.Json.JsonException
-            or InvalidOperationException)
+            or InvalidOperationException
+            or OverflowException)
         {
             sourceKey = null;
             return false;

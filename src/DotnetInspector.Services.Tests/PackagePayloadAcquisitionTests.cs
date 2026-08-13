@@ -465,6 +465,19 @@ public sealed class PackagePayloadAcquisitionTests
                 Path.DirectorySeparatorChar + sourceKey,
                 listed[0].ExtractPath,
                 StringComparison.Ordinal);
+
+            // Lazy path: taking only the first candidate must not depend on
+            // global-packages metadata being readable.
+            File.WriteAllBytes(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                new byte[NuGetCache.MaxGlobalPackageMetadataBytes + 1]);
+            CachedPackage? firstOnly = NuGetCache.TryGetCachedPackageContent(
+                PackageId,
+                Version,
+                [sourceKey],
+                globalPackagesPath: globalRoot);
+            Assert.NotNull(firstOnly);
+            Assert.True(firstOnly!.RequiresArchiveTreeMatch);
         }
         finally
         {
@@ -474,6 +487,43 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(globalRoot, recursive: true);
             if (Directory.Exists(stagingRoot))
                 Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GlobalPackageMetadata_OverMaxBytes_IsIgnored()
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            File.WriteAllBytes(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                new byte[NuGetCache.MaxGlobalPackageMetadataBytes + 8]);
+
+            Assert.Null(
+                NuGetCache.TryGetGlobalPackageContent(
+                    globalRoot,
+                    PackageId.ToLowerInvariant(),
+                    Version.ToLowerInvariant(),
+                    [sourceKey]));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
         }
     }
 
