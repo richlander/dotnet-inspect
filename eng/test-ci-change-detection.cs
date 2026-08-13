@@ -104,8 +104,12 @@ foreach ((string json, string count) in new[]
     ("[{\"status\":\"modified\",\"filename\":\"/src/Program.cs\"}]", "1"),
     ("[{\"status\":\"modified\",\"filename\":\"src/\"}]", "1"),
     ("[{\"status\":\"modified\",\"filename\":\"src//Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"./src/Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"../src/Program.cs\"}]", "1"),
     ("[{\"status\":\"modified\",\"filename\":\"src/./Program.cs\"}]", "1"),
     ("[{\"status\":\"modified\",\"filename\":\"src/../Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"src/.\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"src/..\"}]", "1"),
 })
 {
     Dictionary<string, string> malformed = RunDetection(
