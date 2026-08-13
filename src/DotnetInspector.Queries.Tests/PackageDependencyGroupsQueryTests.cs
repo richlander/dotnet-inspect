@@ -7,6 +7,51 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class PackageDependencyGroupsQueryTests
 {
+    [Theory]
+    [InlineData("1.0.0", "(1.0.0, 3.0.0]", false)]
+    [InlineData("3.0.0", "(1.0.0, 3.0.0]", true)]
+    [InlineData("2.9.0", "2.*", true)]
+    [InlineData("3.0.0", "2.*", false)]
+    public void DependencyVersionRange_UsesNuGetSemantics(
+        string version,
+        string range,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PackageDependencyVersionRange.Satisfies(version, range));
+    }
+
+    [Fact]
+    public void DependencyVersionRange_SelectsNuGetBestPublishedMatch()
+    {
+        Assert.Equal(
+            "2.0.0",
+            PackageDependencyVersionRange.SelectBestSatisfying(
+                ["3.0.0", "2.0.0", "1.9.0", "2.1.0"],
+                "[2.0.0, 3.0.0)"));
+        Assert.Equal(
+            "2.1.0",
+            PackageDependencyVersionRange.SelectBestSatisfying(
+                ["3.0.0", "2.0.0", "1.9.0", "2.1.0"],
+                "2.*"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsInvalidDeclaredVersionRange()
+    {
+        InMemoryPackageContent content = Content(
+            ("Example.Package.nuspec", Manifest(
+                """
+                <dependency id="Broken.Dependency" version="not-a-range" />
+                """)));
+
+        Exception error = Failed(
+            await ExecuteAsync(content, "Example.Package", "net8.0"));
+
+        Assert.IsType<InvalidDataException>(error);
+    }
+
     [Fact]
     public async Task ExecuteAsync_ProjectsDeclaredGroupsAndExactSelection()
     {

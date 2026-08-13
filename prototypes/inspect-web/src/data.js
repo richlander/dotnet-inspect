@@ -46,6 +46,25 @@ export function assemblyDescriptorForType(assemblies, type) {
     || assembly.name === `${bare}.dll`) ?? null;
 }
 
+export function uniqueCompatiblePackage(
+  packages,
+  packageId,
+  declaredRange,
+  versionSatisfies) {
+  const matches = packages.filter(candidate =>
+    candidate.id.toLowerCase() === packageId.toLowerCase()
+    && versionSatisfies(candidate.version, declaredRange));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function dependencyGraphPackageKey(pkg) {
+  return `open\u0000${packageIdentityKey(pkg)}`;
+}
+
+export function dependencyGraphExternalKey(packageId, declaredRange) {
+  return `external\u0000${packageId.toLowerCase()}\u0000${declaredRange || ""}`;
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {

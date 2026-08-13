@@ -8,6 +8,8 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   dependencyGroupSelectionMessage,
+  dependencyGraphExternalKey,
+  dependencyGraphPackageKey,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -29,6 +31,7 @@ import {
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
+  uniqueCompatiblePackage,
   workspaceCoordinatesMatch
 } from "../src/data.js";
 
@@ -37,6 +40,38 @@ const packageAt = (version, framework, types = 1) => ({
   version,
   activeFramework: framework,
   types: Array.from({ length: types }, (_, index) => ({ id: `Type${index}` }))
+});
+
+test("dependency coordinates require one compatible open package", () => {
+  const packages = [
+    packageAt("1.0.0", "net8.0"),
+    packageAt("2.0.0", "net8.0"),
+    packageAt("2.0.0", "net9.0")
+  ];
+  const satisfies = (version, range) =>
+    range === "2.*" ? version.startsWith("2.") : version === range;
+
+  assert.equal(
+    uniqueCompatiblePackage(packages, "example.package", "1.0.0", satisfies),
+    packages[0]);
+  assert.equal(
+    uniqueCompatiblePackage(packages, "Example.Package", "2.*", satisfies),
+    null);
+  assert.equal(
+    uniqueCompatiblePackage(packages, "Example.Package", "3.0.0", satisfies),
+    null);
+});
+
+test("dependency graph keys preserve complete coordinates and declared ranges", () => {
+  assert.notEqual(
+    dependencyGraphPackageKey(packageAt("1.0.0", "net8.0")),
+    dependencyGraphPackageKey(packageAt("2.0.0", "net8.0")));
+  assert.notEqual(
+    dependencyGraphPackageKey(packageAt("2.0.0", "net8.0")),
+    dependencyGraphPackageKey(packageAt("2.0.0", "net9.0")));
+  assert.notEqual(
+    dependencyGraphExternalKey("Example.Package", "[1.0.0]"),
+    dependencyGraphExternalKey("Example.Package", "2.*"));
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");

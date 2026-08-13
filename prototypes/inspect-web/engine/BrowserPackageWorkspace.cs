@@ -337,6 +337,19 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    internal static async Task<string> ResolveDependencyVersionAsync(
+        string packageId,
+        string? declaredRange)
+    {
+        string[] versions = await GetVersionsAsync(packageId);
+        return PackageDependencyVersionRange.SelectBestSatisfying(
+                versions,
+                declaredRange)
+            ?? throw new InvalidOperationException(
+                $"Package '{packageId}' has no published version satisfying "
+                + $"the declared range '{declaredRange}'.");
+    }
+
     static ImmutableHashSet<string> RetainCoordinatePackages(
         IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {

@@ -3,6 +3,8 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   dependencyGroupSelectionMessage,
+  dependencyGraphExternalKey,
+  dependencyGraphPackageKey,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   lenses,
@@ -26,11 +28,12 @@ import {
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
+  uniqueCompatiblePackage,
   workspaceCoordinatesMatch
 } from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPackageVersions, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { dependencyVersionSatisfies, initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPackageVersions, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource, resolveDependencyVersion } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -1619,17 +1622,20 @@ function assemblyReferencesSectionHtml(data) {
 function dependencyListSectionHtml(groups, selectedGroupIndex) {
   const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
   const deps = group.dependencies || [];
-  const openIds = new Set(state.packages.map(item => item.id.toLowerCase()));
   return `
     <section class="document-section" id="dep-list-section">
       <div class="section-title"><h2>NuGet dependencies</h2><span>${escapeHtml(group.framework)} · ${deps.length} package${deps.length === 1 ? "" : "s"}</span></div>
       ${deps.length
         ? `<ul class="dep-list">${deps.map(dependency => {
-            const isOpen = openIds.has(dependency.id.toLowerCase());
-            const attrs = isOpen
-              ? `data-dep-open="${escapeHtml(dependency.id)}" title="Switch to ${escapeHtml(dependency.id)}"`
+            const open = uniqueCompatiblePackage(
+              state.packages,
+              dependency.id,
+              dependency.versionRange,
+              dependencyVersionSatisfies);
+            const attrs = open
+              ? `data-dep-open="${escapeHtml(packageIdentityKey(open))}" title="Switch to ${escapeHtml(dependency.id)}"`
               : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
-            return `<li><button class="dep-name as-link${isOpen ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+            return `<li><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
@@ -6225,60 +6231,92 @@ function relatedTypeChip(name) {
 function buildDependencyGraphMermaid() {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
-  const centerId = state.package.id;
-  const centerKey = centerId.toLowerCase();
-  const openById = new Map(state.packages.map(item => [item.id.toLowerCase(), item]));
-
   const nodeInfo = new Map();
-  const ensureNode = (id, versionRange) => {
-    const key = id.toLowerCase();
+  const openPackageNode = (pkg, kind = "open") => {
+    const packageKey = packageIdentityKey(pkg);
+    const key = dependencyGraphPackageKey(pkg);
     if (!nodeInfo.has(key)) {
-      const open = openById.get(key);
-      const kind = key === centerKey ? "self" : (open ? "open" : "external");
-      nodeInfo.set(key, { id, kind, versionRange: versionRange || "" });
+      const sameIdCount = state.packages.filter(candidate =>
+        candidate.id.toLowerCase() === pkg.id.toLowerCase()).length;
+      nodeInfo.set(key, {
+        key,
+        id: pkg.id,
+        kind,
+        packageKey,
+        versionRange: "",
+        label: sameIdCount > 1
+          ? `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`
+          : pkg.id
+      });
     }
     return nodeInfo.get(key);
   };
-  ensureNode(centerId);
+  const dependencyNode = dependency => {
+    const open = uniqueCompatiblePackage(
+      state.packages,
+      dependency.id,
+      dependency.versionRange,
+      dependencyVersionSatisfies);
+    if (open) return openPackageNode(open);
+
+    const versionRange = dependency.versionRange || "";
+    const key = dependencyGraphExternalKey(dependency.id, versionRange);
+    if (!nodeInfo.has(key)) {
+      nodeInfo.set(key, {
+        key,
+        id: dependency.id,
+        kind: "external",
+        packageKey: "",
+        versionRange,
+        label: versionRange
+          ? `${dependency.id} ${versionRange}`
+          : dependency.id
+      });
+    }
+    return nodeInfo.get(key);
+  };
+  openPackageNode(state.package, "self");
 
   const edgeSet = new Set();
   const edges = [];
-  const addEdge = (fromId, toId) => {
-    const key = `${fromId.toLowerCase()}\u0000${toId.toLowerCase()}`;
+  const addEdge = (from, to) => {
+    const key = `${from.key}\u0001${to.key}`;
     if (edgeSet.has(key)) return;
     edgeSet.add(key);
-    edges.push({ from: fromId.toLowerCase(), to: toId.toLowerCase() });
+    edges.push({ from: from.key, to: to.key });
   };
 
-  const groupFor = (id, version) => {
-    if (id.toLowerCase() === centerKey) {
+  const groupFor = pkg => {
+    if (packageIdentityKey(pkg) === packageIdentityKey(state.package)) {
       return selectedDependencyGroup(state.packageDependencies);
     }
 
-    const open = openById.get(id.toLowerCase());
-    const data = open
-      ? state.workspaceDependencies[workspaceDependencyKey(open)]
-      : null;
+    const data = state.workspaceDependencies[workspaceDependencyKey(pkg)];
     return selectedDependencyGroup(data);
   };
 
   // Callees: walk the centre's dependencies, expanding any dependency that is itself an
   // open package (only open packages have cached manifests to walk further).
-  let downFrontier = [{ id: centerId, version: state.package.version }];
-  const downVisited = new Set([centerKey]);
+  let downFrontier = [state.package];
+  const downVisited = new Set([packageIdentityKey(state.package)]);
   for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && nodeInfo.size < MAX_NODES; depth++) {
     const next = [];
-    for (const node of downFrontier) {
-      const group = groupFor(node.id, node.version);
+    for (const pkg of downFrontier) {
+      const group = groupFor(pkg);
       if (!group) continue;
+      const source = openPackageNode(
+        pkg,
+        packageIdentityKey(pkg) === packageIdentityKey(state.package)
+          ? "self"
+          : "open");
       for (const dependency of group.dependencies || []) {
-        ensureNode(dependency.id, dependency.versionRange);
-        addEdge(node.id, dependency.id);
-        const depKey = dependency.id.toLowerCase();
-        if (!downVisited.has(depKey)) {
-          downVisited.add(depKey);
-          const open = openById.get(depKey);
-          if (open) next.push({ id: open.id, version: open.version });
+        const target = dependencyNode(dependency);
+        addEdge(source, target);
+        if (target.packageKey && !downVisited.has(target.packageKey)) {
+          downVisited.add(target.packageKey);
+          const open = state.packages.find(candidate =>
+            packageIdentityKey(candidate) === target.packageKey);
+          if (open) next.push(open);
         }
       }
     }
@@ -6286,23 +6324,31 @@ function buildDependencyGraphMermaid() {
   }
 
   // Callers: open packages that (transitively) declare a dependency on a frontier node.
-  let upFrontier = [centerId];
-  const upVisited = new Set([centerKey]);
+  let upFrontier = [state.package];
+  const upVisited = new Set([packageIdentityKey(state.package)]);
   for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && nodeInfo.size < MAX_NODES; depth++) {
     const next = [];
-    for (const targetId of upFrontier) {
-      const targetKey = targetId.toLowerCase();
+    for (const targetPackage of upFrontier) {
+      const target = openPackageNode(
+        targetPackage,
+        packageIdentityKey(targetPackage) === packageIdentityKey(state.package)
+          ? "self"
+          : "open");
       for (const pkg of state.packages) {
-        const pkgKey = pkg.id.toLowerCase();
-        if (pkgKey === targetKey) continue;
-        const group = groupFor(pkg.id, pkg.version);
+        const pkgKey = packageIdentityKey(pkg);
+        if (pkgKey === target.packageKey) continue;
+        const group = groupFor(pkg);
         if (!group) continue;
-        if ((group.dependencies || []).some(dependency => dependency.id.toLowerCase() === targetKey)) {
-          ensureNode(pkg.id);
-          addEdge(pkg.id, targetId);
+        if ((group.dependencies || []).some(dependency =>
+          dependency.id.toLowerCase() === targetPackage.id.toLowerCase()
+          && dependencyVersionSatisfies(
+            targetPackage.version,
+            dependency.versionRange))) {
+          const caller = openPackageNode(pkg);
+          addEdge(caller, target);
           if (!upVisited.has(pkgKey)) {
             upVisited.add(pkgKey);
-            next.push(pkg.id);
+            next.push(pkg);
           }
         }
       }
@@ -6318,7 +6364,7 @@ function buildDependencyGraphMermaid() {
   const lines = ["flowchart TD"];
   for (const key of keys) {
     const info = nodeInfo.get(key);
-    const label = mermaidLabel(info.id);
+    const label = mermaidLabel(info.label);
     lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
   }
   for (const edge of edges) {
@@ -6327,7 +6373,7 @@ function buildDependencyGraphMermaid() {
   lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  const nodeInfoByLabel = new Map([...nodeInfo.values()].map(info => [info.id, info]));
+  const nodeInfoByLabel = new Map([...nodeInfo.values()].map(info => [info.label, info]));
   return { definition: lines.join("\n"), nodeInfoByLabel };
 }
 
@@ -6391,7 +6437,7 @@ async function renderDependencyGraph() {
       node.classList.add("nav-node");
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
-        if (info.kind === "open") switchToPackageForDependencies(info.id);
+        if (info.kind === "open") switchToPackageForDependencies(info.packageKey);
         else openDependencyPackage(info.id, info.versionRange);
       });
     });
@@ -6408,8 +6454,9 @@ async function renderDependencyGraph() {
   }
 }
 
-function switchToPackageForDependencies(packageId) {
-  const target = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
+function switchToPackageForDependencies(packageKey) {
+  const target = state.packages.find(item =>
+    packageIdentityKey(item) === packageKey);
   if (!target) return;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
@@ -6420,22 +6467,18 @@ function switchToPackageForDependencies(packageId) {
   render();
 }
 
-// Extracts a concrete version to load from a NuGet dependency range. Ranges are usually a
-// bare minimum ("10.0.10", meaning >=), sometimes bracketed ("[10.0.0, )"); pull the first
-// version token and fall back to "latest" when it can't be parsed.
-function dependencyVersion(range) {
-  if (!range) return "latest";
-  const match = String(range).match(/\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?/);
-  return match ? match[0] : "latest";
-}
-
 async function openDependencyPackage(packageId, versionRange) {
-  const existing = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
+  const existing = uniqueCompatiblePackage(
+    state.packages,
+    packageId,
+    versionRange,
+    dependencyVersionSatisfies);
   if (existing) {
-    switchToPackageForDependencies(existing.id);
+    switchToPackageForDependencies(packageIdentityKey(existing));
     return;
   }
-  const model = await loadPackage(packageId, dependencyVersion(versionRange), "");
+  const version = await resolveDependencyVersion(packageId, versionRange);
+  const model = await loadPackage(packageId, version, "");
   if (!model) return;
   state.atPackageRoot = true;
   state.packageLens = "dependencies";

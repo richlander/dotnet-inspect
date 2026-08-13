@@ -870,6 +870,22 @@ public static partial class BrowserInspectionEngine
             await BrowserPackageWorkspace.GetVersionsAsync(packageId),
             BrowserJsonContext.Default.StringArray);
 
+    [JSExport]
+    public static Task<string> ResolvePackageDependencyVersion(
+        string packageId,
+        string? declaredRange) =>
+        BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+            packageId,
+            declaredRange);
+
+    [JSExport]
+    public static bool PackageVersionSatisfiesDependencyRange(
+        string packageVersion,
+        string? declaredRange) =>
+        PackageDependencyVersionRange.Satisfies(
+            packageVersion,
+            declaredRange);
+
     // The library-owned StyleOptionCatalog is the single source of truth for the decompiler style
     // taxonomy. These records carry its data across the Wasm boundary; the host retains no labels,
     // summaries, or ordering of its own. Neither listing inspects an artifact.
