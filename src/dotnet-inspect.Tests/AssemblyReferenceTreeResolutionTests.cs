@@ -228,6 +228,41 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public void MismatchingPlatformNamedSibling_ShadowsInstalledPlatformFallback()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            AssemblyReferenceIdentity platformIdentity =
+                ReadIdentity(typeof(object).Assembly.Location);
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    platformIdentity));
+            File.WriteAllBytes(
+                Path.Combine(root, $"{platformIdentity.Name}.dll"),
+                BuildAssembly(
+                    platformIdentity.Name,
+                    new Version(1, 0, 0, 0)));
+
+            AssemblyReferenceNode platform = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == platformIdentity.Name);
+
+            Assert.Null(platform.Path);
+            Assert.Null(platform.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void InspectorDependency_IsNotImportedFromTheInspectingProcess()
     {
         string root = Directory.CreateTempSubdirectory(

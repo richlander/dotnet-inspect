@@ -711,6 +711,7 @@ internal static class LibraryMetadataService
                 IncludeTrustedPlatformAssemblies = false,
                 IncludeAspNetCoreSharedFramework = false,
                 IncludeDepsJsonAssets = false,
+                IncludeInstalledPlatformFallback = true,
                 // The tree describes the available sibling or installed platform
                 // assembly, as it did before typed binding owned selection.
                 IgnoreAssemblyVersion = true,
@@ -770,14 +771,6 @@ internal static class LibraryMetadataService
                     AssemblyBindingTarget.Reference(reference),
                     AssemblyBindingOrigin.Global(),
                     AssemblyResolutionScope.Any));
-            if (selection is AssemblyBindingSelection.Missing)
-            {
-                selection = bindingPolicy.Select(
-                    new AssemblyBindingRequest(
-                        AssemblyBindingTarget.Reference(reference),
-                        AssemblyBindingOrigin.Global(),
-                        AssemblyResolutionScope.Platform));
-            }
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
             if (selection is AssemblyBindingSelection.Unavailable)

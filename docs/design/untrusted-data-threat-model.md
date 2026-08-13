@@ -260,15 +260,18 @@ rather than being reconstructed from display text. It excludes the inspecting
 process's own trusted platform assembly closure. Platform lookup matches
 requested names against enumerated file names. An unreadable name-matching
 candidate blocks fallback to lower-priority candidate tiers, while other
-case-distinct candidates in the same tier remain eligible. The decompiler's
+case-distinct candidates in the same tier remain eligible. A readable
+same-name sibling that does not satisfy identity likewise owns the local tier
+and blocks installed-platform fallback. The decompiler's
 default sibling-only resolver follows the same boundary: it resolves the owner
 path before enumerating neighboring assemblies, then selects by metadata
 identity rather than deriving a path from the requested name. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
 and the sibling/platform/culture/failure-state tests in that class,
 `AssemblyDependencyResolverTests.Select_UnreadableSiblingDoesNotFallThroughToTpa`,
-`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsTpa`,
+`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`,
 `AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`,
+`AssemblyReferenceTreeResolutionTests.MismatchingPlatformNamedSibling_ShadowsInstalledPlatformFallback`,
 `AssemblyReferenceResolverTests.SiblingResolver_BareOwnerPathUsesCurrentDirectory`,
 `AssemblyReferenceResolverTests.SiblingResolver_AssemblyReferenceNameCannotEscapeDirectory`,
 and

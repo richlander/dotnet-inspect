@@ -40,6 +40,11 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool IncludeAspNetCoreSharedFramework { get; init; } = true;
     public bool IncludeSiblingAssemblies { get; init; } = true;
     public bool IncludeDepsJsonAssets { get; init; } = true;
+    /// <summary>
+    /// Allows Any-scope resolution to use an installed platform assembly only
+    /// when no enabled candidate tier owns the requested simple name.
+    /// </summary>
+    public bool IncludeInstalledPlatformFallback { get; init; }
     public bool PreferImplementationAssemblies { get; init; }
     public bool AllowPlatformAssemblyVersionRollForward { get; init; }
     /// <summary>
@@ -304,7 +309,13 @@ public sealed class AssemblyDependencyResolver :
         // Resolve the remaining platform name from installed packs/runtimes.
         // Callers may opt into one-way platform roll-forward or version-insensitive
         // descriptive selection while retaining culture and public-key-token checks.
-        if (scope == AssemblyResolutionScope.Platform && PlatformResolver.IsPlatformCandidate(identity.Name))
+        bool useInstalledPlatformFallback =
+            scope == AssemblyResolutionScope.Platform
+            || scope == AssemblyResolutionScope.Any
+                && _options.IncludeInstalledPlatformFallback
+                && activeTier is null;
+        if (useInstalledPlatformFallback
+            && PlatformResolver.IsPlatformCandidate(identity.Name))
         {
             var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
                 identity.Name,

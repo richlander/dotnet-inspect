@@ -98,7 +98,7 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void Select_ReadableMismatchingSiblingShadowsTpa()
+    public void Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback()
     {
         string root = Directory.CreateTempSubdirectory(
             "dotnet-inspect-assembly-deps-").FullName;
@@ -128,8 +128,10 @@ public class AssemblyDependencyResolverTests
                 new AssemblyDependencyResolutionOptions(targetPath)
                 {
                     PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
                     IncludeAspNetCoreSharedFramework = false,
                     IncludeDepsJsonAssets = false,
+                    IncludeInstalledPlatformFallback = true,
                 });
 
             Assert.IsType<AssemblyBindingSelection.Missing>(
@@ -143,6 +145,37 @@ public class AssemblyDependencyResolverTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Select_AnyScopeUsesInstalledPlatformFallbackWhenNoTierOwnsName()
+    {
+        string targetPath =
+            typeof(AssemblyDependencyResolverTests).Assembly.Location;
+        using var stream = File.OpenRead(typeof(object).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        AssemblyReferenceIdentity platformIdentity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                peReader.GetMetadataReader());
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = false,
+                IncludeInstalledPlatformFallback = true,
+            });
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            resolver.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(platformIdentity),
+                    AssemblyBindingOrigin.Global(),
+                    AssemblyResolutionScope.Any)));
+
+        Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+            selected.Assembly.Provenance);
     }
 
     [Fact]
