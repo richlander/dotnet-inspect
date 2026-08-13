@@ -781,6 +781,28 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
+    public async Task GetStringWithRetryAsync_MidBodyIo_ReturnsNullAndRecordsFailure()
+    {
+        using var telemetry = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new RetryingBodyHandler("unused"u8.ToArray()));
+        var messages = new List<string>();
+
+        // retryCount 0: headers succeed once; body stream throws IOException.
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(text);
+        Assert.Contains(
+            messages,
+            message => message.Contains("body failed", StringComparison.Ordinal));
+        Assert.NotEmpty(FeedFailureTelemetry.Current!.Failures);
+    }
+
+    [Fact]
     public async Task HeaderFirstBodyRead_RetriesAMidBodyIoFailure()
     {
         var handler = new RetryingBodyHandler("complete"u8.ToArray());

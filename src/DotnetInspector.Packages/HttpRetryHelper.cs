@@ -669,6 +669,15 @@ public static class HttpRetryHelper
             RecordBodyFailure();
             return null;
         }
+        catch (Exception ex) when (ex is IOException or HttpRequestException)
+        {
+            // Mid-body transport failure after headers must not escape as an
+            // unhandled fault: discovery loops classify sources via null +
+            // FeedFailureTelemetry deltas, not exceptions.
+            log?.Invoke("GET body failed.");
+            RecordBodyFailure();
+            return null;
+        }
     }
 
     /// <summary>
