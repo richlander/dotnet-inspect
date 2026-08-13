@@ -44,6 +44,19 @@ public class GenericTypeNameTests
     }
 
     [Theory]
+    [InlineData("List<T>.ConvertAll<TOutput>", "List`1.ConvertAll`1")]
+    [InlineData("Dictionary<TKey, TValue>.KeyCollection", "Dictionary`2.KeyCollection")]
+    [InlineData("Outer<T>.Inner<U>", "Outer`1.Inner`1")]
+    public void ConvertGenericTypeName_MultipleGenericSegments_NormalizesEachSegment(
+        string input,
+        string expected)
+    {
+        var result = FqnParser.NormalizeTypeName(input);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
     [InlineData("IEnumerable<T>", "IEnumerable`1")]
     [InlineData("ICollection<T>", "ICollection`1")]
     [InlineData("IList<T>", "IList`1")]

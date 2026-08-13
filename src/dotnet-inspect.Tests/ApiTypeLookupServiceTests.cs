@@ -62,6 +62,62 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
+    public void LookupType_GenericContainingTypeAndGenericMember_PeelsTrailingMember()
+    {
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "List`1",
+                    Members = [new ApiMember { Name = "ConvertAll", Kind = "method" }]
+                }
+            ]
+        };
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            "System.Collections.Generic.List<T>.ConvertAll<TOutput>");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Collections.Generic.List`1", result.Match);
+        Assert.Equal("ConvertAll<TOutput>", result.ImpliedMember);
+    }
+
+    [Theory]
+    [InlineData("Dictionary<TKey, TValue>", "System.Collections.Generic.Dictionary`2")]
+    [InlineData(
+        "Dictionary<TKey, TValue>.KeyCollection",
+        "System.Collections.Generic.Dictionary`2.KeyCollection")]
+    [InlineData("Outer<T>.Inner<U>", "Example.Outer`1.Inner`1")]
+    public void LookupType_ExactGenericType_DoesNotPeelTrailingSegment(
+        string query,
+        string expected)
+    {
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Namespace = "System.Collections.Generic", Name = "Dictionary`2" },
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "Dictionary`2.KeyCollection"
+                },
+                new ApiType { Namespace = "Example", Name = "Outer`1.Inner`1" }
+            ]
+        };
+
+        var result = ApiTypeLookupService.LookupType(api, query);
+
+        Assert.True(result.Found);
+        Assert.Equal(expected, result.Match);
+        Assert.Null(result.ImpliedMember);
+    }
+
+    [Fact]
     public void LookupType_SimpleTypeMember_PeelsTrailingMember()
     {
         var api = CreateSurface();

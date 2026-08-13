@@ -390,6 +390,7 @@ public class ApiCommand
             TypeName: { } memberTypeName
         } && FqnParser.LastTopLevelDot(memberTypeName) > 0;
         var deferMemberSelection = memberPipelineRequiresLookup
+            && options.IncludeSections is null
             && (options.Select is not null
                 || options.SelectDefault);
         if (options is MemberOptions memberOptions && memberPipelineRequiresLookup)
@@ -464,15 +465,14 @@ public class ApiCommand
         // -S/--select with values: resolve as section filter for backpressure
         if (!deferMemberSelection)
         {
-            if (options is MemberOptions
-                {
-                    MemberPipelineDeferredToLookup: false
-                } preResolved
-                && preResolved.IncludeSections is not null)
+            if (options is MemberOptions { IncludeSections: not null } preResolved)
             {
-                if (RevalidateResolvedMemberSections(preResolved, memberPipeline) is not { } revalidated)
-                    return (null!, 1);
-                options = revalidated;
+                if (!preResolved.MemberPipelineDeferredToLookup)
+                {
+                    if (RevalidateResolvedMemberSections(preResolved, memberPipeline) is not { } revalidated)
+                        return (null!, 1);
+                    options = revalidated;
+                }
             }
             else
             {
@@ -768,8 +768,15 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        if (SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                sectionsPreResolved)
+            || SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections,
+                sectionsPreResolved))
             return;
 
         var filtered = BuildFilteredTypeForSections(type, options);
@@ -860,14 +867,19 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
-        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+        var usesDetailPipeline = ApiMemberSectionPipelines.UsesDetailPipeline(options);
+        var usesOverloadInventoryPipeline = ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options);
+        if (!usesDetailPipeline && !usesOverloadInventoryPipeline)
             return detailSchema;
-        if (detailSchema.GetSection(SectionNames.Calls) == null)
-            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
-        if (detailSchema.GetSection(SectionNames.Callers) == null)
-            detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
-        if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
-            detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        if (usesDetailPipeline)
+        {
+            if (detailSchema.GetSection(SectionNames.Calls) == null)
+                detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
+            if (detailSchema.GetSection(SectionNames.Callers) == null)
+                detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
+            if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
+                detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        }
         // One bidirectional section, so one field list: the union of what the outbound and inbound
         // halves each used to declare separately.
         detailSchema.Add(SectionNames.CallGraph, "field",
@@ -1789,12 +1801,18 @@ public class ApiCommand
             }
             else
             {
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                if (SelectResolver.IsActiveAllSelector(
+                    options.Select,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(
+                    options.SelectDefault,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;

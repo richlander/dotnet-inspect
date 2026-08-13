@@ -167,7 +167,9 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            if (effectiveOptions.HasCallerScope)
+            var callersImplicitlySelected = effectiveOptions.HasCallerScope
+                && effectiveOptions.IncludeSections?.Contains(SectionNames.Callers) != true;
+            if (callersImplicitlySelected)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
@@ -184,12 +186,17 @@ public static class MemberCommand
                 {
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
                     var detailPipeline = ApiMemberSectionPipelines.Create(effectiveOptions);
-                    if (ApiCommand.RevalidateResolvedMemberSections(effectiveOptions, detailPipeline)
+                    var authoredSelection = callersImplicitlySelected
+                        ? ExcludeCallersSection(effectiveOptions)
+                        : effectiveOptions;
+                    if (ApiCommand.RevalidateResolvedMemberSections(authoredSelection, detailPipeline)
                         is not { } detailSections
                         || ApiCommand.FinalizeResolvedMemberSelection(detailSections, detailPipeline)
                         is not { } detailOptions)
                         return 1;
-                    effectiveOptions = detailOptions;
+                    effectiveOptions = callersImplicitlySelected
+                        ? IncludeCallersSection(detailOptions)
+                        : detailOptions;
                 }
             }
 
@@ -541,6 +548,15 @@ public static class MemberCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
+    }
+
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
         return options with { IncludeSections = includeSections };
     }
 

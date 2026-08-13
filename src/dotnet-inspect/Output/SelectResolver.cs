@@ -103,12 +103,24 @@ public static class SelectResolver
     public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
         => IsAllSelector(select) && includeSections is { Count: > 1 };
 
+    public static bool IsActiveAllSelector(
+        string[]? select,
+        HashSet<string>? includeSections,
+        bool sectionsPreResolved)
+        => !sectionsPreResolved && IsActiveAllSelector(select, includeSections);
+
     /// <summary>
     /// Whether the default preset is in effect and actually resolved to something. The preset is
     /// reached only through bare <c>-S</c>; it has no selector spelling.
     /// </summary>
     public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
         => selectDefault && includeSections is { Count: > 0 };
+
+    public static bool IsActiveInfoSelector(
+        bool selectDefault,
+        HashSet<string>? includeSections,
+        bool sectionsPreResolved)
+        => !sectionsPreResolved && IsActiveInfoSelector(selectDefault, includeSections);
 
     internal static bool TryResolveCategory(
         string value,
