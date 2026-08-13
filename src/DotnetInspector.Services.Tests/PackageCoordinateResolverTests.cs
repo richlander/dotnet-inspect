@@ -751,9 +751,9 @@ public sealed class PackageCoordinateResolverTests
 
     /// <summary>
     /// A secondary feed may ship a cosmetic malformed
-    /// <c>VulnerabilityInfo</c>/<c>SearchQueryService</c> @id. That must not
-    /// convert an authoritative package 404 on that feed into complete-source
-    /// failure when another authorized source answered.
+    /// <c>VulnerabilityInfo</c>/<c>SearchQueryService</c>/<c>RegistrationsBaseUrl</c>
+    /// @id. That must not convert an authoritative package 404 on that feed
+    /// into complete-source failure when another authorized source answered.
     /// </summary>
     [Fact]
     public async Task FloatingCoordinate_IgnoresMalformedOptionalServiceIndexResources()
@@ -777,6 +777,38 @@ public sealed class PackageCoordinateResolverTests
         var resolved =
             Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
         Assert.Equal("1.0.0", resolved.Coordinate.Version);
+    }
+
+    /// <summary>
+    /// nuget.org answering a clean flat-container 404 for a private-only id is
+    /// absence on that source, not a complete-source outage. Workspace floating
+    /// resolution with nuget.org + a private feed that has the package must
+    /// still resolve.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_TreatsAnAuthoritativeNuGetOrg404AsAbsentNotFailed()
+    {
+        using var client = new HttpClient(new NuGetOrgAbsentPrivatePresentHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(
+                    NuGetOrgAbsentPrivatePresentHandler.PackageId),
+                [
+                    NuGetOrgAbsentPrivatePresentHandler.NuGetOrgSource,
+                    NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
+                ],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+        Assert.Equal("1.0.0", resolved.Coordinate.Version);
+        Assert.Equal(
+            NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
+            Assert.Single(resolved.Coordinate.Sources));
     }
 
     /// <summary>
@@ -1161,10 +1193,56 @@ public sealed class PackageCoordinateResolverTests
                     Json("""{"versions":["1.0.0"]}"""),
                 "https://poison.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"}]}"""),
+                        """{"resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"},{"@id":"not-a-registration","@type":"RegistrationsBaseUrl/3.6.0"}]}"""),
                 $"https://poison.test/flat/{PackageId}/index.json" =>
                     Task.FromResult(
                         new HttpResponseMessage(HttpStatusCode.NotFound)),
+                _ => Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound)),
+            };
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
+    sealed class NuGetOrgAbsentPrivatePresentHandler : HttpMessageHandler
+    {
+        internal const string PackageId = "contoso.internal";
+        internal static readonly PackageSource NuGetOrgSource =
+            new("nuget", "https://api.nuget.org/v3/index.json");
+        internal static readonly PackageSource PrivateSource =
+            new("private", "https://private.test/v3/index.json");
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url.StartsWith(
+                    "https://azuresearch-usnc.nuget.org/query",
+                    StringComparison.Ordinal))
+            {
+                return Json("""{"data":[]}""");
+            }
+
+            return url switch
+            {
+                "https://api.nuget.org/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
+                $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json" =>
+                    Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.NotFound)),
+                "https://private.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://private.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                $"https://private.test/flat/{PackageId}/index.json" =>
+                    Json("""{"versions":["1.0.0"]}"""),
                 _ => Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.NotFound)),
             };

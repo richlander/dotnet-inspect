@@ -988,16 +988,18 @@ public static class PackageExtractor
                 };
                 foreach (string type in types)
                 {
-                    // Only resources version resolution actually needs are
-                    // "critical". SearchQueryService and VulnerabilityInfo are
-                    // HTTP endpoints we may parse, but a cosmetic malformed
-                    // @id there must not convert an authoritative package
-                    // absence into "source failed" / complete-source Unavailable.
+                    // PackageBaseAddress is the only service-index resource
+                    // whose malformation must fail complete-source / latest
+                    // version resolution. RegistrationsBaseUrl, SearchQueryService,
+                    // and VulnerabilityInfo are parsed when present, but a
+                    // cosmetic bad @id must not convert an authoritative flat-
+                    // container 404 into "source did not answer" after nested
+                    // telemetry merges into the parent hop.
                     bool isCriticalHttpEndpoint =
-                        IsServiceType(type, "RegistrationsBaseUrl")
-                        || IsServiceType(type, "PackageBaseAddress");
+                        IsServiceType(type, "PackageBaseAddress");
                     bool isOptionalHttpEndpoint =
-                        IsServiceType(type, "SearchQueryService")
+                        IsServiceType(type, "RegistrationsBaseUrl")
+                        || IsServiceType(type, "SearchQueryService")
                         || IsServiceType(type, "VulnerabilityInfo");
                     if (!isCriticalHttpEndpoint && !isOptionalHttpEndpoint)
                     {
@@ -1020,7 +1022,7 @@ public static class PackageExtractor
                             + $"'{PackageSourceDisplay.ForDiagnostics(source)}'.");
                         if (isCriticalHttpEndpoint)
                         {
-                            // A malformed critical resource is a failed source
+                            // A malformed PackageBaseAddress is a failed source
                             // answer, not a quiet absence. Complete-source
                             // floating resolution depends on that distinction.
                             FeedFailureTelemetry.Record(
@@ -1946,6 +1948,13 @@ public static class PackageExtractor
         // index below.
         if (source.IsNuGetOrg)
         {
+            // Attribute outage vs absence to this nuget.org lookup only. A clean
+            // flat-container 404 returns (null, Authoritative: true) with no
+            // telemetry mark; that is Absent, not Failure. Treating it as Failure
+            // makes requireStableFloating workspace loads Unavailable whenever
+            // nuget.org is authorized beside a private feed that has the package.
+            int nugetOrgFailuresBefore =
+                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
             var (listed, authoritative) = await FetchListedVersionsFromSourceAsync(
                 client,
                 packageName,
@@ -1956,6 +1965,15 @@ public static class PackageExtractor
             {
                 return PickLatest(listed, includePrerelease) is { } picked
                     ? SourceLatestVersion.Found(picked)
+                    : SourceLatestVersion.Absent;
+            }
+
+            if (listed is null && authoritative)
+            {
+                int nugetOrgFailuresAfter =
+                    FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+                return nugetOrgFailuresAfter > nugetOrgFailuresBefore
+                    ? SourceLatestVersion.Failure
                     : SourceLatestVersion.Absent;
             }
 
