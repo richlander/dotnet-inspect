@@ -40,40 +40,60 @@ internal static class PackageContentAdmission
         PackagePayloadLimits limits,
         CancellationToken cancellationToken)
     {
-        if (content.TryOpenArchive(out Stream? archiveStream))
+        Stream? archiveStream = null;
+        bool opened;
+        try
         {
-            byte[]? archive;
-            await using (archiveStream!.ConfigureAwait(false))
+            opened = content.TryOpenArchive(out archiveStream);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Concurrent delete/permission change on a retained archive must not
+            // escape admission as an unhandled fault; reject this entry.
+            return Outcome.LimitsExceeded;
+        }
+
+        if (opened && archiveStream is not null)
+        {
+            try
             {
-                archive = await ReadBoundedAsync(
-                        archiveStream,
-                        limits.MaxArchiveBytes,
+                byte[]? archive;
+                await using (archiveStream.ConfigureAwait(false))
+                {
+                    archive = await ReadBoundedAsync(
+                            archiveStream,
+                            limits.MaxArchiveBytes,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                if (archive is null
+                    || PackageArchiveValidator.Validate(
+                        archive,
+                        limits,
                         cancellationToken)
-                    .ConfigureAwait(false);
-            }
+                        is not PackageArchiveValidation.Valid)
+                {
+                    return Outcome.LimitsExceeded;
+                }
 
-            if (archive is null
-                || PackageArchiveValidator.Validate(
-                    archive,
-                    limits,
-                    cancellationToken)
-                    is not PackageArchiveValidation.Valid)
+                if (content.RootPath is not null
+                    && !AdmitExtractedTreeWithArchive(
+                        content.RootPath,
+                        archive,
+                        content.NupkgPath,
+                        limits,
+                        cancellationToken))
+                {
+                    return Outcome.LimitsExceeded;
+                }
+
+                return Outcome.Admissible;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return Outcome.LimitsExceeded;
             }
-
-            if (content.RootPath is not null
-                && !AdmitExtractedTreeWithArchive(
-                    content.RootPath,
-                    archive,
-                    content.NupkgPath,
-                    limits,
-                    cancellationToken))
-            {
-                return Outcome.LimitsExceeded;
-            }
-
-            return Outcome.Admissible;
         }
 
         if (content.RootPath is null
@@ -172,7 +192,10 @@ internal static class PackageContentAdmission
             return false;
         }
 
-        HashSet<string> allowedExtraFiles = new(StringComparer.OrdinalIgnoreCase)
+        // Path identity follows the host volume so case-only siblings on
+        // case-sensitive filesystems remain distinct extras/dirs/files.
+        StringComparer pathComparer = PathComparer;
+        HashSet<string> allowedExtraFiles = new(pathComparer)
         {
             NuGetCache.CommitMarkerFileName,
         };
@@ -183,8 +206,8 @@ internal static class PackageContentAdmission
                     .Replace('\\', '/'));
         }
 
-        HashSet<string> archiveFiles = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> expectedDirs = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> archiveFiles = new(pathComparer);
+        HashSet<string> expectedDirs = new(pathComparer);
         try
         {
             using var zip = new ZipArchive(
@@ -453,6 +476,11 @@ internal static class PackageContentAdmission
         OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
+
+    static StringComparer PathComparer { get; } =
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 
     internal static bool HasTopLevelNuspec(string root)
     {

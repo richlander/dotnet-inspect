@@ -355,6 +355,7 @@ public static class PackagePayloadAcquisition
         }
         catch (Exception ex) when (
             ex is IOException
+                or UnauthorizedAccessException
                 or InvalidDataException
                 or NotSupportedException
                 || (ex is OperationCanceledException
@@ -362,11 +363,12 @@ public static class PackagePayloadAcquisition
         {
             // The payload stopped mid-body, timed out, is not a readable
             // archive, uses a feature this runtime cannot decode, or could not
-            // be persisted. That is this source failing to serve the
-            // coordinate, so the next authorized source is tried; the caller
-            // reports every source that failed if none succeeds. A cancellation
-            // the caller actually requested is not caught here. The exception
-            // text is not logged: an archive-derived name can reach it.
+            // be persisted (including permission-denied cache roots). That is
+            // this source failing to serve the coordinate, so the next
+            // authorized source is tried; the caller reports every source that
+            // failed if none succeeds. A cancellation the caller actually
+            // requested is not caught here. The exception text is not logged:
+            // an archive-derived name can reach it.
             log?.Invoke(
                 $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
             return null;

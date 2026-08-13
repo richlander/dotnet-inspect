@@ -517,6 +517,48 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
+    /// On case-sensitive volumes, a case-only sibling of an archive entry is a
+    /// distinct extra file and must fail product-owned archive matching.
+    /// </summary>
+    [Fact]
+    public void ArchiveBackedTree_RejectsCaseOnlyExtraFileOnCaseSensitiveFs()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll");
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1, 2, 3]);
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "sample.dll"),
+                [9, 9, 9]);
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+
+            Assert.False(
+                PackageContentAdmission.ExtractedTreeMatchesArchive(
+                    root,
+                    archive,
+                    retainedNupkgPath: null,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// On case-sensitive volumes, a case-only sibling of the retained nupkg is
     /// a distinct file and must count toward MaxExpandedBytes.
     /// </summary>
