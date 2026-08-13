@@ -1,5 +1,91 @@
 # Release Notes
 
+## v0.17.0
+
+### Curated inspection and query model
+
+- Gives `package` and `library` authored base and domain categories. Package
+  exposes `@Package`, `@Files`, `@Dependencies`, `@Audit`, and `@SourceLink`;
+  library exposes `@Library`, `@Surface`, `@Audit`, `@Performance`,
+  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context` (#3838, #4061).
+- Makes discovery distinguish structural membership from effective evidence.
+  `-D --schema` reports the static graph, library `--effective` runs full
+  probes, and bare `-S` returns high-value, fixed-length, network-free base
+  sections. `--count` can summarize that overview, including zero-row
+  candidates (#3566, #3754).
+- Addresses rows by displayed number. `--row` accepts `N`, `first`, or `last`;
+  `--rows` accepts a count, an inclusive range (`2..10`), start plus count
+  (`2+10`), or an open range (`10..`). Exact output line limits are also
+  honored (#3404, #3415, #3942).
+- Routes package, search, integration, diff, metadata, references, resources,
+  and custom-attribute evidence through typed inspection queries so selection,
+  counts, and row windows share one contract.
+
+### Metadata, source, and code evidence
+
+- Adds the opt-in `@Metadata` library lens for ECMA-335 tables, image facts,
+  and heaps. Handles resolve to their target rows, heap offsets resolve to
+  values, table indices are addressable, and `--heap` reads one exact
+  coordinate (#3301, #3465, #3510).
+- Adds SourceLink map diagnostics, spec-correct document matching, encoded-dot
+  support, local-repository source lookup, and portable annotated source maps
+  (#3969, #3943, #3790).
+- Adds `body-shape` for exact rendered-syntax searches in one assembly, with
+  stable kinds, containing members, MethodDef tokens, exact ranges, and
+  selected text (#4048).
+- Makes `Call Graph` one bidirectional evidence section with Markdown edge
+  rows, tree, Mermaid, TSV, and JSONL projections; adds bounded cycle findings
+  and scoped cross-library traversal (#4001, #4013, #4069, #4065).
+
+### Analysis and decompilation (experimental)
+
+- Decomposes whole-library performance triage into kind-scoped
+  `Performance:*` sections under `@Performance`, with per-kind counts and a
+  homogeneous flattened row format (#2833).
+- Adds resource-lifecycle and allocation-fanout triage, expands the Finding
+  spine across Metadata and Analysis producers, and composes findings into
+  timelines and implementation diffs.
+- Raises more compiler-produced switch, local-function, lambda, range,
+  short-circuit, tuple, and flags-enum shapes while continuing to report typed
+  `DEC####` fidelity causes rather than plausible-but-wrong source.
+- Uses readable synthesized local names by default and exposes stable,
+  product-owned annotated-source spans, nodes, regions, facts, and targets.
+
+### Package source fidelity
+
+- Keeps package coordinates source-scoped: installed package directories no
+  longer introduce version candidates, cached payloads retain their producer
+  identity, and global-packages payloads are used only when their metadata
+  names an authorized source.
+- Honors layered NuGet `<packageSourceMapping>` across acquisition,
+  dependencies, version discovery, search, routing, redirects, symbols, RID
+  companions, and platform packs (#3908).
+- Resolves latest versions across all active sources, uses configured sources
+  for package metadata, separates stable and prerelease evidence, and reports
+  unreadable or refusing feeds instead of success-shaped empty results (#3696,
+  #3965, #4074).
+- Scopes Azure credential-plugin results by organization, binds redirected
+  challenges to the caller-selected source, redacts sensitive retry URLs,
+  defers plugin discovery, recovers from dying plugins, and makes HTTP request
+  timeout configurable (#3968, #4051, #4036, #3847, #3842).
+
+### Safety, output, and packaging
+
+- Carries untrusted artifact text through typed inert-text boundaries and
+  contains metadata and package-authored text before rendering. Malformed
+  nuspec XML now produces a one-line location diagnostic, and descriptions
+  cannot impersonate tool headings or tables. Package projections expose
+  aggregate containment evidence while explicit document payloads remain
+  byte-preserving (#3679, #3772).
+- **Breaking:** removes the hidden `--oneline` compatibility alias and
+  `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
+- Builds Native AOT packages with `OptimizationPreference=Speed`, worth a
+  measured 6-7% on representative commands for about 9% more binary size
+  (#3675).
+- Refreshes the embedded skills for curated package/library discovery,
+  categories, high-value bare selection, and the current `--row`/`--rows`
+  grammar (#3866, #4079).
+
 ## v0.16.0
 
 ### Research overlay and performance analysis (experimental)
@@ -16,109 +102,11 @@
 - Adds Rung 7 `Performance Triage` shapes: `async-state-machine` (reported as
   amortized off-loop) and `materialize-in-loop` (loop-invariant
   `ToArray`/`ToList`), plus nested-type triage drilldown (#1948, #1889).
-- Decomposes the library `Performance Triage` monolith into kind-scoped
-  sections (`Performance: Boxing`, `Performance: Arrays`,
-  `Performance: Closures and delegates`, `Performance: Enumerators`,
-  `Performance: Loop hot paths`, `Performance: Allocation hotspots`,
-  `Performance: Async`) following the il-offset section model: each is opt-in
-  and absent when empty, selectable individually or as the `@Performance` group
-  (legacy `-S "Performance Triage"`/`Performance`/`Optimization Opportunities`
-  redirect to the group). Markdown carries tight ranked columns; full per-row
-  diagnostics move to the nested `performance` JSON object (retiring the
-  `optimization_opportunities` key). `--count -S @Performance` returns a
-  per-kind count map. The kind sections are catalog-hidden: the top-level
-  `-D`/`--schema` catalog lists only the `@Performance` category as their
-  entrypoint (drill in with `-D @Performance`), and flattened tabular output
-  (`--table`/`--tsv`/`--jsonl`) renders the group as one table with a leading
-  `Kind` column. The `type`/`member` `Performance Triage` lens is
-  unchanged (#2833).
-
-### Native AOT codegen
-
-- Builds the Native AOT tools with `OptimizationPreference=Speed` instead of
-  `Size`, worth a measured 6-7% on real commands for about 9% more binary size
-  (#3675).
-
-### Package source fidelity
-
-- Uses package-content caches only for an already-selected exact coordinate.
-  Version candidates come from source-scoped feed metadata, including offline
-  candidate-cache hits; installed package directories no longer introduce
-  versions for bare, wildcard, range, routing, or version-list operations.
-- Uses a NuGet global-packages payload only when `.nupkg.metadata.source`
-  identifies an authorized producer. Discovered coordinates are restricted to
-  feeds that reported the selected version; pinned coordinates may use any
-  active eligible feed.
-- Honors layered NuGet `<packageSourceMapping>` configuration for package
-  acquisition, dependencies, version discovery, search results, routing,
-  redirects, metadata and symbol-package enrichment, RID companions, and
-  platform packs.
-  Configured-name aliases remain distinct through mapping and collapse to one
-  producer only after the package-specific names are selected.
-- Uses unambiguous, atomically published `versions-v5` candidate entries and
-  rejects malformed latest entries and incomplete listing snapshots. Reporter
-  restrictions apply to the selected coordinate only; pinned tool-wrapper
-  redirects recalculate authorization from the ambient active sources.
-- Canonicalizes selected package versions and treats malformed version-index
-  elements as a source miss rather than a coordinate or parser failure.
-- Recognizes the NuGet.org shortcut only for its canonical service index;
-  other `nuget.org` hosts and paths remain ordinary configured sources.
-- Keeps stable and prerelease latest-selection evidence separate while allowing
-  package-existence probes to use either flavor.
-- Resolves single-version queries across every active source and preserves
-  structured output formatting on candidate-cache hits, pinned versions, and
-  forced-latest queries. Stable single-version listings no longer fall back to
-  prerelease-only coordinates.
-
-### Metadata text containment
-
-- Contains metadata cell text by Unicode general category rather than by a
-  hand-written character range, closing a gap where bidi overrides, line and
-  paragraph separators, zero-width and other format characters, and every
-  supplementary scalar reached the terminal raw from the `mdi` table, heap and
-  overview views (#3628, part of #3635). Control characters that were already
-  contained keep the same meaning but change spelling, from `\u001B` to caret
-  notation `\^[`; the quote is no longer escaped, because cells are not quote
-  wrapped in any rendered format.
-- Leaves literal backslashes unchanged when they cannot introduce a visual
-  spelling, while keeping complete escape-like text disambiguated and
-  invertible.
-- **Breaking:** `mdi` now refuses, rather than renders, when an assembly carries
-  text that a terminal would act on — bidi overrides, separators, and other
-  non-graphic scalars. It exits non-zero and reports the heap coordinate, the
-  code point and its Unicode category, without echoing the text. Two flags
-  select the other treatments: `--show-untrusted-text` renders the inert
-  spelling, which is byte for byte what previous versions produced, and
-  `--dangerously-print-raw` hands the text over uncontained for studying a
-  hostile artifact, and must be combined with `--show-untrusted-text` because
-  refusal comes first. Both spellings show the same amount of a clipped value,
-  differing only in how it is written. Ordinary assemblies are unaffected: the
-  modes differ only in whether they can fail, so output is unchanged wherever no
-  such text exists.
-
-### Package manifest hardening
-
-- Rejects malformed nuspec XML with a one-line diagnostic naming only the parse
-  location, rather than emitting the parser stack or quoting package-authored
-  text.
-- Carries nuspec descriptions as `InertString` through the service and
-  inspection models. Markdown renders the description as a quotation so its
-  headings and tables cannot impersonate tool sections; JSON retains the prose
-  shape and applies its own structural escaping.
-- Carries package-inspection text through typed presentation projections before
-  Markdown, JSON, table, JSONL, or content metadata sinks unwrap it, and exposes
-  an aggregate containment signal for future artifact-level refusal policy.
-  Explicit document payloads remain byte-preserving; this does not add the
-  broader CLI trust flags yet.
-
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,
   generalizes print row projection, and aligns library value projection with
   rendered fields (#1955, #1950, #1935, #1963, #1928).
-- Removes the hidden `--oneline` compatibility alias and retires
-  `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table` or
-  `DOTNET_INSPECT_FORMAT=table` for compact table output.
 
 ### Decompiler fidelity and unions (experimental)
 

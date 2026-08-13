@@ -25,6 +25,7 @@ namespace ILInspector.Decompiler.Tests;
 /// against a scratch cache holding one synthetic package (#3560).</para>
 /// </summary>
 [Trait("Area", "Corpus")]
+[Collection(SweepFileAppCollection.Name)]
 public class EvilPoolPinTests
 {
     const string PinRelativePath = "docs/data/nuget-top-packages.lock.json";
