@@ -5930,6 +5930,7 @@ public partial class CommandExecutionTests
         var root = CommandLineBuilder.CreateRootCommand();
         var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
         var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+        var diagnostics = new List<string>();
 
         try
         {
@@ -5937,11 +5938,14 @@ public partial class CommandExecutionTests
             {
                 using (ProjectionAudit.BeginRequest(inner))
                 {
-                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                    Assert.Equal(0, ProjectionAudit.Verify(0, diagnostics.Add));
+                    Assert.Empty(diagnostics);
                 }
 
-                Assert.Equal(1, ProjectionAudit.Verify(0));
+                Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
             }
+
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5957,12 +5961,14 @@ public partial class CommandExecutionTests
         // its full payload and exited 0 with the projection silently discarded.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5975,8 +5981,10 @@ public partial class CommandExecutionTests
     {
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+        var diagnostics = new List<string>();
 
-        Assert.False(ProjectionAudit.ValidateExclusive(result));
+        Assert.False(ProjectionAudit.ValidateExclusive(result, diagnostics.Add));
+        Assert.Contains("--count cannot be combined with --print", Assert.Single(diagnostics));
     }
 
     [Fact]
@@ -5986,13 +5994,15 @@ public partial class CommandExecutionTests
         // satisfy an unrelated recorded --count and let that drop escape.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
             ProjectionAudit.MarkHonored(ProjectionAudit.Print);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -6005,13 +6015,15 @@ public partial class CommandExecutionTests
     {
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
             ProjectionAudit.MarkHonored(ProjectionAudit.Count);
 
-            Assert.Equal(0, ProjectionAudit.Verify(0));
+            Assert.Equal(0, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Empty(diagnostics);
         }
         finally
         {
@@ -6026,12 +6038,14 @@ public partial class CommandExecutionTests
         // rather than option tokens would silently disable the audit for the invocation.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--value", Assert.Single(diagnostics));
         }
         finally
         {

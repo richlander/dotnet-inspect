@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -102,6 +103,64 @@ public class ConsoleCaptureTests
         await Task.WhenAll(tasks);
 
         Assert.Empty(failures);
+    }
+
+    /// <summary>
+    /// Projection-audit unit tests deliberately trigger diagnostics. Those diagnostics
+    /// must not flow through process-wide stderr, where they can be absorbed by an
+    /// unrelated test that currently owns the console capture (#3538).
+    /// </summary>
+    [Fact]
+    public async Task ProjectionAuditDiagnosticsDoNotLeakIntoConcurrentCapture()
+    {
+        var captureEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCapture = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var capture = ConsoleCapture.RunAsync(async () =>
+        {
+            captureEntered.SetResult();
+            await releaseCapture.Task.WaitAsync(
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+            return 0;
+        });
+
+        await captureEntered.Task.WaitAsync(
+            TimeSpan.FromSeconds(30),
+            TestContext.Current.CancellationToken);
+
+        bool exclusive;
+        int exitCode;
+        var diagnostics = new List<string>();
+        try
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            var conflict = root.Parse(
+                ["library", "System.Runtime", "-S", "References", "--count", "--print"]);
+            exclusive = ProjectionAudit.ValidateExclusive(conflict, diagnostics.Add);
+
+            var result = root
+                .Parse(["library", "System.Runtime", "-S", "References", "--count"]);
+            using var request = ProjectionAudit.BeginRequest(result);
+            exitCode = ProjectionAudit.Verify(0, diagnostics.Add);
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+            releaseCapture.TrySetResult();
+        }
+
+        var (_, _, capturedError) = await capture;
+
+        Assert.False(exclusive);
+        Assert.Equal(1, exitCode);
+        Assert.Collection(
+            diagnostics,
+            diagnostic => Assert.Contains("--count cannot be combined with --print", diagnostic),
+            diagnostic => Assert.Contains("produced unprojected output", diagnostic));
+        Assert.Empty(capturedError);
     }
 
     /// <summary>

@@ -61,8 +61,16 @@ public static class ProjectionAudit
     /// enforcing it centrally covers <c>--print</c> and <c>--count</c> too, and covers commands
     /// that never had the check.
     /// </summary>
-    public static bool ValidateExclusive(ParseResult parseResult)
+    /// <param name="reportError">
+    /// The caller-owned diagnostic sink. Production supplies the contained CLI error writer;
+    /// unit tests supply a local collector so a deliberate rejection cannot write into an
+    /// unrelated test's process-wide console capture. The latter is gated by
+    /// <c>ConsoleCaptureTests.ProjectionAuditDiagnosticsDoNotLeakIntoConcurrentCapture</c>.
+    /// </param>
+    public static bool ValidateExclusive(ParseResult parseResult, Action<string> reportError)
     {
+        ArgumentNullException.ThrowIfNull(reportError);
+
         // Help short-circuits rendering, so no payload is shaped and the conflict is moot.
         // This must be checked here as well as in BeginRequest: rejecting the combination
         // would otherwise turn a legitimate help request into an error.
@@ -80,7 +88,7 @@ public static class ProjectionAudit
             .ToList();
 
         var conflicts = string.Join(", ", ordered.Skip(1));
-        CommandError.Write($"{ordered[0]} cannot be combined with {conflicts}.");
+        reportError($"{ordered[0]} cannot be combined with {conflicts}.");
         return false;
     }
 
@@ -208,8 +216,14 @@ public static class ProjectionAudit
     /// A non-zero exit code is left alone: the command already reported a problem, and
     /// rejecting an unsupported projection is a legitimate way to not honor one.
     /// </summary>
-    public static int Verify(int exitCode)
+    /// <param name="reportError">
+    /// The caller-owned diagnostic sink. See
+    /// <see cref="ValidateExclusive(ParseResult, Action{string})"/>.
+    /// </param>
+    public static int Verify(int exitCode, Action<string> reportError)
     {
+        ArgumentNullException.ThrowIfNull(reportError);
+
         var request = Current.Value;
         Current.Value = null;
 
@@ -220,7 +234,7 @@ public static class ProjectionAudit
         if (dropped.Count == 0)
             return exitCode;
 
-        CommandError.Write(
+        reportError(
             $"{string.Join(", ", dropped.Select(flag => $"'{flag}'"))} " +
             "was accepted but this command path produced unprojected output. " +
             "This is a bug in dotnet-inspect; please report it.");
