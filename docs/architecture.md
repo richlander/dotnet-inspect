@@ -716,12 +716,19 @@ Research overlay bridge, and the application layer:
   that produce its multiplicity reading. It receives metadata and raw-IL
   judgments through the narrow `IMethodAllocationResolver` contract the assembly
   reader implements, and returns one `MethodAllocationResult` carrying the
-  discovered and escape-refined occurrences from a single scan. Call-site acquisition and
-  optimization-opportunity collection query that interpretation instead of
-  rebuilding it; the reader retains PE/body acquisition, the intentionally
-  throwing decode path, method identity and scope creation, metadata ownership
-  and token resolution, orchestration, optimization
-  recommendations, resource/leak analysis, and result aggregation.
+  discovered and escape-refined occurrences from a single scan.
+  `OptimizationOpportunityAnalysis` owns its per-method instruction walk,
+  optimization-shape classification, lazy memoized reaching-definitions use,
+  and allocation metadata projection. It reuses allocation discovery and the
+  allocation analysis's Layer-1 query methods rather than opening another
+  allocation or decode path. Its separate traversal may repeat member and type
+  resolution, and lazily requests its own reaching-definitions result through
+  `IOptimizationOpportunityResolver`; the producer does not own the metadata
+  reader, generic scope, or raw IL. The assembly reader retains PE/body
+  acquisition, the intentionally throwing decode path, method identity and
+  scope creation, metadata and raw-IL ownership through the shared narrow
+  method-analysis resolver, orchestration and diagnostics, resource/leak
+  analysis, and result aggregation.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation
