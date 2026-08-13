@@ -132,10 +132,6 @@ return-address
 return address
 ```
 
-> **Known issue:** #3922 — derived evidence currently labels the exact call IL
-> offset as `cost` instead of `callsite`. The intended callsite assertion above
-> remains in place.
-
 ## 2. Collect a crash dump, normalize frames, and explain them
 
 > Goal: Show the end-to-end agent workflow: run an app, collect a crash dump,
@@ -306,10 +302,6 @@ allocation
 ```expect-not
 Performance Triage
 ```
-
-> **Known issue:** #3922 — the exact allocation offset is currently derived as
-> a return address for the preceding call. The intended `allocation` assertion
-> above remains in place.
 
 ## 4. Explain analyzer or CI artifact coordinates
 
