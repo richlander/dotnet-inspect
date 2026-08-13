@@ -1590,13 +1590,20 @@ public class LibraryCommand
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var source = await fetcher.FetchSourceAsync(rawUrl);
-        if (source is null)
+        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+            fetcher,
+            rawUrl,
+            result.SourceChecksumAlgorithm,
+            result.SourceChecksum);
+        if (fetch.Text is null)
         {
-            return (null, $"Could not fetch SourceLink source for {rawUrl}.");
+            return (
+                null,
+                "Could not fetch verified SourceLink source: "
+                + (fetch.Failure ?? "source is unavailable."));
         }
 
-        return ReadLine(source.ReplaceLineEndings("\n").Split('\n'), line);
+        return ReadLine(fetch.Text.ReplaceLineEndings("\n").Split('\n'), line);
     }
 
     private static (string? Content, string? Error) ReadLine(IEnumerable<string> lines, int line)
