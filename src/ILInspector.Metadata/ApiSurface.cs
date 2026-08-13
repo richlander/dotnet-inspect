@@ -108,6 +108,12 @@ public class PartialSourceFileInfo
     public string? SourceUrl { get; set; }
 
     public string? GitHubBrowseUrl { get; set; }
+
+    [JsonIgnore]
+    public byte[]? SourceChecksum { get; set; }
+
+    [JsonIgnore]
+    public string? SourceChecksumAlgorithm { get; set; }
 }
 
 /// <summary>
@@ -481,6 +487,12 @@ public class ApiType
 
     public int? SourceLineNumber { get; set; }
 
+    [JsonIgnore]
+    public byte[]? SourceChecksum { get; set; }
+
+    [JsonIgnore]
+    public string? SourceChecksumAlgorithm { get; set; }
+
     /// <summary>
     /// How the source URL was resolved by the higher inspection layer.
     /// </summary>
@@ -678,6 +690,12 @@ public class ApiMember
     public int? SourceLineNumber { get; set; }
 
     public int? SourceEndLineNumber { get; set; }
+
+    [JsonIgnore]
+    public byte[]? SourceChecksum { get; set; }
+
+    [JsonIgnore]
+    public string? SourceChecksumAlgorithm { get; set; }
 
     // Documentation (populated with --docs)
     public DocComment Documentation { get; set; } = new();
