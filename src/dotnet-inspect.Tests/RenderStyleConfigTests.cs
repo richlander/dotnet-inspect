@@ -27,6 +27,7 @@ public class RenderStyleConfigTests
 
         Assert.Equal(RenderStyleResolution.None.Options, result.Options);
         Assert.True(result.Options.ReadableLocalNames);
+        Assert.Equal(EnumCaseLabelOrder.Alphabetical, result.Options.EnumCaseLabelOrder);
         Assert.False(result.Options.QualifyFieldAccess);
         Assert.False(result.Options.QualifyPropertyAccess);
         Assert.Empty(result.Warnings);
@@ -147,6 +148,34 @@ public class RenderStyleConfigTests
         Assert.False(mixed.Options.PreferVarForBuiltInTypes);
         Assert.True(mixed.Options.PreferVarElsewhere);
         Assert.Empty(mixed.Warnings);
+    }
+
+    [Fact]
+    public void Parse_EnumCaseLabelOrder_SelectsAValueToken()
+    {
+        var value = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_enum_case_label_order = value",
+            origin: "cfg");
+        Assert.Equal(EnumCaseLabelOrder.Value, value.Options.EnumCaseLabelOrder);
+        Assert.Empty(value.Warnings);
+
+        var alphabetical = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_enum_case_label_order = ALPHABETICAL",
+            origin: "cfg");
+        Assert.Equal(EnumCaseLabelOrder.Alphabetical, alphabetical.Options.EnumCaseLabelOrder);
+        Assert.Empty(alphabetical.Warnings);
+    }
+
+    [Fact]
+    public void Parse_EnumCaseLabelOrder_InvalidTokenWarnsAndKeepsDefault()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_enum_case_label_order = conceptual",
+            origin: null);
+
+        Assert.Equal(EnumCaseLabelOrder.Alphabetical, result.Options.EnumCaseLabelOrder);
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("expects one of alphabetical, value", warning);
     }
 
     [Fact]
