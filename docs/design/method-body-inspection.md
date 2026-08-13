@@ -375,6 +375,15 @@ Move in reviewable slices.
    above the owner queries, and adopt the shared PE owner when that pending seam
    lands.
 
+The command-owned path-backed acquisitions for `diff` body-signal comparison,
+implementation comparison, and authored-source target indexing, plus `timeline`
+analysis inspection, use `MethodBodyInspectionSession` for their selected
+capabilities and scope, then pass its neutral `BodyIndex` to the owning query.
+This adopts the step 2 boundary without claiming command-wide reuse: separate
+`diff` phases retain distinct indexes and capability policies, and
+`diff --finding analysis.*` still delegates path-backed acquisition to
+`ResearchDiff`.
+
 ## Acceptance tests for the architecture
 
 - Adding a new method-body fact requires changing one producer/service, not both
