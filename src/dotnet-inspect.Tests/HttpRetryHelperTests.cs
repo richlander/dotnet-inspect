@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -716,6 +717,39 @@ public class HttpRetryHelperTests
 
         Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.TooLarge, result.Status);
         Assert.Null(result.Bytes);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_CapsBodyAndReturnsNullWhenOversize()
+    {
+        byte[] body = Encoding.UTF8.GetBytes(new string('x', 64));
+        using var client = new HttpClient(new ByteHandler(body));
+        var messages = new List<string>();
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            log: messages.Add,
+            maxDownloadSize: 32,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(text);
+        Assert.Contains(
+            messages,
+            message => message.Contains("byte cap", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_ReturnsUtf8BodyWhenUnderCap()
+    {
+        using var client = new HttpClient(new ByteHandler("{\"ok\":true}"u8.ToArray()));
+
+        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("{\"ok\":true}", text);
     }
 
     [Fact]
