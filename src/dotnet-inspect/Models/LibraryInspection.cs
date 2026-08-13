@@ -48,6 +48,9 @@ internal static class LibraryInspectionDisplay
 public class LibraryInspection
 {
     [JsonIgnore]
+    internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
+
+    [JsonIgnore]
     public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
 
     [JsonIgnore]

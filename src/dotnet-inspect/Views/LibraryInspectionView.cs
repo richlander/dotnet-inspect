@@ -1017,9 +1017,7 @@ public class LibraryInspectionView
         while (index < nodes.Count && nodes[index].Depth == currentDepth)
         {
             var node = nodes[index];
-            var label = !string.IsNullOrEmpty(node.Company)
-                ? $"{node.Name} {node.Version} [{node.Company}]"
-                : $"{node.Name} {node.Version}";
+            var label = ReferenceTreeText(node);
             label = LibraryViewText.Contain(label);
             index++;
 
@@ -1031,6 +1029,16 @@ public class LibraryInspectionView
 
             target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
+    }
+
+    internal static string ReferenceTreeText(AssemblyReferenceNode node)
+    {
+        string label = !string.IsNullOrEmpty(node.Company)
+                ? $"{node.Name} {node.Version} [{node.Company}]"
+                : $"{node.Name} {node.Version}";
+        return node.ResolutionFailure is { } failure
+            ? $"{label} ({failure.ToString().ToLowerInvariant()})"
+            : label;
     }
 }
 
@@ -1832,17 +1840,23 @@ public record UnionTypeRow(
     string IUnion,
     string Cases)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Type { get; init; } = LibraryViewText.Contain(Type);
+    /// <summary>
+    /// Crosses exact union identity into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.UnionTypesQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
+    public string Type { get; init; } =
+        new InertString(TextPolicy.Field, Type).ToString();
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+    /// <inheritdoc cref="Type"/>
+    public string Kind { get; init; } =
+        new InertString(TextPolicy.Field, Kind).ToString();
 
     [MarkoutPropertyName("IUnion")]
     public string IUnion { get; init; } = IUnion;
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Cases { get; init; } = LibraryViewText.Contain(Cases);
+    /// <inheritdoc cref="Type"/>
+    public string Cases { get; init; } =
+        new InertString(TextPolicy.Field, Cases).ToString();
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

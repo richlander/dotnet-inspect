@@ -34,4 +34,6 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
+  <Import Project="RepositoryBuildState.targets" />
+
 </Project>

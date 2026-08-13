@@ -135,6 +135,10 @@ public class LibraryBodyIndexTests
         var bodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
         var il = new BlobBuilder();
+        il.WriteByte((byte)ILOpCode.Ldc_i4_1);
+        il.WriteByte((byte)ILOpCode.Newarr);
+        il.WriteInt32(0x02000002);
+        il.WriteByte((byte)ILOpCode.Pop);
         il.WriteByte((byte)ILOpCode.Call);
         il.WriteInt32(0x06000002);
         il.WriteByte((byte)ILOpCode.Call);
@@ -189,8 +193,21 @@ public class LibraryBodyIndexTests
                 Assert.Single(index.Diagnostics);
             int methodToken = MetadataTokens.GetToken(methodHandle);
             CallTreeNode tree = index.BuildCallTree(methodToken);
+            LibraryBodyIndex optimizationIndex =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities);
+            AnalysisDiagnostic optimizationDiagnostic =
+                Assert.Single(optimizationIndex.Diagnostics);
 
             Assert.Equal(methodToken, diagnostic.MethodToken);
+            Assert.Equal(
+                methodToken,
+                optimizationDiagnostic.MethodToken);
+            Assert.Empty(
+                optimizationIndex.OptimizationOpportunities);
+            Assert.Empty(optimizationIndex.DirectCalls);
             Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
             Assert.Same(diagnostic, tree.Diagnostic);
             Assert.Single(index.DirectCalls);

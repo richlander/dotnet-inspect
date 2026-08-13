@@ -1,6 +1,6 @@
 namespace ILInspector.Analysis;
 
-internal static class OptimizationOpportunityAnalysis
+internal static partial class OptimizationOpportunityAnalysis
 {
     internal const int DelegateHotRootReach = 10;
     const int WeightNotableSizeBytes = 1024;
