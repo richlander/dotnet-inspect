@@ -150,6 +150,9 @@ public sealed class ByteNeutralityGateTests
         new("disable-one-liner-wrapping", "true",
             typeof(FormattingSynthesisSpecimen), nameof(FormattingSynthesisSpecimen.LongFluentChain),
             "() -> corelib:System.String"),
+        new("enum-case-label-order", "value",
+            typeof(EnumCaseLabelOrderSpecimen), nameof(EnumCaseLabelOrderSpecimen.Classify),
+            "(ILInspector.Decompiler.Tests:ILInspector.Decompiler.Tests.EnumCaseLabelOrderKind) -> corelib:System.Int32"),
     ];
 
 

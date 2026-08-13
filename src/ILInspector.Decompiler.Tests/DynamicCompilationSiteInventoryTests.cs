@@ -32,6 +32,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CSharpPrinterReceiverTests.cs"] = (1, "Product-output validity: compiles printer receiver-spelling output."),
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
+            ["EnumCaseLabelOrderTests.cs"] = (1, "Round-trip fixed point: recompiles the alphabetically ordered product output and decompiles it again."),
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
             ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
             ["SplittableExpressionWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped &&/|| chain source."),
@@ -115,9 +116,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     IL-diff attribution.
     //   #3898 adds AuthoredRebuildFidelityTests.cs (1 site): constructs and
     //     replaces a same-identity dependency to gate frozen-closure reuse.
-    //   Combined: 39 files, 49 sites.
-    const int ExpectedDynamicFiles = 39;
-    const int ExpectedDynamicSites = 49;
+    //   #4003 adds EnumCaseLabelOrderTests.cs (1 site): recompiles the canonical
+    //     alphabetical output and proves a second decompilation is identical.
+    //   Combined: 40 files, 50 sites.
+    const int ExpectedDynamicFiles = 40;
+    const int ExpectedDynamicSites = 50;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
