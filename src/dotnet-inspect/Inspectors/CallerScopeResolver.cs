@@ -6,7 +6,8 @@ namespace DotnetInspector.Inspectors;
 /// <summary>
 /// Resolves member caller-scope flags (<c>--bin</c>/<c>--directory</c>, <c>--project</c>, and
 /// <c>--caller-package</c>) into a deduplicated list of on-disk assembly paths to scan for
-/// inbound callers, mirroring the scope semantics of the <c>find</c> command.
+/// cross-assembly callers and Call Graph traversal, mirroring the scope semantics of the
+/// <c>find</c> command.
 /// </summary>
 public static class CallerScopeResolver
 {

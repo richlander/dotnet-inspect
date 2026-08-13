@@ -482,6 +482,8 @@ public static class ApiOutputFormatter
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
             SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            SourceChecksum = type.SourceChecksum,
+            SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
@@ -1052,7 +1054,11 @@ public static class ApiOutputFormatter
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,
                 endLine,
-                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls)));
+                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls))
+            {
+                Checksum = member.SourceChecksum,
+                ChecksumAlgorithm = member.SourceChecksumAlgorithm,
+            });
         }
 
         view.SourceLocationRows = rows;
@@ -1071,7 +1077,9 @@ public static class ApiOutputFormatter
             {
                 FilePath = file.FilePath,
                 SourceUrl = SelectSourceUrl(file.SourceUrl, browsableUrls),
-                GitHubBrowseUrl = file.GitHubBrowseUrl
+                GitHubBrowseUrl = file.GitHubBrowseUrl,
+                SourceChecksum = file.SourceChecksum,
+                SourceChecksumAlgorithm = file.SourceChecksumAlgorithm,
             }).ToList()
             : files;
 
@@ -1638,13 +1646,10 @@ public static class ApiOutputFormatter
             // One bidirectional graph: inbound callers and outbound callees around the selected
             // member. The projection collapses the two trees onto shared node identity, so a member
             // that is both a caller and a callee is one node rather than two unrelated subtrees.
-            Analysis.CallTreeNode callerTree =
-                analysisInspection.BuildCallerTree(graphToken);
+            var projection =
+                analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
-            var projection = ILInspector.CallGraph.CallGraphProjection.Create(
-                callerTree,
-                analysisInspection.BuildCallTree(graphToken));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
             memberCode.CallGraphRowCount = selectedRows.Count;
             bool loweringNeedsSelectedGraph =

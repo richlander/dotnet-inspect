@@ -44,6 +44,29 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback()
+    {
+        const string Path = "/_/src/Duplicate.cs";
+        var first = new PdbDocumentInfo(
+            Path,
+            Checksum: [0x01],
+            ChecksumAlgorithm: "SHA256",
+            DocumentRowId: 1);
+        var second = new PdbDocumentInfo(
+            Path,
+            Checksum: [0x02],
+            ChecksumAlgorithm: "SHA256",
+            DocumentRowId: 2);
+
+        var (byRowId, uniqueByPath) =
+            SourceLinkResolver.BuildDocumentIndexes([first, second]);
+
+        Assert.Same(first, byRowId[1]);
+        Assert.Same(second, byRowId[2]);
+        Assert.DoesNotContain(Path, uniqueByPath.Keys);
+    }
+
+    [Fact]
     public void SourceDocuments_ReturnCompleteFilteredCensus()
     {
         SourceDocument[] documents =

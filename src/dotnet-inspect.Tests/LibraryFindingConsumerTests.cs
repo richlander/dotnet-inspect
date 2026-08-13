@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -9,24 +10,66 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Views;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
 public class LibraryFindingConsumerTests
 {
     [Fact]
-    public void UnionScanner_RetainsMetadataFindingInspection()
+    public void UnionTypesQueryProjection_RetainsMetadataFindingInspection()
     {
-        var inspection = LibraryMetadataService.ScanUnionTypes(
-            typeof(SampleDiscoveredUnion).Assembly.Location,
-            new VerboseLogger(enabled: false));
+        string path = typeof(SampleDiscoveredUnion).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnionTypesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            UnionTypesQuery.Execute(session));
 
         var finding = Assert.Single(
-            inspection.Findings(),
+            inspection.UnionTypeInspection.Findings(),
             finding => finding.Payload.TypeName == typeof(SampleDiscoveredUnion).FullName);
         Assert.Same(MetadataFindings.UnionTypeDescriptor, finding.Descriptor);
+    }
+
+    [Fact]
+    public void UnionTypesQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string TypeName = "Sample.\u200B\u001b[31mForged";
+        const string Kind = "str\U000E0074uct";
+        const string CaseType = "Sample.Case\nError: forged";
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnionTypesResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new UnionTypesResult.Available(
+                ImmutableArray.Create(
+                    new UnionTypeInfo(TypeName, Kind, true, [CaseType]))));
+
+        UnionTypeInfo payload = Assert.Single(
+            inspection.UnionTypeInspection.Findings()).Payload;
+        UnionTypeRow row = Assert.Single(
+            new LibraryInspectionView(inspection).UnionTypesSection!);
+
+        Assert.Equal(TypeName, payload.TypeName);
+        Assert.Equal(Kind, payload.Kind);
+        Assert.Equal([CaseType], payload.CaseTypes);
+        Assert.NotEqual(TypeName, row.Type);
+        Assert.NotEqual(Kind, row.Kind);
+        Assert.NotEqual(CaseType, row.Cases);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Type));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Kind));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Cases));
+        Assert.DoesNotContain("\u200B", row.Type, StringComparison.Ordinal);
+        Assert.DoesNotContain("\U000E0074", row.Kind, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -100,6 +143,86 @@ public class LibraryFindingConsumerTests
         Assert.Equal(
             result.Attributes.Select(attribute => attribute.Name),
             inspection.CustomAttributes!.Select(attribute => attribute.Name));
+    }
+
+    [Fact]
+    public void ResourcesQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(LibraryInspection).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+
+        LibraryMetadataService.ApplyResourcesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            ResourcesQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.ResourceInspection.Findings(),
+            finding => finding.Payload.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        var row = Assert.Single(
+            inspection.Resources!,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+
+        Assert.Same(MetadataFindings.ResourceDescriptor, finding.Descriptor);
+        Assert.True(finding.Payload.IsEmbedded);
+        Assert.True(row.Size > 0);
+    }
+
+    [Fact]
+    public void TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(AssemblyInspectionSession).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            TypeForwardersQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.TypeForwarderInspection.Findings(),
+            finding => finding.Payload.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+        var row = Assert.Single(
+            inspection.TypeForwarders!,
+            forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+
+        Assert.Same(MetadataFindings.TypeForwarderDescriptor, finding.Descriptor);
+        Assert.Equal("ILInspector.MetadataPrimitives", finding.Payload.TargetAssembly);
+        Assert.Equal(finding.Payload, row);
+    }
+
+    [Fact]
+    public void TypeForwardersQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string TypeName = "Sample.\u200B\u001b[31mForged";
+        const string TargetAssembly = "Target\U000E0074\nError: forged";
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new TypeForwardersResult.Available(
+                ImmutableArray.Create(
+                    new TypeForwarderInfo(TypeName, TargetAssembly))));
+
+        TypeForwarderInfo payload = Assert.Single(
+            inspection.TypeForwarderInspection.Findings()).Payload;
+        TypeForwarderRow row = Assert.Single(
+            new LibraryInspectionView(inspection).TypeForwardersSection!);
+
+        Assert.Equal(TypeName, payload.TypeName);
+        Assert.Equal(TargetAssembly, payload.TargetAssembly);
+        Assert.NotEqual(TypeName, row.TypeName);
+        Assert.NotEqual(TargetAssembly, row.TargetAssembly);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TypeName));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TargetAssembly));
+        Assert.DoesNotContain("\u200B", row.TypeName, StringComparison.Ordinal);
+        Assert.DoesNotContain("\U000E0074", row.TargetAssembly, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -201,8 +324,6 @@ public class LibraryFindingConsumerTests
         var logger = new VerboseLogger(enabled: false);
         var inspection = new LibraryInspection
         {
-            ResourceInspection = LibraryMetadataService.ScanResources(missingPath, logger),
-            UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(missingPath, logger),
             SwitchInspection = LibraryMetadataService.ScanSwitches(missingPath, logger),
         };
 
@@ -219,7 +340,24 @@ public class LibraryFindingConsumerTests
             logger,
             new CustomAttributesResult.Failed(
                 new FileNotFoundException("Custom attribute input was not found.", missingPath)));
-        inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
+        LibraryMetadataService.ApplyResourcesResult(
+            missingPath,
+            inspection,
+            logger,
+            new ResourcesResult.Failed(
+                new FileNotFoundException("Resource input was not found.", missingPath)));
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            missingPath,
+            inspection,
+            logger,
+            new TypeForwardersResult.Failed(
+                new FileNotFoundException("Type forwarder input was not found.", missingPath)));
+        LibraryMetadataService.ApplyUnionTypesResult(
+            missingPath,
+            inspection,
+            logger,
+            new UnionTypesResult.Failed(
+                new FileNotFoundException("Union type input was not found.", missingPath)));
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);

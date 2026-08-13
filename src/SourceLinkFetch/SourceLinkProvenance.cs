@@ -97,6 +97,23 @@ public readonly record struct SourceLinkProvenanceResult(SourceLinkOrigin? Origi
     public bool IsEstablished => Origin is not null;
 }
 
+public enum SourceLinkFetchOriginStatus
+{
+    Unattributed,
+    Preserved,
+    Changed,
+}
+
+/// <summary>
+/// The relationship between the SourceLink URL requested and the URL that supplied the response.
+/// </summary>
+public readonly record struct SourceLinkFetchOriginResult(
+    SourceLinkFetchOriginStatus Status,
+    string Reason)
+{
+    public bool IsAllowed => Status is not SourceLinkFetchOriginStatus.Changed;
+}
+
 /// <summary>
 /// Establishes the origin that source content is fetched from.
 /// </summary>
@@ -200,6 +217,67 @@ public static class SourceLinkProvenance
         }
 
         return new SourceLinkProvenanceResult(agreed, "");
+    }
+
+    /// <summary>
+    /// Checks that an attributed SourceLink request did not redirect to another repository,
+    /// revision, or unattributable destination.
+    /// </summary>
+    /// <remarks>
+    /// URLs outside the known provenance grammars remain fetchable: they carry no reported
+    /// repository claim, and checksum verification remains the content-authenticity boundary.
+    /// Once the requested URL is attributable, however, the final response URL must produce the
+    /// same complete origin tuple. Gated by
+    /// <c>SourceLinkProvenanceTests.FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin</c>,
+    /// <c>...FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository</c>, and
+    /// <c>...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim</c>.
+    /// </remarks>
+    public static SourceLinkFetchOriginResult ValidateFetchOrigin(
+        string requestedUrl,
+        string finalUrl)
+    {
+        ArgumentNullException.ThrowIfNull(requestedUrl);
+        ArgumentNullException.ThrowIfNull(finalUrl);
+
+        if (!TryReadOrigin(requestedUrl, out SourceLinkOrigin requestedOrigin, out _))
+        {
+            return new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Unattributed,
+                "");
+        }
+
+        if (!TryReadOrigin(finalUrl, out SourceLinkOrigin finalOrigin, out _))
+        {
+            return new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Changed,
+                "the response URL has no attributable origin");
+        }
+
+        if (requestedOrigin != finalOrigin)
+        {
+            return new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Changed,
+                "the response URL names a different source origin");
+        }
+
+        return new SourceLinkFetchOriginResult(
+            SourceLinkFetchOriginStatus.Preserved,
+            "");
+    }
+
+    /// <summary>
+    /// Reports whether a resolved source URL names content at an immutable commit origin.
+    /// </summary>
+    /// <remarks>
+    /// This is the cache-policy view of the provenance grammar. A URL is immutable only when the
+    /// same host-specific reader that attributes its repository and revision establishes a full
+    /// commit selector. Unknown hosts, moving refs, ambiguous selectors, and malformed URLs remain
+    /// mutable. Gated by <c>SourceLinkUrlsTests</c>.
+    /// </remarks>
+    public static bool IsImmutableContentUrl(string url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        return TryReadOrigin(url, out _, out _);
     }
 
     /// <summary>

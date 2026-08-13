@@ -529,6 +529,111 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             NuGetCache.TryGetCachedPackage(PackageName, Version, [TestSourceKey]));
     }
 
+    /// <summary>
+    /// Hostile/oversized commit markers must not be loaded wholesale when the
+    /// app-cache tier is probed (same OOM class as unbounded .nupkg.metadata).
+    /// </summary>
+    [Fact]
+    public void EnumerateCached_OversizedCommitMarker_IsAbsentWithoutHugeAlloc()
+    {
+        const string PackageName = "Marker.Bound.Test";
+        const string Version = "1.0.0";
+        string slot = NuGetCache.GetPackageCachePath(
+            PackageName,
+            Version,
+            TestSourceKey);
+        Directory.CreateDirectory(slot);
+        File.WriteAllText(
+            Path.Combine(slot, $"{PackageName.ToLowerInvariant()}.nuspec"),
+            "<package />");
+        // Just over the product cap — large enough to prove the gate, small
+        // enough that a regression still fails the test without host OOM.
+        int oversize = NuGetCache.MaxCommitMarkerBytes + 1;
+        File.WriteAllBytes(
+            Path.Combine(slot, NuGetCache.CommitMarkerFileName),
+            new byte[oversize]);
+
+        // Fail closed: oversized marker is treated as absent (Length gate
+        // rejects before any read buffer is allocated for the file body).
+        Assert.Null(
+            NuGetCache.TryGetCachedPackage(PackageName, Version, [TestSourceKey]));
+        Assert.Empty(
+            NuGetCache.ListCachedPackageContent(
+                PackageName,
+                Version,
+                [TestSourceKey]));
+        // Sanity: file still present and still over the cap (we rejected on
+        // size, not by deleting the hostile slot).
+        Assert.True(
+            new FileInfo(Path.Combine(slot, NuGetCache.CommitMarkerFileName)).Length
+            > NuGetCache.MaxCommitMarkerBytes);
+    }
+
+    /// <summary>
+    /// Marker-valid cache slots must still bound nuspec materialization
+    /// (dependency-resolution hot path).
+    /// </summary>
+    [Fact]
+    public async Task TryGetNuspecXmlAsync_OversizedCachedNuspec_ReturnsNull()
+    {
+        const string PackageName = "Nuspec.Bound.Test";
+        const string Version = "1.0.0";
+        string sourceDir = Path.Combine(_testRoot, "nuspec-bound-src");
+        Directory.CreateDirectory(sourceDir);
+        File.WriteAllText(
+            Path.Combine(sourceDir, $"{PackageName}.nuspec"),
+            """<?xml version="1.0"?><package><metadata><id>Nuspec.Bound.Test</id><version>1.0.0</version></metadata></package>""");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "lib", "net10.0"));
+        File.WriteAllBytes(
+            Path.Combine(sourceDir, "lib", "net10.0", "t.dll"),
+            [1]);
+
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            sourceDir,
+            nupkgPath: null,
+            PackageName,
+            Version,
+            TestSourceKey);
+
+        string nuspecPath = Directory
+            .GetFiles(committed.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly)
+            .Single();
+        File.WriteAllBytes(
+            nuspecPath,
+            new byte[PackageExtractor.MaxNuspecBytes + 1]);
+
+        // Cache path is present but unusable; network fallthrough must not throw.
+        using var client = new HttpClient(new NotFoundHandler());
+        Assert.Null(
+            await PackageExtractor.TryGetNuspecXmlAsync(
+                client,
+                PackageName,
+                Version,
+                sourceOptions: s_nugetOrgSource));
+    }
+
+    /// <summary>
+    /// Direct file helper rejects oversize without loading the body as text.
+    /// </summary>
+    [Fact]
+    public async Task TryReadNuspecFileAsync_Oversized_ReturnsNull()
+    {
+        Directory.CreateDirectory(_testRoot);
+        string path = Path.Combine(_testRoot, "huge.nuspec");
+        File.WriteAllBytes(path, new byte[PackageExtractor.MaxNuspecBytes + 1]);
+        Assert.Null(
+            await PackageExtractor.TryReadNuspecFileAsync(
+                path,
+                TestContext.Current.CancellationToken));
+
+        File.WriteAllText(path, """<?xml version="1.0"?><package />""");
+        Assert.Equal(
+            """<?xml version="1.0"?><package />""",
+            await PackageExtractor.TryReadNuspecFileAsync(
+                path,
+                TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task EnsurePackAsync_ConcurrentRequestsPublishOneImmutablePack()
     {
@@ -547,7 +652,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         File.WriteAllText(refFile, "fixture");
         CommittedPackage committed = NuGetCache.CommitPackage(
             source,
-            nupkgPath: null,
+            CreateNupkgFromDirectory(source, "platform-pack"),
             PackageName,
             Version,
             TestSourceKey);
@@ -590,13 +695,22 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         const string PackageName = "Microsoft.WindowsDesktop.App.Ref";
         const string Version = "10.0.2";
         string source = Path.Combine(_testRoot, "windowsdesktop-pack");
-        Directory.CreateDirectory(Path.Combine(source, "ref", "net10.0"));
+        // Include a real ref file so the retained nupkg and extract agree;
+        // empty directories alone are not archive entries and fail product-owned
+        // admission after the commit marker is written.
+        string refFile = Path.Combine(
+            source,
+            "ref",
+            "net10.0",
+            "PresentationCore.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(refFile)!);
         File.WriteAllText(
             Path.Combine(source, $"{PackageName}.nuspec"),
             "<package />");
+        File.WriteAllText(refFile, "fixture");
         NuGetCache.CommitPackage(
             source,
-            nupkgPath: null,
+            CreateNupkgFromDirectory(source, "windowsdesktop-pack"),
             PackageName,
             Version,
             TestSourceKey);
@@ -1356,13 +1470,14 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         const string FeedB = "https://feed-b.invalid/v3/index.json";
         string producerA = NuGetCache.GetSourceKey(FeedA);
 
+        string extracted = CreateExtractedPackage(
+            Path.Combine(_testRoot, "pinned-a"),
+            packageName,
+            "A",
+            payloadCount: 1);
         CommittedPackage committed = NuGetCache.CommitPackage(
-            CreateExtractedPackage(
-                Path.Combine(_testRoot, "pinned-a"),
-                packageName,
-                "A",
-                payloadCount: 1),
-            nupkgPath: null,
+            extracted,
+            CreateNupkgFromDirectory(extracted, "pinned-a"),
             packageName,
             Version,
             producerA);
@@ -1471,6 +1586,48 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             payloadCount: 1);
 
         Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, [TestSourceKey]));
+    }
+
+    /// <summary>
+    /// Builds a retained nupkg whose entry set matches <paramref name="directory"/>
+    /// exactly so product-owned admission (commit marker + archive match) accepts
+    /// the committed slot.
+    /// </summary>
+    private string CreateNupkgFromDirectory(string directory, string name)
+    {
+        string path = Path.Combine(
+            _testRoot,
+            $"{name}-{Guid.NewGuid():N}.nupkg");
+        using (FileStream file = File.Create(path))
+        using (var archive = new ZipArchive(file, ZipArchiveMode.Create))
+        {
+            foreach (string filePath in Directory.EnumerateFiles(
+                         directory,
+                         "*",
+                         SearchOption.AllDirectories))
+            {
+                string relative = Path
+                    .GetRelativePath(directory, filePath)
+                    .Replace('\\', '/');
+                archive.CreateEntryFromFile(filePath, relative);
+            }
+        }
+
+        return path;
+    }
+
+    private string CreateNupkg(
+        string packageName,
+        string version,
+        string name)
+    {
+        string path = Path.Combine(
+            _testRoot,
+            $"{name}-{Guid.NewGuid():N}.nupkg");
+        File.WriteAllBytes(
+            path,
+            CreatePackageArchive(packageName, version));
+        return path;
     }
 
     private static byte[] CreatePackageArchive(
@@ -2050,5 +2207,16 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             CancellationToken cancellationToken)
             => throw new InvalidOperationException(
                 $"Unexpected network request: {request.RequestUri}");
+    }
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            });
     }
 }

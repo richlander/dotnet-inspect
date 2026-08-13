@@ -1526,6 +1526,45 @@ public class SectionPipelineTests
         Assert.Equal([CustomAttributesQuery.Definition], queries);
     }
 
+    [Fact]
+    public void LibraryPipeline_TargetedResources_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Resources" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([ResourcesQuery.Definition], queries);
+    }
+
+    [Fact]
+    public void LibraryPipeline_TargetedTypeForwarders_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Type Forwarders" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([TypeForwardersQuery.Definition], queries);
+    }
+
+    [Fact]
+    public void LibraryPipeline_TargetedUnionTypes_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Union Types" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([UnionTypesQuery.Definition], queries);
+    }
+
     // ===== Scanner registry tests =====
 
     [Fact]
@@ -1630,8 +1669,11 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
+                TypeForwardersQuery.Definition,
+                UnionTypesQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
     }
@@ -2055,8 +2097,8 @@ public class SectionPipelineTests
             AssemblyReferencesQuery.Execute(session));
 
         Assert.Equal(
-            session.AssemblyReferences().OrderBy(reference => reference.Name),
-            result.References.OrderBy(reference => reference.Name));
+            session.AssemblyReferenceIdentities().OrderBy(reference => reference.Name),
+            result.Identities.OrderBy(reference => reference.Name));
     }
 
     [Fact]
@@ -2085,7 +2127,12 @@ public class SectionPipelineTests
             [SectionNames.ExtensionMethods, SectionNames.LibraryInfo],
             boundSections);
         Assert.Equal(
-            [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition],
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
     }
 
@@ -2115,8 +2162,487 @@ public class SectionPipelineTests
             [SectionNames.CustomAttributes, SectionNames.LibraryInfo],
             boundSections);
         Assert.Equal(
-            [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition],
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryInfoAndResourcesSections_ShareTypedResourcesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                ResourcesQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.Resources,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.Resources],
+            boundSections);
+        Assert.Equal(
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
+            required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryInfoAndTypeForwardersSections_ShareTypedTypeForwardersQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                TypeForwardersQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.TypeForwarders,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.TypeForwarders],
+            boundSections);
+        Assert.Equal(
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
+            required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_ReturnsMetadataOrderedForwardersFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+
+        var result = Assert.IsType<TypeForwardersResult.Available>(
+            TypeForwardersQuery.Execute(session));
+
+        Assert.Contains(
+            result.Forwarders,
+            forwarder =>
+                forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard"
+                && forwarder.TargetAssembly == "ILInspector.MetadataPrimitives");
+        Assert.Equal(session.TypeForwarders(), result.Forwarders);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var forwarders = Assert.IsType<TypeForwardersResult.Available>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.Contains(
+            forwarders.Forwarders,
+            forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            TypeForwardersQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary = typeof(AssemblyInspectionSession).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            Assert.NotEmpty(canarySession.TypeForwarders());
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<TypeForwardersResult.Failed>(
+            TypeForwardersQuery.Execute(session));
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
+            model.TypeForwarderInspection!.Value);
+        Assert.Null(model.TypeForwarders);
+        Assert.Equal("Type Forwarders", Assert.Single(model.InspectionFailures!).Section);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_ReturnsMetadataOrderedUnionsFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(SampleDiscoveredUnion).Assembly.Location);
+
+        var result = Assert.IsType<UnionTypesResult.Available>(
+            UnionTypesQuery.Execute(session));
+
+        Assert.Contains(
+            result.Unions,
+            union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
+        Assert.Equal(
+            session.UnionTypes().Select(union =>
+                (union.TypeName,
+                    union.Kind,
+                    union.ImplementsIUnion,
+                    Cases: string.Join('\n', union.CaseTypes))),
+            result.Unions.Select(union =>
+                (union.TypeName,
+                    union.Kind,
+                    union.ImplementsIUnion,
+                    Cases: string.Join('\n', union.CaseTypes))));
+    }
+
+    [Fact]
+    public void UnionTypesQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(SampleDiscoveredUnion).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnionTypesQuery.Definition],
+            context);
+        var unions = Assert.IsType<UnionTypesResult.Available>(
+            results.Get(UnionTypesQuery.Definition));
+
+        Assert.Contains(
+            unions.Unions,
+            union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnionTypesQuery.Definition],
+            context);
+        var failure = Assert.IsType<UnionTypesResult.Failed>(
+            results.Get(UnionTypesQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(SampleDiscoveredUnion).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<UnionTypesResult.Failed>(
+            UnionTypesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary = typeof(SampleDiscoveredUnion).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            Assert.Contains(
+                canarySession.UnionTypes(),
+                union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnionTypesQuery.Definition],
+            context);
+        var failure = Assert.IsType<UnionTypesResult.Failed>(
+            results.Get(UnionTypesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<UnionTypesResult.Failed>(
+            UnionTypesQuery.Execute(session));
+        LibraryMetadataService.ApplyUnionTypesResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<UnionTypeInfo>.Failed>(
+            model.UnionTypeInspection!.Value);
+        Assert.Null(model.UnionTypes);
+        Assert.Equal("Union Types", Assert.Single(model.InspectionFailures!).Section);
+    }
+
+    [Fact]
+    public void ResourcesQuery_ReturnsManifestResourcesFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(LibraryInspection).Assembly.Location);
+
+        var result = Assert.IsType<ResourcesResult.Available>(
+            ResourcesQuery.Execute(session));
+
+        Assert.Contains(
+            result.Resources,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        Assert.Equal(session.Resources(), result.Resources);
+    }
+
+    [Fact]
+    public void ResourcesQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var resources = Assert.IsType<ResourcesResult.Available>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.Contains(
+            resources.Resources,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void ResourcesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(AssemblyInspectionSession).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+        LibraryMetadataService.ApplyResourcesResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
+            model.ResourceInspection!.Value);
+        Assert.Null(model.Resources);
+        Assert.Equal("Resources", Assert.Single(model.InspectionFailures!).Section);
     }
 
     [Fact]
@@ -3498,12 +4024,8 @@ public class SectionPipelineTests
         // observable that stands in for it.
         string[] sharedSessionScanners =
         [
-            // was ScanInfoCounts's fan-out
+            // remains from ScanInfoCounts's fan-out
             LibrarySections.ScannerClassifiedMethods,
-            LibrarySections.ScannerResources,
-            LibrarySections.ScannerTypeForwarders,
-            // workspace-backed library inspection must not reopen its package path
-            LibrarySections.ScannerUnionTypes,
             LibrarySections.ScannerSwitches,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
@@ -3524,33 +4046,9 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened()
-    {
-        // The shared session returns null rather than throwing so each scanner keeps its own
-        // open-failure mapping. Without this, SharedSessionScanners_AllObserveOneSession could be
-        // satisfied by a Session() that throws, and an unopenable assembly would surface as one
-        // generic failure instead of a typed failed inspection per scanner.
-        var registry = LibrarySections.CreateScannerRegistry();
-        var model = new LibraryInspection();
-        using var context = new ScannerContext
-        {
-            AssemblyPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
-            Model = model,
-            Logger = new Output.VerboseLogger(false),
-        };
-
-        registry.RunScanners([LibrarySections.ScannerResources], context);
-
-        Assert.Null(context.Session());
-        Assert.Equal(0, context.SharedScanCount);
-        Assert.NotNull(model.ResourceInspection);
-        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
-    }
-
-    [Fact]
     public void Trace_RecordsWhatRan_AndMarksBundlesAsDoingNoWorkOfTheirOwn()
     {
-        // InfoCounts is a bundle: it does no work itself and exists only to pull in three scanners.
+        // InfoCounts is a bundle: it does no work itself and exists only to pull in one scanner.
         // A trace that reported it as an ordinary scanner would attribute the bundle's dispatch
         // cost to a step that has none, and hide that the real work belongs to its prerequisites.
         var registry = LibrarySections.CreateScannerRegistry();
@@ -3676,6 +4174,9 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+                UnionTypesQuery.Definition,
             ],
             requested.OrderBy(query => query.Name, StringComparer.Ordinal));
 
@@ -3813,16 +4314,6 @@ public class SectionPipelineTests
                 m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
                     m.ClassifiedMethodInspection!.Value)),
 
-            ("Resources",
-                m => m.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger),
-                m => Xunit.Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
-                    m.ResourceInspection!.Value)),
-
-            ("TypeForwarders",
-                m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
-                m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
-                    m.TypeForwarderInspection!.Value)),
-
             ("AuditSignals",
                 m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
                 m =>
@@ -3898,7 +4389,7 @@ public class SectionPipelineTests
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
             // The action-based scanners must distinguish the fixtures on their own. Found by
-            // review: asserting only the combined signature let the three value-returning census
+            // review: asserting only the combined signature let the two value-returning census
             // scanners carry the whole assertion, so a tamper confined to the void Scan overload
             // -- which is how Audit Signals, Integrations and Integration Opportunities run --
             // left this gate green while three scanners reopened the path.
@@ -4079,7 +4570,7 @@ public class SectionPipelineTests
     /// <summary>
     /// Runs the shared-session scanners over an untouched path and returns their signature, split
     /// so a caller can assert that the action-based scanners on their own distinguish the two
-    /// fixtures. Without that split, the three value-returning census scanners could carry the whole
+    /// fixtures. Without that split, the two value-returning census scanners could carry the whole
     /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
     /// </summary>
     private static (string Full, string Actions) CensusSignature(string assemblyPath)
@@ -4106,9 +4597,6 @@ public class SectionPipelineTests
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
-        LibrarySections.ScannerResources,
-        LibrarySections.ScannerTypeForwarders,
-        LibrarySections.ScannerUnionTypes,
         LibrarySections.ScannerSwitches,
         LibrarySections.ScannerAuditSignals,
     ];
@@ -4116,8 +4604,6 @@ public class SectionPipelineTests
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
-        $"resources={PayloadCount(model.ResourceInspection)}",
-        $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
         $"unions={PayloadCount(model.UnionTypeInspection)}",
         $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));

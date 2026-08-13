@@ -107,10 +107,27 @@ public static class AnnotatedSourceNodeKinds
             Instruction,
         }.ToFrozenSet(StringComparer.Ordinal);
 
+    private static readonly FrozenDictionary<string, string> DisplayLabels =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["BreakStatement"] = "Break",
+            ["ReturnStatement"] = "Return",
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
     /// <summary>All node kinds emitted by this version of the producer.</summary>
     public static IReadOnlySet<string> All => Known;
 
     /// <summary>Tests whether <paramref name="kind"/> belongs to this producer's catalog.</summary>
     public static bool IsKnown(string kind)
         => kind is not null && Known.Contains(kind);
+
+    /// <summary>
+    /// Returns the product-owned display label for a stable node kind.
+    /// Unknown kinds and kinds without a shorter label retain their stable id.
+    /// </summary>
+    public static string GetDisplayLabel(string kind)
+    {
+        ArgumentNullException.ThrowIfNull(kind);
+        return DisplayLabels.GetValueOrDefault(kind, kind);
+    }
 }

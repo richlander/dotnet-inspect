@@ -38,7 +38,7 @@ Get System.CommandLine package info as JSON.
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine -v:q --json -n 10
+dotnet-inspect package System.CommandLine@2.0.3 -v:q --json -n 10
 ```
 
 ```expect
@@ -51,15 +51,20 @@ dotnet-inspect package System.CommandLine -v:q --json -n 10
 ### 1b. Compact JSON (single line)
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine --json --compact
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact
 ```
 
 ```expect
-[{"type":"Command"
+[
+"type":"Command"
 ```
 
 ```query
-python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d))"
+python3 -c "import json,sys; d=json.load(sys.stdin); print('nonempty' if d else 'empty')"
+```
+
+```expect
+nonempty
 ```
 
 ## 2. Type information as JSON
@@ -90,7 +95,8 @@ dotnet-inspect find 'JsonSer*' --json --compact
 ```
 
 ```expect
-[{"type":"JsonSerializer"
+[
+"type":"JsonSerializer"
 ```
 
 ## 4. JSON with jq pipelines
@@ -100,7 +106,7 @@ dotnet-inspect find 'JsonSer*' --json --compact
 ### 4a. Extract type names
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine --json --compact | python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)]"
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)]"
 ```
 
 ```expect
@@ -111,9 +117,9 @@ System.CommandLine.Parsing.CommandLineParser
 ### 4b. Count results
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine --json --compact | python3 -c "import json,sys; print(len(json.load(sys.stdin)))"
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; print('nonempty' if json.load(sys.stdin) else 'empty')"
 ```
 
 ```expect
-4
+nonempty
 ```

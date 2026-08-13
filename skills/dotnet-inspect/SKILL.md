@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.16.0
+version: 0.17.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, and version-to-version API changes.
 ---
 
@@ -22,17 +22,18 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
+| Find rendered body syntax | `body-shape ObjectCreationExpression --library path/to.dll`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
-| Inspect packages | `package Foo`; use `@Package`, `@Dependencies`, `@Audit`, or `@Files` for an explicit lens. Load `skill private-feeds` for authenticated/custom sources. |
+| Inspect packages | `package Foo`; use `-D` to discover sections. Load `skill private-feeds` for custom/authenticated sources. |
 | Inspect project guidance | `project path/to/project` lists dependency Skills; select `Agent Guidance` or focused `Package Docs` explicitly. |
-| Inspect libraries | `library Foo` or `library path/to.dll`; load `skill metadata` for raw ECMA-335 tables/heaps. |
+| Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
 
 ## Member lookup
 
-Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list
-overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
+Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads.
+Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
 defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ```bash
@@ -44,7 +45,7 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 
 ## Tips
 
-- Default output is Markdown; for formats, `-D`/`-S` discovery, projection, and limits, load `dotnet-inspect skill query`. Decompiled source uses readable synthesized local names when PDB names are unavailable.
+- `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for discovery, selection, projection, and limits.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.

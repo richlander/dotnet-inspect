@@ -19,7 +19,7 @@ public sealed record SourceIntegritySummary(
 /// </summary>
 public static class SourceIntegrityService
 {
-    private const string CacheCategory = "source-integrity";
+    private const string CacheCategory = "source-integrity-v2";
 
     public static async Task<SourceIntegritySummary> InspectAsync(
         IEnumerable<SourceDocumentObservation> sourceDocuments,
@@ -62,13 +62,6 @@ public static class SourceIntegrityService
         if (verifiable.Count > 0)
         {
             log?.Invoke($"Verifying integrity of {verifiable.Count} source files...");
-            foreach (string? host in verifiable
-                .Select(document => SafeHost(document.ResolvedUrl!))
-                .Where(static host => host != null)
-                .Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                log?.Invoke($"Source integrity fetch host: {host}");
-            }
 
             await Parallel.ForEachAsync(
                 verifiable,
@@ -108,17 +101,38 @@ public static class SourceIntegrityService
                     byte[]? body;
                     try
                     {
-                        body = await HttpRetryHelper.GetBytesWithRetryAsync(
-                            httpClient,
-                            document.ResolvedUrl!,
-                            log: log,
-                            cancellationToken: ct,
-                            trafficKind: NetworkTrafficKind.SourceIntegrity).ConfigureAwait(false);
+                        HttpRetryHelper.HttpBodyFetchResult fetch =
+                            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                                httpClient,
+                                document.ResolvedUrl!,
+                                response => SourceFetchOriginValidator.Validate(
+                                    document.ResolvedUrl!,
+                                    response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
+                                log: null,
+                                cancellationToken: ct,
+                                trafficKind: NetworkTrafficKind.SourceIntegrity,
+                                maxDownloadSize: SourceFetcher.MaxSourceDownloadSize)
+                                .ConfigureAwait(false);
+                        if (fetch.Status
+                            == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
+                        {
+                            log?.Invoke(
+                                "Could not verify the final SourceLink response origin.");
+                            body = null;
+                        }
+                        else if (fetch.Bytes is { } bytes)
+                        {
+                            body = bytes;
+                        }
+                        else
+                        {
+                            log?.Invoke("Source integrity fetch failed.");
+                            body = null;
+                        }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        log?.Invoke(
-                            $"Integrity fetch failed: {document.ResolvedUrl} ({ex.Message})");
+                        log?.Invoke("Source integrity fetch failed.");
                         body = null;
                     }
 
@@ -147,8 +161,7 @@ public static class SourceIntegrityService
                     {
                         Interlocked.Increment(ref mismatched);
                         mismatches.Add(document.OriginalPath);
-                        log?.Invoke(
-                            $"Integrity MISMATCH: {document.OriginalPath} ({document.ResolvedUrl})");
+                        log?.Invoke("Source integrity checksum mismatch.");
                     }
                     else
                     {
@@ -164,7 +177,4 @@ public static class SourceIntegrityService
             unverifiable,
             [.. mismatches.Order(StringComparer.Ordinal)]);
     }
-
-    private static string? SafeHost(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ? uri.Host : null;
 }

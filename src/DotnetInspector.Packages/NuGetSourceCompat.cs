@@ -6,6 +6,7 @@ using System.Xml;
 using System.Xml.Linq;
 using NuGetFetch;
 using DotnetInspector.Core;
+using InertText;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -18,7 +19,7 @@ public record NuGetSourceOptions
     public string[] Sources { get; init; } = [];
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
-    internal string[]? AuthorizedSourceUrls { get; init; }
+    internal string[]? AuthorizedSourceKeys { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
 }
 
@@ -66,35 +67,50 @@ public static class NuGetSourceResolver
         IReadOnlyList<string> sourceUrls)
     {
         ArgumentNullException.ThrowIfNull(sourceUrls);
+        return RestrictToSourceKeys(
+            original,
+            [.. sourceUrls.Select(NuGetCache.GetSourceKey)]);
+    }
+
+    /// <summary>
+    /// Restricts payload or metadata fulfillment to canonical producer identities established
+    /// by an earlier package acquisition.
+    /// </summary>
+    public static NuGetSourceOptions? RestrictToSourceKeys(
+        NuGetSourceOptions? original,
+        IReadOnlyList<string> sourceKeys)
+    {
+        ArgumentNullException.ThrowIfNull(sourceKeys);
         return (original ?? NuGetSourceOptions.Default) with
         {
-            AuthorizedSourceUrls = [.. sourceUrls],
+            AuthorizedSourceKeys = [.. sourceKeys],
         };
     }
 
-    internal static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
+    /// <summary>
+    /// Applies a producer restriction established by an earlier coordinate resolution to an
+    /// already package-mapped source set.
+    /// </summary>
+    public static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
         NuGetSourceOptions? options,
         IReadOnlyList<NuGetSource> activeSources)
     {
-        if (options?.AuthorizedSourceUrls is not { } authorizedUrls)
+        if (options?.AuthorizedSourceKeys is not { } authorizedKeys)
             return activeSources;
 
-        HashSet<string> authorizedKeys =
-        [
-            .. authorizedUrls.Select(NuGetCache.GetSourceKey),
-        ];
+        HashSet<string> authorizedKeySet = [.. authorizedKeys];
         return
         [
             .. activeSources.Where(source =>
-                authorizedKeys.Contains(NuGetCache.GetSourceKey(source.Url))),
+                authorizedKeySet.Contains(NuGetCache.GetSourceKey(source.Url))),
         ];
     }
 
     internal static NuGetSourceOptions? WithoutSourceRestriction(
         NuGetSourceOptions? options)
-        => options?.AuthorizedSourceUrls is null
+        => options?.AuthorizedSourceKeys is null
             ? options
-            : options with { AuthorizedSourceUrls = null };
+            : options with { AuthorizedSourceKeys = null };
 
     /// <summary>
     /// Resolves sources and reduces them to the identities the package content
@@ -435,7 +451,7 @@ public static class NuGetSourceResolver
                 throw new PackageSourceMappingException(
                     PackageSourceMappingFailure.ConflictingCredentials,
                     $"Package '{packageId}' is eligible from multiple configured names for "
-                    + $"'{first.Url}', but those names use conflicting credentials.");
+                    + $"'{UrlRedaction.ForDiagnostics(first.Url)}', but those names use conflicting credentials.");
             }
 
             producers.Add(first);
@@ -589,7 +605,10 @@ public static class NuGetSearchService
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
-                failures.Add($"{source.Name}: service index unavailable ({ex.Message})");
+                failures.Add(
+                    $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "
+                    + $"at {UrlRedaction.ForDiagnostics(source.Url)} "
+                    + $"({DescribeTransportFailure(ex)})");
                 continue;
             }
 
@@ -599,13 +618,14 @@ public static class NuGetSearchService
                     FeedFailureTelemetry.Current!.Failures;
                 failures.Add(sourceFailures.Count > 0
                     ? DescribeServiceIndexFailure(source, sourceFailures)
-                    : $"{source.Name}: no searchable endpoint for '{source.Url}' "
+                    : $"{PackageSourceDisplay.ForDiagnostics(source)}: no searchable endpoint for '{UrlRedaction.ForDiagnostics(source.Url)}' "
                         + "(service index unavailable, or advertises no SearchQueryService)");
                 continue;
             }
 
             var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
-            log?.Invoke($"Searching {source.Name}: {searchUrl}");
+            log?.Invoke(
+                $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: {UrlRedaction.ForDiagnostics(searchUrl)}");
 
             IReadOnlyList<SearchResult> found;
             try
@@ -621,7 +641,14 @@ public static class NuGetSearchService
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
             {
-                failures.Add($"{source.Name}: {ex.Message}");
+                // The remote controls both the response that produced this
+                // exception and the endpoint URL its message embeds, so the
+                // failure names the endpoint this product resolved and the
+                // category of what went wrong, not the message.
+                failures.Add(
+                    $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
+                    + $"at {UrlRedaction.ForDiagnostics(searchUrl)} "
+                    + $"({DescribeTransportFailure(ex)})");
                 continue;
             }
 
@@ -662,6 +689,21 @@ public static class NuGetSearchService
         return new NuGetSearchOutcome(limited.Take(take).ToList(), failures);
     }
 
+    /// <summary>
+    /// The part of a transport failure that may be printed.
+    /// </summary>
+    /// <remarks>
+    /// A timeout's wording is generated by the client from this product's own
+    /// configured <c>HttpClient.Timeout</c> and names no endpoint, so it is
+    /// kept: it is how an operator learns which timeout fired. Every other
+    /// message here is written by a layer that saw the remote's response or the
+    /// feed-declared URL, so only the exception's category survives.
+    /// </remarks>
+    private static string DescribeTransportFailure(Exception error) =>
+        error is TaskCanceledException or TimeoutException
+            ? $"{error.GetType().Name}: {error.Message}"
+            : error.GetType().Name;
+
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
         IReadOnlyList<FeedFailure> failures)
@@ -675,7 +717,7 @@ public static class NuGetSearchService
             "; ",
             failures.Select(f => $"{f.Url} — {f.StatusText} while {f.PhaseText}"));
 
-        return $"{source.Name}: {reason} ({observations})";
+        return $"{PackageSourceDisplay.ForDiagnostics(source)}: {reason} ({observations})";
     }
 
     public static async Task<List<NuGetSearchResult>> SearchByPrefixAsync(
