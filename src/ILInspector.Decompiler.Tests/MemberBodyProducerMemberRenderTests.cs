@@ -69,6 +69,36 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMembers_DelegatesMapEveryMemberToAbsent()
+    {
+        var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
+        var invoke = new ApiMember { Name = "Invoke", Kind = "method" };
+        var type = new ApiType
+        {
+            Name = "Callback",
+            Kind = "delegate",
+            Members = [constructor, invoke]
+        };
+
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(type.Members.Count, batch.Count);
+        foreach (var member in type.Members)
+        {
+            var single = MemberBodyProducer.ProduceMember(
+                type,
+                member,
+                AssemblyPath,
+                pdbPath: null);
+            Assert.Equal(single, batch[member]);
+            Assert.Equal(MemberBodyProductionStatus.Absent, batch[member].Status);
+        }
+    }
+
+    [Fact]
     public void ProduceMember_CanOmitCustomAttributesAndTheirImports()
     {
         var type = Specimen();

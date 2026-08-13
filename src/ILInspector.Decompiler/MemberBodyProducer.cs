@@ -624,7 +624,16 @@ public static class MemberBodyProducer
     {
         var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
         if (type.Kind is "delegate")
+        {
+            foreach (var member in type.Members)
+            {
+                results[member] = new MemberRenderResult(
+                    MemberBodyProductionStatus.Absent,
+                    Text: null,
+                    []);
+            }
             return results;
+        }
 
         try
         {
