@@ -793,13 +793,36 @@ public class HttpRetryHelperTests
             "https://example.test/index.json",
             retryCount: 0,
             log: messages.Add,
+            trafficKind: NetworkTrafficKind.PackageVersionList,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(text);
         Assert.Contains(
             messages,
             message => message.Contains("body failed", StringComparison.Ordinal));
-        Assert.NotEmpty(FeedFailureTelemetry.Current!.Failures);
+        FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+    }
+
+    [Fact]
+    public async Task GetStringWithRetryAsync_BodyFailure_UsesCallerTrafficKindNotOuterScope()
+    {
+        using var telemetry = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new RetryingBodyHandler("unused"u8.ToArray()));
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch))
+        {
+            string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+                client,
+                "https://example.test/index.json",
+                retryCount: 0,
+                trafficKind: NetworkTrafficKind.PackageVersionList,
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Null(text);
+        }
+
+        FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+        Assert.NotEqual(NetworkTrafficKind.PackageSearch, failure.Phase);
     }
 
     [Fact]

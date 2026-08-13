@@ -614,69 +614,76 @@ public static class HttpRetryHelper
         if (response is null)
             return null;
 
-        // Oversize / body timeout must mark FeedFailureTelemetry so callers that
-        // distinguish Absent vs Failure via failure deltas (version index) do not
-        // treat a hostile oversize 200 as a clean 404.
-        void RecordBodyFailure()
+        // Body work sits outside ExecuteWithRetryAsync's NetworkTelemetry.Scope.
+        // Re-enter the caller trafficKind so FeedFailureTelemetry.Record stamps
+        // PackageVersionList / PackageManifest / etc., not Unknown or an outer
+        // ambient scope.
+        using (NetworkTelemetry.Scope(trafficKind))
         {
-            Uri? effective = response.RequestMessage?.RequestUri;
-            if (effective is not null)
-                FeedFailureTelemetry.Record(effective, response.StatusCode);
-            else
-                FeedFailureTelemetry.Record(url, response.StatusCode);
-        }
+            // Oversize / body timeout must mark FeedFailureTelemetry so callers that
+            // distinguish Absent vs Failure via failure deltas (version index) do not
+            // treat a hostile oversize 200 as a clean 404.
+            void RecordBodyFailure()
+            {
+                Uri? effective = response.RequestMessage?.RequestUri;
+                if (effective is not null)
+                    FeedFailureTelemetry.Record(effective, response.StatusCode);
+                else
+                    FeedFailureTelemetry.Record(url, response.StatusCode);
+            }
 
-        if (response.Content.Headers.ContentLength is long advertised
-            && advertised > maxDownloadSize)
-        {
-            log?.Invoke($"HTTP GET body exceeded {maxDownloadSize} byte cap.");
-            RecordBodyFailure();
-            return null;
-        }
+            if (response.Content.Headers.ContentLength is long advertised
+                && advertised > maxDownloadSize)
+            {
+                log?.Invoke($"HTTP GET body exceeded {maxDownloadSize} byte cap.");
+                RecordBodyFailure();
+                return null;
+            }
 
-        // Headers-first means HttpClient.Timeout no longer covers the body.
-        // Match GetBytesAfterHeadersWithRetryAsync: linked CTS + CancelAfter so
-        // a stalled feed cannot hang service-index / version-list discovery.
-        TimeSpan requestTimeout = client.Timeout == Timeout.InfiniteTimeSpan
-            || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
-                ? HttpClientFactoryOptions.BaselineTimeout
-                : client.Timeout;
-        using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken);
-        bodyTimeout.CancelAfter(requestTimeout);
+            // Headers-first means HttpClient.Timeout no longer covers the body.
+            // Match GetBytesAfterHeadersWithRetryAsync: linked CTS + CancelAfter so
+            // a stalled feed cannot hang service-index / version-list discovery.
+            TimeSpan requestTimeout = client.Timeout == Timeout.InfiniteTimeSpan
+                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                    ? HttpClientFactoryOptions.BaselineTimeout
+                    : client.Timeout;
+            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            bodyTimeout.CancelAfter(requestTimeout);
 
-        try
-        {
-            byte[] bytes = await ReadBoundedBodyAsync(
-                response.Content,
-                maxDownloadSize,
-                bodyTimeout.Token).ConfigureAwait(false);
-            return Encoding.UTF8.GetString(bytes);
-        }
-        catch (ResponseBodyTooLargeException)
-        {
-            log?.Invoke($"HTTP GET body exceeded {maxDownloadSize} byte cap.");
-            RecordBodyFailure();
-            return null;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (OperationCanceledException)
-        {
-            log?.Invoke("GET body timeout.");
-            RecordBodyFailure();
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or HttpRequestException)
-        {
-            // Mid-body transport failure after headers must not escape as an
-            // unhandled fault: discovery loops classify sources via null +
-            // FeedFailureTelemetry deltas, not exceptions.
-            log?.Invoke("GET body failed.");
-            RecordBodyFailure();
-            return null;
+            try
+            {
+                byte[] bytes = await ReadBoundedBodyAsync(
+                    response.Content,
+                    maxDownloadSize,
+                    bodyTimeout.Token).ConfigureAwait(false);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch (ResponseBodyTooLargeException)
+            {
+                log?.Invoke($"HTTP GET body exceeded {maxDownloadSize} byte cap.");
+                RecordBodyFailure();
+                return null;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                log?.Invoke("GET body timeout.");
+                RecordBodyFailure();
+                return null;
+            }
+            catch (Exception ex) when (ex is IOException or HttpRequestException)
+            {
+                // Mid-body transport failure after headers must not escape as an
+                // unhandled fault: discovery loops classify sources via null +
+                // FeedFailureTelemetry deltas, not exceptions.
+                log?.Invoke("GET body failed.");
+                RecordBodyFailure();
+                return null;
+            }
         }
     }
 
