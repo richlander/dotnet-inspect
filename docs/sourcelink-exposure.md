@@ -244,7 +244,8 @@ network requests.
   filesystem-free hosts may run without one.
 - Positive availability and integrity results are cached permanently only when
   the provenance grammar establishes an immutable commit-pinned GitHub or Azure
-  DevOps URL; unknown hosts and moving or ambiguous selectors retain a TTL.
+  DevOps URL. Other availability results retain a TTL; integrity results for
+  unknown hosts and moving or ambiguous selectors are not cached.
 - Effective-section caches may summarize what sections are renderable, but must
   be invalidated when section semantics change.
 
