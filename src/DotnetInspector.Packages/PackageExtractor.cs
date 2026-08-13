@@ -642,11 +642,18 @@ public static class PackageExtractor
         string version,
         Action<string>? log)
     {
+        // Every interpolated coordinate is percent-escaped: an id or version carrying '/', a dot
+        // segment, '?', or '#' would otherwise rewrite the request path and fetch — or attribute
+        // — a different package. Unreserved characters (letters, digits, '.', '-', '_', '~') pass
+        // through unchanged, so a real coordinate produces the same address as before.
+        string escapedName = EscapeCoordinateSegment(packageName);
+        string escapedVersion = EscapeCoordinateSegment(version);
+
         // Check for well-known flat-container URL (nuget.org optimization)
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
-            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.{version}.nupkg";
+            return $"{flatContainerUrl}/{escapedName}/{escapedVersion}/{escapedName}.{escapedVersion}.nupkg";
         }
 
         // Query V3 service index to discover PackageBaseAddress (flat-container) endpoint
@@ -657,10 +664,24 @@ public static class PackageExtractor
             if (!baseAddress.EndsWith('/'))
                 baseAddress += "/";
 
-            return $"{baseAddress}{packageName}/{version}/{packageName}.{version}.nupkg";
+            return $"{baseAddress}{escapedName}/{escapedVersion}/{escapedName}.{escapedVersion}.nupkg";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Percent-escapes one package coordinate for use as a single flat-container path segment.
+    /// </summary>
+    /// <remarks>
+    /// <c>PackageCoordinateUrlEscapingTests</c> in <c>DotnetInspector.Services.Tests</c> gates
+    /// both halves of this: an ordinary id and version are unchanged, and a segment-breaking one
+    /// cannot leave its segment.
+    /// </remarks>
+    public static string EscapeCoordinateSegment(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return Uri.EscapeDataString(value);
     }
 
     /// <summary>
@@ -675,15 +696,17 @@ public static class PackageExtractor
         Action<string>? log)
     {
         var flatContainerUrl = source.GetFlatContainerUrl();
+        string escapedName = EscapeCoordinateSegment(packageName);
+        string escapedVersion = EscapeCoordinateSegment(version);
         if (flatContainerUrl != null)
-            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.nuspec";
+            return $"{flatContainerUrl}/{escapedName}/{escapedVersion}/{escapedName}.nuspec";
 
         var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
         if (baseAddress != null)
         {
             if (!baseAddress.EndsWith('/'))
                 baseAddress += "/";
-            return $"{baseAddress}{packageName}/{version}/{packageName}.nuspec";
+            return $"{baseAddress}{escapedName}/{escapedVersion}/{escapedName}.nuspec";
         }
 
         return null;

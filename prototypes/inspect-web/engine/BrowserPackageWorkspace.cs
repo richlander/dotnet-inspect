@@ -76,9 +76,13 @@ internal static class BrowserPackageWorkspace
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
-        string normalizedId = packageId.ToLowerInvariant();
+        // Validate the coordinate before it can key the cache or reach the network. An id or
+        // version carrying '/', a dot segment, a query, or a fragment would otherwise rewrite the
+        // flat-container request path, or collide with another coordinate's cache key and be
+        // attributed to it.
+        string normalizedId = ValidatedPackageId(packageId).ToLowerInvariant();
         string resolvedVersion = await ResolveVersionAsync(normalizedId, version);
-        string normalizedVersion = resolvedVersion.ToLowerInvariant();
+        string normalizedVersion = ValidatedVersion(resolvedVersion).ToLowerInvariant();
         string key = $"{normalizedId}@{normalizedVersion}";
         (byte[] bytes, bool fromCache) = await GetBytesAsync(
             normalizedId,
@@ -89,6 +93,39 @@ internal static class BrowserPackageWorkspace
             resolvedVersion,
             bytes,
             fromCache);
+    }
+
+    /// <summary>
+    /// The package id, or a visible failure. The browser reaches one feed with one URL shape, so
+    /// an id that is not a package id is rejected here rather than escaped and sent.
+    /// </summary>
+    internal static string ValidatedPackageId(string packageId)
+    {
+        if (PackageCoordinateValidator.TryValidatePackageId(
+                packageId,
+                out PackageCoordinateRejectionKind? rejection))
+        {
+            return packageId;
+        }
+
+        throw new InvalidOperationException(
+            $"'{packageId}' is not a valid NuGet package id ({rejection}), so it names no "
+            + "package to acquire.");
+    }
+
+    /// <summary>The exact version text, or a visible failure.</summary>
+    internal static string ValidatedVersion(string version)
+    {
+        if (PackageCoordinateValidator.TryValidatePackageVersion(
+                version,
+                out PackageCoordinateRejectionKind? rejection))
+        {
+            return version;
+        }
+
+        throw new InvalidOperationException(
+            $"'{version}' is not a valid NuGet package version ({rejection}), so it names no "
+            + "package version to acquire.");
     }
 
     /// <summary>
@@ -111,6 +148,13 @@ internal static class BrowserPackageWorkspace
                 throw new InvalidOperationException(
                     $"{package.PackageId} {package.Version} has no compile-time assemblies, so it "
                     + "has no inspection workspace."),
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                throw new InvalidOperationException(
+                    $"{package.PackageId} {package.Version} declares an empty compile group for "
+                    + $"{selection.TargetFramework}, so it ships no API surface for that "
+                    + "framework. Available frameworks: "
+                    + string.Join(", ", selection.AvailableTargetFrameworks)
+                    + "."),
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
                 throw new InvalidOperationException(
                     $"Framework '{targetFramework}' is not present. Available frameworks: "
@@ -232,7 +276,7 @@ internal static class BrowserPackageWorkspace
     internal static async Task<string[]> GetVersionsAsync(string packageId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        string normalizedId = packageId.ToLowerInvariant();
+        string normalizedId = ValidatedPackageId(packageId).ToLowerInvariant();
 
         // The product's listed-version owners resolve NuGet.config and the on-disk content cache
         // before they answer, neither of which exists in a browser. Read the flat-container index
@@ -265,6 +309,17 @@ internal static class BrowserPackageWorkspace
             {
                 throw new InvalidDataException(
                     $"The version index for package '{packageId}' contains an invalid version.");
+            }
+
+            // The index is artifact-authored text that becomes a request path segment and a cache
+            // key. A version the NuGet grammar does not accept is rejected here, where it is
+            // visible, rather than skipped — a silently shortened version list reads as a package
+            // that never shipped those versions.
+            if (!PackageCoordinateValidator.IsValidPackageVersion(element.GetString()))
+            {
+                throw new InvalidDataException(
+                    $"The version index for package '{packageId}' contains text that is "
+                    + "not valid NuGet version text.");
             }
 
             result.Add(element.GetString()!);
@@ -319,6 +374,18 @@ internal static class BrowserPackageWorkspace
                 log: null)
             ?? throw new InvalidOperationException(
                 $"nuget.org exposes no download address for {normalizedId} {normalizedVersion}.");
+
+        // The coordinate was validated and the product escapes each path segment, so the address
+        // must still be inside the flat container. Check it rather than assume it: this is the
+        // one place a coordinate becomes a request.
+        string expectedPrefix = $"{FlatContainer()}/{Uri.EscapeDataString(normalizedId)}/"
+            + $"{Uri.EscapeDataString(normalizedVersion)}/";
+        if (!url.StartsWith(expectedPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The download address for {normalizedId} {normalizedVersion} is not inside that "
+                + "coordinate's flat-container path.");
+        }
         using HttpResponseMessage response = await Http.GetAsync(
             url,
             HttpCompletionOption.ResponseHeadersRead);
