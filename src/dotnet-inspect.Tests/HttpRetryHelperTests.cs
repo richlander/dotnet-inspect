@@ -645,6 +645,8 @@ public class HttpRetryHelperTests
             if (File.Exists(destination))
                 File.Delete(destination);
         }
+    }
+
     [Fact]
     public async Task HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody()
     {
