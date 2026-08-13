@@ -817,6 +817,71 @@ public sealed class CSharpFormatterTests
         Assert.DoesNotContain("System.Runtime.InteropServices", withoutAttributes.Usings);
     }
 
+    [Fact]
+    public void CanOmitSignatureAttributesFromDelegates()
+    {
+        var type = new ApiType
+        {
+            Name = "Callback",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Widget",
+                ReturnAttributes = ["Gamma.Result"],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["Beta.Widget"],
+                        Type = "Alpha.Widget",
+                        Name = "value"
+                    }
+                ]
+            }
+        };
+
+        var declaration = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            Usings = ["Alpha"],
+            IncludeSignatureAttributes = false
+        }).FormatDelegate(type, invoke);
+
+        Assert.Equal("public delegate Widget Callback(Widget value);", declaration);
+    }
+
+    [Fact]
+    public void OmittedPrimaryConstructorAttributesDoNotAffectTypeNames()
+    {
+        var type = new ApiType
+        {
+            Name = "Container",
+            Kind = "class",
+            Accessibility = "public"
+        };
+        var parameter = new ApiParameter
+        {
+            Attributes = ["Beta.Widget"],
+            Type = "Alpha.Widget",
+            Name = "value"
+        };
+
+        var declaration = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            Usings = ["Alpha"],
+            IncludeSignatureAttributes = false
+        }).FormatTypeDeclaration(type, [parameter]);
+
+        Assert.Equal("public class Container(Widget value)", declaration);
+    }
+
     [Theory]
     [InlineData("await")]
     [InlineData("file")]

@@ -282,16 +282,26 @@ internal static class CSharpDeclarationWriter
             }
 
             var delegateAttributeReferences = CollectAttributeTypeReferences(type.Attributes)
-                .Concat(CollectAttributeTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .Concat(CollectAttributeTypeReferences(
+                    delegateInvoke.Attributes,
+                    options.IncludeSignatureAttributes ? delegateInvoke : null))
                 .ToHashSet(StringComparer.Ordinal);
             var delegateAttributeValueReferences = CollectAttributeValueTypeReferences(type.Attributes)
-                .Concat(CollectAttributeValueTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .Concat(CollectAttributeValueTypeReferences(
+                    delegateInvoke.Attributes,
+                    options.IncludeSignatureAttributes ? delegateInvoke : null))
                 .ToHashSet(StringComparer.Ordinal);
             var delegateSignatureReferences = CollectTypeReferences(type)
-                .Concat(CollectMemberTypeReferences(delegateInvoke))
+                .Concat(CollectMemberTypeReferences(
+                    delegateInvoke,
+                    options.IncludeSignatureAttributes))
                 .ToHashSet(StringComparer.Ordinal);
             var delegateQualificationOnlyReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
-                .Concat(CollectDeclaredAttributeTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .Concat(options.IncludeSignatureAttributes
+                    ? CollectQualificationOnlyAttributeTypeReferences(
+                        delegateInvoke.Attributes,
+                        delegateInvoke)
+                    : CollectDeclaredAttributeTypeReferences(delegateInvoke.Attributes))
                 .ToHashSet(StringComparer.Ordinal);
             delegateSignatureReferences.ExceptWith(delegateQualificationOnlyReferences);
             var references = delegateSignatureReferences
@@ -310,8 +320,10 @@ internal static class CSharpDeclarationWriter
                 ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
                 : "";
             string unsafeText = delegateInvoke.IsUnsafe ? " unsafe" : "";
-            string parameterList = CSharpFormatter.FormatParameterList(signature.Parameters);
-            string returnAttributes = signature.ReturnAttributes.Count > 0
+            string parameterList = $"({string.Join(", ", signature.Parameters.Select(parameter =>
+                FormatParameter(parameter, options.IncludeSignatureAttributes)))})";
+            string returnAttributes = options.IncludeSignatureAttributes
+                && signature.ReturnAttributes.Count > 0
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
             string delegateDeclaration =
@@ -322,27 +334,37 @@ internal static class CSharpDeclarationWriter
 
         var attributeReferences = CollectAttributeTypeReferences(type.Attributes).ToHashSet(StringComparer.Ordinal);
         var attributeValueReferences = CollectAttributeValueTypeReferences(type.Attributes)
-            .Concat(parameters.SelectMany(parameter =>
-                CollectAttributeValueTypeReferences(parameter.Attributes)))
+            .Concat(options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectAttributeValueTypeReferences(parameter.Attributes))
+                : [])
             .ToHashSet(StringComparer.Ordinal);
-        var parameterAttributeReferences = parameters
-            .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
+        var parameterAttributeReferences = (options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectAttributeTypeReferences(parameter.Attributes))
+                : [])
             .ToHashSet(StringComparer.Ordinal);
         var qualificationOnlyAttributeReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
-            .Concat(parameters.SelectMany(parameter =>
-                CollectAttributeArgumentTypeReferences(parameter.Attributes)))
+            .Concat(options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectAttributeArgumentTypeReferences(parameter.Attributes))
+                : [])
             .ToHashSet(StringComparer.Ordinal);
         var shortenableReferences = CollectTypeReferences(type)
             .Concat(parameters.SelectMany(parameter =>
                 ExtractTypeNames(parameter.Type)))
             .ToHashSet(StringComparer.Ordinal);
-        var primaryParameterDeclaredAttributeReferences = parameters
-            .SelectMany(parameter => CollectDeclaredAttributeTypeReferences(parameter.Attributes))
+        var primaryParameterDeclaredAttributeReferences = (options.IncludeSignatureAttributes
+                ? parameters.SelectMany(parameter =>
+                    CollectDeclaredAttributeTypeReferences(parameter.Attributes))
+                : [])
             .ToHashSet(StringComparer.Ordinal);
         var plan = TypeNamePlan.Create(
             shortenableReferences
                 .Concat(parameters.SelectMany(parameter =>
-                    CollectParameterTypeReferences(parameter)))
+                    CollectParameterTypeReferences(
+                        parameter,
+                        options.IncludeSignatureAttributes)))
                 .Concat(attributeReferences)
                 .Concat(parameterAttributeReferences),
             options,
