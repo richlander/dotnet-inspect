@@ -85,6 +85,33 @@ public class AuthoredCorpusHistoryStoreTests
             () => AuthoredCorpusHistoryStore.ParseAndVerify(unknown + "\n", new FakeRepository()));
     }
 
+    [Theory]
+    [Trait("Area", "Corpus")]
+    [InlineData(
+        "\"inputsComplete\":true",
+        "\"inputsComplete\":true,\"countsAreNonNegative\":false")]
+    [InlineData(
+        "\"frontierIlDiff\":1",
+        "\"frontierIlDiff\":1,\"subBucketSum\":5290")]
+    [InlineData(
+        "\"compileBackFloor\":0,\"unclassified\":0}}",
+        "\"compileBackFloor\":0,\"unclassified\":0,\"sum\":1}}")]
+    [InlineData(
+        "\"unclassified\":0},\"unsupported\"",
+        "\"unclassified\":0,\"countsAreNonNegative\":true},\"unsupported\"")]
+    public void StoreVerifier_RejectsIgnoredComputedPropertyNames(
+        string existing,
+        string forged)
+    {
+        string row = AuthoredCorpusHistoryStore.SerializeCanonical(
+            AuthoredCorpusHistoryStore.Project(Report()));
+        string tampered = row.Replace(existing, forged, StringComparison.Ordinal);
+
+        Assert.NotEqual(row, tampered);
+        Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryStore.ParseAndVerify(tampered, new FakeRepository()));
+    }
+
     [Fact]
     [Trait("Area", "Corpus")]
     public void StoreVerifier_RejectsMissingRequiredCountsAndGrandfatherTampering()
@@ -447,6 +474,23 @@ public class AuthoredCorpusHistoryStoreTests
             string duplicate = RunCommand(directory, "git", "rev-parse", "HEAD").Trim();
 
             Assert.Throws<InvalidDataException>(() => repository.MethodologyAt(duplicate));
+
+            File.Delete(Path.Combine(harnessDirectory, "AuthoredCorpusMethodology.cs"));
+            File.Delete(Path.Combine(harnessDirectory, "SpanAttribution.cs"));
+            File.WriteAllText(
+                Path.Combine(harnessDirectory, "AuthoredCorpusBenchmark.cs"),
+                """
+                internal static class AuthoredCorpusBenchmark
+                {
+                    internal const int MethodologyVersion = 2;
+                    internal const int MethodologyVersion = 3;
+                }
+                """);
+            CommitAll(directory, "duplicate benchmark methodology");
+            string duplicateBenchmark = RunCommand(directory, "git", "rev-parse", "HEAD").Trim();
+
+            Assert.Throws<InvalidDataException>(
+                () => repository.MethodologyAt(duplicateBenchmark));
         }
         finally
         {

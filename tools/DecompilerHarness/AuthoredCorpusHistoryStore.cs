@@ -71,13 +71,13 @@ static partial class AuthoredCorpusHistoryStore
                 requireMatch: false,
                 owners);
 
-            Match benchmarkOwner = LegacyMethodologyVersionPattern().Match(benchmark);
-            if (benchmarkOwner.Success)
-            {
-                owners.Add((
-                    "tools/DecompilerHarness/AuthoredCorpusBenchmark.cs",
-                    int.Parse(benchmarkOwner.Groups[1].Value, CultureInfo.InvariantCulture)));
-            }
+            AddNumericOwner(
+                commit,
+                "tools/DecompilerHarness/AuthoredCorpusBenchmark.cs",
+                benchmark,
+                LegacyMethodologyVersionPattern(),
+                requireMatch: false,
+                owners);
 
             return owners.Count switch
             {
@@ -641,6 +641,28 @@ static partial class AuthoredCorpusHistoryStore
                 "unsupported",
                 "drift",
                 "inputsComplete");
+            AllowOnlyProperties(
+                document.RootElement,
+                $"history line {index + 1}",
+                "date",
+                "commit",
+                "poolMatched",
+                "poolTotal",
+                "evaluated",
+                "validPct",
+                "correct",
+                "validDifferent",
+                "invalid",
+                "invalidBreakdown",
+                "unsupported",
+                "drift",
+                "inputsComplete",
+                "sweepManifestSha256",
+                "methodologyVersion",
+                "corpusSha256",
+                "notFull",
+                "unknownOutcome",
+                "poolSha256");
             JsonElement validDifferent = document.RootElement.GetProperty("validDifferent");
             if (validDifferent.ValueKind != JsonValueKind.Object)
                 throw new JsonException($"History line {index + 1} validDifferent is not an object.");
@@ -650,6 +672,64 @@ static partial class AuthoredCorpusHistoryStore
                 "total",
                 "frontierIlExact",
                 "frontierIlDiff");
+            AllowOnlyProperties(
+                validDifferent,
+                $"history line {index + 1} validDifferent",
+                "total",
+                "frontierIlExact",
+                "frontierIlDiff",
+                "lowering",
+                "knownTaste",
+                "frontierIlNoVerdict",
+                "frontierIlDiffAttribution");
+
+            if (validDifferent.TryGetProperty("frontierIlDiffAttribution", out JsonElement frontier)
+                && frontier.ValueKind != JsonValueKind.Null)
+            {
+                if (frontier.ValueKind != JsonValueKind.Object)
+                {
+                    throw new JsonException(
+                        $"History line {index + 1} frontierIlDiffAttribution is not an object.");
+                }
+                RequireProperties(
+                    frontier,
+                    $"history line {index + 1} frontierIlDiffAttribution",
+                    "total",
+                    "productBodyDefect",
+                    "harnessShellReconstruction",
+                    "compileBackFloor",
+                    "unclassified");
+                AllowOnlyProperties(
+                    frontier,
+                    $"history line {index + 1} frontierIlDiffAttribution",
+                    "total",
+                    "productBodyDefect",
+                    "harnessShellReconstruction",
+                    "compileBackFloor",
+                    "unclassified");
+            }
+
+            JsonElement invalidBreakdown = document.RootElement.GetProperty("invalidBreakdown");
+            if (invalidBreakdown.ValueKind != JsonValueKind.Null)
+            {
+                if (invalidBreakdown.ValueKind != JsonValueKind.Object)
+                {
+                    throw new JsonException(
+                        $"History line {index + 1} invalidBreakdown is not an object.");
+                }
+                RequireProperties(
+                    invalidBreakdown,
+                    $"history line {index + 1} invalidBreakdown",
+                    "productBodyDefect",
+                    "harnessShellReconstruction",
+                    "unclassified");
+                AllowOnlyProperties(
+                    invalidBreakdown,
+                    $"history line {index + 1} invalidBreakdown",
+                    "productBodyDefect",
+                    "harnessShellReconstruction",
+                    "unclassified");
+            }
 
             var run = JsonSerializer.Deserialize<HistoryRun>(line, StrictJsonOptions())
                 ?? throw new JsonException($"History line {index + 1} is null.");
@@ -666,6 +746,16 @@ static partial class AuthoredCorpusHistoryStore
         {
             if (!element.TryGetProperty(name, out _))
                 throw new JsonException($"{source} is missing required property '{name}'.");
+        }
+    }
+
+    static void AllowOnlyProperties(JsonElement element, string source, params string[] names)
+    {
+        var allowed = names.ToHashSet(StringComparer.Ordinal);
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            if (!allowed.Contains(property.Name))
+                throw new JsonException($"{source} has unknown property '{property.Name}'.");
         }
     }
 
