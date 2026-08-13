@@ -988,12 +988,18 @@ public static class PackageExtractor
                 };
                 foreach (string type in types)
                 {
-                    bool isHttpEndpoint =
+                    // Only resources version resolution actually needs are
+                    // "critical". SearchQueryService and VulnerabilityInfo are
+                    // HTTP endpoints we may parse, but a cosmetic malformed
+                    // @id there must not convert an authoritative package
+                    // absence into "source failed" / complete-source Unavailable.
+                    bool isCriticalHttpEndpoint =
                         IsServiceType(type, "RegistrationsBaseUrl")
-                        || IsServiceType(type, "SearchQueryService")
-                        || IsServiceType(type, "PackageBaseAddress")
+                        || IsServiceType(type, "PackageBaseAddress");
+                    bool isOptionalHttpEndpoint =
+                        IsServiceType(type, "SearchQueryService")
                         || IsServiceType(type, "VulnerabilityInfo");
-                    if (!isHttpEndpoint)
+                    if (!isCriticalHttpEndpoint && !isOptionalHttpEndpoint)
                     {
                         result.Add(new ServiceResource(id, type));
                     }
@@ -1012,12 +1018,15 @@ public static class PackageExtractor
                         log?.Invoke(
                             $"Ignoring invalid {new InertString(TextPolicy.Field, type)} resource URL from "
                             + $"'{PackageSourceDisplay.ForDiagnostics(source)}'.");
-                        // A malformed critical resource is a failed source
-                        // answer, not a quiet absence. Complete-source floating
-                        // resolution depends on that distinction.
-                        FeedFailureTelemetry.Record(
-                            indexUrl,
-                            HttpStatusCode.OK);
+                        if (isCriticalHttpEndpoint)
+                        {
+                            // A malformed critical resource is a failed source
+                            // answer, not a quiet absence. Complete-source
+                            // floating resolution depends on that distinction.
+                            FeedFailureTelemetry.Record(
+                                indexUrl,
+                                HttpStatusCode.OK);
+                        }
                     }
                 }
             }
@@ -1995,16 +2004,11 @@ public static class PackageExtractor
                 return discovered;
         }
 
-        // A source that never yielded an authoritative version index is failed
-        // when telemetry recorded a problem (malformed service index resource,
-        // transport failure) and absent only when nothing was wrong and nothing
-        // was found. Superseded same-source failures do not leak: this method
-        // owns an isolated telemetry scope and returns a typed outcome.
-        if (!attemptedAuthoritativeLookup
-            || FeedFailureTelemetry.Current!.HasFailures)
-        {
+        // Never found a version index URL to query (missing/malformed critical
+        // PackageBaseAddress, etc.). Attempted lookups already returned their
+        // own typed Absent/Failed above without consulting ambient leftovers.
+        if (!attemptedAuthoritativeLookup)
             return SourceLatestVersion.Failure;
-        }
 
         return SourceLatestVersion.Absent;
     }
@@ -2090,15 +2094,20 @@ public static class PackageExtractor
         bool includePrerelease = false,
         CancellationToken cancellationToken = default)
     {
+        // Attribute transport failure to *this* request only. Ambient
+        // HasFailures can include an earlier optional resource warning or a
+        // superseded sibling path; those must not turn a plain 404 into Failed.
+        int failuresBefore =
+            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: auth,
             cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
         if (json == null)
         {
-            // Transport helpers record non-404 failures. A plain absence is not
-            // a source failure; a recorded failure is.
-            return FeedFailureTelemetry.Current?.HasFailures == true
+            int failuresAfter =
+                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+            return failuresAfter > failuresBefore
                 ? SourceLatestVersion.Failure
                 : SourceLatestVersion.Absent;
         }

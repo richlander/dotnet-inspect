@@ -599,8 +599,9 @@ public class HttpRetryHelperTests
 
         try
         {
-            await Assert.ThrowsAsync<IOException>(
-                () => HttpRetryHelper.DownloadToFileWithRetryAsync(
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.RejectedPayload,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
                     client,
                     "https://feed.example/package.nupkg",
                     destination,

@@ -639,9 +639,10 @@ public static class HttpRetryHelper
     /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
     /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
     /// the payload is never fully buffered in memory — important for large packages. Returns true on
-    /// success, <see cref="DownloadToFileResult.Unavailable"/> when the source
-    /// gave no usable answer, or <see cref="DownloadToFileResult.RejectedPayload"/>
-    /// when the source advertised or sent a body above the cap.
+    /// <see cref="DownloadToFileResult.Succeeded"/> on success,
+    /// <see cref="DownloadToFileResult.Unavailable"/> when the source gave no
+    /// usable answer, or <see cref="DownloadToFileResult.RejectedPayload"/> when
+    /// the source advertised or streamed a body above the cap.
     /// Bytes actually received are counted against the same cap, so a chunked
     /// or under-reported response cannot grow the destination without bound.
     /// The body read is bounded by the same request timeout used for headers so
@@ -650,7 +651,9 @@ public static class HttpRetryHelper
     /// </summary>
     /// <remarks>
     /// Gated by
-    /// <c>HttpRetryHelperTests.DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported</c>.
+    /// <c>HttpRetryHelperTests.DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported</c>
+    /// and
+    /// <c>HttpRetryHelperTests.DownloadToFile_RejectsAdvertisedOversizeAsTypedResult</c>.
     /// </remarks>
     public static async Task<DownloadToFileResult> DownloadToFileWithRetryAsync(
         HttpClient client,
@@ -719,8 +722,9 @@ public static class HttpRetryHelper
 
                 if (read > maxDownloadedBytes - received)
                 {
-                    throw new IOException(
-                        $"Download exceeds the {maxDownloadedBytes}-byte limit.");
+                    log?.Invoke(
+                        $"Download size exceeds the {maxDownloadedBytes}-byte limit.");
+                    return DownloadToFileResult.RejectedPayload;
                 }
 
                 await destination.WriteAsync(

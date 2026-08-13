@@ -750,6 +750,36 @@ public sealed class PackageCoordinateResolverTests
     }
 
     /// <summary>
+    /// A secondary feed may ship a cosmetic malformed
+    /// <c>VulnerabilityInfo</c>/<c>SearchQueryService</c> @id. That must not
+    /// convert an authoritative package 404 on that feed into complete-source
+    /// failure when another authorized source answered.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_IgnoresMalformedOptionalServiceIndexResources()
+    {
+        using var client = new HttpClient(
+            new OptionalMalformedServiceIndexHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(
+                    OptionalMalformedServiceIndexHandler.PackageId),
+                [
+                    OptionalMalformedServiceIndexHandler.HealthySource,
+                    OptionalMalformedServiceIndexHandler.CosmeticPoisonSource,
+                ],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+        Assert.Equal("1.0.0", resolved.Coordinate.Version);
+    }
+
+    /// <summary>
     /// The CLI's own floating resolution reaches this resolver, so the
     /// workspace's stricter rule must be opt-in rather than the default. This
     /// is the shape that failed Windows CI twice from a cold cache: a
@@ -1096,6 +1126,45 @@ public sealed class PackageCoordinateResolverTests
                         """{"resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://available.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
+                _ => Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound)),
+            };
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
+    sealed class OptionalMalformedServiceIndexHandler : HttpMessageHandler
+    {
+        internal const string PackageId = "probe.package";
+        internal static readonly PackageSource HealthySource =
+            new("healthy", "https://healthy.test/v3/index.json");
+        internal static readonly PackageSource CosmeticPoisonSource =
+            new("poison", "https://poison.test/v3/index.json");
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            return url switch
+            {
+                "https://healthy.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://healthy.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                $"https://healthy.test/flat/{PackageId}/index.json" =>
+                    Json("""{"versions":["1.0.0"]}"""),
+                "https://poison.test/v3/index.json" =>
+                    Json(
+                        """{"resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"}]}"""),
+                $"https://poison.test/flat/{PackageId}/index.json" =>
+                    Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.NotFound)),
                 _ => Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.NotFound)),
             };
