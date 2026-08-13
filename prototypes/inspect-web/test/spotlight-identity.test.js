@@ -10,6 +10,7 @@ import {
   dependencyGroupSelectionMessage,
   dependencyGraphExternalKey,
   dependencyGraphPackageKey,
+  ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -74,6 +75,25 @@ test("dependency graph keys preserve complete coordinates and declared ranges", 
     dependencyGraphExternalKey("Example.Package", "2.*"));
 });
 
+test("dependency graph node insertion is bounded", () => {
+  const nodes = new Map();
+  let truncated = false;
+  for (let index = 0; index < 8000; index++) {
+    const result = ensureBoundedGraphNode(
+      nodes,
+      `node-${index}`,
+      () => ({ index }),
+      80);
+    truncated ||= result.truncated;
+  }
+
+  assert.equal(nodes.size, 80);
+  assert.equal(truncated, true);
+  assert.equal(
+    ensureBoundedGraphNode(nodes, "node-1", () => null, 80).node,
+    nodes.get("node-1"));
+});
+
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
 
 test("dependency graph binds navigation to generated node identities", () => {
@@ -84,6 +104,9 @@ test("dependency graph binds navigation to generated node identities", () => {
     appSource,
     /built\.nodeInfoById\.get\(dataId \|\| idMatch\?\.\[1\]\)/);
   assert.doesNotMatch(appSource, /nodeInfoByLabel/);
+  assert.match(
+    appSource,
+    /Dependency graph truncated at \$\{built\.nodeLimit\} nodes/);
 });
 
 test("dependency navigation reserves identity and surfaces resolution failures", () => {

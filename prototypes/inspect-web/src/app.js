@@ -5,6 +5,7 @@ import {
   dependencyGroupSelectionMessage,
   dependencyGraphExternalKey,
   dependencyGraphPackageKey,
+  ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   lenses,
@@ -6232,13 +6233,23 @@ function buildDependencyGraphMermaid() {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
   const nodeInfo = new Map();
+  let truncated = false;
+  const ensureNode = (key, create) => {
+    const result = ensureBoundedGraphNode(
+      nodeInfo,
+      key,
+      create,
+      MAX_NODES);
+    truncated ||= result.truncated;
+    return result.node;
+  };
   const openPackageNode = (pkg, kind = "open") => {
     const packageKey = packageIdentityKey(pkg);
     const key = dependencyGraphPackageKey(pkg);
-    if (!nodeInfo.has(key)) {
+    return ensureNode(key, () => {
       const sameIdCount = state.packages.filter(candidate =>
         candidate.id.toLowerCase() === pkg.id.toLowerCase()).length;
-      nodeInfo.set(key, {
+      return {
         key,
         id: pkg.id,
         kind,
@@ -6247,9 +6258,8 @@ function buildDependencyGraphMermaid() {
         label: sameIdCount > 1
           ? `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`
           : pkg.id
-      });
-    }
-    return nodeInfo.get(key);
+      };
+    });
   };
   const dependencyNode = dependency => {
     const open = uniqueCompatiblePackage(
@@ -6261,8 +6271,8 @@ function buildDependencyGraphMermaid() {
 
     const versionRange = dependency.versionRange || "";
     const key = dependencyGraphExternalKey(dependency.id, versionRange);
-    if (!nodeInfo.has(key)) {
-      nodeInfo.set(key, {
+    return ensureNode(key, () => {
+      return {
         key,
         id: dependency.id,
         kind: "external",
@@ -6271,9 +6281,8 @@ function buildDependencyGraphMermaid() {
         label: versionRange
           ? `${dependency.id} ${versionRange}`
           : dependency.id
-      });
-    }
-    return nodeInfo.get(key);
+      };
+    });
   };
   openPackageNode(state.package, "self");
 
@@ -6299,7 +6308,7 @@ function buildDependencyGraphMermaid() {
   // open package (only open packages have cached manifests to walk further).
   let downFrontier = [state.package];
   const downVisited = new Set([packageIdentityKey(state.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && nodeInfo.size < MAX_NODES; depth++) {
+  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && !truncated; depth++) {
     const next = [];
     for (const pkg of downFrontier) {
       const group = groupFor(pkg);
@@ -6311,6 +6320,7 @@ function buildDependencyGraphMermaid() {
           : "open");
       for (const dependency of group.dependencies || []) {
         const target = dependencyNode(dependency);
+        if (!target) break;
         addEdge(source, target);
         if (target.packageKey && !downVisited.has(target.packageKey)) {
           downVisited.add(target.packageKey);
@@ -6318,6 +6328,7 @@ function buildDependencyGraphMermaid() {
             packageIdentityKey(candidate) === target.packageKey);
           if (open) next.push(open);
         }
+        if (truncated) break;
       }
     }
     downFrontier = next;
@@ -6326,7 +6337,7 @@ function buildDependencyGraphMermaid() {
   // Callers: open packages that (transitively) declare a dependency on a frontier node.
   let upFrontier = [state.package];
   const upVisited = new Set([packageIdentityKey(state.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && nodeInfo.size < MAX_NODES; depth++) {
+  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && !truncated; depth++) {
     const next = [];
     for (const targetPackage of upFrontier) {
       const target = openPackageNode(
@@ -6334,6 +6345,7 @@ function buildDependencyGraphMermaid() {
         packageIdentityKey(targetPackage) === packageIdentityKey(state.package)
           ? "self"
           : "open");
+      if (!target) break;
       for (const pkg of state.packages) {
         const pkgKey = packageIdentityKey(pkg);
         if (pkgKey === target.packageKey) continue;
@@ -6346,12 +6358,14 @@ function buildDependencyGraphMermaid() {
             dependency.versionRange,
             dependencyVersionSatisfies)) === target.packageKey)) {
           const caller = openPackageNode(pkg);
-          addEdge(caller, target);
+            if (!caller) break;
+            addEdge(caller, target);
           if (!upVisited.has(pkgKey)) {
             upVisited.add(pkgKey);
             next.push(pkg);
           }
         }
+        if (truncated) break;
       }
     }
     upFrontier = next;
@@ -6376,7 +6390,12 @@ function buildDependencyGraphMermaid() {
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
   const nodeInfoById = new Map(
     keys.map(key => [idOf.get(key), nodeInfo.get(key)]));
-  return { definition: lines.join("\n"), nodeInfoById };
+  return {
+    definition: lines.join("\n"),
+    nodeInfoById,
+    truncated,
+    nodeLimit: MAX_NODES
+  };
 }
 
 async function renderDependencyGraph() {
@@ -6427,7 +6446,10 @@ async function renderDependencyGraph() {
       + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
       + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
       + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-      + '</div>';
+      + '</div>'
+      + (built.truncated
+        ? `<div class="graph-drill-error graph-diagnostics" role="status">Dependency graph truncated at ${built.nodeLimit} nodes.</div>`
+        : "");
     const viewport = container.querySelector(".graph-viewport");
     viewport.innerHTML = svg;
     container.dataset.graphDef = built.definition;

@@ -65,6 +65,15 @@ export function dependencyGraphExternalKey(packageId, declaredRange) {
   return `external\u0000${packageId.toLowerCase()}\u0000${declaredRange || ""}`;
 }
 
+export function ensureBoundedGraphNode(nodes, key, create, limit) {
+  const existing = nodes.get(key);
+  if (existing) return { node: existing, truncated: false };
+  if (nodes.size >= limit) return { node: null, truncated: true };
+  const node = create();
+  nodes.set(key, node);
+  return { node, truncated: false };
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {
