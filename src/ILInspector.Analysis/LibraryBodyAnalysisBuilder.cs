@@ -510,8 +510,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
         MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
         bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
-    bool includeOwnershipFlow,
-    IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
+        bool includeOwnershipFlow,
+        IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
     {
         if (!includeMethodEvidence)
         {
