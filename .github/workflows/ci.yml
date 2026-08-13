@@ -371,6 +371,22 @@ jobs:
                 RESOLVED=false
               fi
             fi
+            if [ "$RESOLVED" = "true" ] && [ -s "$DECODED_FILES" ]; then
+              while IFS= read -r -d '' file; do
+                case "$file" in
+                  ""|/*|*/|*//*)
+                    RESOLVED=false
+                    break
+                    ;;
+                esac
+                case "/$file/" in
+                  */./*|*/../*)
+                    RESOLVED=false
+                    break
+                    ;;
+                esac
+              done < "$DECODED_FILES"
+            fi
           fi
           if [ "$RESOLVED" != "true" ]; then
             if [ -n "$DECODED_FILES" ]; then

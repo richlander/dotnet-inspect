@@ -101,6 +101,9 @@ foreach ((string json, string count) in new[]
         "{\"status\":\"renamed\",\"previous_filename\":\"src/old.cs\"," +
         "\"filename\":\"src/new-b.cs\"}" +
         "]", "2"),
+    ("[{\"status\":\"modified\",\"filename\":\"/src/Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"src//Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"src/../Program.cs\"}]", "1"),
 })
 {
     Dictionary<string, string> malformed = RunDetection(
@@ -157,6 +160,15 @@ AssertAll(
         "src/dotnet-inspect/Program.cs",
         outputs,
         truncatePushStream: true),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "push",
+        "",
+        outputs,
+        emptyPushRecord: true),
     "true");
 foreach (int decode in new[] { 1, 2, 3 })
 {
@@ -1214,7 +1226,8 @@ static Dictionary<string, string> RunDetection(
     string fileStatus = "modified",
     int failDecodeAt = 0,
     bool truncateRecordStream = false,
-    bool truncatePushStream = false)
+    bool truncatePushStream = false,
+    bool emptyPushRecord = false)
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
@@ -1341,7 +1354,9 @@ static Dictionary<string, string> RunDetection(
             if [ "$#" -eq 6 ] && [ "$1" = "diff" ] && [ "$2" = "--no-renames" ] \
                && [ "$3" = "--name-only" ] && [ "$4" = "-z" ] \
                && [ "$5" = "$EXPECTED_BEFORE" ] && [ "$6" = "$EXPECTED_SHA" ]; then
-              if [ -n "$CHANGED_FILES" ]; then
+              if [ "$EMPTY_PUSH_RECORD" = "true" ]; then
+                printf '\0'
+              elif [ -n "$CHANGED_FILES" ]; then
                 if [ "$TRUNCATE_PUSH_STREAM" = "true" ]; then
                   printf '%s' "$CHANGED_FILES"
                 else
@@ -1400,6 +1415,8 @@ static Dictionary<string, string> RunDetection(
             changedFileCountIsString.ToString().ToLowerInvariant();
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
         startInfo.Environment["EXPECTED_SHA"] = Sha;
+        startInfo.Environment["EMPTY_PUSH_RECORD"] =
+            emptyPushRecord.ToString().ToLowerInvariant();
         startInfo.Environment["FILE_STATUS"] = fileStatus;
         startInfo.Environment["GITHUB_OUTPUT"] = output;
         startInfo.Environment["BASE64_DECODE_COUNT"] =
