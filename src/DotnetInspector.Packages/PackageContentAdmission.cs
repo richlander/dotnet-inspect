@@ -509,28 +509,98 @@ internal static class PackageContentAdmission
         }
     }
 
+    /// <summary>
+    /// Reads at most <paramref name="maxBytes"/> from <paramref name="source"/>.
+    /// Returns null when the stream exceeds the bound. Uses a single growable
+    /// buffer (no <see cref="MemoryStream.ToArray"/> double-copy) so a payload
+    /// at the configured archive ceiling does not transiently allocate ~2×.
+    /// </summary>
     internal static async Task<byte[]?> ReadBoundedAsync(
         Stream source,
         long maxBytes,
         CancellationToken cancellationToken)
     {
-        var buffer = new MemoryStream();
-        byte[] chunk = new byte[81920];
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        if (maxBytes > int.MaxValue)
+            maxBytes = int.MaxValue;
+
+        int max = (int)maxBytes;
+
+        // Seekable streams: size the buffer once when the remaining length is known.
+        if (source.CanSeek)
+        {
+            long remaining = source.Length - source.Position;
+            if (remaining < 0)
+                remaining = 0;
+            if (remaining > max)
+                return null;
+            if (remaining == 0)
+                return [];
+
+            byte[] exact = new byte[remaining];
+            int offset = 0;
+            while (offset < exact.Length)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int read = await source
+                    .ReadAsync(
+                        exact.AsMemory(offset, exact.Length - offset),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (read == 0)
+                {
+                    if (offset == 0)
+                        return [];
+                    Array.Resize(ref exact, offset);
+                    return exact;
+                }
+
+                offset += read;
+            }
+
+            return exact;
+        }
+
+        // Non-seekable: grow in place up to max; shrink once at EOF.
+        byte[] buffer = max == 0 ? [] : new byte[Math.Min(81920, max)];
+        int total = 0;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (total == buffer.Length)
+            {
+                if (total == max)
+                {
+                    // At the bound: one more byte means over-limit.
+                    byte[] probe = new byte[1];
+                    int extra = await source
+                        .ReadAsync(probe, cancellationToken)
+                        .ConfigureAwait(false);
+                    return extra == 0 ? buffer : null;
+                }
+
+                int growTo = (int)Math.Min(max, Math.Max((long)buffer.Length * 2, 81920));
+                if (growTo <= buffer.Length)
+                    growTo = max;
+                Array.Resize(ref buffer, growTo);
+            }
+
             int read = await source
-                .ReadAsync(chunk, cancellationToken)
+                .ReadAsync(
+                    buffer.AsMemory(total, buffer.Length - total),
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (read == 0)
-                break;
+            {
+                if (total == 0)
+                    return [];
+                if (total != buffer.Length)
+                    Array.Resize(ref buffer, total);
+                return buffer;
+            }
 
-            if (read > maxBytes - buffer.Length)
-                return null;
-
-            buffer.Write(chunk, 0, read);
+            total += read;
         }
-
-        return buffer.ToArray();
     }
 }

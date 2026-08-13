@@ -488,6 +488,37 @@ public sealed class PackagePayloadAcquisitionTests
     /// reusing the marker name must still consume MaxExpandedBytes.
     /// </summary>
     [Fact]
+    public async Task ReadBoundedAsync_ReturnsExactLengthWithoutOverread()
+    {
+        byte[] payload = new byte[100_000];
+        Array.Fill(payload, (byte)7);
+        await using var stream = new MemoryStream(payload, writable: false);
+
+        byte[]? read = await PackageContentAdmission.ReadBoundedAsync(
+            stream,
+            maxBytes: 100_000,
+            CancellationToken.None);
+
+        Assert.NotNull(read);
+        Assert.Equal(payload.Length, read!.Length);
+        Assert.Equal(payload, read);
+    }
+
+    [Fact]
+    public async Task ReadBoundedAsync_RejectsStreamOverMaxBytes()
+    {
+        byte[] payload = new byte[1024];
+        await using var stream = new MemoryStream(payload, writable: false);
+
+        byte[]? read = await PackageContentAdmission.ReadBoundedAsync(
+            stream,
+            maxBytes: 512,
+            CancellationToken.None);
+
+        Assert.Null(read);
+    }
+
+    [Fact]
     public void NestedCommitMarkerNamedFile_CountsTowardExpandedBytes()
     {
         string root = TempDirectory();
