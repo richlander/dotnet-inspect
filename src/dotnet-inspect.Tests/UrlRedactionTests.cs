@@ -367,6 +367,40 @@ public class UrlRedactionTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Package cache keys are <c>id@version</c>, not user-info URLs. Routing them
+    /// through URL redaction collapsed every package event to
+    /// <c>&lt;unparsable-url&gt;</c> and deduped distinct packages into one Mermaid node.
+    /// </summary>
+    [Fact]
+    public void CacheObservationKey_PreservesPackageCoordinate()
+    {
+        var observed = new List<CacheObservation>();
+        using (CacheTelemetry.Subscribe(new CacheObserver(observed)))
+        {
+            CacheTelemetry.Record(
+                "packages",
+                "newtonsoft.json@13.0.3",
+                CacheAccessResult.Hit);
+            CacheTelemetry.Record(
+                "packages",
+                "system.text.json@9.0.0",
+                CacheAccessResult.Hit);
+        }
+
+        Assert.Equal(2, observed.Count);
+        Assert.Equal(
+            "newtonsoft.json@13.0.3",
+            observed[0].Key.ToString());
+        Assert.Equal(
+            "system.text.json@9.0.0",
+            observed[1].Key.ToString());
+        Assert.DoesNotContain(
+            UrlRedaction.UnparsableMarker,
+            observed[0].Key.ToString(),
+            StringComparison.Ordinal);
+    }
+
     sealed class CacheObserver(List<CacheObservation> observed)
         : IObserver<CacheObservation>
     {

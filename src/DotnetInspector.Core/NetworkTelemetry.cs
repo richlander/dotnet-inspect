@@ -354,11 +354,39 @@ public sealed record CacheObservation(
         NetworkTrafficKind trafficKind)
         => new(
            category,
-           NetworkRequestObservation.RedactSensitiveUrlText(key),
+           RedactCacheKey(key),
            result,
            trafficKind,
            RequestTelemetry.Current.What,
            RequestTelemetry.Current.Why);
+
+    /// <summary>
+    /// Cache keys are usually package coordinates (<c>id@version</c>), not URLs.
+    /// Route only URL-shaped keys through URL redaction so a bare <c>@</c> in a
+    /// coordinate is not treated as user-info and collapsed to
+    /// <see cref="UrlRedaction.UnparsableMarker"/>.
+    /// </summary>
+    internal static InertString RedactCacheKey(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+            return InertString.Empty;
+
+        // Absolute/scheme-relative locators and Windows UNC-style network paths
+        // may carry credentials or query secrets — full URL redaction.
+        if (key.Contains("://", StringComparison.Ordinal)
+            || key.StartsWith("//", StringComparison.Ordinal)
+            || key.StartsWith("\\\\", StringComparison.Ordinal)
+            || (Uri.TryCreate(key, UriKind.Absolute, out Uri? absolute)
+                && (absolute.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.Ordinal)
+                    || absolute.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.Ordinal))))
+        {
+            return UrlRedaction.ForDiagnostics(key);
+        }
+
+        // Package id@version, category-local names, relative paths: field
+        // containment only (no authority grammar).
+        return new InertString(TextPolicy.Field, key);
+    }
 
     internal ActivityTagsCollection ToActivityTags()
     {
