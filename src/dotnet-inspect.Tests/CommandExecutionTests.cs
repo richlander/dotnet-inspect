@@ -6943,8 +6943,9 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
-            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+            Assert.DoesNotContain("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
         }
         finally
         {
@@ -6976,7 +6977,68 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsCrossOriginResponse()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "redirected content"u8.ToArray(),
+            "https://spsprodeus27.vssps.visualstudio.com/_signin"));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-cross-origin-source-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Could not verify the final SourceLink response origin", error);
+            Assert.DoesNotContain("spsprodeus27", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsSameOriginChecksumMismatch()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "same-origin but wrong content"u8.ToArray()));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-source-checksum-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("does not match the portable-PDB checksum", error);
         }
         finally
         {
@@ -6995,6 +7057,21 @@ public partial class CommandExecutionTests
             => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
             {
                 RequestMessage = request,
+            });
+    }
+
+    private sealed class SourceResponseHandler(byte[] body, string? finalUrl = null)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+                RequestMessage = finalUrl is null
+                    ? request
+                    : new HttpRequestMessage(HttpMethod.Get, finalUrl),
             });
     }
 
@@ -7166,6 +7243,50 @@ public partial class CommandExecutionTests
         Assert.Contains("| Line | column |", output);
         Assert.DoesNotContain("Loaded PDB", error);
         Assert.DoesNotContain("MSDL symbol", error);
+    }
+
+    [Fact]
+    public async Task SourceEnrichment_VerboseProgressDoesNotDiscloseArtifactUrlOrPath()
+    {
+        const string Secret = "sup3rs3cret";
+        var sourceInfo = new ILInspector.SourceLink.SourceLinkResolver.TypeSourceInfo(
+            $"/hostile/{Secret}/Source.cs",
+            $"https://user:{Secret}@source.example/F/auth/{Secret}/Source.cs?sig={Secret}#{Secret}",
+            LineNumber: 42,
+            GitHubBrowseUrl: null);
+        var apiType = new ApiType { Name = "Source" };
+
+        var (_, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            await SourceEnricher.ApplySourceInfoAsync(
+                apiType,
+                sourceInfo,
+                new ApiOptions { ShowDocs = true },
+                new VerboseLogger(enabled: true));
+            SourceEnricher.MergePartialTypeDocumentation(
+                apiType,
+                [
+                    (
+                        "/// <summary>Primary.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Primary.cs",
+                        $"/hostile/{Secret}/Primary.cs"),
+                    (
+                        "/// <summary>Additional.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Additional.cs",
+                        $"/hostile/{Secret}/Additional.cs"),
+                ],
+                new CSharpText.DocCommentParser(),
+                new ApiOptions(),
+                new VerboseLogger(enabled: true));
+        });
+
+        Assert.Contains("Source (SourceLink) resolved at line 42.", error);
+        Assert.Contains("Fetching SourceLink source.", error);
+        Assert.Contains("Found type documentation.", error);
+        Assert.Contains("Merged additional type documentation.", error);
+        Assert.DoesNotContain(Secret, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("source.example", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("/hostile/", error, StringComparison.Ordinal);
     }
 
     [Fact]
