@@ -42,7 +42,8 @@ public interface IPackageContent
     /// <summary>
     /// Opens the retained package archive so a caller can apply its current
     /// admission limits. Returns <c>false</c> when the cache entry has no
-    /// retained archive and therefore cannot prove those limits.
+    /// retained archive; admission then falls back to measuring the extracted
+    /// tree when <see cref="RootPath"/> is present.
     /// </summary>
     bool TryOpenArchive([NotNullWhen(true)] out Stream? stream);
 

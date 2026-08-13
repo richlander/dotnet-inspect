@@ -54,6 +54,59 @@ public sealed class PackageExtractorAdmissionTests
         }
     }
 
+    /// <summary>
+    /// Global-packages entries often strip the retained <c>.nupkg</c>. Cache
+    /// admission must still use the extracted tree when it is a valid NuGet
+    /// layout within current expanded limits — including the offline path that
+    /// previously reported "no cached package was found".
+    /// </summary>
+    [Fact]
+    public async Task ExtractedCacheEntryWithoutRetainedNupkg_IsAdmitted()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+
+        try
+        {
+            Commit(
+                stagingRoot,
+                "only",
+                TestPackageArchive.Create("lib/net10.0/Sample.dll"),
+                SourceA);
+            string? nupkgPath = Directory
+                .EnumerateFiles(
+                    cacheRoot,
+                    $"{PackageId}.{Version}.nupkg",
+                    SearchOption.AllDirectories)
+                .SingleOrDefault();
+            Assert.NotNull(nupkgPath);
+            File.Delete(nupkgPath);
+
+            using var client = new HttpClient(new FailingHandler());
+            PackageExtractionOutcome outcome =
+                await DotnetInspector.Packages.PackageExtractor
+                    .ExtractPackageAsync(
+                        client,
+                        $"{PackageId}@{Version}",
+                        sourceOptions: Sources(SourceA));
+
+            Assert.True(outcome.IsSuccess);
+            Assert.Equal(
+                NuGetCache.GetSourceKey(SourceA),
+                outcome.Result!.ProducerKey);
+            Assert.Null(outcome.Result.NupkgPath);
+        }
+        finally
+        {
+            Delete(cacheRoot);
+            Delete(stagingRoot);
+        }
+    }
+
     [Fact]
     public async Task InvalidLegacyDownload_LetsTheNextSourceServe()
     {

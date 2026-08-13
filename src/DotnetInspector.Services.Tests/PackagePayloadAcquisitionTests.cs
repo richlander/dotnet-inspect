@@ -98,6 +98,79 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.IsType<PackagePayloadResult.Unavailable>(result);
     }
 
+    /// <summary>
+    /// A filesystem cache entry whose <c>.nupkg</c> was stripped must still
+    /// answer from the extracted tree when expanded limits allow it.
+    /// </summary>
+    [Fact]
+    public async Task CacheHitWithoutRetainedNupkg_IsAdmittedFromExtractedTree()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            string extracted = Path.Combine(stagingRoot, "extracted");
+            string assembly = Path.Combine(
+                extracted,
+                "lib",
+                "net10.0",
+                "Sample.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
+            File.WriteAllBytes(assembly, [1]);
+            string nupkg = Path.Combine(stagingRoot, "package.nupkg");
+            File.WriteAllBytes(
+                nupkg,
+                TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+            NuGetCache.CommitPackage(
+                extracted,
+                nupkg,
+                PackageId,
+                Version,
+                NuGetCache.GetSourceKey(NuGetOrg.Url));
+            string retained = Directory
+                .EnumerateFiles(
+                    cacheRoot,
+                    $"{PackageId}.{Version}.nupkg",
+                    SearchOption.AllDirectories)
+                .Single();
+            File.Delete(retained);
+
+            var store = new FileSystemPackageStore();
+            using var client = new HttpClient(new FailingHandler());
+
+            PackagePayloadResult result =
+                await PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            AcquiredPackagePayload payload = Acquired(result);
+            Assert.Equal(PackagePayloadOrigin.Cache, payload.Origin);
+            Assert.Null(payload.Content.NupkgPath);
+            Assert.Contains(
+                "lib/net10.0/Sample.dll",
+                payload.Content.EnumerateEntries());
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    static string TempDirectory() =>
+        Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-payload-admission-{Guid.NewGuid():N}");
+
     [Fact]
     public async Task InadmissibleCacheEntry_DoesNotMaskAnotherProducer()
     {

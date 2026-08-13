@@ -94,8 +94,9 @@ public abstract record PackagePayloadResult
 /// Gated by <c>PackagePayloadAcquisitionTests</c>:
 /// <c>CachedContentOfAnUnauthorizedProducer_IsNotServed</c> for the rule that a
 /// cache fulfills only an authorized producer,
-/// <c>CacheHit_IsRevalidatedAgainstCurrentPayloadLimits</c> and
-/// <c>InadmissibleCacheEntry_DoesNotMaskAnotherProducer</c> and
+/// <c>CacheHit_IsRevalidatedAgainstCurrentPayloadLimits</c>,
+/// <c>CacheHitWithoutRetainedNupkg_IsAdmittedFromExtractedTree</c>,
+/// <c>InadmissibleCacheEntry_DoesNotMaskAnotherProducer</c>, and
 /// <c>CommitThatLosesToInadmissibleCachedContent_IsNotServed</c> for
 /// admission at both cache-return seams,
 /// <c>SourcesAreTriedInOrderUntilOneServesThePayload</c> for source order and
@@ -157,15 +158,21 @@ public static class PackagePayloadAcquisition
                 continue;
             }
 
-            if (!await PackageContentAdmission.IsAdmissibleAsync(
+            PackageContentAdmission.Outcome admission =
+                await PackageContentAdmission.EvaluateAsync(
                     cached,
                     limits,
-                    cancellationToken).ConfigureAwait(false))
+                    cancellationToken).ConfigureAwait(false);
+            if (admission != PackageContentAdmission.Outcome.Admissible)
             {
                 log?.Invoke(
-                    $"Cached content for package '{coordinate.PackageId}' version "
-                    + $"'{coordinate.Version}' from one authorized producer does "
-                    + "not satisfy the current payload limits.");
+                    admission == PackageContentAdmission.Outcome.MissingArchive
+                        ? $"Cached content for package '{coordinate.PackageId}' version "
+                            + $"'{coordinate.Version}' from one authorized producer has "
+                            + "no retained archive and no usable extracted tree."
+                        : $"Cached content for package '{coordinate.PackageId}' version "
+                            + $"'{coordinate.Version}' from one authorized producer does "
+                            + "not satisfy the current payload limits.");
                 continue;
             }
 

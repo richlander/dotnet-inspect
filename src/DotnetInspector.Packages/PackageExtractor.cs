@@ -414,6 +414,7 @@ public static class PackageExtractor
     {
         IReadOnlyList<string> producerKeys =
             NuGetSourceResolver.SourceKeys(sources);
+        PackageContentAdmission.Outcome? lastCacheRejection = null;
         foreach (string producerKey in producerKeys)
         {
             IPackageContent? cached = s_packageStore.TryGetCached(
@@ -424,15 +425,22 @@ public static class PackageExtractor
             if (cached is null)
                 continue;
 
-            if (!await PackageContentAdmission.IsAdmissibleAsync(
+            PackageContentAdmission.Outcome admission =
+                await PackageContentAdmission.EvaluateAsync(
                     cached,
                     PackagePayloadLimits.Default,
-                    CancellationToken.None).ConfigureAwait(false))
+                    CancellationToken.None).ConfigureAwait(false);
+            if (admission != PackageContentAdmission.Outcome.Admissible)
             {
+                lastCacheRejection = admission;
                 log?.Invoke(
-                    $"Cached content for package '{packageName}' version "
-                    + $"'{version}' from one authorized producer does not "
-                    + "satisfy the current payload limits.");
+                    admission == PackageContentAdmission.Outcome.MissingArchive
+                        ? $"Cached content for package '{packageName}' version "
+                            + $"'{version}' from one authorized producer has no "
+                            + "retained archive and no usable extracted tree."
+                        : $"Cached content for package '{packageName}' version "
+                            + $"'{version}' from one authorized producer does not "
+                            + "satisfy the current payload limits.");
                 continue;
             }
 
@@ -447,7 +455,19 @@ public static class PackageExtractor
         }
 
         if (HttpClientFactory.IsOffline)
-            return PackageExtractionOutcome.Error($"Package '{packageName}' version '{version}' is not available offline; no cached package was found.");
+        {
+            string offlineReason = lastCacheRejection switch
+            {
+                PackageContentAdmission.Outcome.LimitsExceeded =>
+                    "a cached package was found but does not satisfy the current payload limits",
+                PackageContentAdmission.Outcome.MissingArchive =>
+                    "a cached package was found but has no retained archive and no usable extracted tree",
+                _ =>
+                    "no cached package was found",
+            };
+            return PackageExtractionOutcome.Error(
+                $"Package '{packageName}' version '{version}' is not available offline; {offlineReason}.");
+        }
 
         string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
 
