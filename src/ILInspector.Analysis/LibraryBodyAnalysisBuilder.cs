@@ -1320,7 +1320,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     }
 
     IReadOnlySet<string>? _asyncStateMachineTypes;
-    IReadOnlyDictionary<string, MethodIdentity>? _asyncStateMachineSourceMethods;
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        MethodIdentity>? _asyncStateMachineSourceMethods;
 
     bool IsAsyncStateMachineType(TypeRef? type)
     {
@@ -1380,20 +1382,26 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
 
         return physicalMethod.Name == "MoveNext"
+            && physicalMethod.DeclaringType.Resolution?.Type
+                is { } stateMachineType
             && AsyncStateMachineSourceMethods().TryGetValue(
-                physicalMethod.DeclaringType.ToQualifiedDisplayString(),
+                stateMachineType,
                 out MethodIdentity? source)
                     ? source
                     : null;
     }
 
-    IReadOnlyDictionary<string, MethodIdentity> AsyncStateMachineSourceMethods()
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        MethodIdentity> AsyncStateMachineSourceMethods()
     {
         if (_asyncStateMachineSourceMethods is not null)
             return _asyncStateMachineSourceMethods;
 
-        var methods = new Dictionary<string, MethodIdentity>(
-            StringComparer.Ordinal);
+        var methods = new Dictionary<
+            MetadataTypeDefinitionName,
+            MethodIdentity>();
+        var ambiguous = new HashSet<MetadataTypeDefinitionName>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
             var typeDefinition = _reader.GetTypeDefinition(typeHandle);
@@ -1415,24 +1423,40 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     continue;
                 }
 
-                string? stateMachineType = AsyncStateMachineTypeName(
-                    methodDefinition.GetCustomAttributes());
-                if (stateMachineType is null)
-                    continue;
-
-                var scope = CreateScope(
-                    typeDefinition,
-                    methodDefinition);
-                MethodIdentity method = CreateMethodIdentity(
-                    typeHandle,
-                    methodHandle,
-                    methodDefinition,
-                    scope);
-                if (!IsBlazorRenderMethod(method))
+                try
                 {
-                    methods.TryAdd(
-                        NormalizeStateMachineTypeName(stateMachineType),
-                        method);
+                    string? serializedType = AsyncStateMachineTypeName(
+                        methodDefinition.GetCustomAttributes());
+                    if (serializedType is null
+                        || StateMachineTypeDefinitionName(serializedType)
+                            is not { } stateMachineType
+                        || ambiguous.Contains(stateMachineType))
+                    {
+                        continue;
+                    }
+
+                    var scope = CreateScope(
+                        typeDefinition,
+                        methodDefinition);
+                    MethodIdentity method = CreateMethodIdentity(
+                        typeHandle,
+                        methodHandle,
+                        methodDefinition,
+                        scope);
+                    if (IsBlazorRenderMethod(method))
+                        continue;
+
+                    if (!methods.TryAdd(stateMachineType, method))
+                    {
+                        methods.Remove(stateMachineType);
+                        ambiguous.Add(stateMachineType);
+                    }
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    // The normal per-method pass retains the malformed method's
+                    // diagnostic; source-map prewarming must not abort the index.
                 }
             }
         }
@@ -1468,23 +1492,48 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return null;
     }
 
-    static string NormalizeStateMachineTypeName(string name)
+    static MetadataTypeDefinitionName?
+        StateMachineTypeDefinitionName(string serializedName)
     {
-        var normalized = new System.Text.StringBuilder(name.Length);
-        for (int i = 0; i < name.Length; i++)
+        int assemblySeparator = serializedName.IndexOf(',');
+        ReadOnlySpan<char> typeName = (
+            assemblySeparator < 0
+                ? serializedName.AsSpan()
+                : serializedName.AsSpan(0, assemblySeparator)).Trim();
+        if (typeName.IsEmpty || typeName.IndexOf('[') >= 0)
+            return null;
+        int nestedSeparator = typeName.IndexOf('+');
+        int rootEnd = nestedSeparator < 0
+            ? typeName.Length
+            : nestedSeparator;
+        int namespaceEnd = typeName[..rootEnd].LastIndexOf('.');
+        string ns = namespaceEnd < 0
+            ? ""
+            : typeName[..namespaceEnd].ToString();
+        string segments = typeName[(namespaceEnd + 1)..].ToString();
+        return MetadataTypeDefinitionName.Create(
+            ns,
+            [.. segments.Split('+')])
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
+    }
+
+    static bool HasGenericConstraints(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        foreach (var handle in method.GetGenericParameters())
         {
-            if (name[i] == '`')
+            var parameter = reader.GetGenericParameter(handle);
+            if ((parameter.Attributes
+                    & GenericParameterAttributes.SpecialConstraintMask) != 0
+                || parameter.GetConstraints().Count > 0)
             {
-                while (i + 1 < name.Length
-                    && char.IsAsciiDigit(name[i + 1]))
-                {
-                    i++;
-                }
-                continue;
+                return true;
             }
-            normalized.Append(name[i] == '+' ? '.' : name[i]);
         }
-        return normalized.ToString();
+        return false;
     }
 
     TypeRef TypeFromEntity(EntityHandle handle)
@@ -2106,6 +2155,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (!resolved.DefiningReader.StringComparer.Equals(
                     methodDefinition.Name,
                     callee.Name + "Async")
+                || sameAssembly
+                    && MetadataTokens.GetToken(methodHandle)
+                        == asyncSource.MetadataToken
+                || HasGenericConstraints(
+                    resolved.DefiningReader,
+                    methodDefinition)
                 || !IsCallableAsyncSibling(
                     methodDefinition,
                     sameAssembly,
@@ -2124,6 +2179,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 || !ParametersMatchAsyncSibling(
                     callee,
                     candidate))
+            {
+                continue;
+            }
+
+            if (IsPotentialInterfaceSelfDispatch(
+                    declaringDefinition,
+                    candidate,
+                    asyncSource))
             {
                 continue;
             }
@@ -2223,8 +2286,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     {
         var access =
             method.Attributes & MethodAttributes.MemberAccessMask;
-        bool sameType =
-            declaringType.Equals(asyncSource.DeclaringType);
+        bool sameType = SameTypeDefinition(
+            declaringType,
+            asyncSource.DeclaringType);
         return access switch
         {
             MethodAttributes.Public => true,
@@ -2236,6 +2300,25 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     && sameType,
             _ => false,
         };
+    }
+
+    static bool IsPotentialInterfaceSelfDispatch(
+        TypeDefinition declaringType,
+        MemberRef candidate,
+        MethodIdentity asyncSource)
+    {
+        if ((declaringType.Attributes & TypeAttributes.Interface) == 0)
+            return false;
+
+        int separator = asyncSource.Name.LastIndexOf('.');
+        string sourceName = separator < 0
+            ? asyncSource.Name
+            : asyncSource.Name[(separator + 1)..];
+        return candidate.Name == sourceName
+            && candidate.ParameterTypes.Length
+                == asyncSource.ParameterTypes.Length
+            && candidate.HasThis == !asyncSource.IsStatic
+            && candidate.GenericArity == asyncSource.GenericArity;
     }
 
     static MemberRef? DecodeAsyncSibling(
@@ -2345,7 +2428,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     static bool IsSameMethod(
         MemberRef candidate,
         MethodIdentity method)
-        => candidate.DeclaringType.Equals(
+        => SameTypeDefinition(
+                candidate.DeclaringType,
                 method.DeclaringType)
             && candidate.Name == method.Name
             && candidate.ParameterTypes.SequenceEqual(
@@ -2359,13 +2443,28 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     static bool IsSameMethod(
         MemberRef left,
         MemberRef right)
-        => left.DeclaringType.Equals(right.DeclaringType)
+        => SameTypeDefinition(
+                left.DeclaringType,
+                right.DeclaringType)
             && left.Name == right.Name
             && left.ParameterTypes.SequenceEqual(
                 right.ParameterTypes)
             && left.ReturnType.Equals(right.ReturnType)
             && left.HasThis == right.HasThis
             && left.GenericArity == right.GenericArity;
+
+    static bool SameTypeDefinition(TypeRef left, TypeRef right)
+    {
+        TypeRef leftDefinition = left.Kind
+            == TypeRefKind.GenericInstance
+                ? left.ElementType ?? left
+                : left;
+        TypeRef rightDefinition = right.Kind
+            == TypeRefKind.GenericInstance
+                ? right.ElementType ?? right
+                : right;
+        return leftDefinition.Equals(rightDefinition);
+    }
 
     static bool IsCancellationToken(TypeRef type)
     {

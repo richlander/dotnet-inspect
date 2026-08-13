@@ -1196,7 +1196,9 @@ public record OptimizationOpportunityRow(
 
     public string Evidence { get; init; } = Evidence;
 
-    public string Fix { get; init; } = Fix;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Fix { get; init; } =
+        LibraryViewText.Contain(Fix);
 
     public string Confidence { get; init; } = Confidence;
 

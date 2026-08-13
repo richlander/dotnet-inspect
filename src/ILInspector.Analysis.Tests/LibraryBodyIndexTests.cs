@@ -89,6 +89,28 @@ public class LibraryBodyIndexTests
             opportunity.Method.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsBothLifecycleSiblingsAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(GenericSelfSiblingFixture<int>
+                    .ReadAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(InterfaceSelfSiblingFixture
+                    .ReadAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(ConstrainedSiblingFixture
+                    .CallsConstrainedSiblingFromAsync));
+
+        var genericPrivate = Assert.Single(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                == nameof(GenericPrivateSiblingFixture<int>
+                    .CallsPrivateSiblingFromAsync));
+        Assert.Contains(
+            "ReadAsync",
+            genericPrivate.Evidence,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -123,6 +145,298 @@ public class LibraryBodyIndexTests
         Assert.Equal(
             PerformanceTriageProvenance.Exact,
             opportunity.Provenance);
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicGenericSelfSiblingFixture<int>
+                            .ReadAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicGenericMethodSelfSiblingFixture
+                            .ReadAsync));
+
+        var collision = Assert.Single(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicStateMachineCollision<int>
+                            .AnalyzeAsync));
+        Assert.Equal(
+            "ClassicStateMachineCollision`1",
+            collision.Method.DeclaringType
+                .Resolution?.Type.Segments[0]);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MalformedAsyncSourceDoesNotAbortStateMachineMap()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MalformedAsyncSource-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildMalformedAsyncSourceAssembly());
+
+            var index = LibraryBodyIndex.Open(path);
+            var opportunity = Assert.Single(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name == "AnalyzeAsync");
+
+            Assert.Contains(
+                index.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "BrokenAsync",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                "ReadAsync",
+                opportunity.Evidence,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                "MoveNext",
+                Assert.Single(
+                    index.Methods,
+                    method => method.MetadataToken
+                        == opportunity.EvidenceMethodToken).Name);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] BuildMalformedAsyncSourceAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedAsyncSource.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedAsyncSource"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xB0,
+                        0x3F,
+                        0x5F,
+                        0x7F,
+                        0x11,
+                        0xD5,
+                        0x0A,
+                        0x3A,
+                    }),
+                default,
+                default);
+        TypeReferenceHandle asyncStateMachineAttribute =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "AsyncStateMachineAttribute"));
+        TypeReferenceHandle asyncStateMachine =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("IAsyncStateMachine"));
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        TypeReferenceHandle task =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                metadata.GetOrAddString("Task"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle sourceType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Source"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle stateMachineType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString(
+                    "<AnalyzeAsync>d__1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(5));
+        metadata.AddNestedType(stateMachineType, sourceType);
+        metadata.AddInterfaceImplementation(
+            stateMachineType,
+            asyncStateMachine);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        static int AddRetBody(
+            MethodBodyStreamEncoder encoder)
+        {
+            var il = new BlobBuilder();
+            var instructions = new InstructionEncoder(il);
+            instructions.OpCode(ILOpCode.Ret);
+            return encoder.AddMethodBody(
+                instructions,
+                maxStack: 0);
+        }
+
+        BlobHandle taskSignature = metadata.GetOrAddBlob(
+            new byte[]
+            {
+                0x00,
+                0x00,
+                0x12,
+                (byte)CodedIndex.TypeDefOrRefOrSpec(task),
+            });
+        BlobHandle voidSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
+        MethodDefinitionHandle broken =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("BrokenAsync"),
+                metadata.GetOrAddBlob(new byte[] { 0x00 }),
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle source =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("AnalyzeAsync"),
+                taskSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle read =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Read"),
+                voidSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadAsync"),
+            taskSignature,
+            AddRetBody(bodyEncoder),
+            MetadataTokens.ParameterHandle(1));
+
+        var moveNextIl = new BlobBuilder();
+        moveNextIl.WriteByte((byte)ILOpCode.Call);
+        moveNextIl.WriteInt32(MetadataTokens.GetToken(read));
+        moveNextIl.WriteByte((byte)ILOpCode.Ret);
+        int moveNextBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(moveNextIl),
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("MoveNext"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x01 }),
+            moveNextBody,
+            MetadataTokens.ParameterHandle(1));
+
+        MemberReferenceHandle attributeConstructor =
+            metadata.AddMemberReference(
+                asyncStateMachineAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x20,
+                        0x01,
+                        0x01,
+                        0x12,
+                        (byte)CodedIndex.TypeDefOrRefOrSpec(
+                            systemType),
+                    }));
+        AddAsyncStateMachineAttribute(
+            metadata,
+            broken,
+            attributeConstructor,
+            "Sample.Source+<BrokenAsync>d__0, MalformedAsyncSource");
+        AddAsyncStateMachineAttribute(
+            metadata,
+            source,
+            attributeConstructor,
+            "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static void AddAsyncStateMachineAttribute(
+        MetadataBuilder metadata,
+        MethodDefinitionHandle method,
+        MemberReferenceHandle constructor,
+        string stateMachineType)
+    {
+        var value = new BlobBuilder();
+        value.WriteUInt16(0x0001);
+        value.WriteSerializedString(stateMachineType);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            method,
+            constructor,
+            metadata.GetOrAddBlob(value));
     }
 
     [Fact]
@@ -5997,6 +6311,66 @@ public class OptimizationOpportunityFixtures
             errors[i] = new System.InvalidOperationException(i.ToString());
         }
         return errors;
+    }
+}
+
+public sealed class GenericSelfSiblingFixture<T>
+{
+    public int Read(T value) => 0;
+
+    public async Task<int> ReadAsync(T value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public sealed class GenericPrivateSiblingFixture<T>
+{
+    private static int Read(T value) => 0;
+
+    private static Task<int> ReadAsync(T value)
+        => Task.FromResult(Read(value));
+
+    public static async Task<int>
+        CallsPrivateSiblingFromAsync(T value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public interface IInterfaceSelfSiblingFixture
+{
+    int Read();
+    Task<int> ReadAsync();
+}
+
+public sealed class InterfaceSelfSiblingFixture
+    : IInterfaceSelfSiblingFixture
+{
+    public int Read() => 0;
+
+    public async Task<int> ReadAsync()
+    {
+        await Task.Yield();
+        return ((IInterfaceSelfSiblingFixture)this).Read();
+    }
+}
+
+public static class ConstrainedSiblingFixture
+{
+    public static T Read<T>(T value) => value;
+
+    public static Task<T> ReadAsync<T>(T value)
+        where T : class
+        => Task.FromResult(value);
+
+    public static async Task<int>
+        CallsConstrainedSiblingFromAsync()
+    {
+        await Task.Yield();
+        return Read(1);
     }
 }
 
