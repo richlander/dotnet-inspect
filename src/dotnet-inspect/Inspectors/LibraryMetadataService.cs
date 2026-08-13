@@ -297,8 +297,12 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         TypeForwardersQuery.Execute(session));
+                    ApplyUnionTypesResult(
+                        path,
+                        inspection,
+                        logger,
+                        UnionTypesQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
-                    inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
                 }
 
                 catch (Exception ex)
@@ -1639,42 +1643,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanUnionTypes(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
-            return FailedInspection<UnionTypeInfo>(
-                path, MetadataFindings.UnionTypeDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectUnionTypes(
-                session.UnionTypes(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
-            return FailedInspection<UnionTypeInfo>(
-                path, MetadataFindings.UnionTypeDescriptor, ex);
-        }
-    }
-
     private static void ApplyQueryResults(
         string path,
         LibraryInspection inspection,
@@ -1727,6 +1695,13 @@ internal static class LibraryMetadataService
                 out TypeForwardersResult? typeForwarders))
         {
             ApplyTypeForwardersResult(path, inspection, logger, typeForwarders);
+        }
+
+        if (results.TryGet(
+                UnionTypesQuery.Definition,
+                out UnionTypesResult? unionTypes))
+        {
+            ApplyUnionTypesResult(path, inspection, logger, unionTypes);
         }
 
         if (results.TryGet(
@@ -1982,6 +1957,37 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown type-forwarders result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyUnionTypesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        UnionTypesResult result)
+    {
+        switch (result)
+        {
+            case UnionTypesResult.Available available:
+                inspection.UnionTypeInspection =
+                    MetadataFindings.InspectUnionTypes(
+                        available.Unions,
+                        FindingSubjectFor(path));
+                break;
+
+            case UnionTypesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning union types in {path}: {failed.Error.Message}");
+                inspection.UnionTypeInspection =
+                    FailedInspection<UnionTypeInfo>(
+                        path,
+                        MetadataFindings.UnionTypeDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown union-types result '{result.GetType().Name}'.");
         }
     }
 

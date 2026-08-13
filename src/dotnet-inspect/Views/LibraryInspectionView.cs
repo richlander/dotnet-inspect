@@ -1824,17 +1824,23 @@ public record UnionTypeRow(
     string IUnion,
     string Cases)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Type { get; init; } = LibraryViewText.Contain(Type);
+    /// <summary>
+    /// Crosses exact union identity into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.UnionTypesQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
+    public string Type { get; init; } =
+        new InertString(TextPolicy.Field, Type).ToString();
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+    /// <inheritdoc cref="Type"/>
+    public string Kind { get; init; } =
+        new InertString(TextPolicy.Field, Kind).ToString();
 
     [MarkoutPropertyName("IUnion")]
     public string IUnion { get; init; } = IUnion;
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Cases { get; init; } = LibraryViewText.Contain(Cases);
+    /// <inheritdoc cref="Type"/>
+    public string Cases { get; init; } =
+        new InertString(TextPolicy.Field, Cases).ToString();
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
