@@ -129,4 +129,113 @@ public class SparseIntSwitchRaisingTests
         Assert.Empty(function.Descendants.OfType<Switch>());
         Assert.Equal(2, function.Descendants.OfType<ConditionalBranch>().Count());
     }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void OwnedCaseBranchEnteringSiblingRegion_DeclinesSwitchRaise()
+    {
+        var function = NestedOwnedTransferFunction(0x50);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(3, function.Descendants.OfType<ConditionalBranch>().Count());
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void OwnedCaseBranchWithinSameRegion_RaisesSwitch()
+    {
+        var function = NestedOwnedTransferFunction(0x38);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+    }
+
+    static IrFunction NestedOwnedTransferFunction(int nestedTarget)
+    {
+        var body = new BlockContainer();
+
+        var firstTest = new Block(0x00);
+        firstTest.Add(new ConditionalBranch(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadArgument(0, "value", s_int),
+                new Constant(1, s_int)),
+            0x30));
+        body.Add(firstTest);
+
+        var secondTest = new Block(0x10);
+        secondTest.Add(new ConditionalBranch(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadArgument(0, "value", s_int),
+                new Constant(2, s_int)),
+            0x40));
+        body.Add(secondTest);
+
+        var defaultBody = new Block(0x20);
+        defaultBody.Add(new Branch(0x70));
+        body.Add(defaultBody);
+
+        var enterTargetArm = new Block();
+        enterTargetArm.Add(new Branch(nestedTarget));
+        var firstCase = new Block(0x30);
+        firstCase.Add(new IfStatement(
+            new LoadArgument(1, "enterTarget", s_bool),
+            enterTargetArm,
+            elseArm: null));
+        firstCase.Add(new Branch(0x38));
+        body.Add(firstCase);
+
+        var firstCaseExit = new Block(0x38);
+        firstCaseExit.Add(new Branch(0x70));
+        body.Add(firstCaseExit);
+
+        var secondCase = new Block(0x40);
+        secondCase.Add(new ConditionalBranch(
+            new LoadArgument(2, "condition", s_bool),
+            0x50));
+        body.Add(secondCase);
+
+        var falseBody = new Block(0x48);
+        falseBody.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        falseBody.Add(new Branch(0x60));
+        body.Add(falseBody);
+
+        var trueBody = new Block(0x50);
+        trueBody.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
+        body.Add(trueBody);
+
+        var secondCaseExit = new Block(0x60);
+        secondCaseExit.Add(new Branch(0x70));
+        body.Add(secondCaseExit);
+
+        var join = new Block(0x70);
+        join.Add(new Return(null));
+        body.Add(join);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [
+                    new Parameter("value", s_int),
+                    new Parameter("enterTarget", s_bool),
+                    new Parameter("condition", s_bool),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [s_int],
+            body);
+    }
 }
