@@ -5,6 +5,7 @@ import {
   dependencyGroupSelectionMessage,
   dependencyGraphExternalKey,
   dependencyGraphPackageKey,
+  dependencyGraphRenderSignature,
   ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
@@ -6410,14 +6411,15 @@ async function renderDependencyGraph() {
     container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
     return;
   }
+  const signature = dependencyGraphRenderSignature(built);
   // Already showing exactly this graph — nothing to do.
-  if (container.dataset.graphDef === built.definition && container.querySelector(".graph-viewport")) return;
+  if (container.dataset.graphDef === signature && container.querySelector(".graph-viewport")) return;
   // A render for this exact definition is already in flight on this container; let it finish.
   // (renderDependencyGraph is invoked repeatedly per render cycle — from both
   // maybeAutoLoadPackageDependencies and ensureWorkspaceDependencies — so without this guard
   // two concurrent mermaid.render calls race and one's catch can clobber the other's graph.)
-  if (container.dataset.graphPending === built.definition) return;
-  container.dataset.graphPending = built.definition;
+  if (container.dataset.graphPending === signature) return;
+  container.dataset.graphPending = signature;
   const seq = ++depGraphRenderSeq;
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
@@ -6452,7 +6454,7 @@ async function renderDependencyGraph() {
         : "");
     const viewport = container.querySelector(".graph-viewport");
     viewport.innerHTML = svg;
-    container.dataset.graphDef = built.definition;
+    container.dataset.graphDef = signature;
     attachGraphPanZoom(container, viewport);
     viewport.querySelectorAll("g.node").forEach(node => {
       const dataId = node.getAttribute("data-id");
@@ -6475,7 +6477,7 @@ async function renderDependencyGraph() {
       container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
     }
   } finally {
-    if (container.dataset.graphPending === built.definition) delete container.dataset.graphPending;
+    if (container.dataset.graphPending === signature) delete container.dataset.graphPending;
   }
 }
 

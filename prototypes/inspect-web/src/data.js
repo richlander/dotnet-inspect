@@ -74,6 +74,23 @@ export function ensureBoundedGraphNode(nodes, key, create, limit) {
   return { node, truncated: false };
 }
 
+export function dependencyGraphRenderSignature(graph) {
+  if (!graph) return "";
+  const navigation = [...graph.nodeInfoById.entries()].map(([nodeId, info]) => [
+    nodeId,
+    info.kind,
+    info.packageKey || "",
+    info.id || "",
+    info.versionRange || ""
+  ]);
+  return JSON.stringify([
+    graph.definition,
+    Boolean(graph.truncated),
+    graph.nodeLimit,
+    navigation
+  ]);
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {

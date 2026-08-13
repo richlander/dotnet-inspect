@@ -44,8 +44,7 @@ public static class PackageDependencyVersionRange
             throw new ArgumentException("The package version is invalid.", nameof(packageVersion));
 
         VersionRange range = Parse(declaredRange);
-        return range.Satisfies(version)
-            && (!range.IsFloating || range.Float.Satisfies(version));
+        return Matches(range, version);
     }
 
     public static string? SelectBestSatisfying(
@@ -78,9 +77,16 @@ public static class PackageDependencyVersionRange
     internal static void Validate(string? declaredRange) =>
         _ = Parse(declaredRange);
 
-    static bool Matches(VersionRange range, NuGetVersion version) =>
-        range.Satisfies(version)
-        && (!range.IsFloating || range.Float.Satisfies(version));
+    static bool Matches(VersionRange range, NuGetVersion version)
+    {
+        if (!range.Satisfies(version)
+            || (range.IsFloating && !range.Float.Satisfies(version)))
+        {
+            return false;
+        }
+
+        return range.FindBestMatch([version]) == version;
+    }
 
     static VersionRange Parse(string? declaredRange)
     {

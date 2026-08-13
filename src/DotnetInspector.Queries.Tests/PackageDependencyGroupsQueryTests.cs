@@ -12,6 +12,11 @@ public sealed class PackageDependencyGroupsQueryTests
     [InlineData("3.0.0", "(1.0.0, 3.0.0]", true)]
     [InlineData("2.9.0", "2.*", true)]
     [InlineData("3.0.0", "2.*", false)]
+    [InlineData("1.0.0-beta.1", "", false)]
+    [InlineData("1.0.0-beta.1", "(,1.0.0]", false)]
+    [InlineData("1.0.0-beta.1", "[1.0.0-beta.1,1.0.0)", true)]
+    [InlineData("1.0.0-beta.1", "[1.0.0-beta.1]", true)]
+    [InlineData("1.0.0", "", true)]
     public void DependencyVersionRange_UsesNuGetSemantics(
         string version,
         string range,
@@ -44,6 +49,19 @@ public sealed class PackageDependencyGroupsQueryTests
             PackageDependencyVersionRange.SelectBestSatisfying(
                 ["1.0.0", "3.1.0-beta.1", "3.0.0"],
                 "*"));
+        Assert.Null(
+            PackageDependencyVersionRange.SelectBestSatisfying(
+                ["1.0.0-beta.1"],
+                null));
+        Assert.Null(
+            PackageDependencyVersionRange.SelectBestSatisfying(
+                ["1.0.0-beta.1"],
+                "(,1.0.0]"));
+        Assert.Equal(
+            "1.0.0-beta.1",
+            PackageDependencyVersionRange.SelectBestSatisfying(
+                ["1.0.0-beta.1"],
+                "[1.0.0-beta.1,1.0.0)"));
     }
 
     [Fact]

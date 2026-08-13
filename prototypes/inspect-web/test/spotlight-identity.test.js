@@ -10,6 +10,7 @@ import {
   dependencyGroupSelectionMessage,
   dependencyGraphExternalKey,
   dependencyGraphPackageKey,
+  dependencyGraphRenderSignature,
   ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
@@ -96,6 +97,40 @@ test("dependency graph node insertion is bounded", () => {
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
 
+test("dependency graph render identity includes truncation and navigation", () => {
+  const graph = {
+    definition: "flowchart TD\n  d0[Example]",
+    nodeInfoById: new Map([[
+      "d0",
+      {
+        kind: "open",
+        packageKey: "Example.Package|1.0.0|net8.0",
+        id: "Example.Package",
+        versionRange: ""
+      }
+    ]]),
+    truncated: false,
+    nodeLimit: 80
+  };
+  const signature = dependencyGraphRenderSignature(graph);
+
+  assert.notEqual(
+    signature,
+    dependencyGraphRenderSignature({ ...graph, truncated: true }));
+  assert.notEqual(
+    signature,
+    dependencyGraphRenderSignature({
+      ...graph,
+      nodeInfoById: new Map([[
+        "d0",
+        {
+          ...graph.nodeInfoById.get("d0"),
+          packageKey: "Example.Package|2.0.0|net8.0"
+        }
+      ]])
+    }));
+});
+
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
     appSource,
@@ -107,6 +142,9 @@ test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
     appSource,
     /Dependency graph truncated at \$\{built\.nodeLimit\} nodes/);
+  assert.match(
+    appSource,
+    /const signature = dependencyGraphRenderSignature\(built\)/);
 });
 
 test("dependency navigation reserves identity and surfaces resolution failures", () => {
