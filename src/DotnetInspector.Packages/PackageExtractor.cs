@@ -549,6 +549,16 @@ public static class PackageExtractor
                     log?.Invoke(
                         $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
                 }
+                catch (InvalidOperationException)
+                {
+                    // Advertised Content-Length above the shared download cap is
+                    // raised as InvalidOperationException by the transport
+                    // helper. That is this source failing, not a reason to stop
+                    // trying every other authorized source.
+                    sourceSuppliedUnusablePayload = true;
+                    log?.Invoke(
+                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
+                }
             }
 
             if (sourceSuppliedUnusablePayload)
@@ -996,6 +1006,12 @@ public static class PackageExtractor
                         log?.Invoke(
                             $"Ignoring invalid {new InertString(TextPolicy.Field, type)} resource URL from "
                             + $"'{PackageSourceDisplay.ForDiagnostics(source)}'.");
+                        // A malformed critical resource is a failed source
+                        // answer, not a quiet absence. Complete-source floating
+                        // resolution depends on that distinction.
+                        FeedFailureTelemetry.Record(
+                            indexUrl,
+                            HttpStatusCode.OK);
                     }
                 }
             }
@@ -1329,32 +1345,27 @@ public static class PackageExtractor
 
             if (version is null)
             {
-                string? fetchedVersion;
-                if (requireCompleteSources)
+                SourceLatestVersion lookup =
+                    await GetLatestVersionFromSourceAsync(
+                        client,
+                        normalizedName,
+                        source,
+                        log,
+                        includePrerelease,
+                        cancellationToken).ConfigureAwait(false);
+                string? fetchedVersion =
+                    NormalizeCandidateVersion(lookup.Version);
+
+                // Complete-source mode needs a typed source outcome. Ambient
+                // FeedFailureTelemetry is not enough: a superseded same-source
+                // failure can linger while a later path proves absence, and a
+                // malformed critical resource can fail quietly without a
+                // telemetry mark. The lookup itself reports Failed vs Absent.
+                if (requireCompleteSources
+                    && fetchedVersion is null
+                    && lookup.Failed)
                 {
-                    using var failureScope = FeedFailureTelemetry.Scope();
-                    fetchedVersion = NormalizeCandidateVersion(
-                        await GetLatestVersionFromSourceAsync(
-                            client,
-                            normalizedName,
-                            source,
-                            log,
-                            includePrerelease,
-                            cancellationToken).ConfigureAwait(false));
-                    if (fetchedVersion is null
-                        && FeedFailureTelemetry.Current!.HasFailures)
-                        complete = false;
-                }
-                else
-                {
-                    fetchedVersion = NormalizeCandidateVersion(
-                        await GetLatestVersionFromSourceAsync(
-                            client,
-                            normalizedName,
-                            source,
-                            log,
-                            includePrerelease,
-                            cancellationToken).ConfigureAwait(false));
+                    complete = false;
                 }
 
                 if (fetchedVersion is not null)
@@ -1876,7 +1887,20 @@ public static class PackageExtractor
         return parsed.ToNormalizedString();
     }
 
-    private static async Task<string?> GetLatestVersionFromSourceAsync(
+    /// <summary>
+    /// One source's answer to "what is the latest version?", distinguishing a
+    /// proven absence from a source that never produced an authoritative answer.
+    /// </summary>
+    readonly record struct SourceLatestVersion(string? Version, bool Failed)
+    {
+        internal static SourceLatestVersion Found(string version) => new(version, Failed: false);
+
+        internal static SourceLatestVersion Absent { get; } = new(null, Failed: false);
+
+        internal static SourceLatestVersion Failure { get; } = new(null, Failed: true);
+    }
+
+    private static async Task<SourceLatestVersion> GetLatestVersionFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
@@ -1884,6 +1908,8 @@ public static class PackageExtractor
         bool includePrerelease,
         CancellationToken cancellationToken)
     {
+        using var failureScope = FeedFailureTelemetry.Scope();
+
         // For nuget.org, use the search API — returns latest version directly without listing all versions
         if (source.IsNuGetOrg && !includePrerelease)
         {
@@ -1893,7 +1919,7 @@ public static class PackageExtractor
                 log,
                 cancellationToken).ConfigureAwait(false);
             if (version != null)
-                return version;
+                return SourceLatestVersion.Found(version);
         }
 
         // For nuget.org, the flat-container/prerelease path must exclude unlisted versions.
@@ -1901,7 +1927,7 @@ public static class PackageExtractor
         // authoritative result (registration index read successfully) is trustworthy. If the
         // registration index is unavailable the method fails open to an UNFILTERED list flagged
         // Authoritative=false; picking a "latest" from that could surface an unlisted version, so
-        // return null (couldn't determine a latest) instead of falling through to the unfiltered
+        // return failure (couldn't determine a latest) instead of falling through to the unfiltered
         // index below.
         if (source.IsNuGetOrg)
         {
@@ -1912,9 +1938,16 @@ public static class PackageExtractor
                 log,
                 cancellationToken).ConfigureAwait(false);
             if (listed != null && authoritative)
-                return PickLatest(listed, includePrerelease);
-            return null;
+            {
+                return PickLatest(listed, includePrerelease) is { } picked
+                    ? SourceLatestVersion.Found(picked)
+                    : SourceLatestVersion.Absent;
+            }
+
+            return SourceLatestVersion.Failure;
         }
+
+        bool attemptedAuthoritativeLookup = false;
 
         // Fall back to flat-container index (enumerates all versions)
         if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
@@ -1923,14 +1956,15 @@ public static class PackageExtractor
             log?.Invoke(
                 $"Fetching versions from: {UrlRedaction.ForDiagnostics(wellKnownIndexUrl)}");
 
-            var version = await ParseVersionIndexAsync(
+            attemptedAuthoritativeLookup = true;
+            var wellKnown = await ParseVersionIndexResultAsync(
                 client,
                 wellKnownIndexUrl,
                 NuGetCredentialScope.AuthFor(source, wellKnownIndexUrl, log),
                 includePrerelease,
                 cancellationToken).ConfigureAwait(false);
-            if (version != null)
-                return version;
+            if (wellKnown.Version is not null || wellKnown.Failed)
+                return wellKnown;
         }
 
         // Fall back to V3 service index discovery
@@ -1944,17 +1978,29 @@ public static class PackageExtractor
             log?.Invoke(
                 $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
 
-            var version = await ParseVersionIndexAsync(
+            attemptedAuthoritativeLookup = true;
+            var discovered = await ParseVersionIndexResultAsync(
                 client,
                 indexUrl,
                 NuGetCredentialScope.AuthFor(source, indexUrl, log),
                 includePrerelease,
                 cancellationToken).ConfigureAwait(false);
-            if (version != null)
-                return version;
+            if (discovered.Version is not null || discovered.Failed)
+                return discovered;
         }
 
-        return null;
+        // A source that never yielded an authoritative version index is failed
+        // when telemetry recorded a problem (malformed service index resource,
+        // transport failure) and absent only when nothing was wrong and nothing
+        // was found. Superseded same-source failures do not leak: this method
+        // owns an isolated telemetry scope and returns a typed outcome.
+        if (!attemptedAuthoritativeLookup
+            || FeedFailureTelemetry.Current!.HasFailures)
+        {
+            return SourceLatestVersion.Failure;
+        }
+
+        return SourceLatestVersion.Absent;
     }
 
     private static async Task<string?> GetLatestVersionFromSearchAsync(
@@ -2022,12 +2068,34 @@ public static class PackageExtractor
         bool includePrerelease = false,
         CancellationToken cancellationToken = default)
     {
+        SourceLatestVersion result = await ParseVersionIndexResultAsync(
+            client,
+            indexUrl,
+            auth,
+            includePrerelease,
+            cancellationToken).ConfigureAwait(false);
+        return result.Version;
+    }
+
+    private static async Task<SourceLatestVersion> ParseVersionIndexResultAsync(
+        HttpClient client,
+        string indexUrl,
+        AuthenticationHeaderValue? auth = null,
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default)
+    {
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: auth,
             cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
         if (json == null)
-            return null;
+        {
+            // Transport helpers record non-404 failures. A plain absence is not
+            // a source failure; a recorded failure is.
+            return FeedFailureTelemetry.Current?.HasFailures == true
+                ? SourceLatestVersion.Failure
+                : SourceLatestVersion.Absent;
+        }
 
         try
         {
@@ -2041,11 +2109,11 @@ public static class PackageExtractor
                 FeedFailureTelemetry.Record(
                     indexUrl,
                     HttpStatusCode.OK);
-                return null;
+                return SourceLatestVersion.Failure;
             }
 
             if (versions.GetArrayLength() == 0)
-                return null;
+                return SourceLatestVersion.Absent;
 
             var candidates = new List<string>();
             foreach (var element in versions.EnumerateArray())
@@ -2058,7 +2126,7 @@ public static class PackageExtractor
                     FeedFailureTelemetry.Record(
                         indexUrl,
                         HttpStatusCode.OK);
-                    return null;
+                    return SourceLatestVersion.Failure;
                 }
 
                 candidates.Add(candidate);
@@ -2066,7 +2134,9 @@ public static class PackageExtractor
 
             // Use NuGetVersion for proper comparison — feeds may return
             // versions in any order (nuget.org ascending, Azure DevOps descending).
-            return PickLatest(candidates, includePrerelease);
+            return PickLatest(candidates, includePrerelease) is { } picked
+                ? SourceLatestVersion.Found(picked)
+                : SourceLatestVersion.Absent;
         }
         catch (Exception ex) when (ex is
             System.Text.Json.JsonException
@@ -2075,7 +2145,7 @@ public static class PackageExtractor
             FeedFailureTelemetry.Record(
                 indexUrl,
                 HttpStatusCode.OK);
-            return null;
+            return SourceLatestVersion.Failure;
         }
     }
 

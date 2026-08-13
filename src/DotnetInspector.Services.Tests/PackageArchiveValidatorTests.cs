@@ -40,6 +40,54 @@ public sealed class PackageArchiveValidatorTests
             Validate(archive));
     }
 
+    /// <summary>
+    /// APPNOTE allows the EOCD directory size to cover the optional central-
+    /// directory digital-signature record. That spelling must validate the
+    /// same entries the size-excluding fixture already accepts.
+    /// </summary>
+    [Fact]
+    public void Validate_AcceptsADigitalSignatureIncludedInDirectorySize()
+    {
+        byte[] archive = WithCentralDirectoryDigitalSignatureIncludedInSize(
+            TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            Validate(archive));
+    }
+
+    [Fact]
+    public void Validate_RejectsAnArchiveAboveMaxArchiveBytes()
+    {
+        byte[] archive = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+
+        var rejected = Assert.IsType<PackageArchiveValidation.Rejected>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxArchiveBytes = archive.Length - 1 },
+                TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "archive limit",
+            rejected.Reason,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A second central directory behind an EOCD-declared decoy must not let
+    /// the validator approve sizes for one directory while ZipArchive extracts
+    /// another. Declared and resolved offsets must be the same directory.
+    /// </summary>
+    [Fact]
+    public void Validate_RejectsADualCentralDirectoryOffsetDivergence()
+    {
+        byte[] archive = WithDualCentralDirectoryDecoy(
+            TestPackageArchive.Create("lib/net10.0/Sample.dll"),
+            decoyContent: "decoy"u8.ToArray(),
+            realContent: new byte[64 * 1024]);
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            Validate(archive));
+    }
+
     [Fact]
     public void Validate_AcceptsDirectoryEntries()
     {
@@ -603,6 +651,133 @@ public sealed class PackageArchiveValidatorTests
         signature[8] = 3;
         archive.AsSpan(end).CopyTo(rewritten.AsSpan(end + 9));
         return rewritten;
+    }
+
+    static byte[] WithCentralDirectoryDigitalSignatureIncludedInSize(
+        byte[] archive)
+    {
+        byte[] signed = WithCentralDirectoryDigitalSignature(archive);
+        int end = EndOfCentralDirectory(signed);
+        uint directorySize = BinaryPrimitives.ReadUInt32LittleEndian(
+            signed.AsSpan(end + 12));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            signed.AsSpan(end + 12),
+            directorySize + 9);
+        return signed;
+    }
+
+    /// <summary>
+    /// Builds an archive whose EOCD-declared central directory describes a
+    /// tiny decoy entry while a second, denser central directory and local
+    /// payload sit where a prefix-tolerant reader would look.
+    /// </summary>
+    static byte[] WithDualCentralDirectoryDecoy(
+        byte[] ordinary,
+        byte[] decoyContent,
+        byte[] realContent)
+    {
+        // Start from a real package shape, then append a second local+central
+        // directory pair and point the EOCD at a decoy directory that claims
+        // only the small content. A reader that trusts ArchiveOffset-style
+        // adjustment can validate the decoy while extracting the real payload.
+        using var ms = new MemoryStream();
+        // Real local file
+        byte[] realName = "lib/net10.0/Bomb.dll"u8.ToArray();
+        WriteLocal(ms, realName, realContent);
+        long realLocal = 0;
+        // Decoy local file after real local
+        byte[] decoyName = "lib/net10.0/Decoy.dll"u8.ToArray();
+        long decoyLocal = ms.Position;
+        WriteLocal(ms, decoyName, decoyContent);
+
+        // Decoy central directory (what EOCD will declare)
+        long decoyCd = ms.Position;
+        WriteCentral(ms, decoyName, decoyContent, (uint)decoyLocal);
+        long decoyCdEnd = ms.Position;
+
+        // Real central directory (what a prefix-adjusted reader would use)
+        long realCd = ms.Position;
+        WriteCentral(ms, realName, realContent, (uint)realLocal);
+        long realCdEnd = ms.Position;
+
+        // EOCD declares the decoy directory only.
+        WriteEocd(
+            ms,
+            totalEntries: 1,
+            directorySize: (uint)(decoyCdEnd - decoyCd),
+            directoryOffset: (uint)decoyCd);
+
+        // Append a second EOCD-like view is unnecessary: the attack in the
+        // review used declared offset at the decoy while the size/end pair
+        // could be adjusted. Force the size to cover from decoyCd through an
+        // alternate end so CreateDirectoryRecord would previously compute a
+        // non-zero ArchiveOffset toward realCd when given a mismatched end.
+        // Here the EOCD is honest about the decoy; ZipArchive extracts the
+        // decoy. To exercise offset divergence, rewrite the declared offset
+        // to 0 while leaving the directory bytes at decoyCd — that is the
+        // SFX-style claim the validator must refuse.
+        byte[] bytes = ms.ToArray();
+        int end = EndOfCentralDirectory(bytes);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(end + 16), 0);
+        return bytes;
+
+        static void WriteLocal(Stream s, byte[] name, byte[] data)
+        {
+            uint crc = Crc32(data);
+            Span<byte> header = stackalloc byte[30];
+            BinaryPrimitives.WriteUInt32LittleEndian(header, 0x04034B50);
+            BinaryPrimitives.WriteUInt16LittleEndian(header[8..], 0); // stored
+            BinaryPrimitives.WriteUInt32LittleEndian(header[14..], crc);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[18..], (uint)data.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[22..], (uint)data.Length);
+            BinaryPrimitives.WriteUInt16LittleEndian(header[26..], (ushort)name.Length);
+            s.Write(header);
+            s.Write(name);
+            s.Write(data);
+        }
+
+        static void WriteCentral(Stream s, byte[] name, byte[] data, uint localOffset)
+        {
+            uint crc = Crc32(data);
+            Span<byte> header = stackalloc byte[46];
+            BinaryPrimitives.WriteUInt32LittleEndian(header, 0x02014B50);
+            BinaryPrimitives.WriteUInt16LittleEndian(header[10..], 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[16..], crc);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[20..], (uint)data.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[24..], (uint)data.Length);
+            BinaryPrimitives.WriteUInt16LittleEndian(header[28..], (ushort)name.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[42..], localOffset);
+            s.Write(header);
+            s.Write(name);
+        }
+
+        static void WriteEocd(
+            Stream s,
+            ushort totalEntries,
+            uint directorySize,
+            uint directoryOffset)
+        {
+            Span<byte> eocd = stackalloc byte[22];
+            BinaryPrimitives.WriteUInt32LittleEndian(eocd, 0x06054B50);
+            BinaryPrimitives.WriteUInt16LittleEndian(eocd[8..], totalEntries);
+            BinaryPrimitives.WriteUInt16LittleEndian(eocd[10..], totalEntries);
+            BinaryPrimitives.WriteUInt32LittleEndian(eocd[12..], directorySize);
+            BinaryPrimitives.WriteUInt32LittleEndian(eocd[16..], directoryOffset);
+            s.Write(eocd);
+        }
+
+        static uint Crc32(byte[] data)
+        {
+            uint crc = 0xFFFFFFFF;
+            foreach (byte b in data)
+            {
+                crc ^= b;
+                for (int i = 0; i < 8; i++)
+                    crc = (crc >> 1) ^ (0xEDB88320u & (uint)(-(int)(crc & 1)));
+            }
+
+            return crc ^ 0xFFFFFFFF;
+        }
     }
 
     static byte[] WithEarlierDecoyEndRecord(byte[] archive)

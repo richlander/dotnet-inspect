@@ -579,10 +579,24 @@ public static class HttpRetryHelper
             return null;
 
         if (response.Content.Headers.ContentLength is > MaxDownloadSize)
-            throw new InvalidOperationException(
+        {
+            log?.Invoke(
                 $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
+            return null;
+        }
 
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        // ResponseContentRead still needs an explicit body bound when the
+        // transport timeout is infinite or larger than the baseline.
+        using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        TimeSpan requestTimeout =
+            client.Timeout == Timeout.InfiniteTimeSpan
+            || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                ? HttpClientFactoryOptions.BaselineTimeout
+                : client.Timeout;
+        bodyTimeout.CancelAfter(requestTimeout);
+        return await response.Content.ReadAsByteArrayAsync(bodyTimeout.Token)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -591,17 +605,18 @@ public static class HttpRetryHelper
     /// payload without buffering it. Uses
     /// <see cref="HttpCompletionOption.ResponseHeadersRead"/>. The caller owns
     /// the returned response and must dispose it. Returns null if the request
-    /// ultimately failed. Throws if the advertised size exceeds
-    /// <paramref name="maxAdvertisedContentLength"/>.
+    /// ultimately failed. Returns null if the advertised size exceeds
+    /// <paramref name="maxAdvertisedContentLength"/> so a multi-source caller
+    /// can fail over instead of aborting the remaining producers.
     /// Note: a failure that occurs mid-body (after headers) is not retried.
     /// </summary>
     /// <param name="maxAdvertisedContentLength">
-    /// The advertised body size above which this helper throws. A caller that
-    /// bounds the payload itself — and must keep an oversized payload a typed
-    /// failure rather than an exception — raises this so the decision stays
-    /// where the typed result is produced. The advertised length is a claim by
-    /// the remote, so raising this never removes a bound from a caller that
-    /// counts the bytes it actually received.
+    /// The advertised body size above which this helper returns null. A caller
+    /// that bounds the payload itself — and must keep an oversized payload a
+    /// typed failure rather than an exception — raises this so the decision
+    /// stays where the typed result is produced. The advertised length is a
+    /// claim by the remote, so raising this never removes a bound from a caller
+    /// that counts the bytes it actually received.
     /// </param>
     public static async Task<HttpResponseMessage?> GetStreamedWithRetryAsync(
         HttpClient client,
@@ -636,9 +651,14 @@ public static class HttpRetryHelper
 
         if (response.Content.Headers.ContentLength > maxAdvertisedContentLength)
         {
+            // Oversized advertised length is a failed source answer. Returning
+            // null keeps source failover intact; throwing would abort the loop
+            // that is still trying every other authorized producer.
+            long advertised = response.Content.Headers.ContentLength.Value;
             response.Dispose();
-            throw new InvalidOperationException(
-                $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
+            log?.Invoke(
+                $"Download size ({advertised / 1_000_000} MB) exceeds limit.");
+            return null;
         }
 
         return response;
@@ -648,9 +668,11 @@ public static class HttpRetryHelper
     /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
     /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
     /// the payload is never fully buffered in memory — important for large packages. Returns true on
-    /// success, false if the request ultimately failed. Throws if the advertised size exceeds the cap.
+    /// success, false if the request ultimately failed or the advertised size exceeds the cap.
     /// Bytes actually received are counted against the same cap, so a chunked
     /// or under-reported response cannot grow the destination without bound.
+    /// The body read is bounded by the same request timeout used for headers so
+    /// a stalled source cannot pin the caller past failover.
     /// Note: a failure that occurs mid-body (after headers) is not retried.
     /// </summary>
     /// <remarks>
@@ -687,8 +709,17 @@ public static class HttpRetryHelper
         bool completed = false;
         try
         {
+            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            TimeSpan requestTimeout =
+                client.Timeout == Timeout.InfiniteTimeSpan
+                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                    ? HttpClientFactoryOptions.BaselineTimeout
+                    : client.Timeout;
+            bodyTimeout.CancelAfter(requestTimeout);
+
             await using Stream source = await response.Content
-                .ReadAsStreamAsync(cancellationToken)
+                .ReadAsStreamAsync(bodyTimeout.Token)
                 .ConfigureAwait(false);
             await using FileStream destination = File.Create(destinationPath);
             destinationCreated = true;
@@ -698,7 +729,7 @@ public static class HttpRetryHelper
             {
                 int read = await source.ReadAsync(
                         buffer,
-                        cancellationToken)
+                        bodyTimeout.Token)
                     .ConfigureAwait(false);
                 if (read == 0)
                     break;
@@ -711,7 +742,7 @@ public static class HttpRetryHelper
 
                 await destination.WriteAsync(
                         buffer.AsMemory(0, read),
-                        cancellationToken)
+                        bodyTimeout.Token)
                     .ConfigureAwait(false);
                 received += read;
             }

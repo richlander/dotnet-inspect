@@ -282,13 +282,16 @@ public static class TfmResolver
         }
 
         // net45, net461, net481: a packed decimal with no separators, where the
-        // third digit is a patch rather than a second minor digit.
+        // third digit is a patch rather than a second minor digit. Leading
+        // zeros are noncanonical (net010 is not net10) and are refused so a
+        // padded spelling cannot collapse onto another framework version.
         static bool TryPacked(
             ReadOnlySpan<char> version,
             out FrameworkIdentity identity)
         {
             identity = default;
             if (version.Length is < 2 or > 3
+                || (version.Length > 1 && version[0] == '0')
                 || !TryReadAsciiDigits(version, out int packed)
                 || packed < 10)
             {
@@ -318,6 +321,11 @@ public static class TfmResolver
     {
         number = 0;
         if (value.Length is 0 or > 9)
+            return false;
+
+        // A multi-digit run with a leading zero is not a framework version
+        // spelling this resolver accepts (net08.0 is not net8.0).
+        if (value.Length > 1 && value[0] == '0')
             return false;
 
         foreach (char character in value)

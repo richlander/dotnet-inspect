@@ -715,14 +715,17 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
     public async Task FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer(
-        bool malformedVersionIndex)
+        bool malformedVersionIndex,
+        bool malformedPackageBaseAddress)
     {
         using var client = new HttpClient(
             new IncompleteVersionSourcesHandler(
-                malformedVersionIndex));
+                malformedVersionIndex,
+                malformedPackageBaseAddress));
 
         PackageCoordinateResolution resolution =
             await PackageCoordinateResolver.ResolveAsync(
@@ -1057,7 +1060,8 @@ public sealed class PackageCoordinateResolverTests
     }
 
     sealed class IncompleteVersionSourcesHandler(
-        bool malformedVersionIndex)
+        bool malformedVersionIndex,
+        bool malformedPackageBaseAddress = false)
         : HttpMessageHandler
     {
         internal const string PackageId = "partial.package";
@@ -1073,6 +1077,10 @@ public sealed class PackageCoordinateResolverTests
             string url = request.RequestUri!.ToString();
             return url switch
             {
+                "https://incomplete.test/v3/index.json"
+                    when malformedPackageBaseAddress =>
+                    Json(
+                        """{"resources":[{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
                     when !malformedVersionIndex =>
                     Task.FromResult(

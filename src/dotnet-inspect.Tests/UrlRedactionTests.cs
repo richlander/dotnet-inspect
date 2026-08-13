@@ -122,6 +122,20 @@ public class UrlRedactionTests
         Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ForDiagnostics_RedactsAuthTokenAcrossEmptyPathSegments()
+    {
+        string redacted = UrlRedaction
+            .ForDiagnostics(
+                $"https://host.test/F/auth//{Secret}/api")
+            .ToString();
+
+        Assert.Equal(
+            "https://host.test/F/auth//REDACTED/api",
+            redacted);
+        Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("/relative/flat/a.nupkg?x={0}", "/relative/flat/a.nupkg?REDACTED")]
     [InlineData("relative?x={0}", "relative?REDACTED")]

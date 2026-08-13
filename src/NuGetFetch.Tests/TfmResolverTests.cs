@@ -39,6 +39,10 @@ public class TfmResolverTests
     [InlineData("net 45")]
     [InlineData("net4x")]
     [InlineData("net09")]
+    [InlineData("net010")]
+    [InlineData("net045")]
+    [InlineData("net08.0")]
+    [InlineData("net010.0")]
     public void TryGetFrameworkIdentity_RejectsEverythingOutsideTheDigitGrammar(
         string tfm)
     {

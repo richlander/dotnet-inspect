@@ -83,7 +83,11 @@ public abstract record PackageArchiveValidation
 /// records, independently inflates stored or DEFLATE content, and compares the
 /// actual length and CRC with the directory claims. The declared sizes are
 /// still summed first, as a cheap precheck that rejects an obvious bomb without
-/// decompressing it.
+/// decompressing it. The preflight also refuses a directory whose EOCD-declared
+/// offset is not exactly the directory this host will decode, so a dual central
+/// directory cannot validate decoy sizes while <see cref="ZipArchive"/> extracts
+/// a different payload. An optional central-directory digital-signature record
+/// may either be excluded from or included in the EOCD size field.
 /// </para>
 /// <para>
 /// Every rejection is a failure of one source. The caller tries the next
@@ -126,6 +130,12 @@ public static class PackageArchiveValidator
         ArgumentNullException.ThrowIfNull(archive);
         limits ??= PackagePayloadLimits.Default;
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (archive.Length > limits.MaxArchiveBytes)
+        {
+            return new PackageArchiveValidation.Rejected(
+                $"the archive exceeds the {limits.MaxArchiveBytes}-byte archive limit");
+        }
 
         if (ZipDirectoryPreflight.TryGetDirectory(
                 archive,
@@ -424,8 +434,7 @@ public static class PackageArchiveValidator
 internal readonly record struct ZipDirectoryRecord(
     long EntryCount,
     int Offset,
-    int Size,
-    long ArchiveOffset);
+    int Size);
 
 static class ZipDirectoryPreflight
 {
@@ -586,49 +595,74 @@ static class ZipDirectoryPreflight
             return "the archive directory lies outside the payload";
         }
 
-        long centralDirectoryEnd = FindCentralDirectoryEnd(
-            archive,
-            actualDirectoryEnd,
-            directorySize,
-            entryCount);
-        long actualOffset = centralDirectoryEnd - (long)directorySize;
-        if (declaredDirectoryOffset > (ulong)actualOffset)
+        // ZipArchive and ExtractToDirectory follow the EOCD-declared central
+        // directory offset, not an SFX-style adjusted view of a later directory.
+        // Accept only when the declared offset is exactly the directory this
+        // host will decode; a second central directory behind an adjusted
+        // prefix is how a payload can validate decoy sizes while extracting a
+        // compression bomb.
+        if (!TryResolveCentralDirectory(
+                archive,
+                actualDirectoryEnd,
+                directorySize,
+                entryCount,
+                out long actualOffset,
+                out int resolvedSize))
         {
             return "the archive directory offset is inconsistent";
         }
 
+        if (declaredDirectoryOffset != (ulong)actualOffset)
+            return "the archive directory offset is inconsistent";
+
         directory = new ZipDirectoryRecord(
             entryCount,
             checked((int)actualOffset),
-            (int)directorySize,
-            actualOffset - (long)declaredDirectoryOffset);
+            resolvedSize);
         return null;
     }
 
-    static long FindCentralDirectoryEnd(
+    /// <summary>
+    /// Resolves the single central directory the runtime decoder will read.
+    /// </summary>
+    /// <remarks>
+    /// The EOCD size may either exclude or include one trailing digital
+    /// signature record. Both are standards-valid; both must yield the same
+    /// directory start the EOCD declares. Prefix/SFX adjustment is refused.
+    /// </remarks>
+    static bool TryResolveCentralDirectory(
         ReadOnlySpan<byte> archive,
         long recordStart,
         ulong directorySize,
-        long entryCount)
+        long entryCount,
+        out long directoryOffset,
+        out int resolvedSize)
     {
         const uint CentralDirectorySignature = 0x02014B50;
         const uint DigitalSignature = 0x05054B50;
         const int DigitalSignatureHeaderSize = 6;
 
-        long unsignedDirectoryStart = recordStart - (long)directorySize;
-        if (entryCount > 0
-            && unsignedDirectoryStart <= archive.Length - sizeof(uint)
-            && ReadUInt32(
-                archive[(int)unsignedDirectoryStart..],
-                0) == CentralDirectorySignature)
+        directoryOffset = 0;
+        resolvedSize = 0;
+        long sizedStart = recordStart - (long)directorySize;
+        if (sizedStart < 0)
+            return false;
+
+        if (DirectoryStartsAt(
+                archive,
+                sizedStart,
+                entryCount,
+                CentralDirectorySignature))
         {
-            return recordStart;
+            directoryOffset = sizedStart;
+            resolvedSize = (int)directorySize;
+            return true;
         }
 
+        // Size names only the central directory; one digital-signature record
+        // may sit between it and the end-of-central-directory record.
         int latest = checked((int)recordStart) - DigitalSignatureHeaderSize;
-        int earliest = Math.Max(
-            0,
-            latest - ushort.MaxValue);
+        int earliest = Math.Max(0, latest - ushort.MaxValue);
         for (int candidate = earliest; candidate <= latest; candidate++)
         {
             ReadOnlySpan<byte> possible = archive[candidate..];
@@ -642,23 +676,40 @@ static class ZipDirectoryPreflight
                 continue;
             }
 
-            long signedDirectoryStart =
-                candidate - (long)directorySize;
+            long signedDirectoryStart = candidate - (long)directorySize;
             if (signedDirectoryStart < 0)
                 continue;
 
-            if (entryCount == 0
-                || (signedDirectoryStart
-                        <= archive.Length - sizeof(uint)
-                    && ReadUInt32(
-                        archive[(int)signedDirectoryStart..],
-                        0) == CentralDirectorySignature))
+            if (!DirectoryStartsAt(
+                    archive,
+                    signedDirectoryStart,
+                    entryCount,
+                    CentralDirectorySignature))
             {
-                return candidate;
+                continue;
             }
+
+            directoryOffset = signedDirectoryStart;
+            resolvedSize = (int)directorySize;
+            return true;
         }
 
-        return recordStart;
+        return false;
+    }
+
+    static bool DirectoryStartsAt(
+        ReadOnlySpan<byte> archive,
+        long offset,
+        long entryCount,
+        uint centralDirectorySignature)
+    {
+        if (entryCount == 0)
+            return offset <= archive.Length;
+
+        return offset <= archive.Length - sizeof(uint)
+            && ReadUInt32(
+                archive[(int)offset..],
+                0) == centralDirectorySignature;
     }
 
     static ushort ReadUInt16(ReadOnlySpan<byte> source, int offset) =>
@@ -765,16 +816,15 @@ static class ZipEntryDescriptorReader
             if (localOffset > long.MaxValue)
                 return "an archive entry points outside the payload";
 
-            long adjustedLocalOffset =
-                (long)localOffset + directory.ArchiveOffset;
-            if (adjustedLocalOffset < 0
-                || adjustedLocalOffset
+            long localOffsetValue = (long)localOffset;
+            if (localOffsetValue < 0
+                || localOffsetValue
                     > archive.Length - LocalFileHeaderSize)
             {
                 return "an archive entry points outside the payload";
             }
 
-            int local = (int)adjustedLocalOffset;
+            int local = (int)localOffsetValue;
             if (ReadUInt32(archive, local) != LocalFileHeaderSignature)
                 return "an archive entry has no readable local header";
 
@@ -827,11 +877,32 @@ static class ZipEntryDescriptorReader
             offset += CentralDirectoryHeaderSize + variableLength;
         }
 
-        if (offset != directoryEnd)
+        if (offset != directoryEnd
+            && !IsTrailingDigitalSignature(archive, offset, directoryEnd))
+        {
             return "the archive central directory has trailing records";
+        }
 
         descriptors = entries;
         return null;
+    }
+
+    static bool IsTrailingDigitalSignature(
+        ReadOnlySpan<byte> archive,
+        int offset,
+        int directoryEnd)
+    {
+        const uint DigitalSignature = 0x05054B50;
+        const int DigitalSignatureHeaderSize = 6;
+        if (directoryEnd - offset < DigitalSignatureHeaderSize)
+            return false;
+
+        if (ReadUInt32(archive, offset) != DigitalSignature)
+            return false;
+
+        ushort dataLength = ReadUInt16(archive, offset + 4);
+        return offset + DigitalSignatureHeaderSize + dataLength
+            == directoryEnd;
     }
 
     static string? TryResolveZip64(

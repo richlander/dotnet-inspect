@@ -313,8 +313,15 @@ public static class UrlRedaction
                 builder.Append(path[index]);
 
             changed |= redact;
-            previousWasAuth =
-                segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
+            // Empty segments do not consume the pending auth state. A path
+            // shaped like /auth//SECRET must still redact SECRET; clearing on
+            // the empty segment would leak the token.
+            if (segment.Length > 0)
+            {
+                previousWasAuth =
+                    segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
+            }
+
             segmentStart = index + 1;
         }
 

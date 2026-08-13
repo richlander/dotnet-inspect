@@ -272,15 +272,27 @@ public static class PackagePayloadAcquisition
         byte[] archive;
         try
         {
+            // ResponseHeadersRead leaves the body outside HttpClient.Timeout.
+            // Bound the body with the same baseline the header-first helpers use
+            // so a stalled source cannot pin acquisition past failover.
+            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            TimeSpan requestTimeout =
+                client.Timeout == Timeout.InfiniteTimeSpan
+                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                    ? HttpClientFactoryOptions.BaselineTimeout
+                    : client.Timeout;
+            bodyTimeout.CancelAfter(requestTimeout);
+
             Stream payload = await response.Content
-                .ReadAsStreamAsync(cancellationToken)
+                .ReadAsStreamAsync(bodyTimeout.Token)
                 .ConfigureAwait(false);
             await using (payload.ConfigureAwait(false))
             {
                 if (await PackageContentAdmission.ReadBoundedAsync(
                         payload,
                         limits.MaxArchiveBytes,
-                        cancellationToken).ConfigureAwait(false)
+                        bodyTimeout.Token).ConfigureAwait(false)
                     is not { } received)
                 {
                     log?.Invoke(
