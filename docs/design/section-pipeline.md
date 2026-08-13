@@ -70,15 +70,15 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ```csharp
 registry.Add(
-    "TypeForwarders",
+    "UnionTypes",
     SectionCost.NetworkFree,
-    ctx => ctx.Model.TypeForwarderInspection =
+    ctx => ctx.Model.UnionTypeInspection =
         ctx.Scan(
-            session => LibraryMetadataService.ScanTypeForwarders(
+            session => LibraryMetadataService.ScanUnionTypes(
                 session,
                 ctx.AssemblyPath,
                 ctx.Logger),
-            () => LibraryMetadataService.ScanTypeForwarders(
+            () => LibraryMetadataService.ScanUnionTypes(
                 ctx.AssemblyPath,
                 ctx.Logger)));
 ```
@@ -187,13 +187,14 @@ and trace machinery still owns execution.
 The planner enables direct or tree collection from the candidate set instead
 of creating synonymous sections.
 
-Extension-method, custom-attribute, and manifest-resource inspection are also
-typed query work. `Library Info` binds all three query definitions, while
-`Extension Methods`, `Custom Attributes`, and `Resources` each bind the
-definition for their detailed rows. One immutable result per facet therefore
-supplies the summary count and detailed rows without string scanner keys or
-duplicate metadata passes. A section may bind multiple typed queries; its
-effective cost is the maximum over every query's prerequisite closure.
+Extension-method, custom-attribute, manifest-resource, and type-forwarder
+inspection are also typed query work. `Library Info` binds all four query
+definitions, while `Extension Methods`, `Custom Attributes`, `Resources`, and
+`Type Forwarders` each bind the definition for their detailed rows. One
+immutable result per facet therefore supplies the summary count and detailed
+rows without string scanner keys or duplicate metadata passes. A section may
+bind multiple typed queries; its effective cost is the maximum over every
+query's prerequisite closure.
 
 ## Effectiveness
 

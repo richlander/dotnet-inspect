@@ -236,6 +236,15 @@ probes reused by body-signal and allocation analysis.
 opcode and call evidence, and the pointer-stack interpretation that emits
 unsafety occurrences. The assembly reader retains calli-signature resolution
 and passes only the display detail into the producer.
+`MethodCallAnalysis` owns one instruction traversal that projects direct and
+indirect calls, return addresses, same-assembly definition tokens, call kinds,
+opcodes, loop membership, and allocation-derived multiplicity. Metadata facts
+arrive through `IMethodCallResolver`; the reader retains member and calli
+signature resolution plus MethodSpec peeling without exposing its reader or
+generic scope. The producer appends to caller-owned call and safety-evidence
+builders so results emitted before a later recoverable metadata failure survive,
+and delegates unsafe-call/opcode classification to `MethodSafetyAnalysis`
+without a second body scan.
 `MethodAllocationAnalysis` owns the allocation topic for one decoded body:
 allocation occurrence discovery, allocation-shape classification, escape
 classification, and the private path-context, path-confidence, and
@@ -257,11 +266,9 @@ The assembly reader retains, on the allocation path, exactly: PE/body
 acquisition, the intentionally throwing `InstructionDecoder.Decode` +
 `BlockGraph.Build` decode, loop-region computation for the context, method
 identity and generic-scope creation, metadata ownership and token resolution,
-per-method orchestration and recoverable-failure diagnostics, call-site
-acquisition, optimization-recommendation production, resource/leak analysis, and
+per-method orchestration and recoverable-failure diagnostics,
+optimization-recommendation production, resource/leak analysis, and
 result aggregation.
-Call-site acquisition and multiplicity remain separate; that scan delegates
-safety projection rather than owning the unsafe-type policy.
 `MethodInstructionFacts` owns the metadata-free local/argument-slot, operand,
 and single-branch-target grammar shared by safety and allocation interpretation,
 and `CompilerGeneratedNames` owns the unspeakable-name grammar shared by
@@ -374,6 +381,15 @@ Move in reviewable slices.
 6. **Unify overlays and lifetime.** Compose Research/source/decompiler facts
    above the owner queries, and adopt the shared PE owner when that pending seam
    lands.
+
+The command-owned path-backed acquisitions for `diff` body-signal comparison,
+implementation comparison, and authored-source target indexing, plus `timeline`
+analysis inspection, use `MethodBodyInspectionSession` for their selected
+capabilities and scope, then pass its neutral `BodyIndex` to the owning query.
+This adopts the step 2 boundary without claiming command-wide reuse: separate
+`diff` phases retain distinct indexes and capability policies, and
+`diff --finding analysis.*` still delegates path-backed acquisition to
+`ResearchDiff`.
 
 ## Acceptance tests for the architecture
 

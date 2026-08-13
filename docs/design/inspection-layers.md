@@ -54,10 +54,10 @@ the ownership boundaries below, not the project count.
 `DotnetInspector.Queries` and the optional
 `DotnetInspector.ResearchQueries` companion now implement metadata-image,
 direct-reference, extension-method, custom-attribute, manifest-resource,
-SourceLink audit, API-comparison, Analysis body-signal comparison,
-Implementation comparison, assembly-context Integrations, implementation
-relationships, type/member search, extension reachability, and progressive
-member call-graph slices. The API-comparison seam retains
+type-forwarder, SourceLink audit, API-comparison, Analysis body-signal
+comparison, Implementation comparison, assembly-context Integrations,
+implementation relationships, type/member search, extension reachability, and
+progressive member call-graph slices. The API-comparison seam retains
 Metadata-owned Finding correspondence and compatibility classification over
 two host-resolved surfaces. The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
@@ -67,12 +67,13 @@ evidence over workspace-owned immutable snapshots; call graphs retain one
 catalog generation for both traversal directions. These queries return typed
 results without choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
-extension-method, custom-attribute, and manifest-resource queries through a
-typed, content-shaped registry over a host-owned `AssemblyInspectionSession`.
-The `References`, `Extension Methods`, `Custom Attributes`, `Resources`, and
-`Library Info` sections bind to concrete query definitions rather than string
-scanner keys, and the CLI and package convenience route lower section
-selection into that same registry. Library and package SourceLink sections
+extension-method, custom-attribute, manifest-resource, and type-forwarder
+queries through a typed, content-shaped registry over a host-owned
+`AssemblyInspectionSession`. The `References`, `Extension Methods`,
+`Custom Attributes`, `Resources`, `Type Forwarders`, and `Library Info`
+sections bind to concrete query definitions rather than string scanner keys,
+and the CLI and package convenience route lower section selection into that
+same registry. Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
 `--all-libraries` route focused Integrations demand through the first workspace
@@ -264,9 +265,9 @@ consumer's convenience.
 ## Current migration state
 
 Metadata-image, direct-reference, extension-method, custom-attribute,
-manifest-resource, SourceLink, API-comparison, Analysis body-signal comparison,
-Implementation comparison, and assembly-context Integrations inspection are
-the first vertical L1 canaries:
+manifest-resource, type-forwarder, SourceLink, API-comparison, Analysis
+body-signal comparison, Implementation comparison, and assembly-context
+Integrations inspection are the first vertical L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -289,6 +290,9 @@ the first vertical L1 canaries:
 - `ResourcesQuery` returns immutable manifest-resource facts shared by
   `Library Info` and `Resources`. The CLI adds path-based Finding provenance
   and compatibility projections after query execution.
+- `TypeForwardersQuery` returns metadata-ordered immutable forwarder facts
+  shared by `Library Info` and `Type Forwarders`. The CLI adds path-based
+  Finding provenance and compatibility projections after query execution.
 - `SourceLinkDocumentsQuery` may acquire one matching portable PDB and returns
   the typed source-document Finding inspection.
 - `SourceAvailabilityQuery` and `SourceIntegrityQuery` consume that prerequisite
@@ -317,10 +321,10 @@ the first vertical L1 canaries:
   immutable participant snapshots. The entire `@Integrations` section family
   is query-owned; the CLI retains only command hosting and projection.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
-  `Custom Attributes`, `Resources`, and the diff `Changes`, `Analysis Diff`,
-  and `Implementation Diff` sections bind to query definitions by object
-  identity. A section may bind multiple definitions; diagnostic names are
-  never lookup keys.
+  `Custom Attributes`, `Resources`, `Type Forwarders`, and the diff `Changes`,
+  `Analysis Diff`, and `Implementation Diff` sections bind to query definitions
+  by object identity. A section may bind multiple definitions; diagnostic names
+  are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
@@ -371,17 +375,17 @@ establishes the L1 project and structural pattern, but the remaining facets and
 the L2 project split still need migration.
 
 The structural fix is completing L1. Outside the metadata, direct-reference,
-extension-method, custom-attribute, manifest-resource, and SourceLink canaries,
-collection is still neither typed nor demand-driven:
+extension-method, custom-attribute, manifest-resource, type-forwarder, and
+SourceLink canaries, collection is still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results for most scanner families, so a consumer cannot yet take those
   queries without materializing `LibraryInspection`.
 - The binding to residual collection is a **nullable string key** for the
   remaining scanner-backed sections. Metadata, `References`, `Library Info`,
-  `Extension Methods`, `Custom Attributes`, `Resources`, SourceLink, and the
-  diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections use
-  checked query-definition bindings.
+  `Extension Methods`, `Custom Attributes`, `Resources`, `Type Forwarders`,
+  SourceLink, and the diff `Changes`, `Analysis Diff`, and
+  `Implementation Diff` sections use checked query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.

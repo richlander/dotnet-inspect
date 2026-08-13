@@ -3,6 +3,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using InertText;
 using DotnetInspector.Output;
 using Markout;
 
@@ -1650,13 +1651,18 @@ public record TypeForwarderRow(
     string TypeName,
     string TargetAssembly)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
+    /// <summary>
+    /// Crosses exact forwarder identity into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.TypeForwardersQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
     [MarkoutPropertyName("Type")]
-    public string TypeName { get; init; } = LibraryViewText.Contain(TypeName);
+    public string TypeName { get; init; } =
+        new InertString(TextPolicy.Field, TypeName).ToString();
 
-    /// <inheritdoc cref="LibraryViewText"/>
+    /// <inheritdoc cref="TypeName"/>
     [MarkoutPropertyName("Target Assembly")]
-    public string TargetAssembly { get; init; } = LibraryViewText.Contain(TargetAssembly);
+    public string TargetAssembly { get; init; } =
+        new InertString(TextPolicy.Field, TargetAssembly).ToString();
 }
 
 [MarkoutSerializable]

@@ -703,8 +703,13 @@ Research overlay bridge, and the application layer:
   `BodySignalAnalysis` consumes the context with metadata-dependent box
   classification supplied through a narrow callback.
   `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
-  occurrence interpretation; call-site acquisition remains separate and
-  delegates only its safety projection.
+  occurrence interpretation.
+  `MethodCallAnalysis` owns the single instruction traversal that projects
+  direct and indirect calls, return addresses, definition tokens, call kinds,
+  opcodes, loop membership, and allocation-derived multiplicity. It receives
+  member, calli-signature, and definition-token facts through
+  `IMethodCallResolver`, appends calls and safety evidence incrementally, and
+  delegates unsafe-call/opcode policy back to `MethodSafetyAnalysis`.
   `MethodAllocationAnalysis` owns allocation interpretation for one decoded
   body: occurrence discovery, allocation-shape classification, escape
   classification, and the private path-context/confidence/post-dominance indexes
@@ -715,7 +720,7 @@ Research overlay bridge, and the application layer:
   optimization-opportunity collection query that interpretation instead of
   rebuilding it; the reader retains PE/body acquisition, the intentionally
   throwing decode path, method identity and scope creation, metadata ownership
-  and token resolution, orchestration, call-site acquisition, optimization
+  and token resolution, orchestration, optimization
   recommendations, resource/leak analysis, and result aggregation.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
