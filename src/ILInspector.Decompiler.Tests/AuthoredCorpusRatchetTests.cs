@@ -1384,6 +1384,26 @@ public class AuthoredCorpusRatchetTests
         Assert.Null(AuthoredCorpusExitContract.PreemptedGateRefusal(order, Gates));
     }
 
+    [Fact]
+    public void DeepInspect_PreparesAndReadsTheEvilPoolOutsideTheCheckout()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(
+                FindRepositoryRoot(),
+                ".github",
+                "workflows",
+                "deep-inspect.yml"));
+
+        Assert.Contains(
+            "prepare-evil-corpus.sh \"$RUNNER_TEMP/evil-pool\"",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mapfile -t assemblies < \"$RUNNER_TEMP/evil-pool/assemblies.txt\"",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Drift measurement is sound only when nothing went uncounted.
     ///
@@ -1442,7 +1462,13 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>The gates the harness protects, in the order it names them.</summary>
-    static readonly string[] Gates = ["--benchmark-authored-corpus", "--verify-authored-corpus"];
+    static readonly string[] Gates =
+    [
+        "--benchmark-authored-corpus",
+        "--verify-authored-corpus",
+        "--append-authored-corpus-history",
+        "--verify-authored-corpus-history",
+    ];
 
     /// <summary>
     /// The escape check fires on exactly one of the four combinations, and the three it
@@ -1533,11 +1559,13 @@ public class AuthoredCorpusRatchetTests
             () => AuthoredCorpusExitContract.FindPreemptingMode(order, "--benchmark-authored-corpus"));
     }
 
-    /// <summary>Both authored-corpus gates sit in the dispatch order, so both are gated.</summary>
+    /// <summary>Every authored-corpus gate sits in the dispatch order.</summary>
     [Theory]
     [InlineData("--benchmark-authored-corpus")]
     [InlineData("--verify-authored-corpus")]
-    public void PreemptingMode_CoversBothAuthoredCorpusGates(string gate)
+    [InlineData("--append-authored-corpus-history")]
+    [InlineData("--verify-authored-corpus-history")]
+    public void PreemptingMode_CoversEveryAuthoredCorpusGate(string gate)
     {
         (string Flag, bool Selected)[] order = DispatchOrder(selected: "--history-card");
 

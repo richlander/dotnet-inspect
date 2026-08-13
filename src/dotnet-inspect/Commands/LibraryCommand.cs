@@ -1007,8 +1007,8 @@ public class LibraryCommand
 
     private static (string Meaning, string Evidence) ExplainILCoordinate(ILOffsetProjection result)
     {
-        if (result.ReturnAddressContext is { } returnAddress)
-            return ("return address", $"call at {returnAddress.CallOffset} to {returnAddress.Callee}");
+        // A batch row has one primary meaning: exact operation identity wins over derived
+        // correspondence, while semantic facts can still provide the most useful evidence text.
         if (result.AllocationContext is { Count: > 0 } allocations)
         {
             var allocation = allocations[0];
@@ -1019,13 +1019,20 @@ public class LibraryCommand
             var safety = safetyFacts[0];
             return ("safety", $"{safety.SafetyKind} {safety.Operation}".Trim());
         }
+        if (result.CallsiteContext is { } callsite)
+        {
+            var evidence = result.CostContext is { Count: > 0 } callCosts
+                ? $"{callCosts[0].CostKind} {callCosts[0].Operation}".Trim()
+                : $"{callsite.Opcode} {callsite.Callee}";
+            return ("callsite", evidence);
+        }
         if (result.CostContext is { Count: > 0 } costFacts)
         {
             var cost = costFacts[0];
             return ("cost", $"{cost.CostKind} {cost.Operation}".Trim());
         }
-        if (result.CallsiteContext is { } callsite)
-            return ("callsite", $"{callsite.Opcode} {callsite.Callee}");
+        if (result.ReturnAddressContext is { } returnAddress)
+            return ("return address", $"call at {returnAddress.CallOffset} to {returnAddress.Callee}");
         if (result.ExceptionContext is { Count: > 0 } exceptions)
             return ("exception", string.Join(", ", exceptions.Select(e => $"{e.Context} {e.Clause}".Trim())));
         if (result.InstructionContext is { } instruction)
