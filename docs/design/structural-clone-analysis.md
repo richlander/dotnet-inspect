@@ -41,7 +41,8 @@ It preserves as exact discriminators:
 
 - normalized operation order, constants, and metadata operands;
 - argument positions;
-- local types and `InitLocals`;
+- local types, including complete recursive metadata resolution scope, and
+  `InitLocals`;
 - branch roles, switch target order, and duplicate switch targets;
 - method calling convention, instance/static shape, generic arity, argument
   count, and void/value return shape;
@@ -54,8 +55,10 @@ Declared `MaxStack` is also outside the body relationship.
 
 Exception-handling bodies, region-leaving or external control flow, unsupported
 local type shapes, and methods without IL are unsupported. Malformed or
-incomplete bodies fail visibly. Instruction, block, local, and witness-search
-limits produce `LimitReached`, not `Different`.
+incomplete bodies fail visibly, including invalid local/argument slots, invalid
+metadata, user-string, or signature operands, and terminal fallthrough.
+Instruction, block, local, and witness-search limits produce `LimitReached`,
+not `Different`.
 
 `StructuralCloneAnalysisTests` gates this policy with compiler-produced and
 synthetic close-positive/close-negative cases.
@@ -88,10 +91,10 @@ normalization, CFG correspondence, or verification logic.
 `StructuralCloneCorpusTests` gates ledger validity, fixture inventory coverage,
 and all committed outcomes.
 
-The initial corpus includes an authored exact pair, a control-flow close
-negative, exact parameter-type and return-type semantic hazards, and the EH
-unsupported boundary. Candidate discovery, fuzzy ranking, precision/recall
-measurement, and CoreLib scale runs are later slices.
+The initial corpus includes authored arithmetic and metadata-operand exact
+pairs, a control-flow close negative, exact parameter-type and return-type
+semantic hazards, and the EH unsupported boundary. Candidate discovery, fuzzy
+ranking, precision/recall measurement, and CoreLib scale runs are later slices.
 
 Clone detection is intentionally neutral about why two bodies are similar.
 Deduplication, refactoring, provenance investigation, copied-code detection,

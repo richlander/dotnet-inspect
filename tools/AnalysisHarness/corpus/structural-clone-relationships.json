@@ -83,6 +83,27 @@
       ]
     },
     {
+      "id": "banal.metadata-operands.exact",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Exact",
+      "difficulty": "banal",
+      "intent": "authored-duplicate",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "metadata-token",
+        "user-string-token"
+      ]
+    },
+    {
       "id": "banal.exception-handling.unsupported",
       "left": {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",

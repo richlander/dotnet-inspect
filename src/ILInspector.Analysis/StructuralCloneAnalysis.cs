@@ -51,6 +51,9 @@ public enum StructuralCloneBlockerKind
     ExternalControlFlow,
     IncompleteBody,
     InvalidLocalSlot,
+    InvalidArgumentSlot,
+    InvalidMetadataOperand,
+    TerminalFallThrough,
     InstructionLimit,
     BlockLimit,
     LocalLimit,
@@ -229,6 +232,9 @@ public sealed record StructuralCloneComparison
 /// </remarks>
 public static class StructuralCloneAnalysis
 {
+    const byte HasThisSignatureFlag = 0x20;
+    const byte ExplicitThisSignatureFlag = 0x40;
+
     /// <summary>Compares two method definitions from one retained managed PE image.</summary>
     public static StructuralCloneComparison Compare(
         PEReader image,
@@ -376,6 +382,16 @@ public static class StructuralCloneAnalysis
                     instructions.Blocks.IncompleteReason
                         ?? "Instruction decode did not complete."));
         }
+        if (instructions.Instructions.IsEmpty
+            || instructions.Instructions[^1].FallsThrough)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Failed,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.TerminalFallThrough,
+                    side,
+                    "The method body is empty or its final instruction falls through past the body."));
+        }
         if (!instructions.Blocks.Regions.IsEmpty)
         {
             return BodyProduction.NotCompleted(
@@ -406,13 +422,16 @@ public static class StructuralCloneAnalysis
         try
         {
             StructuralCloneGraph graph =
-                BuildGraph(instructions, locals, side);
+                BuildGraph(instructions, locals, signature, side);
             return BodyProduction.Completed(
                 new StructuralCloneBodyFacts(
                     method,
                     instructions.Instructions.Length,
                     initLocals,
-                    locals,
+                    [
+                        .. locals.Select(
+                            StructuralCloneTypeIdentity.Create),
+                    ],
                     signature,
                     graph));
         }
@@ -422,6 +441,15 @@ public static class StructuralCloneAnalysis
                 StructuralCloneDisposition.Failed,
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.InvalidLocalSlot,
+                    side,
+                    ex.Message));
+        }
+        catch (InvalidArgumentSlotException ex)
+        {
+            return BodyProduction.NotCompleted(
+                StructuralCloneDisposition.Failed,
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.InvalidArgumentSlot,
                     side,
                     ex.Message));
         }
@@ -525,6 +553,16 @@ public static class StructuralCloneAnalysis
             }
 
             MethodInstructions instructions = MethodInstructions.Decode(body);
+            if (InvalidMetadataOperand(
+                    reader,
+                    instructions,
+                    side)
+                is { } invalidOperand)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Failed,
+                    invalidOperand);
+            }
             return Produce(
                 method,
                 instructions,
@@ -552,6 +590,7 @@ public static class StructuralCloneAnalysis
     static StructuralCloneGraph BuildGraph(
         MethodInstructions body,
         ImmutableArray<TypeRef> locals,
+        StructuralCloneMethodSignature signature,
         StructuralCloneSide side)
     {
         ImmutableArray<DecodedInstruction> instructions = body.Instructions;
@@ -582,6 +621,21 @@ public static class StructuralCloneAnalysis
                 throw new InvalidLocalSlotException(
                     $"The {side.ToString().ToLowerInvariant()} body references local "
                     + $"{operation.Value}, but its local signature has {locals.Length} entries.");
+            }
+            if (operation.OperandKind == StructuralCloneOperandKind.Argument)
+            {
+                int argumentSlots =
+                    signature.ParameterCount
+                    + ((signature.Header & HasThisSignatureFlag) != 0
+                            && (signature.Header & ExplicitThisSignatureFlag) == 0
+                        ? 1
+                        : 0);
+                if ((uint)operation.Value >= (uint)argumentSlots)
+                {
+                    throw new InvalidArgumentSlotException(
+                        $"The {side.ToString().ToLowerInvariant()} body references argument "
+                        + $"{operation.Value}, but its signature has {argumentSlots} argument slots.");
+                }
             }
             blockOperations[block].Add(operation);
             terminators[block] = instruction;
@@ -668,6 +722,155 @@ public static class StructuralCloneAnalysis
             }),
         ]);
     }
+
+    static StructuralCloneBlocker? InvalidMetadataOperand(
+        MetadataReader reader,
+        MethodInstructions body,
+        StructuralCloneSide side)
+    {
+        foreach (DecodedInstruction instruction in body.Instructions)
+        {
+            if (instruction.Operand is not (
+                OperandKind.InlineString
+                or OperandKind.InlineMethod
+                or OperandKind.InlineField
+                or OperandKind.InlineType
+                or OperandKind.InlineSig
+                or OperandKind.InlineTok))
+            {
+                continue;
+            }
+
+            bool valid;
+            try
+            {
+                valid = instruction.Operand == OperandKind.InlineString
+                    ? ValidUserString(reader, instruction.OperandValue)
+                    : ValidEntityOperand(
+                        reader,
+                        instruction.Operand,
+                        instruction.OperandValue);
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                return InvalidOperandBlocker(
+                    side,
+                    instruction,
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+
+            if (!valid)
+            {
+                return InvalidOperandBlocker(
+                    side,
+                    instruction,
+                    "the token kind or row is invalid for the opcode");
+            }
+        }
+
+        return null;
+    }
+
+    static bool ValidUserString(
+        MetadataReader reader,
+        long operandValue)
+    {
+        if (operandValue is <= 0 or > int.MaxValue)
+            return false;
+        int token = (int)operandValue;
+        if ((token & unchecked((int)0xFF000000)) != 0x70000000)
+            return false;
+        int offset = token & 0x00FFFFFF;
+        if (offset <= 0
+            || offset >= reader.GetHeapSize(HeapIndex.UserString))
+        {
+            return false;
+        }
+
+        reader.GetUserString(MetadataTokens.UserStringHandle(offset));
+        return true;
+    }
+
+    static bool ValidEntityOperand(
+        MetadataReader reader,
+        OperandKind operand,
+        long operandValue)
+    {
+        if (operandValue is <= 0 or > int.MaxValue)
+            return false;
+        EntityHandle handle = MetadataTokens.EntityHandle((int)operandValue);
+        if (!ValidEntityRow(reader, handle))
+            return false;
+
+        return operand switch
+        {
+            OperandKind.InlineMethod =>
+                handle.Kind is HandleKind.MethodDefinition
+                    or HandleKind.MethodSpecification
+                || handle.Kind == HandleKind.MemberReference
+                    && reader.GetMemberReference(
+                        (MemberReferenceHandle)handle).GetKind()
+                        == MemberReferenceKind.Method,
+            OperandKind.InlineField =>
+                handle.Kind == HandleKind.FieldDefinition
+                || handle.Kind == HandleKind.MemberReference
+                    && reader.GetMemberReference(
+                        (MemberReferenceHandle)handle).GetKind()
+                        == MemberReferenceKind.Field,
+            OperandKind.InlineType =>
+                handle.Kind is HandleKind.TypeDefinition
+                    or HandleKind.TypeReference
+                    or HandleKind.TypeSpecification,
+            OperandKind.InlineSig =>
+                handle.Kind == HandleKind.StandaloneSignature,
+            OperandKind.InlineTok =>
+                handle.Kind is HandleKind.TypeDefinition
+                    or HandleKind.TypeReference
+                    or HandleKind.TypeSpecification
+                    or HandleKind.FieldDefinition
+                    or HandleKind.MethodDefinition
+                    or HandleKind.MemberReference
+                    or HandleKind.MethodSpecification,
+            _ => false,
+        };
+    }
+
+    static bool ValidEntityRow(
+        MetadataReader reader,
+        EntityHandle handle)
+    {
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (row <= 0)
+            return false;
+        TableIndex? table = handle.Kind switch
+        {
+            HandleKind.TypeReference => TableIndex.TypeRef,
+            HandleKind.TypeDefinition => TableIndex.TypeDef,
+            HandleKind.FieldDefinition => TableIndex.Field,
+            HandleKind.MethodDefinition => TableIndex.MethodDef,
+            HandleKind.MemberReference => TableIndex.MemberRef,
+            HandleKind.StandaloneSignature => TableIndex.StandAloneSig,
+            HandleKind.TypeSpecification => TableIndex.TypeSpec,
+            HandleKind.MethodSpecification => TableIndex.MethodSpec,
+            _ => null,
+        };
+        return table is { } value
+            && row <= reader.GetTableRowCount(value);
+    }
+
+    static StructuralCloneBlocker InvalidOperandBlocker(
+        StructuralCloneSide side,
+        DecodedInstruction instruction,
+        string reason)
+        => new(
+            StructuralCloneBlockerKind.InvalidMetadataOperand,
+            side,
+            $"Instruction IL_{instruction.Offset:X4} ({instruction.OpCode}) has invalid "
+            + $"operand 0x{instruction.OperandValue:X8}: {reason}.");
 
     static StructuralCloneOperation NormalizeOperation(
         DecodedInstruction instruction)
@@ -1486,7 +1689,7 @@ internal sealed record StructuralCloneBodyFacts(
     MetadataMethodAddress Method,
     int InstructionCount,
     bool InitLocals,
-    ImmutableArray<TypeRef> Locals,
+    ImmutableArray<StructuralCloneTypeIdentity> Locals,
     StructuralCloneMethodSignature Signature,
     StructuralCloneGraph Graph);
 
@@ -1566,7 +1769,7 @@ internal sealed class LocalRefinementKey : IEquatable<LocalRefinementKey>
 {
     public LocalRefinementKey(
         int previousColor,
-        TypeRef type,
+        StructuralCloneTypeIdentity type,
         ImmutableArray<LocalUseRefinementKey> uses)
     {
         PreviousColor = previousColor;
@@ -1575,7 +1778,7 @@ internal sealed class LocalRefinementKey : IEquatable<LocalRefinementKey>
     }
 
     public int PreviousColor { get; }
-    public TypeRef Type { get; }
+    public StructuralCloneTypeIdentity Type { get; }
     public ImmutableArray<LocalUseRefinementKey> Uses { get; }
 
     public bool Equals(LocalRefinementKey? other)
@@ -1625,3 +1828,103 @@ internal readonly record struct WitnessResult(
 
 sealed class InvalidLocalSlotException(string message)
     : InvalidOperationException(message);
+
+sealed class InvalidArgumentSlotException(string message)
+    : InvalidOperationException(message);
+
+internal sealed class StructuralCloneTypeIdentity
+    : IEquatable<StructuralCloneTypeIdentity>
+{
+    StructuralCloneTypeIdentity(
+        TypeRefKind kind,
+        string assembly,
+        string @namespace,
+        string name,
+        ResolvableTypeReference? resolution,
+        StructuralCloneTypeIdentity? elementType,
+        ImmutableArray<StructuralCloneTypeIdentity> typeArguments,
+        int rank,
+        int genericParameterIndex)
+    {
+        Kind = kind;
+        Assembly = assembly;
+        Namespace = @namespace;
+        Name = name;
+        Resolution = resolution;
+        ElementType = elementType;
+        TypeArguments = typeArguments;
+        Rank = rank;
+        GenericParameterIndex = genericParameterIndex;
+    }
+
+    public TypeRefKind Kind { get; }
+    public string Assembly { get; }
+    public string Namespace { get; }
+    public string Name { get; }
+    public ResolvableTypeReference? Resolution { get; }
+    public StructuralCloneTypeIdentity? ElementType { get; }
+    public ImmutableArray<StructuralCloneTypeIdentity> TypeArguments { get; }
+    public int Rank { get; }
+    public int GenericParameterIndex { get; }
+
+    public static StructuralCloneTypeIdentity Create(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return new StructuralCloneTypeIdentity(
+            type.Kind,
+            type.Assembly,
+            type.Namespace,
+            type.Name,
+            type.Resolution,
+            type.ElementType is { } element ? Create(element) : null,
+            [.. type.TypeArguments.Select(Create)],
+            type.Rank,
+            type.GenericParameterIndex);
+    }
+
+    public bool Equals(StructuralCloneTypeIdentity? other)
+    {
+        if (other is null)
+            return false;
+        if (ReferenceEquals(this, other))
+            return true;
+        if (Kind != other.Kind
+            || Assembly != other.Assembly
+            || Namespace != other.Namespace
+            || Name != other.Name
+            || !Equals(Resolution, other.Resolution)
+            || !Equals(ElementType, other.ElementType)
+            || Rank != other.Rank
+            || GenericParameterIndex != other.GenericParameterIndex
+            || TypeArguments.Length != other.TypeArguments.Length)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < TypeArguments.Length; index++)
+        {
+            if (!TypeArguments[index].Equals(other.TypeArguments[index]))
+                return false;
+        }
+        return true;
+    }
+
+    public override bool Equals(object? obj)
+        => obj is StructuralCloneTypeIdentity other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Kind);
+        hash.Add(Assembly);
+        hash.Add(Namespace);
+        hash.Add(Name);
+        hash.Add(Resolution);
+        hash.Add(ElementType);
+        hash.Add(Rank);
+        hash.Add(GenericParameterIndex);
+        foreach (StructuralCloneTypeIdentity argument in TypeArguments)
+            hash.Add(argument);
+        return hash.ToHashCode();
+    }
+}

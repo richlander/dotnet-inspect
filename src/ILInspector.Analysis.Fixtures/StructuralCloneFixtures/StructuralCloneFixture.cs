@@ -36,6 +36,12 @@ public static class StructuralCloneFixture
 
     public static object? SignatureHazardObject() => null;
 
+    public static string MetadataOperandsA(object value)
+        => string.Concat("clone", value);
+
+    public static string MetadataOperandsB(object item)
+        => string.Concat("clone", item);
+
     public static int ExceptionHandlingA(int value)
     {
         try

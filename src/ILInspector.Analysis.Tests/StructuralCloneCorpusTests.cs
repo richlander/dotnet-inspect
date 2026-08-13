@@ -19,7 +19,7 @@ public class StructuralCloneCorpusTests
         Assert.True(
             report.Success,
             StructuralCloneCorpus.Format(report));
-        Assert.Equal(5, report.Total);
+        Assert.Equal(6, report.Total);
     }
 
     [Fact]
