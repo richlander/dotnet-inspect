@@ -1046,7 +1046,15 @@ section exposes model locations, classifications, matched prefixes, similarity,
 and code points without echoing identifier content.
 `IdentifierConfusionDetectorTests` gates the detector boundary,
 `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
-gates the library producer demand, and
+gates the direct library producer demand,
+`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+gates survey-mode demand,
+`LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
+gates full-effective discovery,
+`LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
+gates direct/closure identity deduplication,
+`LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
+gates visible traversal failure, and
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates content-free Markdown and structured output.
 

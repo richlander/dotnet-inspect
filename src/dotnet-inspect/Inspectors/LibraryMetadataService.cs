@@ -360,13 +360,14 @@ internal static class LibraryMetadataService
                     inspection.AssemblyInfo.AssemblyName
                     ?? Path.GetFileNameWithoutExtension(path));
 
-                inspection.IdentifierConfusionTransitiveReferences =
+                inspection.IdentifierConfusionReferenceClosure =
                     BuildTransitiveReferences(
                         auditReferences,
                         sourceDir,
                         visited,
                         logger,
-                        deduplicate: true);
+                        deduplicate: true,
+                        failOnReadError: true);
             }
 
             inspection.FileSize = pdbContext.FileSize;
@@ -437,6 +438,10 @@ internal static class LibraryMetadataService
             throw;
         }
         catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (IdentifierConfusionReferenceTraversalException)
         {
             throw;
         }
@@ -696,7 +701,8 @@ internal static class LibraryMetadataService
         int depth = 0,
         bool deduplicate = false,
         Dictionary<string, int>? globalSeen = null,
-        int? maxDepth = null)
+        int? maxDepth = null,
+        bool failOnReadError = false)
     {
         var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
             OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
@@ -713,7 +719,8 @@ internal static class LibraryMetadataService
             depth,
             deduplicate,
             globalSeen,
-            maxDepth);
+            maxDepth,
+            failOnReadError);
     }
 
     private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
@@ -754,7 +761,8 @@ internal static class LibraryMetadataService
         int depth,
         bool deduplicate,
         Dictionary<string, int>? globalSeen,
-        int? maxDepth)
+        int? maxDepth,
+        bool failOnReadError)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -847,15 +855,33 @@ internal static class LibraryMetadataService
                             depth + 1,
                             deduplicate,
                             globalSeen,
-                            maxDepth);
+                            maxDepth,
+                            failOnReadError);
                         nodes.AddRange(childNodes);
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (IdentifierConfusionReferenceTraversalException)
+                {
+                    throw;
+                }
                 catch (Exception ex) when (
-                    ex is IOException
+                    failOnReadError
+                    || ex is IOException
                         or UnauthorizedAccessException
                         or BadImageFormatException)
                 {
+                    if (failOnReadError)
+                    {
+                        throw new IdentifierConfusionReferenceTraversalException(
+                            $"Failed to inspect resolved assembly reference "
+                            + $"'{reference.Name}' at '{resolved.Path}': {ex.Message}",
+                            ex);
+                    }
+
                     logger.LogWarning(
                         "A resolved assembly reference could not be read; its children were omitted.");
                 }
@@ -863,6 +889,17 @@ internal static class LibraryMetadataService
         }
 
         return nodes;
+    }
+
+    private sealed class IdentifierConfusionReferenceTraversalException
+        : InvalidOperationException
+    {
+        public IdentifierConfusionReferenceTraversalException(
+            string message,
+            Exception innerException)
+            : base(message, innerException)
+        {
+        }
     }
 
     /// <summary>

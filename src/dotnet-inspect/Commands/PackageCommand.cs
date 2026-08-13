@@ -3291,6 +3291,16 @@ public class PackageCommand
         if (requiredVerbosity > libraryOptions.Verbosity)
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
+        var candidates = pipeline.GetCandidateSections(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            libraryOptions.FixedOverview);
+        libraryOptions = libraryOptions with
+        {
+            CollectIdentifierConfusionReferenceTree =
+                candidates.Contains(SectionNames.IdentifierConfusion),
+        };
+
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)

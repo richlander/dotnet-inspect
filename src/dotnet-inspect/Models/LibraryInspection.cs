@@ -287,7 +287,7 @@ public class LibraryInspection
     public AssemblyInfo? AssemblyInfo { get; set; }
 
     [JsonIgnore]
-    internal List<AssemblyReferenceNode>? IdentifierConfusionTransitiveReferences
+    internal List<AssemblyReferenceNode>? IdentifierConfusionReferenceClosure
     {
         get;
         set;

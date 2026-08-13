@@ -483,10 +483,14 @@ public class LibraryCommand
         {
             inspectionOptions = inspectionOptions with
             {
-                // Assembly references are a cheap metadata fact. Discovery never needs the
-                // transitive projection because References effectiveness is established directly.
+                // References effectiveness is established from direct metadata. The explicit
+                // identifier audit is different: full-effective discovery must run the same
+                // closure that decides whether that section has rows.
                 CollectReferenceTree = false,
-                CollectIdentifierConfusionReferenceTree = false,
+                CollectIdentifierConfusionReferenceTree =
+                    fullEffectiveDiscovery
+                    && discoveryExecutionScope?.Contains(
+                        SectionNames.IdentifierConfusion) == true,
             };
         }
         else

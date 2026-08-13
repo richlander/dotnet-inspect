@@ -76,7 +76,7 @@ public class IdentifierConfusionAuditTests
                     new AssemblyReference("Contoso.Δelta", "1.0.0.0", null, null),
                 ],
             },
-            IdentifierConfusionTransitiveReferences =
+            IdentifierConfusionReferenceClosure =
             [
                 new AssemblyReferenceNode { Name = "Micrοsoft.Transitive", Depth = 1 },
             ],
@@ -99,7 +99,7 @@ public class IdentifierConfusionAuditTests
                 null),
             value => AssertCase(
                 value,
-                "AssemblyInfo.TransitiveReferences[0].Name",
+                "IdentifierConfusionReferenceClosure[0].Name",
                 IdentifierConcern.NonAscii | IdentifierConcern.ReservedPrefixHomoglyph,
                 "Microsoft"));
     }
@@ -168,11 +168,11 @@ public class IdentifierConfusionAuditTests
                 [
                     new AssemblyReference("System.Runtime", "1.0.0.0", null, null),
                 ],
-                TransitiveReferences =
-                [
-                    new AssemblyReferenceNode { Name = "Micrοsoft.Transitive" },
-                ],
             },
+            IdentifierConfusionReferenceClosure =
+            [
+                new AssemblyReferenceNode { Name = "Micrοsoft.Transitive", Depth = 1 },
+            ],
         };
 
         AuditSignalBuilder.RefreshLibraryAuditSignals(model);

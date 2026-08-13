@@ -229,6 +229,39 @@ public partial class CommandExecutionTests
         return (rootPath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateIdentifierConfusionReferencePackage()
+    {
+        const string directName = "\u0405ystem.Direct";
+        const string transitiveName = "Micr\u03BFsoft.Transitive";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{directName}.dll"),
+            directName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{transitiveName}.dll"),
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, "Bridge.dll"),
+            "Bridge",
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, "Root.dll"),
+            "Root",
+            directName,
+            "Bridge");
+
+        var packagePath = Path.Combine(tempDir, "Identifier.Reference.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static void WriteMalformedTypeNameAssembly(string path)
     {
         var metadata = new MetadataBuilder();
@@ -11541,10 +11574,147 @@ public partial class CommandExecutionTests
                 $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
             Assert.Contains("AssemblyInfo.References[", output);
-            Assert.Contains("AssemblyInfo.TransitiveReferences[", output);
+            Assert.Contains("IdentifierConfusionReferenceClosure[", output);
             Assert.Contains("U+0405→S", output);
             Assert.Contains("U+03BF→O", output);
             Assert.Equal(2, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences()
+    {
+        var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Using TFM: net8.0", error);
+            Assert.Contains("IdentifierConfusionReferenceClosure[", output);
+            Assert.Contains("U+03BF→O", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern()
+    {
+        const string transitiveName = "Micr\u03BFsoft.DiscoveryOnly";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{transitiveName}.dll"),
+                transitiveName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                transitiveName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(rootPath, "Root", "Bridge");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.IdentifierConfusion,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Location | column |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure()
+    {
+        const string concerningName = "\u0405ystem.Duplicate";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-duplicate-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{concerningName}.dll"),
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                concerningName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge",
+                concerningName);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("AssemblyInfo.References[", output);
+            Assert.DoesNotContain("IdentifierConfusionReferenceClosure[", output);
+            Assert.Equal(1, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Bridge.dll"), "not a managed assembly");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Failed to inspect resolved assembly reference 'Bridge'",
+                error);
         }
         finally
         {

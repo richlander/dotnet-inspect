@@ -110,6 +110,9 @@ dotnet-inspect package X -S "Signals,Audit: Identifier Confusion"
 The detail table reports `Location`, `Kind`, `Concern`, `Reserved Prefix`,
 `Similarity`, and `Characters`. `Characters` contains code-point evidence such
 as `U+0405→S`; neither the Signal nor the audit rows repeat the identifier.
+Transitive rows use the audit-scoped
+`IdentifierConfusionReferenceClosure[index].Name` location rather than naming
+the separately selected public reference-tree projection.
 The filter is scoped to identifiers, so it does not reject ordinary non-English
 prose. An ASCII backslash is not non-ASCII and does not trigger this audit or
 artifact-text containment.
@@ -121,7 +124,15 @@ gates the content-free Markdown and JSONL shapes, and
 `PackageAudit_InspectsPackageAndDependencyIdentifierLocations` plus
 `LibraryAudit_InspectsAssemblyAndReferenceNames` gate the typed identifier
 scopes. `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
-gates the explicit library producer demand.
+gates the explicit library producer demand;
+`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+gates the survey-mode producer demand;
+`LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
+gates full-effective discovery;
+`LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
+gates direct/closure identity deduplication; and
+`LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
+gates visible traversal failure.
 
 ## Build Audit Fields
 

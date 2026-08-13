@@ -108,17 +108,23 @@ internal static class IdentifierConfusionAudit
             }
         }
 
+        HashSet<string>? directReferenceNames = includeTransitiveReferences
+            && assembly.References is { } directReferences
+                ? new HashSet<string>(
+                    directReferences.Select(reference => reference.Name),
+                    StringComparer.OrdinalIgnoreCase)
+                : null;
         if (includeTransitiveReferences
-            && model.IdentifierConfusionTransitiveReferences is { } transitiveReferences)
+            && model.IdentifierConfusionReferenceClosure is { } transitiveReferences)
         {
             for (int index = 0; index < transitiveReferences.Count; index++)
             {
-                if (transitiveReferences[index].Depth == 0)
+                if (directReferenceNames?.Contains(transitiveReferences[index].Name) == true)
                     continue;
 
                 Add(
                     cases,
-                    $"{nameof(model.AssemblyInfo)}.{nameof(assembly.TransitiveReferences)}[{index}]."
+                    $"{nameof(model.IdentifierConfusionReferenceClosure)}[{index}]."
                         + nameof(AssemblyReferenceNode.Name),
                     "Assembly name",
                     transitiveReferences[index].Name);
