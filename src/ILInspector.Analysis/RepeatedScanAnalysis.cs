@@ -219,6 +219,13 @@ internal static class RepeatedScanAnalysis
         foreach (var (token, operation) in lazyReturning)
             scanningMethods.TryAdd(token, operation);
 
+        var methodMap = MethodDefinitionMap.Create(methods);
+        var recursiveTraversalTokens = directCalls
+            .Where(static call => call.Kind == CallKind.Call && call.InLoop)
+            .Where(call => methodMap.Resolve(call) == call.Caller.MetadataToken)
+            .Select(static call => call.Caller.MetadataToken)
+            .ToHashSet();
+
         var inMethodScanLoopTokens = new HashSet<int>();
         foreach (var opportunity in rawOpportunities)
         {
@@ -258,6 +265,32 @@ internal static class RepeatedScanAnalysis
                 true,
                 null,
                 "Quadratic only if the scanned sequence grows with the caller's loop; confirm the sequence is the loop-variant collection and not small/constant.",
+                reachByToken.GetValueOrDefault(calleeToken)));
+        }
+
+        foreach (var call in directCalls)
+        {
+            int calleeToken = call.CalleeDefinitionToken;
+            if (!recursiveTraversalTokens.Contains(call.Caller.MetadataToken)
+                || !scanningMethods.TryGetValue(calleeToken, out var operation)
+                || !methodByToken.TryGetValue(calleeToken, out var method)
+                || suppressedMethodTokens.Contains(calleeToken)
+                || inMethodScanLoopTokens.Contains(calleeToken)
+                || call.Caller.MetadataToken == calleeToken
+                || !emitted.Add(calleeToken))
+            {
+                continue;
+            }
+
+            opportunities.Add(new OptimizationOpportunity(
+                method,
+                "scan-method-in-recursive-traversal",
+                $"Linearly scans a sequence (Enumerable.{operation}); invoked once per recursive traversal node by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
+                "Build an index for the traversal before recursion, then look up each node's related items instead of scanning the full sequence at every node.",
+                "low",
+                true,
+                null,
+                "Superlinear only if each recursive step scans a shared sequence that grows with the traversal; confirm collection identity and size.",
                 reachByToken.GetValueOrDefault(calleeToken)));
         }
 

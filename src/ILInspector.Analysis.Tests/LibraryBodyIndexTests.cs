@@ -2882,6 +2882,24 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsScanMethodInvokedPerRecursiveTraversalNode()
+    {
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == "GetTraversalChildren"
+            && o.Shape == "scan-method-in-recursive-traversal"));
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains("TraverseWithSequenceScan", op.Evidence, StringComparison.Ordinal);
+        Assert.Contains("recursive traversal node", op.Evidence, StringComparison.Ordinal);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == "GetChildrenOutsideTraversal"
+            && o.Shape == "scan-method-in-recursive-traversal");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -3296,6 +3314,23 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_ConcurrentDictionaryInstanceFactory_IsCacheLookupDelegate()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryInstanceFactory)
+            && o.Shape == "cache-lookup-factory-delegate"));
+        Assert.Equal("high", op.Confidence);
+        Assert.Contains("cache hits", op.SafeFixDirection, StringComparison.Ordinal);
+
+        var lookalike = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.UserGetOrAddInstanceFactory)
+            && o.Shape == "instance-method-group-delegate"));
+        Assert.DoesNotContain("ConcurrentDictionary", lookalike.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_UserDisplayClassName_IsInstanceMethodGroupDelegate()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -3649,12 +3684,20 @@ public class LibraryBodyIndexTests
 
     static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
-            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate")
+            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate" or "cache-lookup-factory-delegate")
             .Select(o => o.Shape);
 
     static System.Collections.Generic.List<OptimizationOpportunity> BoxRows(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "box-value-type")
+            .ToList();
+
+    static System.Collections.Generic.List<OptimizationOpportunity> GenericObjectBoxRows(
+        LibraryBodyIndex index,
+        string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName
+                && o.Shape == "generic-parameter-object-box")
             .ToList();
 
     static System.Collections.Generic.List<OptimizationOpportunity> HotspotRows(LibraryBodyIndex index, string methodName)
@@ -4271,6 +4314,45 @@ public class LibraryBodyIndexTests
 
         // `box !!T` is compiler-mandated and JIT-specialized; not a user-actionable allocation.
         Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericParameter)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_GenericObjectEqualsBox_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(GenericObjectBoxRows(
+            index,
+            nameof(OptimizationOpportunityFixtures.GenericObjectEquals)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.Contains("value-type instantiations", row.Caveat);
+        Assert.Null(row.RuntimeAllocationType);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_GenericObjectEqualsInLocalFunction_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name.Contains(
+                nameof(OptimizationOpportunityFixtures.GenericObjectEqualsLocalFunction),
+                StringComparison.Ordinal)
+            && o.Shape == "generic-parameter-object-box"));
+        Assert.Contains("value-type instantiations", row.Caveat);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReferenceGenericObjectEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.GenericTypedEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StaticObjectEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.PassesGenericToObjectConsumer))]
+    public void OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported(
+        string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(GenericObjectBoxRows(index, methodName));
     }
 
     [Fact]
@@ -5322,6 +5404,14 @@ public class OptimizationOpportunityFixtures
     }
 
     private readonly ColdStackGuard _stackGuard = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _concurrentCache = new();
+    private readonly UserGetOrAddCache _userCache = new();
+
+    public int ConcurrentDictionaryInstanceFactory(string key)
+        => _concurrentCache.GetOrAdd(key, InstanceParseLength);
+
+    public int UserGetOrAddInstanceFactory(string key)
+        => _userCache.GetOrAdd(key, InstanceParseLength);
 
     public int StackGuardFallback(int value)
     {
@@ -5432,6 +5522,12 @@ public class OptimizationOpportunityFixtures
         public int GetValue() => 42;
     }
 
+    private sealed class UserGetOrAddCache
+    {
+        public int GetOrAdd(string key, Func<string, int> valueFactory)
+            => valueFactory(key);
+    }
+
     // A user-defined type whose name echoes the closure suffix `c__DisplayClass`
     // but lacks the compiler-generated `<>` marker. A field store here must be a
     // plain Field escape, never a false Capture.
@@ -5505,6 +5601,32 @@ public class OptimizationOpportunityFixtures
     {
         return value;
     }
+
+    public static bool GenericObjectEquals<T>(T left, T right)
+        => left!.Equals(right);
+
+    public static bool GenericObjectEqualsLocalFunction<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static bool ReferenceGenericObjectEquals<T>(T left, T right)
+        where T : class
+        => left.Equals(right);
+
+    public static bool GenericTypedEquals<T>(T left, T right)
+        where T : System.IEquatable<T>
+        => left.Equals(right);
+
+    public static bool StaticObjectEquals<T>(T left, T right)
+        => object.Equals(left, right);
+
+    public static void PassesGenericToObjectConsumer<T>(
+        T value,
+        System.Collections.ArrayList sink)
+        => sink.Add(value);
 
     // Boxing a Nullable<T> allocates only when non-null -> conservatively NOT reported.
     public static object? BoxesNullable(int? value)

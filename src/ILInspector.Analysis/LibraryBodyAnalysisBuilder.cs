@@ -601,13 +601,42 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             var methodAttributes = methodDef.GetCustomAttributes();
             if (includeOpportunities)
             {
+                bool sourceGenerated =
+                    HasGeneratedCodeAttribute(methodAttributes);
+                bool compilerGenerated =
+                    HasCompilerGeneratedAttribute(methodAttributes);
                 if (!typeSourceGenerated
-                    && !HasGeneratedCodeAttribute(methodAttributes)
-                    && !HasCompilerGeneratedAttribute(methodAttributes)
+                    && !sourceGenerated
+                    && !compilerGenerated
                     && !IsBlazorRenderMethod(caller))
+                {
                     result.Opportunities = CollectOptimizationOpportunities(allocations.DiscoveredOccurrences, allocationAnalysis, il, context, scope);
+                }
                 else
+                {
+                    // User-authored local functions carry CompilerGeneratedAttribute.
+                    // Preserve the narrow generic object-equality box shape because the
+                    // source-level fix belongs at the generic API boundary; retain the
+                    // blanket suppression for every other generated-code opportunity.
+                    if (!typeSourceGenerated
+                        && !sourceGenerated
+                        && compilerGenerated)
+                    {
+                        result.Opportunities =
+                        [
+                            .. CollectOptimizationOpportunities(
+                                allocations.DiscoveredOccurrences,
+                                allocationAnalysis,
+                                il,
+                                context,
+                                scope)
+                            .Where(static opportunity =>
+                                opportunity.Shape
+                                    == "generic-parameter-object-box"),
+                        ];
+                    }
                     result.Suppressed = true;
+                }
             }
             var signals = BodySignalAnalysis.Collect(
                 context,
@@ -1383,6 +1412,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         int? pendingBoxOffset = null;
         TypeRef? pendingBoxType = null;
         bool pendingBoxInLoop = false;
+        int? pendingGenericObjectBoxOffset = null;
+        TypeRef? pendingGenericObjectBoxType = null;
+        bool pendingGenericObjectBoxConstrained = false;
         // Index (into opportunities) of a just-emitted delegate row awaiting its consumer:
         // if the delegate flows straight into a lazy LINQ operator, the obvious iterator
         // rewrite only moves the allocation, so we annotate that on the row.
@@ -1548,6 +1580,21 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     ClearPendingConstant();
                     int token = MethodInstructionFacts.OperandInt32(instruction);
                     var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    if (opcode == ILOpCode.Callvirt
+                        && pendingGenericObjectBoxOffset is { } genericBoxOffset
+                        && pendingGenericObjectBoxConstrained
+                        && IsObjectEquals(callee))
+                    {
+                        opportunities.Add(new OptimizationOpportunity(
+                            caller,
+                            "generic-parameter-object-box",
+                            $"generic parameter {pendingGenericObjectBoxType?.ToDisplayString() ?? "T"} boxed for System.Object.Equals(object)",
+                            "Use EqualityComparer<T>.Default.Equals, or constrain T to IEquatable<T> and call typed equality, so value-type instantiations do not box.",
+                            "medium",
+                            context.IsInLoopRegion(genericBoxOffset),
+                            genericBoxOffset,
+                            "The box allocates only for value-type instantiations; static analysis does not establish which constructed generic types execute at runtime."));
+                    }
                     // When the delegate just allocated flows straight into a lazy LINQ
                     // operator (Where/Select/…), a static-local-function rewrite removes the
                     // closure but the LINQ call still allocates a deferred-query iterator per
@@ -1556,10 +1603,24 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     // membership terminals — Any/Count/… — allocate no iterator and are
                     // handled by the linq-scan-in-loop shape, so they are not annotated here.)
                     if (pendingDelegateOpportunityIndex is { } moveIndex
-                        && RepeatedScanAnalysis.IsLinqLazyProducer(callee, out _))
+                        && opportunities[moveIndex].Shape == "instance-method-group-delegate"
+                        && IsConcurrentDictionaryGetOrAdd(callee))
                     {
                         var row = opportunities[moveIndex];
                         opportunities[moveIndex] = row with
+                        {
+                            Shape = "cache-lookup-factory-delegate",
+                            Evidence = "instance method-group delegate constructed for ConcurrentDictionary<TKey, TValue>.GetOrAdd valueFactory",
+                            SafeFixDirection = "Cache the stable-receiver value-factory delegate in a field, or use a static factory with explicit state, so cache hits do not allocate a fresh delegate.",
+                            Confidence = "high",
+                            Caveat = "The delegate escapes to ConcurrentDictionary.GetOrAdd on every invocation; static analysis does not establish the cache-hit rate or call frequency.",
+                        };
+                    }
+                    else if (pendingDelegateOpportunityIndex is { } lazyIndex
+                        && RepeatedScanAnalysis.IsLinqLazyProducer(callee, out _))
+                    {
+                        var row = opportunities[lazyIndex];
+                        opportunities[lazyIndex] = row with
                         {
                             SafeFixDirection = "Consumed by a lazy LINQ operator (Where/Select/…): a static local function removes this closure, but the LINQ call still allocates a deferred-query iterator per call — reduced, not eliminated. Replace the query with an explicit loop (or a precomputed index when used for lookups) to remove both.",
                             Caveat = "A delegate-only rewrite does not remove the allocation; the lazy LINQ call still allocates an iterator.",
@@ -1729,6 +1790,26 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     // not a hot loop) drives the box confidence and the Loop signal.
                     pendingBoxInLoop = pendingBoxOffset is not null
                         && boxAllocation!.Multiplicity == AllocationMultiplicity.Loop;
+                    bool genericObjectBoxCandidate = boxed.Kind is
+                            TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+                        && GenericParameterCanBeValueType(boxed, caller);
+                    pendingGenericObjectBoxOffset = genericObjectBoxCandidate
+                        ? offset
+                        : null;
+                    pendingGenericObjectBoxType = genericObjectBoxCandidate
+                        ? boxed
+                        : null;
+                    pendingGenericObjectBoxConstrained = false;
+                    break;
+                }
+                case ILOpCode.Constrained:
+                {
+                    ClearPendingConstant();
+                    int token = MethodInstructionFacts.OperandInt32(instruction);
+                    pendingGenericObjectBoxConstrained =
+                        pendingGenericObjectBoxType is not null
+                        && ResolveTypeToken(token, callerScope)
+                            .Equals(pendingGenericObjectBoxType);
                     break;
                 }
                 default:
@@ -1768,6 +1849,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 }
                 pendingBoxOffset = null;
                 pendingBoxType = null;
+            }
+
+            if (opcode is not (ILOpCode.Box or ILOpCode.Constrained or ILOpCode.Nop))
+            {
+                pendingGenericObjectBoxOffset = null;
+                pendingGenericObjectBoxType = null;
+                pendingGenericObjectBoxConstrained = false;
             }
 
             // Remember the receiver-bearing instruction. Nops never carry the receiver, so
@@ -1813,7 +1901,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             {
                 string? runtimeAllocation = opportunity.RuntimeAllocationType;
                 allocationByOffset.TryGetValue(opportunityOffset, out var allocation);
-                if (allocation?.RuntimeAllocationType is { Length: > 0 } occurrenceRuntime)
+                if (opportunity.Shape != "generic-parameter-object-box"
+                    && allocation?.RuntimeAllocationType is { Length: > 0 } occurrenceRuntime)
                 {
                     runtimeAllocation = occurrenceRuntime;
                 }
@@ -1952,6 +2041,60 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     static bool IsEscapingBoxConsumer(ILOpCode op)
         => op is ILOpCode.Stelem_ref or ILOpCode.Call or ILOpCode.Callvirt
             or ILOpCode.Newobj or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Ret;
+
+    static bool IsObjectEquals(MemberRef member)
+        => member.Kind != MemberKind.Unsupported
+            && member.Name == "Equals"
+            && member.HasThis
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.DeclaringType,
+                "System",
+                "Object")
+            && member.ParameterTypes is [var parameter]
+            && FrameworkIdentity.IsCoreLibraryType(
+                parameter,
+                "System",
+                "Object")
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.ReturnType,
+                "System",
+                "Boolean");
+
+    bool GenericParameterCanBeValueType(
+        TypeRef genericParameter,
+        MethodIdentity caller)
+    {
+        try
+        {
+            var methodHandle = (MethodDefinitionHandle)
+                MetadataTokens.EntityHandle(caller.MetadataToken);
+            var method = _reader.GetMethodDefinition(methodHandle);
+            GenericParameterHandleCollection handles =
+                genericParameter.Kind == TypeRefKind.MethodGenericParameter
+                    ? method.GetGenericParameters()
+                    : _reader.GetTypeDefinition(method.GetDeclaringType())
+                        .GetGenericParameters();
+            if (genericParameter.GenericParameterIndex < 0
+                || genericParameter.GenericParameterIndex >= handles.Count)
+            {
+                return false;
+            }
+
+            var handle = handles.ElementAt(
+                genericParameter.GenericParameterIndex);
+            var attributes = _reader.GetGenericParameter(handle).Attributes;
+            return (attributes & GenericParameterAttributes.ReferenceTypeConstraint)
+                == 0;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or InvalidCastException)
+        {
+            return false;
+        }
+    }
 
     // True only when a `box` operand is positively identified as a value type that
     // unconditionally allocates. ECMA-335 allows `box` on reference types (no allocation),
@@ -2400,6 +2543,15 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         => member.Kind != MemberKind.Unsupported
             && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "BitConverter")
             && member.Name == "GetBytes";
+
+    static bool IsConcurrentDictionaryGetOrAdd(MemberRef member)
+        => member.Kind != MemberKind.Unsupported
+            && member.Name == "GetOrAdd"
+            && FrameworkIdentity.IsKnownFrameworkType(
+                member.DeclaringType,
+                "System.Collections.Concurrent",
+                "System.Collections.Concurrent",
+                "ConcurrentDictionary`2");
 
     // A `ToArray()` call that copies a span into a freshly allocated array. ReadOnlySpan<T>
     // and Span<T> are single-argument corelib generic value types, so the receiver is a

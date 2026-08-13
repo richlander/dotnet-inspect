@@ -380,6 +380,14 @@ public class OutputFormatterTests
         static int[] Make() => new int[3];
     }
 
+    private static bool HasGeneratedGenericObjectBoxOpportunity<T>(
+        T left,
+        T right)
+    {
+        return EqualsCore(left, right);
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
     [Fact]
     public void RenderOptimizationOpportunities_SuppressesGeneratedMethods()
     {
@@ -410,6 +418,24 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void ScanOptimizationOpportunities_PreservesGeneratedGenericObjectBox()
+    {
+        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
+            () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location),
+            typeof(OutputFormatterTests).Assembly.Location,
+            new VerboseLogger(false));
+
+        var row = Assert.Single(rows!, row =>
+            row.Member.Contains(
+                nameof(HasGeneratedGenericObjectBoxOpportunity),
+                StringComparison.Ordinal)
+            && row.Shape == "generic-parameter-object-box");
+        Assert.Equal("medium", row.Priority);
+        Assert.Equal("medium", row.Confidence);
+        Assert.Null(row.Allocation);
+    }
+
+    [Fact]
     public void ScanOptimizationOpportunities_OrdersByTriagePriority()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
@@ -420,20 +446,21 @@ public class OutputFormatterTests
         // Root Reach is the leverage join: at least one opportunity sits in a reached method.
         Assert.Contains(rows, r => r.RootReach > 0);
 
-        // Triage priority: in-loop (hot) rows first, then by confidence, then by descending
-        // Root Reach. Verify the composite key is monotonically non-increasing.
-        static (int loop, int conf, int reach) Key(OptimizationOpportunitySummary r) =>
-            (r.Loop == "loop" ? 1 : 0,
+        // Verify the exposed default composite key is monotonically non-increasing.
+        static (int priority, int conf, int weight, int reach) Key(OptimizationOpportunitySummary r) =>
+            (r.Priority == "high" ? 2 : r.Priority == "medium" ? 1 : 0,
              r.Confidence == "high" ? 2 : r.Confidence == "medium" ? 1 : 0,
+             r.Weight == "high" ? 2 : r.Weight == "medium" ? 1 : r.Weight == "low" ? 0 : -1,
              r.RootReach);
         for (int i = 1; i < rows.Count; i++)
             Assert.True(Compare(Key(rows[i - 1]), Key(rows[i])) >= 0,
                 $"rows not ordered by triage priority at index {i}");
 
-        static int Compare((int loop, int conf, int reach) a, (int loop, int conf, int reach) b)
+        static int Compare((int priority, int conf, int weight, int reach) a, (int priority, int conf, int weight, int reach) b)
         {
-            if (a.loop != b.loop) return a.loop - b.loop;
+            if (a.priority != b.priority) return a.priority - b.priority;
             if (a.conf != b.conf) return a.conf - b.conf;
+            if (a.weight != b.weight) return a.weight - b.weight;
             return a.reach - b.reach;
         }
     }
@@ -450,9 +477,10 @@ public class OutputFormatterTests
         var opportunities = new[]
         {
             Opp("KnownGoodHighReach", inLoop: false, confidence: "low", rootReach: 999, shape: "small-array"),
-            Opp("KnownGoodHighConfNoLoop", inLoop: false, confidence: "high", rootReach: 5, shape: "allocation-hotspot"),
+            Opp("KnownGoodHighConfNoLoop", inLoop: false, confidence: "high", rootReach: 5, shape: "stackalloc-candidate"),
             Opp("PayDirtLinqScanInLoop", inLoop: true, confidence: "medium", rootReach: 1, shape: "linq-scan-in-loop"),
             Opp("PayDirtLoopHigh", inLoop: true, confidence: "high", rootReach: 1, shape: "allocation-hotspot"),
+            Opp("GenericLoopHigh", inLoop: true, confidence: "high", rootReach: 100, shape: "capturing-delegate"),
             Opp("KnownGoodReachLow", inLoop: false, confidence: "low", rootReach: 7, shape: "small-array"),
         };
 
@@ -463,20 +491,72 @@ public class OutputFormatterTests
         int payDirtHigh = ordered.IndexOf("PayDirtLoopHigh");
         int payDirtScan = ordered.IndexOf("PayDirtLinqScanInLoop");
         int knownHighConf = ordered.IndexOf("KnownGoodHighConfNoLoop");
+        int genericLoopHigh = ordered.IndexOf("GenericLoopHigh");
         int knownHighReach = ordered.IndexOf("KnownGoodHighReach");
         int knownReachLow = ordered.IndexOf("KnownGoodReachLow");
 
-        // In-loop pay-dirt (even at reach 1, incl. the #1725 linq-scan-in-loop shape)
-        // outranks every not-in-loop row, even one with reach 999 or high confidence.
+        // Algorithmic pay-dirt outranks a generic repeated allocation even when its
+        // confidence and reach are lower.
         Assert.True(payDirtHigh < knownHighConf, "in-loop high must precede not-loop high");
         Assert.True(payDirtScan < knownHighConf, "in-loop medium must precede not-loop high");
         Assert.True(payDirtScan < knownHighReach, "in-loop must precede higher-reach not-loop");
-        // Within the in-loop tier, higher confidence first.
+        Assert.True(payDirtScan < genericLoopHigh, "algorithmic amplification must precede generic loop allocation");
+        // Within the high-priority tier, higher confidence first.
         Assert.True(payDirtHigh < payDirtScan, "in-loop high must precede in-loop medium");
         // Within not-in-loop, higher confidence beats higher reach.
         Assert.True(knownHighConf < knownHighReach, "high confidence must precede higher-reach low");
         // Within the same (loop, confidence) tier, higher reach is the tie-break.
         Assert.True(knownHighReach < knownReachLow, "higher reach must precede lower reach at equal tier");
+    }
+
+    [Fact]
+    public void PerformanceGroupRows_PreserveGlobalTriageOrderAcrossKinds()
+    {
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            OptimizationOpportunities =
+            [
+                new OptimizationOpportunitySummary
+                {
+                    Member = "T.Algorithmic()",
+                    Shape = "string-build-in-loop",
+                    Evidence = "string += in a loop",
+                    Priority = "high",
+                    Confidence = "high",
+                    Loop = "loop",
+                },
+                new OptimizationOpportunitySummary
+                {
+                    Member = "T.Boxing()",
+                    Shape = "box-value-type",
+                    Evidence = "box int",
+                    Priority = "medium",
+                    Confidence = "high",
+                    Loop = "loop",
+                },
+                new OptimizationOpportunitySummary
+                {
+                    Member = "T.Array()",
+                    Shape = "small-array",
+                    Evidence = "newarr",
+                    Priority = "low",
+                    Confidence = "medium",
+                },
+            ],
+        });
+
+        var rows = view.PerformanceGroupRows(PerformanceKinds.Sections);
+
+        Assert.Equal(
+            [
+                MarkoutInline.Code("T.Algorithmic()"),
+                MarkoutInline.Code("T.Boxing()"),
+                MarkoutInline.Code("T.Array()"),
+            ],
+            rows.Select(row => row.Member));
+        Assert.Equal(
+            ["Loop Hot Paths", "Boxing", "Arrays"],
+            rows.Select(row => row.Kind));
     }
 
     [Fact]
@@ -588,6 +668,62 @@ public class OutputFormatterTests
         Assert.Contains("HighWeight", filtered);
         Assert.Contains("MediumWeight", filtered);
         Assert.DoesNotContain("NoWeight", filtered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_FiltersPrioritySeparatelyFromConfidence()
+    {
+        var opportunities = new[]
+        {
+            Opp("AlgorithmicLowConfidence", inLoop: true, confidence: "low", rootReach: 1, shape: "scan-method-in-recursive-traversal"),
+            Opp("CacheFactoryHighConfidence", inLoop: false, confidence: "high", rootReach: 1, shape: "cache-lookup-factory-delegate"),
+            Opp("GenericLoopHighConfidence", inLoop: true, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
+            Opp("OneShotHighConfidence", inLoop: false, confidence: "high", rootReach: 100, shape: "stackalloc-candidate"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions { Where = ["Priority>=medium"] })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(
+            ["CacheFactoryHighConfidence", "AlgorithmicLowConfidence", "GenericLoopHighConfidence"],
+            filtered);
+    }
+
+    [Fact]
+    public void TriagePriority_DoesNotPromoteEscapeUnknownSmallArrayByWeightAlone()
+    {
+        var opportunity = Opp(
+            "ReflectionParamsArray",
+            inLoop: true,
+            confidence: "medium",
+            rootReach: 59,
+            shape: "small-array",
+            weight: "high");
+
+        Assert.Equal("medium", LibraryMetadataService.TriagePriority(opportunity));
+    }
+
+    [Fact]
+    public void TriagePriority_GenericObjectBoxRequiresLoopEvidenceForHigh()
+    {
+        var once = Opp(
+            "GenericEqualsOnce",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 100,
+            shape: "generic-parameter-object-box");
+        var repeated = once with
+        {
+            Method = once.Method with { Name = "GenericEqualsRepeated" },
+            InLoop = true,
+            Multiplicity = "loop",
+        };
+
+        Assert.Equal("medium", LibraryMetadataService.TriagePriority(once));
+        Assert.Equal("high", LibraryMetadataService.TriagePriority(repeated));
     }
 
     [Fact]
@@ -734,7 +870,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
+    public void ScanOptimizationOpportunities_SuppressesGeneratedMethodsExceptGenericObjectBox()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
             () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
@@ -742,12 +878,13 @@ public class OutputFormatterTests
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);
         Assert.DoesNotContain(rows, r =>
-            r.Member.Contains("<>c")
-            || r.Member.Contains(">g__")
-            || r.Member.Contains(">b__")
-            || r.Member.Contains(">d__")
-            || r.Member.Contains("c__Display")
-            || r.Member.Contains("<PrivateImplementationDetails>"));
+            r.Shape != "generic-parameter-object-box"
+            && (r.Member.Contains("<>c")
+                || r.Member.Contains(">g__")
+                || r.Member.Contains(">b__")
+                || r.Member.Contains(">d__")
+                || r.Member.Contains("c__Display")
+                || r.Member.Contains("<PrivateImplementationDetails>")));
     }
 
     [Fact]

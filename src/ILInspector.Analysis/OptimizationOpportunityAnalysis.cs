@@ -108,6 +108,7 @@ internal static class OptimizationOpportunityAnalysis
             "allocation-hotspot" => "newobj/newarr/box",
             "async-state-machine" => "state machine",
             "box-value-type" => "boxed T",
+            "cache-lookup-factory-delegate" => "delegate",
             "capturing-delegate" => "delegate/display class",
             "instance-method-group-delegate" => "delegate",
             "enumerator-allocation" => "enumerator",
