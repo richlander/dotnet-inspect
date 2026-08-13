@@ -970,7 +970,7 @@ resolution, acquisition, and asset-selection owners. It supplies:
   `SignedPackageUrl_NeverReachesARetryFailureLogLine`, and
   `CrossOriginSignedUrl_IsNotNamedInTheCredentialScopeLog`, so a signature the
   request must carry reaches the wire and no log line, with one redaction owner
-  (`DotnetInspector.Core.UrlRedaction`) in front of the retry, credential-scope,
+  (`InertText.UrlRedaction`) in front of the retry, credential-scope,
   and package-acquisition diagnostics;
 - a coordinate-canonicalization gate —
   `WorkspaceContextLoaderTests.PackageMember_WithAnUnderscoreId_RealizesAfterAcquisition`,
