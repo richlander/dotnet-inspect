@@ -102,7 +102,9 @@ foreach ((string json, string count) in new[]
         "\"filename\":\"src/new-b.cs\"}" +
         "]", "2"),
     ("[{\"status\":\"modified\",\"filename\":\"/src/Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"src/\"}]", "1"),
     ("[{\"status\":\"modified\",\"filename\":\"src//Program.cs\"}]", "1"),
+    ("[{\"status\":\"modified\",\"filename\":\"src/./Program.cs\"}]", "1"),
     ("[{\"status\":\"modified\",\"filename\":\"src/../Program.cs\"}]", "1"),
 })
 {
