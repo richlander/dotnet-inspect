@@ -56,8 +56,15 @@ public static class PackageResourceUrl
 
         foreach (string segment in segments)
         {
-            if (string.IsNullOrEmpty(segment))
+            // EscapeDataString leaves "." / ".." unchanged, and Uri then
+            // applies dot-segment removal — so a bare ".." segment would climb
+            // out of the feed-declared base path (and keep a pre-signed query).
+            if (string.IsNullOrEmpty(segment)
+                || segment is "." or ".."
+                || segment.Contains('\\', StringComparison.Ordinal))
+            {
                 return null;
+            }
         }
 
         // GetLeftPart(Path) is the already-escaped scheme, authority, and path
@@ -67,9 +74,16 @@ public static class PackageResourceUrl
         string path = string.Join(
             '/',
             segments.Select(Uri.EscapeDataString));
-        string composed = $"{root}/{path}{baseUri.Query}";
+        string pathOnly = $"{root}/{path}";
+        string composed = $"{pathOnly}{baseUri.Query}";
         return Uri.TryCreate(composed, UriKind.Absolute, out Uri? result)
             && IsHttpScheme(result)
+            // Re-parse must not climb above the composed path via residual
+            // dot-segment behavior after escaping.
+            && string.Equals(
+                result.GetLeftPart(UriPartial.Path),
+                pathOnly,
+                StringComparison.Ordinal)
             ? result.AbsoluteUri
             : null;
     }

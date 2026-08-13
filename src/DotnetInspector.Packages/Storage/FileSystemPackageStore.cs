@@ -111,22 +111,10 @@ public sealed class FileSystemPackageStore : IPackageStore
     private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
     {
         // Standard NuGet cache layout: {package}/{version}/{package}.{version}.nupkg
+        // Only the expected retained archive name is admissible. Scanning for
+        // any *.nupkg would let extracted package content (a decoy nupkg in the
+        // tree) stand in for the archive PackageContentAdmission re-validates.
         var expectedPath = Path.Combine(cacheDir, $"{packageName}.{version}.nupkg");
-        if (File.Exists(expectedPath))
-            return expectedPath;
-
-        try
-        {
-            var nupkgFiles = Directory.GetFiles(cacheDir, "*.nupkg");
-            return nupkgFiles.Length > 0 ? nupkgFiles[0] : null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
+        return File.Exists(expectedPath) ? expectedPath : null;
     }
 }

@@ -211,9 +211,18 @@ public static class UrlRedaction
             authorityEnd = locator.Length;
 
         int authorityLength = authorityEnd - authorityStart;
-        int userInfoEnd = authorityLength > 0
-            ? locator.LastIndexOf('@', authorityEnd - 1, authorityLength)
-            : -1;
+        // `///user:SECRET@host/path` is a network path with an empty
+        // authority; the credential-shaped text then sits in the path and
+        // would survive RedactPath. Fail closed — nothing in an empty
+        // authority form can be shown to be safe.
+        if (authorityLength == 0)
+        {
+            redacted = UnparsableMarker;
+            return true;
+        }
+
+        int userInfoEnd =
+            locator.LastIndexOf('@', authorityEnd - 1, authorityLength);
         if (userInfoEnd >= authorityStart)
         {
             locator = string.Concat(

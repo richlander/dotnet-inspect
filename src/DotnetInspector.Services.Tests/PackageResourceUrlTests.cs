@@ -111,6 +111,27 @@ public sealed class PackageResourceUrlTests
             PackageResourceUrl.Combine("https://feed.test/flat", segment));
     }
 
+    /// <summary>
+    /// <see cref="Uri.EscapeDataString(string)"/> leaves <c>.</c>/<c>..</c>
+    /// unchanged, and <see cref="Uri"/> then applies dot-segment removal. Bare
+    /// dot segments must not climb out of the feed-declared base (or carry a
+    /// pre-signed query to a different resource).
+    /// </summary>
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    public void Combine_RefusesDotSegments(string segment)
+    {
+        Assert.Null(
+            PackageResourceUrl.Combine("https://feed.test/v3/flat2", segment));
+        Assert.Null(
+            PackageResourceUrl.Combine(
+                "https://feed.test/v3/flat2?sig=SECRET",
+                "..",
+                "..",
+                "admin"));
+    }
+
     [Fact]
     public void Combine_LeavesRealCoordinateSpellingsUnchanged()
     {

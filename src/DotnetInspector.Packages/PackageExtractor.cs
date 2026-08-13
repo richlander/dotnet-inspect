@@ -543,21 +543,17 @@ public static class PackageExtractor
                     ex is IOException
                         or InvalidDataException
                         or NotSupportedException
-                        or UnauthorizedAccessException)
+                        or UnauthorizedAccessException
+                        or OperationCanceledException)
                 {
+                    // Body timeout, mid-body stall, unreadable archive, or
+                    // persistence failure is this source failing — not a
+                    // reason to stop trying every other authorized source.
+                    // This path has no caller CancellationToken; any OCE here
+                    // is the transport body timer (see DownloadToFileWithRetryAsync).
                     sourceSuppliedUnusablePayload = true;
                     log?.Invoke(
                         $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
-                }
-                catch (InvalidOperationException)
-                {
-                    // Advertised Content-Length above the shared download cap is
-                    // raised as InvalidOperationException by the transport
-                    // helper. That is this source failing, not a reason to stop
-                    // trying every other authorized source.
-                    sourceSuppliedUnusablePayload = true;
-                    log?.Invoke(
-                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
                 }
             }
 

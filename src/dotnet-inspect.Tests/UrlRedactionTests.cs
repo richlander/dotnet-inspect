@@ -136,6 +136,39 @@ public class UrlRedactionTests
         Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A network path with an empty authority leaves credential-shaped text in
+    /// the path. Fail closed rather than echoing it.
+    /// </summary>
+    [Theory]
+    [InlineData("///user:{0}@feed.test/path")]
+    [InlineData("////user:{0}@feed.test/path")]
+    [InlineData("///user:{0}@feed.test/path?x=1")]
+    public void ForDiagnostics_RefusesEmptyAuthorityNetworkPaths(string template)
+    {
+        string redacted = UrlRedaction
+            .ForDiagnostics(string.Format(template, Secret))
+            .ToString();
+
+        Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("user", redacted, StringComparison.Ordinal);
+        Assert.StartsWith(
+            UrlRedaction.UnparsableMarker,
+            redacted,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ForDiagnostics_StillRedactsNetworkPathUserInfoWithAuthority()
+    {
+        string redacted = UrlRedaction
+            .ForDiagnostics($"//user:{Secret}@feed.test/path")
+            .ToString();
+
+        Assert.Equal("//feed.test/path", redacted);
+        Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("/relative/flat/a.nupkg?x={0}", "/relative/flat/a.nupkg?REDACTED")]
     [InlineData("relative?x={0}", "relative?REDACTED")]

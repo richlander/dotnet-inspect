@@ -574,19 +574,23 @@ public static class HttpRetryHelper
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
+        // Headers-first so the body timer covers the actual transfer when
+        // HttpClient.Timeout is infinite or larger than the baseline. Prefer
+        // GetBytesAfterHeadersWithRetryAsync when the caller needs typed
+        // oversize/unavailable results.
+        using var response = await GetStreamedWithRetryAsync(
+            client,
+            url,
+            retryCount,
+            log,
+            cancellationToken,
+            auth,
+            trafficKind,
+            maxAdvertisedContentLength: MaxDownloadSize)
+            .ConfigureAwait(false);
         if (response == null)
             return null;
 
-        if (response.Content.Headers.ContentLength is > MaxDownloadSize)
-        {
-            log?.Invoke(
-                $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
-            return null;
-        }
-
-        // ResponseContentRead still needs an explicit body bound when the
-        // transport timeout is infinite or larger than the baseline.
         using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         TimeSpan requestTimeout =
@@ -595,8 +599,33 @@ public static class HttpRetryHelper
                 ? HttpClientFactoryOptions.BaselineTimeout
                 : client.Timeout;
         bodyTimeout.CancelAfter(requestTimeout);
-        return await response.Content.ReadAsByteArrayAsync(bodyTimeout.Token)
+
+        await using Stream source = await response.Content
+            .ReadAsStreamAsync(bodyTimeout.Token)
             .ConfigureAwait(false);
+        using var buffer = new MemoryStream();
+        byte[] chunk = new byte[81920];
+        long received = 0;
+        while (true)
+        {
+            int read = await source.ReadAsync(chunk, bodyTimeout.Token)
+                .ConfigureAwait(false);
+            if (read == 0)
+                break;
+
+            if (read > MaxDownloadSize - received)
+            {
+                log?.Invoke(
+                    $"Download size exceeds the {MaxDownloadSize}-byte limit.");
+                return null;
+            }
+
+            await buffer.WriteAsync(chunk.AsMemory(0, read), bodyTimeout.Token)
+                .ConfigureAwait(false);
+            received += read;
+        }
+
+        return buffer.ToArray();
     }
 
     /// <summary>
@@ -753,7 +782,20 @@ public static class HttpRetryHelper
         finally
         {
             if (destinationCreated && !completed)
-                File.Delete(destinationPath);
+            {
+                try
+                {
+                    File.Delete(destinationPath);
+                }
+                catch (IOException)
+                {
+                    // Prefer the download failure over a cleanup failure.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Prefer the download failure over a cleanup failure.
+                }
+            }
         }
     }
 
