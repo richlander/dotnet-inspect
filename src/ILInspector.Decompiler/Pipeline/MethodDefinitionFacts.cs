@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using CSharpText;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -84,10 +85,53 @@ internal static class MethodDefinitionFacts
     internal static bool IsUnmanagedCallersOnly(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.InteropServices", "UnmanagedCallersOnlyAttribute");
 
-    internal static bool IsOperator(MethodDefinition method, string methodName, bool hasThis)
-        => !hasThis
-            && methodName.StartsWith("op_", StringComparison.Ordinal)
-            && (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0;
+    internal static bool IsOperator(
+        MethodDefinition method,
+        string methodName,
+        bool hasThis,
+        TypeRef returnType,
+        ImmutableArray<TypeRef> parameterTypes,
+        ParameterRefKindResult parameterRefKinds)
+    {
+        if (method.GetGenericParameters().Count != 0
+            || !OperatorNames.IsOperatorMethodName(methodName)
+            || (method.Attributes & System.Reflection.MethodAttributes.SpecialName) == 0)
+        {
+            return false;
+        }
+
+        if (!hasThis)
+            return true;
+
+        var access = method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask;
+        if (!OperatorNames.IsCSharpInstanceAssignmentOperator(
+            methodName,
+            isStatic: false,
+            isPublic: access == System.Reflection.MethodAttributes.Public,
+            returnType is { Namespace: "System", Name: "Void" } ? "void" : "",
+            parameterTypes.Length))
+        {
+            return false;
+        }
+
+        if (!parameterTypes.Any(type => type.Kind == TypeRefKind.ByRef))
+            return true;
+        if (parameterRefKinds.State != ParameterRefKindFacts.Known
+            || parameterRefKinds.Kinds.Length != parameterTypes.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            if (parameterTypes[i].Kind == TypeRefKind.ByRef
+                && parameterRefKinds.Kinds[i] != ArgumentRefKind.In)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
     internal static AccessorKind ReadAccessorKind(MetadataReader reader, TypeDefinition declaringType, MethodDefinitionHandle method)
     {

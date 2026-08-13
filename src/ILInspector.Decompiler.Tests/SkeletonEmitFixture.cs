@@ -7,8 +7,34 @@ public enum SkeletonFlags
     B = 2,
 }
 
+public class SkeletonInstanceAssignmentHazard
+{
+    public int Value;
+
+    public void operator +=(int other)
+    {
+        Value += other;
+    }
+}
+
+public class SkeletonOrdinaryOperatorNameHazard
+{
+    public int Value;
+
+    public void op_AdditionAssignment(int other)
+    {
+        Value += other;
+    }
+
+    public int Invoke(int other)
+    {
+        op_AdditionAssignment(other);
+        return Value;
+    }
+}
+
 /// <summary>
-/// Exercises two whole-module skeleton-emit hazards the changed-method fidelity
+/// Exercises whole-module skeleton-emit hazards the changed-method fidelity
 /// check must survive (#1282), used by <see cref="SkeletonEmitTests"/>:
 /// <list type="bullet">
 /// <item>a non-generic <b>explicit interface implementation</b> (IL name
@@ -16,8 +42,12 @@ public enum SkeletonFlags
 /// stub is invalid C# (CS0106) and poisons the whole-module compile;</item>
 /// <item>a <b>const enum field</b>: its metadata value is the integer underlying,
 /// so a `public const SkeletonFlags F = 1;` stub is CS0266 without a cast.</item>
+/// <item>a C# 14 <b>instance assignment operator</b> on a sibling type: forcing
+/// <c>static</c> onto its skeleton declaration is CS0106.</item>
+/// <item>an ordinary method whose name resembles an operator: spelling it as an
+/// operator makes its direct call illegal (CS0571).</item>
 /// </list>
-/// Both live on a sibling type so the failure surfaces when any method in the
+/// The sibling hazards ensure the failure surfaces when any method in the
 /// module is fidelity-checked.
 /// </summary>
 public class SkeletonEmitFixture : IDisposable

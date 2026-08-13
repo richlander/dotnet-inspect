@@ -1089,9 +1089,10 @@ internal static class CSharpDeclarationWriter
             var typeName = FormatConstructorTypeName(type.Name);
             signature = $"{typeName}{FormatConstructorCall(signature)}";
         }
-        else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
+        else if (member.Kind == "operator"
+            && member.Name.StartsWith("op_", StringComparison.Ordinal))
         {
-            signature = FormatOperatorSignature(signature, member.Name);
+            signature = FormatOperatorSignature(signature, member);
         }
         else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
             && !IsExplicitInterfaceEvent(member))
@@ -1822,7 +1823,7 @@ internal static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
+        if (member.Kind is "method" or "operator"
             && methodParameters is not { Count: > 0 }
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
@@ -1865,8 +1866,8 @@ internal static class CSharpDeclarationWriter
             return true;
         }
 
-        // Keep extension projections, explicit implementations, operators, and
-        // unsupported event shapes on compatibility text until the remaining
+        // Keep extension projections, explicit implementations, and unsupported
+        // event shapes on compatibility text until the remaining
         // declaration-level facts are represented in ApiSignature.
         return false;
 
@@ -2205,16 +2206,33 @@ internal static class CSharpDeclarationWriter
     /// occurrence is identified as the whole-token one immediately followed by <c>(</c>
     /// rather than by textual position.
     /// </remarks>
-    static string FormatOperatorSignature(string signature, string methodName)
+    static string FormatOperatorSignature(string signature, ApiMember member)
     {
+        string methodName = member.Name;
         if (!TryFindMemberNameBeforeParameterList(signature, methodName, out int nameIndex, out int parenStart))
             return signature;
 
         var returnType = signature[..nameIndex].TrimEnd();
         var parameters = signature[parenStart..];
+        if (OperatorNames.IsAssignmentOperatorMethodName(methodName))
+        {
+            int parameterCount = member.SignatureModel?.ParameterCount
+                ?? OperatorParameterCount(parameters);
+            bool isPublic = member.Accessibility is null or "public";
+            if (!OperatorNames.IsCSharpInstanceAssignmentOperator(
+                    methodName,
+                    member.IsStatic,
+                    isPublic,
+                    returnType,
+                    parameterCount))
+            {
+                return signature;
+            }
+        }
 
         if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..]) is { } checkedSymbol)
+            && (OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..])
+                ?? OperatorNames.MapCheckedAssignment(methodName["op_Checked".Length..])) is { } checkedSymbol)
             return $"{returnType} operator checked {checkedSymbol}{parameters}";
 
         return methodName switch
@@ -2224,6 +2242,16 @@ internal static class CSharpDeclarationWriter
             "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
             _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
         };
+    }
+
+    static int OperatorParameterCount(string parameters)
+    {
+        if (parameters.Length == 0 || parameters[0] != '(')
+            return -1;
+        int close = Matching(parameters, 0, '(', ')');
+        if (close != parameters.Length - 1)
+            return -1;
+        return SplitTopLevel(parameters[1..close]).Count();
     }
 
     /// <summary>

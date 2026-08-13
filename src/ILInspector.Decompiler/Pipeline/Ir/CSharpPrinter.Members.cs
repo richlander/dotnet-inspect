@@ -690,6 +690,8 @@ public sealed partial class CSharpPrinter
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
+        if (IsInstanceAssignmentOperatorCall(call))
+            return OperatorSpelling(call)!;
         if (!call.Callee.HasThis)
         {
             // C# compiles user-defined operators TO these calls; the

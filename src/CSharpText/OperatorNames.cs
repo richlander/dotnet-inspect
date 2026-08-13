@@ -5,6 +5,92 @@ namespace CSharpText;
 /// </summary>
 public static class OperatorNames
 {
+    public static bool IsOperatorMethodName(string name) =>
+        name is "op_Implicit"
+            or "op_Explicit"
+            or "op_CheckedImplicit"
+            or "op_CheckedExplicit"
+            or "op_Addition"
+            or "op_Subtraction"
+            or "op_Multiply"
+            or "op_Division"
+            or "op_Modulus"
+            or "op_UnaryPlus"
+            or "op_UnaryNegation"
+            or "op_Increment"
+            or "op_Decrement"
+            or "op_BitwiseAnd"
+            or "op_BitwiseOr"
+            or "op_ExclusiveOr"
+            or "op_OnesComplement"
+            or "op_LeftShift"
+            or "op_RightShift"
+            or "op_UnsignedRightShift"
+            or "op_Equality"
+            or "op_Inequality"
+            or "op_LessThan"
+            or "op_GreaterThan"
+            or "op_LessThanOrEqual"
+            or "op_GreaterThanOrEqual"
+            or "op_True"
+            or "op_False"
+            or "op_LogicalNot"
+            or "op_AdditionAssignment"
+            or "op_SubtractionAssignment"
+            or "op_MultiplicationAssignment"
+            or "op_DivisionAssignment"
+            or "op_ModulusAssignment"
+            or "op_BitwiseAndAssignment"
+            or "op_BitwiseOrAssignment"
+            or "op_ExclusiveOrAssignment"
+            or "op_LeftShiftAssignment"
+            or "op_RightShiftAssignment"
+            or "op_UnsignedRightShiftAssignment"
+            or "op_IncrementAssignment"
+            or "op_DecrementAssignment"
+            or "op_Exponent"
+            or "op_IntegerDivision"
+            or "op_Concatenate"
+            or "op_Like"
+        || name.StartsWith("op_Checked", StringComparison.Ordinal)
+            && (MapBinaryOrUnary(name["op_Checked".Length..]) is not null
+                || MapCheckedAssignment(name["op_Checked".Length..]) is not null);
+
+    public static bool IsAssignmentOperatorMethodName(string name)
+    {
+        if (name.StartsWith("op_Checked", StringComparison.Ordinal))
+            return MapCheckedAssignment(name["op_Checked".Length..]) is not null;
+        return name.StartsWith("op_", StringComparison.Ordinal)
+            && MapAssignment(name["op_".Length..]) is not null;
+    }
+
+    public static bool IsCSharpInstanceAssignmentOperator(
+        string methodName,
+        bool isStatic,
+        bool isPublic,
+        string returnType,
+        int parameterCount)
+    {
+        if (isStatic || !isPublic || returnType != "void")
+            return false;
+
+        string? suffix = methodName.StartsWith("op_Checked", StringComparison.Ordinal)
+            ? MapCheckedAssignment(methodName["op_Checked".Length..]) is null
+                ? null
+                : methodName["op_Checked".Length..]
+            : methodName.StartsWith("op_", StringComparison.Ordinal)
+                && MapAssignment(methodName["op_".Length..]) is not null
+                    ? methodName["op_".Length..]
+                    : null;
+        if (suffix is null)
+            return false;
+
+        int expectedParameterCount = suffix is "IncrementAssignment" or "DecrementAssignment"
+            ? 0
+            : 1;
+        return parameterCount == expectedParameterCount;
+    }
+
     /// <summary>
     /// Converts an IL operator method name to its C# display form.
     /// Non-operator names are returned unchanged.
@@ -28,10 +114,12 @@ public static class OperatorNames
         if (name.StartsWith("op_Checked", StringComparison.Ordinal))
         {
             var inner = name["op_Checked".Length..];
-            var symbol = MapBinaryOrUnary(inner);
+            var symbol = MapBinaryOrUnary(inner) ?? MapCheckedAssignment(inner);
             if (symbol is not null)
                 return $"checked operator {symbol}";
         }
+        if (MapAssignment(name["op_".Length..]) is { } assignmentSymbol)
+            return $"operator {assignmentSymbol}";
 
         return name switch
         {
@@ -94,6 +182,35 @@ public static class OperatorNames
         _ => null
     };
 
+    public static string? MapAssignment(string suffix) => suffix switch
+    {
+        "AdditionAssignment" => "+=",
+        "SubtractionAssignment" => "-=",
+        "MultiplicationAssignment" => "*=",
+        "DivisionAssignment" => "/=",
+        "ModulusAssignment" => "%=",
+        "BitwiseAndAssignment" => "&=",
+        "BitwiseOrAssignment" => "|=",
+        "ExclusiveOrAssignment" => "^=",
+        "LeftShiftAssignment" => "<<=",
+        "RightShiftAssignment" => ">>=",
+        "UnsignedRightShiftAssignment" => ">>>=",
+        "IncrementAssignment" => "++",
+        "DecrementAssignment" => "--",
+        _ => null,
+    };
+
+    public static string? MapCheckedAssignment(string suffix) => suffix switch
+    {
+        "AdditionAssignment" => "+=",
+        "SubtractionAssignment" => "-=",
+        "MultiplicationAssignment" => "*=",
+        "DivisionAssignment" => "/=",
+        "IncrementAssignment" => "++",
+        "DecrementAssignment" => "--",
+        _ => null,
+    };
+
     /// <summary>
     /// The unchecked operator method name paired with a checked operator method
     /// name — <c>op_CheckedAddition → op_Addition</c>, <c>op_CheckedExplicit →
@@ -112,6 +229,28 @@ public static class OperatorNames
             return null;
 
         string inner = methodName["op_Checked".Length..];
-        return MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
+        return MapBinaryOrUnary(inner) is null && MapCheckedAssignment(inner) is null
+            ? null
+            : $"op_{inner}";
+    }
+
+    /// <summary>
+    /// The checked operator method name paired with an unchecked operator method
+    /// name, or null when C# defines no checked sibling for that operator.
+    /// </summary>
+    public static string? CheckedOperator(string methodName)
+    {
+        if (methodName is "op_Explicit")
+            return "op_CheckedExplicit";
+        if (!methodName.StartsWith("op_", StringComparison.Ordinal)
+            || methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string inner = methodName["op_".Length..];
+        return MapBinaryOrUnary(inner) is null && MapCheckedAssignment(inner) is null
+            ? null
+            : $"op_Checked{inner}";
     }
 }

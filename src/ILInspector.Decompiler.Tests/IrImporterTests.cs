@@ -1,3 +1,8 @@
+using System.Reflection.PortableExecutable;
+using AssemblyName = System.Reflection.AssemblyName;
+using MethodAttributes = System.Reflection.MethodAttributes;
+using ParameterAttributes = System.Reflection.ParameterAttributes;
+using TypeAttributes = System.Reflection.TypeAttributes;
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -28,6 +33,74 @@ public class IrImporterTests
 
     static Block SingleBlock(IrFunction function)
         => (Block)Assert.Single(function.Body.Children);
+
+    [Fact]
+    public void InstanceAssignmentOperatorRejectsRefAndOutButAcceptsIn()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"instance-operator-ref-kinds-{Guid.NewGuid():N}.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("InstanceOperatorRefKinds"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("InstanceOperatorRefKinds");
+        var readOnlyConstructor = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)
+            .GetConstructor(Type.EmptyTypes)!;
+        foreach (var (typeName, attributes, isReadOnly) in new[]
+        {
+            ("RefOperator", ParameterAttributes.None, false),
+            ("OutOperator", ParameterAttributes.Out, false),
+            ("InOperator", ParameterAttributes.In, true),
+        })
+        {
+            var type = module.DefineType(
+                typeName,
+                TypeAttributes.Public | TypeAttributes.Class);
+            var method = type.DefineMethod(
+                "op_AdditionAssignment",
+                MethodAttributes.Public | MethodAttributes.SpecialName,
+                typeof(void),
+                [typeof(int).MakeByRefType()]);
+            var parameter = method.DefineParameter(1, attributes, "value");
+            if (isReadOnly)
+            {
+                parameter.SetCustomAttribute(
+                    new System.Reflection.Emit.CustomAttributeBuilder(
+                        readOnlyConstructor,
+                        []));
+            }
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            type.CreateType();
+        }
+        assembly.Save(path);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(peReader);
+            var facts = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Where(type => reader.GetString(type.Name).EndsWith("Operator", StringComparison.Ordinal))
+                .ToDictionary(
+                    type => reader.GetString(type.Name),
+                    type =>
+                    {
+                        var method = Assert.Single(
+                            type.GetMethods(),
+                            handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                                == "op_AdditionAssignment");
+                        return IrImporter.ResolveMethod(reader, method, GenericScope.Empty).IsOperator;
+                    });
+
+            Assert.Equal(MetadataFactState.No, facts["RefOperator"]);
+            Assert.Equal(MetadataFactState.No, facts["OutOperator"]);
+            Assert.Equal(MetadataFactState.Yes, facts["InOperator"]);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
     [Fact]
     public void PublicOnlyResolution_SkipsNonPublicSameNameOverload()

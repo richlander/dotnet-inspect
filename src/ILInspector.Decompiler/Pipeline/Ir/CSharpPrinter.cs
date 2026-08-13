@@ -3089,6 +3089,8 @@ public sealed partial class CSharpPrinter
             // A user-defined checked ++/-- as a statement spells checked(x++),
             // which is CS0201 in statement position; use a checked { ... } block.
             IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(e, id),
+            Call call when IsCheckedInstanceAssignmentOperatorCall(call)
+                => CheckedInstanceAssignmentStatement(e, call),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
@@ -5310,9 +5312,17 @@ public sealed partial class CSharpPrinter
         _ => false,
     };
 
-    /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
+    /// <summary>True when a call renders as C# operator syntax rather than a method invocation.</summary>
     bool IsOperatorCall(Call call)
         => AnnotatedSourceNodeKindProjection.OperatorKind(call) is not null;
+
+    bool IsInstanceAssignmentOperatorCall(Call call)
+        => call.Callee.HasThis
+            && AnnotatedSourceNodeKindProjection.OperatorKind(call) == "AssignmentStatement";
+
+    bool IsCheckedInstanceAssignmentOperatorCall(Call call)
+        => IsInstanceAssignmentOperatorCall(call)
+            && call.Callee.Name.StartsWith("op_Checked", StringComparison.Ordinal);
 
     /// <summary>
     /// The direct idiom for a negated operator-spelled equality/inequality
@@ -5390,15 +5400,23 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool IsStatementExpression(IrExpression expression) => expression switch
     {
-        Call call => !IsOperatorCall(call),
+        Call call => IsInstanceAssignmentOperatorCall(call) || !IsOperatorCall(call),
         CallIndirect or NewObject or IncrementDecrement or AwaitExpression or LocalFunctionInvocation => true,
         _ => false,
     };
 
-    static Precedence? OperatorCallPrecedence(Call call)
+    Precedence? OperatorCallPrecedence(Call call)
     {
         var arguments = call.Arguments;
         string name = call.Callee.Name;
+        if (IsInstanceAssignmentOperatorCall(call))
+        {
+            if (name.StartsWith("op_Checked", StringComparison.Ordinal))
+                return null;
+            return name is "op_IncrementAssignment" or "op_DecrementAssignment"
+                ? Precedence.Primary
+                : Precedence.Assignment;
+        }
         if (name.StartsWith("op_Checked", StringComparison.Ordinal))
             name = "op_" + name["op_Checked".Length..];
 
@@ -5440,7 +5458,53 @@ public sealed partial class CSharpPrinter
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
     {
+        if (!_checkedContext || OperatorNames.CheckedOperator(call.Callee.Name) is null)
+            return OperatorSpellingCore(call);
+
+        _checkedContext = false;
+        try
+        {
+            string? spelling = OperatorSpellingCore(call);
+            return spelling is null ? null : $"unchecked({spelling})";
+        }
+        finally
+        {
+            _checkedContext = true;
+        }
+    }
+
+    string? OperatorSpellingCore(Call call)
+    {
         var arguments = call.Arguments;
+
+        if (call.Callee.HasThis && arguments.Count >= 1)
+        {
+            string name = call.Callee.Name;
+            bool isChecked = name.StartsWith("op_Checked", StringComparison.Ordinal);
+            string? suffix = isChecked
+                ? name["op_Checked".Length..]
+                : name.StartsWith("op_", StringComparison.Ordinal)
+                    ? name["op_".Length..]
+                    : null;
+            string? symbol = suffix is null
+                ? null
+                : isChecked
+                    ? OperatorNames.MapCheckedAssignment(suffix)
+                    : OperatorNames.MapAssignment(suffix);
+            if (symbol is null)
+                return null;
+
+            bool isIncrement = suffix is "IncrementAssignment" or "DecrementAssignment";
+            if (isIncrement ? arguments.Count != 1 : arguments.Count != 2)
+                return null;
+
+            string RenderSpelling() => isIncrement
+                ? $"{OperatorOperand(arguments[0])}{symbol}"
+                : $"{OperatorOperand(arguments[0])} {symbol} {InstanceAssignmentRightOperand(call)}";
+            return !isChecked
+                ? RenderSpelling()
+                : WrapChecked(RenderSpelling);
+        }
 
         // User-defined checked operators (C# 11). The metadata name encodes the
         // checked overload (op_CheckedAddition, op_CheckedSubtraction, ...); the
@@ -5481,6 +5545,38 @@ public sealed partial class CSharpPrinter
             };
         }
         return null;
+    }
+
+    string InstanceAssignmentRightOperand(Call call)
+    {
+        IrExpression argument = call.Arguments[1];
+        if (call.Callee.ParameterTypes.IsDefaultOrEmpty)
+            return OperatorOperand(argument);
+
+        TypeRef parameter = call.Callee.ParameterTypes[0];
+        TypeRef valueParameter = parameter.Kind == TypeRefKind.ByRef
+            ? parameter.ElementType!
+            : parameter;
+        if (OperatorOverloadFidelityCast(argument, valueParameter) is { } fidelityCast)
+            return fidelityCast;
+        return parameter.Kind == TypeRefKind.ByRef
+            ? OperatorOperand(argument)
+            : CoerceText(argument, parameter);
+    }
+
+    string? OperatorOverloadFidelityCast(IrExpression argument, TypeRef parameter)
+    {
+        if (!IsConcreteReferenceParameter(parameter))
+            return null;
+        string parameterText = TypeText(parameter);
+        if (argument is Constant { Value: null })
+            return $"({parameterText})null";
+        var argumentType = EffectiveType(argument);
+        if (argumentType?.Kind == TypeRefKind.ByRef)
+            argumentType = argumentType.ElementType;
+        if (argumentType is null || argumentType.Equals(parameter))
+            return null;
+        return $"({parameterText}){OperatorOperand(argument)}";
     }
 
     /// <summary>
@@ -5854,6 +5950,21 @@ public sealed partial class CSharpPrinter
         {
             _printedRanges = printedRanges;
             _expressionText = expressionText;
+        }
+    }
+
+    string CheckedInstanceAssignmentStatement(ExpressionStatement owner, Call call)
+    {
+        _printedRanges?.SetNodeKind(owner, "CheckedStatement");
+        bool saved = _checkedContext;
+        _checkedContext = true;
+        try
+        {
+            return $"checked {{ {OperatorSpelling(call)}; }}";
+        }
+        finally
+        {
+            _checkedContext = saved;
         }
     }
 
