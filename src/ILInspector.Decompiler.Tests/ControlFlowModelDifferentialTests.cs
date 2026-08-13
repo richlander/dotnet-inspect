@@ -30,6 +30,7 @@ public class ControlFlowModelDifferentialTests
         public long DirectContinueBlocks;
         public long AcceptedTerminalContinueBlocks;
         public long NestedStructuredTransferBlocks;
+        public long NestedStructuredTransferBlocksExpectedBySwitch;
         public long NestedStructuredTransferBlocksModeledBySwitch;
         public long DifferenceCount;
         public readonly List<string> Differences = [];
@@ -71,7 +72,7 @@ public class ControlFlowModelDifferentialTests
         Assert.True(comparison.NestedStructuredTransferBlocks > 0,
             "The corpus did not expose conditional structured-transfer paths.");
         Assert.Equal(
-            comparison.NestedStructuredTransferBlocks,
+            comparison.NestedStructuredTransferBlocksExpectedBySwitch,
             comparison.NestedStructuredTransferBlocksModeledBySwitch);
         AssertNoDifferences(comparison);
 
@@ -90,6 +91,8 @@ public class ControlFlowModelDifferentialTests
             + $"direct-continue-blocks={comparison.DirectContinueBlocks} "
             + $"accepted-terminal-continue-blocks={comparison.AcceptedTerminalContinueBlocks} "
             + $"nested-structured-transfer-blocks={comparison.NestedStructuredTransferBlocks} "
+            + "nested-structured-transfer-blocks-expected-by-switch="
+            + $"{comparison.NestedStructuredTransferBlocksExpectedBySwitch} "
             + "nested-structured-transfer-blocks-modeled-by-switch="
             + $"{comparison.NestedStructuredTransferBlocksModeledBySwitch}");
     }
@@ -212,6 +215,7 @@ public class ControlFlowModelDifferentialTests
         Assert.Equal(1, comparison.DirectContinueBlocks);
         Assert.Equal(1, comparison.AcceptedTerminalContinueBlocks);
         Assert.Equal(2, comparison.NestedStructuredTransferBlocks);
+        Assert.Equal(1, comparison.NestedStructuredTransferBlocksExpectedBySwitch);
         Assert.Equal(1, comparison.NestedStructuredTransferBlocksModeledBySwitch);
         AssertNoDifferences(comparison);
     }
@@ -339,12 +343,14 @@ public class ControlFlowModelDifferentialTests
             if (hasStructuredTransfer)
             {
                 comparison.NestedStructuredTransferBlocks++;
+                bool expectsSwitchModel = !HasTopLevelSwitchDeclineReason(
+                    blocks[from],
+                    facts.OffsetToIndex);
+                if (expectsSwitchModel)
+                    comparison.NestedStructuredTransferBlocksExpectedBySwitch++;
                 if (switchModelsBlock)
                     comparison.NestedStructuredTransferBlocksModeledBySwitch++;
-                if (!switchModelsBlock
-                    && !HasTopLevelSwitchDeclineReason(
-                        blocks[from],
-                        facts.OffsetToIndex))
+                if (!switchModelsBlock && expectsSwitchModel)
                 {
                     AddDifference(comparison,
                         $"{identity}: switch successor view declines block {from}, whose conditional "

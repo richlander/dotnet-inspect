@@ -141,6 +141,53 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
+    public void InteriorizedCaseLoopWithOuterContinue_DeclinesSwitchRaise()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10, 0x40]));
+        loopBody.Add(dispatch);
+
+        var defaultBody = new Block(0x08);
+        defaultBody.Add(new Return(null));
+        loopBody.Add(defaultBody);
+
+        var loopHead = new Block(0x10);
+        loopHead.Add(new ConditionalBranch(
+            new LoadArgument(1, "repeat", s_bool),
+            0x30));
+        loopBody.Add(loopHead);
+
+        var continueOuterLoop = new Block(0x20);
+        continueOuterLoop.Add(new Continue());
+        loopBody.Add(continueOuterLoop);
+
+        var loopLatch = new Block(0x30);
+        loopLatch.Add(new Branch(0x10));
+        loopBody.Add(loopLatch);
+
+        var otherCase = new Block(0x40);
+        otherCase.Add(new Return(null));
+        loopBody.Add(otherCase);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [
+                new Parameter("value", s_int),
+                new Parameter("repeat", s_bool),
+            ]);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<Continue>());
+    }
+
+    [Fact]
     public void LoopOwnedBreakInsideContinueSection_DeclinesSwitchWrapping()
     {
         var loopBody = new BlockContainer();
@@ -312,6 +359,49 @@ public class SwitchRaisingTerminalContinuationTests
         function.CheckInvariant();
         new SwitchRaisingPass().Run(function, PassContext.None);
         function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+    }
+
+    [Fact]
+    public void DeeplyNestedBranchEnteringCase_DeclinesWithoutRecursiveTraversal()
+    {
+        IrNode enteringCase = new Branch(0x20);
+        for (int i = 0; i < 20_000; i++)
+        {
+            var then = new Block();
+            then.Add(enteringCase);
+            enteringCase = new IfStatement(new Constant(true, s_bool), then, elseArm: null);
+        }
+
+        var body = new BlockContainer();
+        var dispatch = new Block(0);
+        dispatch.Add(enteringCase);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x20, 0x30]));
+        body.Add(dispatch);
+
+        foreach (int offset in new[] { 0x10, 0x20, 0x30 })
+        {
+            var section = new Block(offset);
+            section.Add(new Return(null));
+            body.Add(section);
+        }
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [new Parameter("value", s_int)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<SwitchBranch>());
         Assert.Empty(function.Descendants.OfType<Switch>());

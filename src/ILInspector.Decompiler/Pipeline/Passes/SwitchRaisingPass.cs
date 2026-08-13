@@ -240,6 +240,10 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
+        if (regions.Values.Any(region =>
+                ContainsOuterOwnedContinue(blocks, region)
+                && RegionContainsCycle(blocks, region, offsetToIndex)))
+            return false;
 
         // Nothing outside the switch (the block s aside, which dispatches) may
         // enter the owned blocks — including a leave from another container.
@@ -1304,6 +1308,59 @@ public sealed class SwitchRaisingPass : IIrPass
         return false;
     }
 
+    static bool ContainsOuterOwnedContinue(IReadOnlyList<Block> blocks, List<int> region)
+    {
+        foreach (int idx in region)
+        {
+            var root = blocks[idx];
+            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(root))
+            {
+                if (node is not Continue @continue)
+                    continue;
+                for (var ancestor = @continue.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                {
+                    if (ReferenceEquals(ancestor, root))
+                        return true;
+                    if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                        break;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool RegionContainsCycle(
+        IReadOnlyList<Block> blocks,
+        List<int> region,
+        Dictionary<int, int> offsetToIndex)
+    {
+        var members = region.ToHashSet();
+        var incoming = region.ToDictionary(index => index, _ => 0);
+        foreach (int index in region)
+        {
+            if (!TrySuccessors(blocks, index, offsetToIndex, out var successors))
+                return true;
+            foreach (int target in successors)
+                if (members.Contains(target))
+                    incoming[target]++;
+        }
+
+        var ready = new Queue<int>(incoming.Where(pair => pair.Value == 0).Select(pair => pair.Key));
+        int visited = 0;
+        while (ready.Count > 0)
+        {
+            int index = ready.Dequeue();
+            visited++;
+            TrySuccessors(blocks, index, offsetToIndex, out var successors);
+            foreach (int target in successors)
+            {
+                if (members.Contains(target) && --incoming[target] == 0)
+                    ready.Enqueue(target);
+            }
+        }
+        return visited != region.Count;
+    }
+
     static bool OnlyReachedByTable(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, HashSet<int> leaveTargets)
     {
         var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
@@ -1352,8 +1409,8 @@ public sealed class SwitchRaisingPass : IIrPass
             yield break;
         foreach (int target in Targets(node))
             yield return target;
-        foreach (var child in node.Children)
-            foreach (int target in TargetsInFunctionScope(child))
+        foreach (var descendant in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(node))
+            foreach (int target in Targets(descendant))
                 yield return target;
     }
 
@@ -1812,6 +1869,10 @@ public sealed class SwitchRaisingPass : IIrPass
             if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
+            return false;
+        if (regions.Values.Any(region =>
+                ContainsOuterOwnedContinue(blocks, region)
+                && RegionContainsCycle(blocks, region, offsetToIndex)))
             return false;
 
         if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets))
