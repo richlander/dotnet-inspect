@@ -107,6 +107,14 @@ document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`.
 
+The same checksum evidence is carried through type, member-location, and
+IL-offset projections when those views can print or derive output from source
+content. Network responses are used only after the final response URL preserves
+the requested URL's attributable SourceLink origin and the bytes match the
+portable-PDB checksum. URLs outside the known provenance grammars carry no
+repository claim but still require the checksum before their content is
+rendered.
+
 Compilation options and references describe available rebuild context. They do
 not claim that the context is complete enough to reproduce the original build.
 The authored rebuild harness reports `Recorded`, `Incomplete`, `Drift`, or

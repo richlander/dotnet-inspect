@@ -737,15 +737,4 @@ public static class NuGetCache
         }
     }
 
-    /// <summary>
-    /// Gets cached source content for a URL, if available.
-    /// Delegates to <see cref="CoreCache"/>.
-    /// </summary>
-    public static string? TryGetCachedSource(string url) => CoreCache.TryGet("sources", url, "txt");
-
-    /// <summary>
-    /// Caches source content for a URL.
-    /// Delegates to <see cref="CoreCache"/>.
-    /// </summary>
-    public static void CacheSource(string url, string content) => CoreCache.Set("sources", url, content, "txt");
 }

@@ -17,6 +17,9 @@ public static class PackageCacheService
         ["symbols"] = "Symbols",
         ["symbol-misses"] = "Symbol misses",
         ["source-audit"] = "Source audit",
+        ["source-audit-v2"] = "Source audit",
+        ["source-bytes-v2"] = "Verified source",
+        ["source-integrity-v2"] = "Source integrity",
         ["versions"] = "Versions",
         ["metadata"] = "Metadata"
     };
@@ -91,22 +94,6 @@ public static class PackageCacheService
             // Another process completed the same cache deletion.
         }
         return size;
-    }
-
-    /// <summary>
-    /// Retrieves cached source content for a URL, if available.
-    /// </summary>
-    public static string? TryGetCachedSource(string url)
-    {
-        return NuGetCache.TryGetCachedSource(url);
-    }
-
-    /// <summary>
-    /// Caches source content for a URL (writes to app cache only).
-    /// </summary>
-    public static void CacheSource(string url, string content)
-    {
-        NuGetCache.CacheSource(url, content);
     }
 
     private static (long size, int count) GetDirectoryStats(string path)

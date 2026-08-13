@@ -105,16 +105,60 @@ if (web["code"] != "false" || web["web"] != "true")
         $"Web canary did not select only web: {FormatValues(web)}");
 }
 
+Dictionary<string, string> workflow = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    ".github/workflows/ci.yml",
+    outputs);
+if (workflow["code"] != "true" || workflow["skills"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Workflow canary did not select code and skills: {FormatValues(workflow)}");
+}
+
 Dictionary<string, string> skill = RunDetection(
     repository,
     body,
     "pull_request",
     "skills/new-skill/SKILL.md",
     outputs);
-if (skill["code"] != "true" || skill["docs"] != "true")
+if (skill["code"] != "false"
+    || skill["docs"] != "true"
+    || skill["skills"] != "true")
 {
     throw new InvalidOperationException(
-        $"Skill canary did not select code and docs: {FormatValues(skill)}");
+        $"Skill canary did not select only docs and skills: {FormatValues(skill)}");
+}
+
+Dictionary<string, string> skillSupportDoc = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "skills/workflow-scenarios/validating-workflows.md",
+    outputs);
+if (skillSupportDoc["code"] != "false"
+    || skillSupportDoc["docs"] != "true"
+    || skillSupportDoc["skills"] != "false")
+{
+    throw new InvalidOperationException(
+        $"Skill support document canary selected the wrong lanes: " +
+        FormatValues(skillSupportDoc));
+}
+
+Dictionary<string, string> nestedSkillSupportDoc = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "skills/workflow-scenarios/examples/SKILL.md",
+    outputs);
+if (nestedSkillSupportDoc["code"] != "false"
+    || nestedSkillSupportDoc["docs"] != "true"
+    || nestedSkillSupportDoc["skills"] != "false")
+{
+    throw new InvalidOperationException(
+        $"Nested skill support document canary selected the wrong lanes: " +
+        FormatValues(nestedSkillSupportDoc));
 }
 
 Dictionary<string, string> pushedSource = RunDetection(
