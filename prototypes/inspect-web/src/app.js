@@ -6340,10 +6340,11 @@ function buildDependencyGraphMermaid() {
         const group = groupFor(pkg);
         if (!group) continue;
         if ((group.dependencies || []).some(dependency =>
-          dependency.id.toLowerCase() === targetPackage.id.toLowerCase()
-          && dependencyVersionSatisfies(
-            targetPackage.version,
-            dependency.versionRange))) {
+          packageIdentityKey(uniqueCompatiblePackage(
+            state.packages,
+            dependency.id,
+            dependency.versionRange,
+            dependencyVersionSatisfies)) === target.packageKey)) {
           const caller = openPackageNode(pkg);
           addEdge(caller, target);
           if (!upVisited.has(pkgKey)) {
@@ -6373,8 +6374,9 @@ function buildDependencyGraphMermaid() {
   lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  const nodeInfoByLabel = new Map([...nodeInfo.values()].map(info => [info.label, info]));
-  return { definition: lines.join("\n"), nodeInfoByLabel };
+  const nodeInfoById = new Map(
+    keys.map(key => [idOf.get(key), nodeInfo.get(key)]));
+  return { definition: lines.join("\n"), nodeInfoById };
 }
 
 async function renderDependencyGraph() {
@@ -6431,8 +6433,9 @@ async function renderDependencyGraph() {
     container.dataset.graphDef = built.definition;
     attachGraphPanZoom(container, viewport);
     viewport.querySelectorAll("g.node").forEach(node => {
-      const label = (node.textContent || "").replace(/\s+/g, " ").trim();
-      const info = built.nodeInfoByLabel.get(label);
+      const dataId = node.getAttribute("data-id");
+      const idMatch = node.id.match(/(?:^|flowchart-)(d\d+)(?:-|$)/);
+      const info = built.nodeInfoById.get(dataId || idMatch?.[1]);
       if (!info || info.kind === "self") return;
       node.classList.add("nav-node");
       node.style.cursor = "pointer";
@@ -6455,9 +6458,11 @@ async function renderDependencyGraph() {
 }
 
 function switchToPackageForDependencies(packageKey) {
+  state.navigationSeq++;
   const target = state.packages.find(item =>
     packageIdentityKey(item) === packageKey);
   if (!target) return;
+  state.loading = false;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
@@ -6477,12 +6482,32 @@ async function openDependencyPackage(packageId, versionRange) {
     switchToPackageForDependencies(packageIdentityKey(existing));
     return;
   }
-  const version = await resolveDependencyVersion(packageId, versionRange);
-  const model = await loadPackage(packageId, version, "");
-  if (!model) return;
-  state.atPackageRoot = true;
-  state.packageLens = "dependencies";
+  const navigationSeq = ++state.navigationSeq;
+  state.loading = true;
+  state.error = "";
+  state.retryAction = null;
+  state.loadingMessage = `Resolving ${packageId}…`;
+  state.loadingSubtitle = versionRange || "latest stable";
   render();
+  try {
+    const version = await resolveDependencyVersion(packageId, versionRange);
+    if (navigationSeq !== state.navigationSeq) return;
+    const model = await loadPackage(
+      packageId,
+      version,
+      "",
+      { navigationSeq });
+    if (!model || navigationSeq !== state.navigationSeq) return;
+    state.atPackageRoot = true;
+    state.packageLens = "dependencies";
+    render();
+  } catch (error) {
+    if (navigationSeq !== state.navigationSeq) return;
+    state.loading = false;
+    appendQueryNotice(
+      friendlyLoadError(error, packageId, versionRange).message);
+    render();
+  }
 }
 
 function nextPaint() {

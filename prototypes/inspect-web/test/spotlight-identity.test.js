@@ -76,6 +76,28 @@ test("dependency graph keys preserve complete coordinates and declared ranges", 
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
 
+test("dependency graph binds navigation to generated node identities", () => {
+  assert.match(
+    appSource,
+    /const nodeInfoById = new Map\(\s+keys\.map\(key => \[idOf\.get\(key\), nodeInfo\.get\(key\)\]\)\)/);
+  assert.match(
+    appSource,
+    /built\.nodeInfoById\.get\(dataId \|\| idMatch\?\.\[1\]\)/);
+  assert.doesNotMatch(appSource, /nodeInfoByLabel/);
+});
+
+test("dependency navigation reserves identity and surfaces resolution failures", () => {
+  assert.match(
+    appSource,
+    /const navigationSeq = \+\+state\.navigationSeq;\s+state\.loading = true;[\s\S]*?await resolveDependencyVersion/);
+  assert.match(
+    appSource,
+    /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
+  assert.match(
+    appSource,
+    /packageIdentityKey\(uniqueCompatiblePackage\(\s+state\.packages,\s+dependency\.id,\s+dependency\.versionRange,\s+dependencyVersionSatisfies\)\) === target\.packageKey/);
+});
+
 test("spotlight candidate identity includes version and framework", () => {
   const net8 = packageAt("1.0.0", "net8.0");
   const net9 = packageAt("1.0.0", "net9.0");

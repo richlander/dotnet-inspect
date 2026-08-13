@@ -64,7 +64,8 @@ public static class PackageDependencyVersionRange
                     "The package version index contains an invalid version.");
             }
 
-            candidates.Add((version, versionText));
+            if (Matches(range, version))
+                candidates.Add((version, versionText));
         }
 
         NuGetVersion? best = range.FindBestMatch(
@@ -76,6 +77,10 @@ public static class PackageDependencyVersionRange
 
     internal static void Validate(string? declaredRange) =>
         _ = Parse(declaredRange);
+
+    static bool Matches(VersionRange range, NuGetVersion version) =>
+        range.Satisfies(version)
+        && (!range.IsFloating || range.Float.Satisfies(version));
 
     static VersionRange Parse(string? declaredRange)
     {

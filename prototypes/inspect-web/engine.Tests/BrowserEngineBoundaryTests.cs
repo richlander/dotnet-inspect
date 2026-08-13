@@ -203,6 +203,21 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void UnconstrainedDependencyNavigation_SelectsLatestStableVersion()
+    {
+        Assert.Equal(
+            "3.0.0",
+            BrowserPackageWorkspace.SelectDependencyVersion(
+                ["1.0.0", "3.1.0-preview.1", "3.0.0"],
+                declaredRange: ""));
+        Assert.Equal(
+            "2.1.0",
+            BrowserPackageWorkspace.SelectDependencyVersion(
+                ["1.0.0", "2.0.0", "2.1.0", "3.0.0"],
+                declaredRange: "2.*"));
+    }
+
+    [Fact]
     public void WorkspaceBinding_RejectsPackageParticipantsForPlatformScope()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);

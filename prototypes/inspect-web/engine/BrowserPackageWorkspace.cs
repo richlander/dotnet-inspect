@@ -342,14 +342,20 @@ internal static class BrowserPackageWorkspace
         string? declaredRange)
     {
         string[] versions = await GetVersionsAsync(packageId);
-        return PackageDependencyVersionRange.SelectBestSatisfying(
-                versions,
-                declaredRange)
+        return SelectDependencyVersion(versions, declaredRange)
             ?? throw new InvalidOperationException(
                 $"Package '{packageId}' has no published version satisfying "
                 + $"the declared range '{declaredRange}'.");
     }
 
+    internal static string? SelectDependencyVersion(
+        string[] versions,
+        string? declaredRange) =>
+        PackageDependencyVersionRange.SelectBestSatisfying(
+            versions,
+            string.IsNullOrWhiteSpace(declaredRange)
+                ? "*"
+                : declaredRange);
     static ImmutableHashSet<string> RetainCoordinatePackages(
         IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
