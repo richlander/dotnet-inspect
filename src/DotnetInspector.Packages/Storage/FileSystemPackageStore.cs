@@ -31,7 +31,10 @@ public sealed class FileSystemPackageStore : IPackageStore
                 allowedSourceKeys);
         }
 
-        if (cached == null || !NuGetCache.IsCachedPackageValid(cached.ExtractPath))
+        // Layout/archive admission is PackageContentAdmission's job. Returning
+        // the slot even when the extracted tree is damaged lets offline errors
+        // say the entry is unusable rather than "no cached package was found".
+        if (cached == null)
             return null;
 
         log?.Invoke($"Using cached package: {cached.ExtractPath}");

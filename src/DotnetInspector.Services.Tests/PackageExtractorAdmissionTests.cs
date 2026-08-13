@@ -107,6 +107,83 @@ public sealed class PackageExtractorAdmissionTests
         }
     }
 
+    /// <summary>
+    /// An archive-less slot whose extracted tree has no top-level nuspec must
+    /// not be treated as a cache hit that answers offline as "not found".
+    /// </summary>
+    [Fact]
+    public async Task DamagedExtractedCacheWithoutNuspec_ReportsUnusableOffline()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+
+        try
+        {
+            Commit(
+                stagingRoot,
+                "only",
+                TestPackageArchive.Create("lib/net10.0/Sample.dll"),
+                SourceA);
+            string? nupkgPath = Directory
+                .EnumerateFiles(
+                    cacheRoot,
+                    $"{PackageId}.{Version}.nupkg",
+                    SearchOption.AllDirectories)
+                .SingleOrDefault();
+            Assert.NotNull(nupkgPath);
+            File.Delete(nupkgPath);
+            string extractRoot = Path.GetDirectoryName(nupkgPath)!;
+            foreach (string nuspec in Directory.EnumerateFiles(
+                         extractRoot,
+                         "*.nuspec"))
+            {
+                File.Delete(nuspec);
+            }
+
+            bool wasOffline = DotnetInspector.Core.HttpClientFactory.IsOffline;
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new DotnetInspector.Core.HttpClientFactoryOptions
+                {
+                    Offline = true,
+                });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            try
+            {
+                using var client = new HttpClient(new FailingHandler());
+                PackageExtractionOutcome outcome =
+                    await DotnetInspector.Packages.PackageExtractor
+                        .ExtractPackageAsync(
+                            client,
+                            $"{PackageId}@{Version}",
+                            sourceOptions: Sources(SourceA));
+
+                Assert.False(outcome.IsSuccess);
+                Assert.Contains(
+                    "no retained archive and no usable extracted tree",
+                    outcome.ErrorMessage,
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                DotnetInspector.Core.HttpClientFactory.Initialize(
+                    new DotnetInspector.Core.HttpClientFactoryOptions
+                    {
+                        Offline = wasOffline,
+                    });
+                DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            }
+        }
+        finally
+        {
+            Delete(cacheRoot);
+            Delete(stagingRoot);
+        }
+    }
+
     [Fact]
     public async Task InvalidLegacyDownload_LetsTheNextSourceServe()
     {
@@ -158,6 +235,9 @@ public sealed class PackageExtractorAdmissionTests
             "Sample.dll");
         Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
         File.WriteAllBytes(assembly, [1]);
+        File.WriteAllText(
+            Path.Combine(extracted, $"{PackageId}.nuspec"),
+            """<?xml version="1.0"?><package />""");
         string nupkg = Path.Combine(stagingRoot, name, "package.nupkg");
         Directory.CreateDirectory(Path.GetDirectoryName(nupkg)!);
         File.WriteAllBytes(nupkg, archive);

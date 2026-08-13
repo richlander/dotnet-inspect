@@ -8,9 +8,9 @@ namespace DotnetInspector.Packages;
 /// set (archive bytes, expanded bytes, entry count, structural ZIP rules).
 /// Entries that keep only an extracted tree — common when a host or image
 /// strips <c>.nupkg</c> files from global-packages — cannot prove archive-byte
-/// or ZIP structure limits; they are admitted only when the extracted tree is
-/// a valid NuGet layout and stays within the expanded-size and entry-count
-/// limits that can still be measured from the tree.
+/// or ZIP structure limits; they are admitted only when the tree has a
+/// top-level <c>.nuspec</c> and the full filesystem walk (files and
+/// directories) stays within the expanded-size and entry-count limits.
 /// </remarks>
 internal static class PackageContentAdmission
 {
@@ -56,53 +56,105 @@ internal static class PackageContentAdmission
 
         // No retained archive. In-memory content always exposes one; a
         // filesystem entry without a .nupkg is the NuGet global-packages case.
+        // Require a top-level .nuspec — empty lib/tools directories alone are not
+        // a usable package and must not mask a downloadable copy.
         if (content.RootPath is null
-            || !NuGetCache.IsCachedPackageValid(content.RootPath))
+            || !HasTopLevelNuspec(content.RootPath))
         {
             return Outcome.MissingArchive;
         }
 
-        return IsExtractedTreeWithinLimits(content, limits)
+        return IsExtractedTreeWithinLimits(content.RootPath, limits)
             ? Outcome.Admissible
             : Outcome.LimitsExceeded;
     }
 
     /// <summary>
-    /// Measures entry count and expanded bytes from the already-extracted tree.
-    /// Archive-byte and ZIP-structure limits are not applicable without the
-    /// retained nupkg.
+    /// Walks files and directories under <paramref name="root"/>, counting every
+    /// filesystem entry toward <see cref="PackagePayloadLimits.MaxEntryCount"/>
+    /// and file bytes toward <see cref="PackagePayloadLimits.MaxExpandedBytes"/>.
+    /// Stops as soon as either limit is crossed.
     /// </summary>
     internal static bool IsExtractedTreeWithinLimits(
-        IPackageContent content,
+        string root,
         PackagePayloadLimits limits)
     {
+        if (!Directory.Exists(root))
+            return false;
+
         long expandedBytes = 0;
         int entryCount = 0;
-        foreach (string relativePath in content.EnumerateEntries())
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
         {
-            entryCount++;
-            if (entryCount > limits.MaxEntryCount)
-                return false;
-
-            if (!content.TryOpenEntry(relativePath, out Stream? entry))
-                return false;
-
-            using (entry)
+            string directory = pending.Pop();
+            IEnumerable<string> children;
+            try
             {
-                long length = entry.CanSeek
-                    ? entry.Length
-                    : CountBytes(entry, limits.MaxExpandedBytes - expandedBytes);
-                if (length < 0
-                    || length > limits.MaxExpandedBytes - expandedBytes)
+                children = Directory.EnumerateFileSystemEntries(directory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+
+            foreach (string entry in children)
+            {
+                entryCount++;
+                if (entryCount > limits.MaxEntryCount)
+                    return false;
+
+                FileAttributes attributes;
+                try
+                {
+                    attributes = File.GetAttributes(entry);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     return false;
                 }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    pending.Push(entry);
+                    continue;
+                }
+
+                long length;
+                try
+                {
+                    length = new FileInfo(entry).Length;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+
+                if (length > limits.MaxExpandedBytes - expandedBytes)
+                    return false;
 
                 expandedBytes += length;
             }
         }
 
         return true;
+    }
+
+    internal static bool HasTopLevelNuspec(string root)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(root)
+                .Any(path => path.EndsWith(
+                    ".nuspec",
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -132,26 +184,5 @@ internal static class PackageContentAdmission
         }
 
         return buffer.ToArray();
-    }
-
-    /// <returns>
-    /// Byte count, or <c>-1</c> when the stream exceeds
-    /// <paramref name="maxRemaining"/>.
-    /// </returns>
-    static long CountBytes(Stream source, long maxRemaining)
-    {
-        long total = 0;
-        byte[] chunk = new byte[81920];
-        while (true)
-        {
-            int read = source.Read(chunk, 0, chunk.Length);
-            if (read == 0)
-                return total;
-
-            if (read > maxRemaining - total)
-                return -1;
-
-            total += read;
-        }
     }
 }

@@ -213,7 +213,10 @@ public static class NuGetCache
                     normalizedName,
                     normalizedVersion,
                     sourceKey);
-                if (IsCommittedPackageValid(
+                // Marker match alone is enough to surface the slot. Layout and
+                // archive admission decide usability so a damaged extracted
+                // tree still reaches a typed offline diagnostic.
+                if (IsCommittedPackageSlotPresent(
                     appPackageDir,
                     normalizedName,
                     normalizedVersion,
@@ -241,8 +244,10 @@ public static class NuGetCache
             globalPackagesPath,
             packageName,
             version);
+        // Do not require a full valid layout here: admission decides whether a
+        // retained nupkg or extracted tree is usable. A damaged global-packages
+        // slot must still surface so offline errors are not "not found".
         if (!Directory.Exists(packageDirectory)
-            || !IsCachedPackageValid(packageDirectory, packageName)
             || !TryReadGlobalPackageSourceKey(
                 packageDirectory,
                 out string? producerKey)
@@ -603,11 +608,28 @@ public static class NuGetCache
         string cachedPath,
         string packageName,
         string version,
+        string sourceKey) =>
+        IsCachedPackageValid(cachedPath)
+        && IsCommittedPackageSlotPresent(
+            cachedPath,
+            packageName,
+            version,
+            sourceKey);
+
+    /// <summary>
+    /// True when the app-cache slot exists and carries this source's commit
+    /// marker, regardless of whether the extracted tree is still a usable
+    /// package layout.
+    /// </summary>
+    private static bool IsCommittedPackageSlotPresent(
+        string cachedPath,
+        string packageName,
+        string version,
         string sourceKey)
     {
         try
         {
-            if (!IsCachedPackageValid(cachedPath))
+            if (!Directory.Exists(cachedPath))
                 return false;
 
             // The source is already selected by the path; the marker restates it

@@ -121,6 +121,9 @@ public sealed class PackagePayloadAcquisitionTests
                 "Sample.dll");
             Directory.CreateDirectory(Path.GetDirectoryName(assembly)!);
             File.WriteAllBytes(assembly, [1]);
+            File.WriteAllText(
+                Path.Combine(extracted, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
             string nupkg = Path.Combine(stagingRoot, "package.nupkg");
             File.WriteAllBytes(
                 nupkg,
@@ -163,6 +166,63 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(cacheRoot, recursive: true);
             if (Directory.Exists(stagingRoot))
                 Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExtractedTree_CountsDirectoriesTowardEntryLimit()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            for (int i = 0; i < 5; i++)
+                Directory.CreateDirectory(Path.Combine(root, $"d{i}"));
+
+            Assert.False(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    new PackagePayloadLimits { MaxEntryCount = 3 }));
+            Assert.True(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    new PackagePayloadLimits { MaxEntryCount = 20 }));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractedTree_WithoutTopLevelNuspec_IsMissingArchive()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "lib"));
+            var content = new FileSystemPackageContent(
+                root,
+                nupkgPath: null,
+                fromCache: true,
+                producerKey: "test");
+
+            Assert.Equal(
+                PackageContentAdmission.Outcome.MissingArchive,
+                await PackageContentAdmission.EvaluateAsync(
+                    content,
+                    PackagePayloadLimits.Default,
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 
