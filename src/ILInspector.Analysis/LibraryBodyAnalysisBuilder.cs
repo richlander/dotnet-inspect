@@ -35,7 +35,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     readonly object _asyncSiblingCacheGate = new();
     readonly object _externalAsyncSiblingResolutionGate = new();
     readonly Dictionary<
-        (MemberRef Callee, TypeRef CallerType, string CallerAssembly),
+        (MemberRef Callee, MethodIdentity AsyncSource),
         MemberRef?> _asyncSiblingCache = [];
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
@@ -1404,27 +1404,37 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         var ambiguous = new HashSet<MetadataTypeDefinitionName>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
-            var typeDefinition = _reader.GetTypeDefinition(typeHandle);
-            if (HasGeneratedCodeAttribute(
-                    typeDefinition.GetCustomAttributes()))
+            TypeDefinition typeDefinition;
+            try
+            {
+                typeDefinition =
+                    _reader.GetTypeDefinition(typeHandle);
+                if (HasGeneratedCodeAttribute(
+                        typeDefinition.GetCustomAttributes()))
+                {
+                    continue;
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
             {
                 continue;
             }
 
             foreach (var methodHandle in typeDefinition.GetMethods())
             {
-                var methodDefinition =
-                    _reader.GetMethodDefinition(methodHandle);
-                if (HasGeneratedCodeAttribute(
-                        methodDefinition.GetCustomAttributes())
-                    || HasCompilerGeneratedAttribute(
-                        methodDefinition.GetCustomAttributes()))
-                {
-                    continue;
-                }
-
                 try
                 {
+                    var methodDefinition =
+                        _reader.GetMethodDefinition(methodHandle);
+                    if (HasGeneratedCodeAttribute(
+                            methodDefinition.GetCustomAttributes())
+                        || HasCompilerGeneratedAttribute(
+                            methodDefinition.GetCustomAttributes()))
+                    {
+                        continue;
+                    }
+
                     string? serializedType = AsyncStateMachineTypeName(
                         methodDefinition.GetCustomAttributes());
                     if (serializedType is null
@@ -2100,15 +2110,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     {
         if (callee.Kind != MemberKind.Method
             || callee.Name.EndsWith("Async", StringComparison.Ordinal)
-            || IsAsyncReturnType(callee.ReturnType))
+            || IsAsyncReturnType(callee.ReturnType)
+            || !HasSupportedAsyncSiblingSignature(callee))
         {
             return null;
         }
 
-        var key = (
-            callee,
-            asyncSource.DeclaringType,
-            asyncSource.AssemblyName);
+        var key = (callee, asyncSource);
         lock (_asyncSiblingCacheGate)
         {
             if (_asyncSiblingCache.TryGetValue(
@@ -2176,6 +2184,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 methodDefinition,
                 callee);
             if (candidate is null
+                || !HasSupportedAsyncSiblingSignature(candidate)
                 || !ParametersMatchAsyncSibling(
                     callee,
                     candidate))
@@ -2183,8 +2192,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 continue;
             }
 
-            if (IsPotentialInterfaceSelfDispatch(
-                    declaringDefinition,
+            if (IsPotentialVirtualSelfDispatch(
+                    methodDefinition,
                     candidate,
                     asyncSource))
             {
@@ -2302,12 +2311,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         };
     }
 
-    static bool IsPotentialInterfaceSelfDispatch(
-        TypeDefinition declaringType,
+    static bool IsPotentialVirtualSelfDispatch(
+        MethodDefinition method,
         MemberRef candidate,
         MethodIdentity asyncSource)
     {
-        if ((declaringType.Attributes & TypeAttributes.Interface) == 0)
+        if ((method.Attributes & MethodAttributes.Virtual) == 0
+            || (method.Attributes & MethodAttributes.Final) != 0)
             return false;
 
         int separator = asyncSource.Name.LastIndexOf('.');
@@ -2320,6 +2330,18 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             && candidate.HasThis == !asyncSource.IsStatic
             && candidate.GenericArity == asyncSource.GenericArity;
     }
+
+    static bool HasSupportedAsyncSiblingSignature(MemberRef method)
+        => IsSupportedAsyncSiblingType(method.ReturnType)
+            && method.ParameterTypes.All(
+                IsSupportedAsyncSiblingType);
+
+    static bool IsSupportedAsyncSiblingType(TypeRef type)
+        => type.Kind != TypeRefKind.Unsupported
+            && (type.ElementType is null
+                || IsSupportedAsyncSiblingType(type.ElementType))
+            && type.TypeArguments.All(
+                IsSupportedAsyncSiblingType);
 
     static MemberRef? DecodeAsyncSibling(
         MetadataReader reader,

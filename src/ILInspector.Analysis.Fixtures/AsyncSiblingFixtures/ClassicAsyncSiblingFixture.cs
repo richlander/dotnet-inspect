@@ -70,3 +70,44 @@ public sealed class ClassicStateMachineCollision<T>
         return Read(value);
     }
 }
+
+public interface IClassicInterfaceCacheFixture
+{
+    int Read();
+    Task<int> ReadAsync();
+}
+
+public sealed class ClassicInterfaceCacheFixture
+    : IClassicInterfaceCacheFixture
+{
+    public int Read() => 0;
+
+    public async Task<int> AaaOtherAsync()
+    {
+        await Task.Yield();
+        return ((IClassicInterfaceCacheFixture)this).Read();
+    }
+
+    public async Task<int> ReadAsync()
+    {
+        await Task.Yield();
+        return ((IClassicInterfaceCacheFixture)this).Read();
+    }
+}
+
+public sealed class ClassicSelfCacheFixture
+{
+    public int Aaa() => 0;
+
+    public async Task<int> AaaAsync()
+    {
+        await Task.Yield();
+        return Aaa();
+    }
+
+    public async Task<int> ZzzAnalyzeAsync()
+    {
+        await Task.Yield();
+        return Aaa();
+    }
+}

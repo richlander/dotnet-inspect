@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -101,6 +102,14 @@ public class LibraryBodyIndexTests
             opportunity.Method.Name
                 == nameof(ConstrainedSiblingFixture
                     .CallsConstrainedSiblingFromAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(DerivedVirtualSelfSiblingFixture
+                    .ReadAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(UnsupportedSignatureSiblingFixture
+                    .AnalyzeAsync));
 
         var genericPrivate = Assert.Single(
             opportunities,
@@ -175,6 +184,39 @@ public class LibraryBodyIndexTests
             "ClassicStateMachineCollision`1",
             collision.Method.DeclaringType
                 .Resolution?.Type.Segments[0]);
+
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicInterfaceCacheFixture
+                            .AaaOtherAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicInterfaceCacheFixture
+                            .ReadAsync));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicSelfCacheFixture
+                            .ZzzAnalyzeAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicSelfCacheFixture
+                            .AaaAsync));
     }
 
     [Fact]
@@ -420,7 +462,22 @@ public class LibraryBodyIndexTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return image.ToArray();
+        byte[] bytes = image.ToArray();
+
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int constructorOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(
+                TableIndex.CustomAttribute)
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(
+                constructorOffset,
+                sizeof(ushort)),
+            0xFFFB);
+        return bytes;
     }
 
     static void AddAsyncStateMachineAttribute(
@@ -6371,6 +6428,51 @@ public static class ConstrainedSiblingFixture
     {
         await Task.Yield();
         return Read(1);
+    }
+}
+
+public class VirtualSelfSiblingFixture
+{
+    public virtual int Read() => 0;
+
+    public virtual Task<int> ReadAsync()
+        => Task.FromResult(Read());
+}
+
+public sealed class DerivedVirtualSelfSiblingFixture
+    : VirtualSelfSiblingFixture
+{
+    public override async Task<int> ReadAsync()
+    {
+        await Task.Yield();
+        return ((VirtualSelfSiblingFixture)this).Read();
+    }
+}
+
+public static class UnsupportedSignatureSiblingFixture
+{
+    public static unsafe void Read(
+        delegate*<int, void> callback)
+        => callback(1);
+
+    public static unsafe Task ReadAsync(
+        delegate*<string, void> callback)
+    {
+        callback("");
+        return Task.CompletedTask;
+    }
+
+    public static async Task AnalyzeAsync()
+    {
+        await Task.Yield();
+        unsafe
+        {
+            Read(&Consume);
+        }
+    }
+
+    static void Consume(int value)
+    {
     }
 }
 
