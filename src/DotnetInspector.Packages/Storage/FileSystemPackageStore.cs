@@ -19,35 +19,54 @@ public sealed class FileSystemPackageStore : IPackageStore
         IReadOnlyList<string>? allowedSourceKeys,
         Action<string>? log = null)
     {
+        foreach (IPackageContent content in EnumerateCached(
+                     packageName,
+                     version,
+                     allowedSourceKeys,
+                     log))
+        {
+            return content;
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<IPackageContent> EnumerateCached(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        Action<string>? log = null)
+    {
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
-        CachedPackage? cached;
+        IReadOnlyList<CachedPackage> candidates;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
         {
-            cached = NuGetCache.TryGetCachedPackageContent(
+            candidates = NuGetCache.ListCachedPackageContent(
                 normalizedName,
                 normalizedVersion,
                 allowedSourceKeys);
         }
 
         // Layout/archive admission is PackageContentAdmission's job. Returning
-        // the slot even when the extracted tree is damaged lets offline errors
-        // say the entry is unusable rather than "no cached package was found".
-        if (cached == null)
-            return null;
-
-        log?.Invoke($"Using cached package: {cached.ExtractPath}");
-        var cachedNupkg = FindNupkgInDirectory(
-            cached.ExtractPath,
-            normalizedName,
-            normalizedVersion);
-        return new FileSystemPackageContent(
-            cached.ExtractPath,
-            cachedNupkg,
-            fromCache: true,
-            cached.ProducerKey,
-            requiresArchiveTreeMatch: cached.RequiresArchiveTreeMatch);
+        // each slot even when damaged lets the caller try the next tier and
+        // still surface a typed offline diagnostic when none admit.
+        foreach (CachedPackage cached in candidates)
+        {
+            log?.Invoke($"Using cached package: {cached.ExtractPath}");
+            var cachedNupkg = FindNupkgInDirectory(
+                cached.ExtractPath,
+                normalizedName,
+                normalizedVersion);
+            yield return new FileSystemPackageContent(
+                cached.ExtractPath,
+                cachedNupkg,
+                fromCache: true,
+                cached.ProducerKey,
+                requiresArchiveTreeMatch: cached.RequiresArchiveTreeMatch);
+        }
     }
 
     /// <inheritdoc />

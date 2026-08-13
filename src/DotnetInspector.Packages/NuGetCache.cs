@@ -177,35 +177,40 @@ public static class NuGetCache
         IReadOnlyList<string>? allowedSourceKeys,
         string? globalPackagesPath = null)
     {
+        IReadOnlyList<CachedPackage> candidates = ListCachedPackageContent(
+            packageName,
+            version,
+            allowedSourceKeys,
+            globalPackagesPath);
+        return candidates.Count == 0 ? null : candidates[0];
+    }
+
+    /// <summary>
+    /// Cache tiers for a coordinate, preferred order: product-owned app-cache
+    /// slots (configured producer order), then NuGet global-packages. Listing
+    /// both lets admission fall through a damaged global extract to a usable
+    /// app-cache entry for the same producer.
+    /// </summary>
+    internal static IReadOnlyList<CachedPackage> ListCachedPackageContent(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        string? globalPackagesPath = null)
+    {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
 
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{normalizedVersion}";
+        List<CachedPackage> candidates = [];
 
-        // Check NuGet cache first (more likely to have packages) — skip in isolated mode
-        if (!_skipNuGetCache)
-        {
-            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
-            CachedPackage? global = TryGetGlobalPackageContent(
-                nugetCachePath,
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
-            if (global is not null)
-            {
-                InfoTracker.RecordCacheHit();
-                CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
-                return global;
-            }
-        }
-
-        // Check app cache. A read happens before the tool knows which source
-        // would serve the package, so it asks every source the caller is
-        // currently configured to read from, in configured order. A slot
-        // belonging to any other source is not consulted: those bytes were
-        // fetched under an authority this caller no longer claims.
+        // App cache first: product-owned and preferred when both tiers exist.
+        // A read happens before the tool knows which source would serve the
+        // package, so it asks every source the caller is currently configured
+        // to read from, in configured order. A slot belonging to any other
+        // source is not consulted: those bytes were fetched under an authority
+        // this caller no longer claims.
         var appCachePath = GetPackageContentCachePath();
         if (Directory.Exists(appCachePath))
         {
@@ -225,19 +230,43 @@ public static class NuGetCache
                     normalizedVersion,
                     sourceKey))
                 {
-                    InfoTracker.RecordCacheHit();
-                    CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
-                    return new CachedPackage(
-                        appPackageDir,
-                        sourceKey,
-                        RequiresArchiveTreeMatch: true);
+                    candidates.Add(
+                        new CachedPackage(
+                            appPackageDir,
+                            sourceKey,
+                            RequiresArchiveTreeMatch: true));
                 }
             }
         }
 
-        CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
-        InfoTracker.RecordCacheMiss();
-        return null;
+        // Global-packages last so a rejected foreign tree does not mask app-cache.
+        if (!_skipNuGetCache)
+        {
+            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
+            CachedPackage? global = TryGetGlobalPackageContent(
+                nugetCachePath,
+                normalizedName,
+                normalizedVersion,
+                allowedSourceKeys);
+            if (global is not null)
+                candidates.Add(global);
+        }
+
+        if (candidates.Count == 0)
+        {
+            CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
+            InfoTracker.RecordCacheMiss();
+            return candidates;
+        }
+
+        InfoTracker.RecordCacheHit();
+        CacheTelemetry.Record(
+            candidates[0].RequiresArchiveTreeMatch
+                ? "packages"
+                : "nuget-global-packages",
+            cacheKey,
+            CacheAccessResult.Hit);
+        return candidates;
     }
 
     internal static CachedPackage? TryGetGlobalPackageContent(

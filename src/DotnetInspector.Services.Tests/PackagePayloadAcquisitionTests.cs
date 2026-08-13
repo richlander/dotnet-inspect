@@ -407,6 +407,77 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
+    /// App-cache tiers are listed before global-packages so admission can fall
+    /// through a damaged foreign tree to product-owned content.
+    /// </summary>
+    [Fact]
+    public void ListCachedPackageContent_PrefersAppCacheOverGlobalPackages()
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            Directory.CreateDirectory(stagingRoot);
+            string nupkg = Path.Combine(stagingRoot, "package.nupkg");
+            File.WriteAllBytes(
+                nupkg,
+                TestPackageArchive.Create(
+                    "lib/net10.0/Sample.dll",
+                    $"{PackageId}.nuspec"));
+            string extracted = Path.Combine(stagingRoot, "from-nupkg");
+            ZipFile.ExtractToDirectory(nupkg, extracted);
+            NuGetCache.CommitPackage(
+                extracted,
+                nupkg,
+                PackageId,
+                Version,
+                sourceKey);
+
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            // .nupkg.metadata stores the feed URL; GetSourceKey is applied on read.
+            File.WriteAllText(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            File.WriteAllBytes(
+                Path.Combine(globalDir, $"{PackageId.ToLowerInvariant()}.{Version.ToLowerInvariant()}.nupkg"),
+                [1]);
+
+            IReadOnlyList<CachedPackage> listed = NuGetCache.ListCachedPackageContent(
+                PackageId,
+                Version,
+                [sourceKey],
+                globalPackagesPath: globalRoot);
+
+            Assert.Equal(2, listed.Count);
+            Assert.True(listed[0].RequiresArchiveTreeMatch);
+            Assert.False(listed[1].RequiresArchiveTreeMatch);
+            Assert.Contains(
+                Path.DirectorySeparatorChar + sourceKey,
+                listed[0].ExtractPath,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A retained nupkg with no extracted package layout must not admit as
     /// foreign/global-packages content — filesystem consumers never fall back
     /// to reading assets from the archive.

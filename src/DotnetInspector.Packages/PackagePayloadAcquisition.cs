@@ -148,35 +148,32 @@ public static class PackagePayloadAcquisition
             NuGetSourceResolver.SourceKeys(coordinate.Sources);
         foreach (string producerKey in producerKeys)
         {
-            if (store.TryGetCached(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    [producerKey],
-                    log)
-                is not { } cached)
+            foreach (IPackageContent cached in store.EnumerateCached(
+                         coordinate.PackageId,
+                         coordinate.Version,
+                         [producerKey],
+                         log))
             {
-                continue;
-            }
+                PackageContentAdmission.Outcome admission =
+                    await PackageContentAdmission.EvaluateAsync(
+                        cached,
+                        limits,
+                        cancellationToken).ConfigureAwait(false);
+                if (admission != PackageContentAdmission.Outcome.Admissible)
+                {
+                    log?.Invoke(
+                        admission == PackageContentAdmission.Outcome.MissingArchive
+                            ? $"Cached content for package '{coordinate.PackageId}' version "
+                                + $"'{coordinate.Version}' from one authorized producer has "
+                                + "no retained archive and no usable extracted tree."
+                            : $"Cached content for package '{coordinate.PackageId}' version "
+                                + $"'{coordinate.Version}' from one authorized producer does "
+                                + "not satisfy the current payload limits.");
+                    continue;
+                }
 
-            PackageContentAdmission.Outcome admission =
-                await PackageContentAdmission.EvaluateAsync(
-                    cached,
-                    limits,
-                    cancellationToken).ConfigureAwait(false);
-            if (admission != PackageContentAdmission.Outcome.Admissible)
-            {
-                log?.Invoke(
-                    admission == PackageContentAdmission.Outcome.MissingArchive
-                        ? $"Cached content for package '{coordinate.PackageId}' version "
-                            + $"'{coordinate.Version}' from one authorized producer has "
-                            + "no retained archive and no usable extracted tree."
-                        : $"Cached content for package '{coordinate.PackageId}' version "
-                            + $"'{coordinate.Version}' from one authorized producer does "
-                            + "not satisfy the current payload limits.");
-                continue;
+                return Result(cached, PackagePayloadOrigin.Cache);
             }
-
-            return Result(cached, PackagePayloadOrigin.Cache);
         }
 
         List<string> failedSources = [];

@@ -32,6 +32,26 @@ public interface IPackageStore
         Action<string>? log = null);
 
     /// <summary>
+    /// Yields every cache tier that may hold the coordinate for the allowed
+    /// producers, preferred order first. Callers that admit content should
+    /// walk this sequence so a rejected global-packages slot does not mask a
+    /// usable app-cache entry for the same producer.
+    /// </summary>
+    /// <remarks>
+    /// Default: at most the single <see cref="TryGetCached"/> result. Filesystem
+    /// stores override to surface app-cache then global-packages tiers.
+    /// </remarks>
+    IEnumerable<IPackageContent> EnumerateCached(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        Action<string>? log = null)
+    {
+        if (TryGetCached(packageName, version, allowedSourceKeys, log) is { } one)
+            yield return one;
+    }
+
+    /// <summary>
     /// Persists a freshly downloaded package from its <paramref name="nupkg"/>
     /// payload stream and returns a handle to the committed content.
     /// </summary>

@@ -417,41 +417,40 @@ public static class PackageExtractor
         PackageContentAdmission.Outcome? lastCacheRejection = null;
         foreach (string producerKey in producerKeys)
         {
-            IPackageContent? cached = s_packageStore.TryGetCached(
-                normalizedName,
-                normalizedVersion,
-                [producerKey],
-                log);
-            if (cached is null)
-                continue;
-
-            PackageContentAdmission.Outcome admission =
-                await PackageContentAdmission.EvaluateAsync(
-                    cached,
-                    PackagePayloadLimits.Default,
-                    CancellationToken.None).ConfigureAwait(false);
-            if (admission != PackageContentAdmission.Outcome.Admissible)
+            foreach (IPackageContent cached in s_packageStore.EnumerateCached(
+                         normalizedName,
+                         normalizedVersion,
+                         [producerKey],
+                         log))
             {
-                lastCacheRejection = admission;
-                log?.Invoke(
-                    admission == PackageContentAdmission.Outcome.MissingArchive
-                        ? $"Cached content for package '{packageName}' version "
-                            + $"'{version}' from one authorized producer has no "
-                            + "retained archive and no usable extracted tree."
-                        : $"Cached content for package '{packageName}' version "
-                            + $"'{version}' from one authorized producer does not "
-                            + "satisfy the current payload limits.");
-                continue;
-            }
+                PackageContentAdmission.Outcome admission =
+                    await PackageContentAdmission.EvaluateAsync(
+                        cached,
+                        PackagePayloadLimits.Default,
+                        CancellationToken.None).ConfigureAwait(false);
+                if (admission != PackageContentAdmission.Outcome.Admissible)
+                {
+                    lastCacheRejection = admission;
+                    log?.Invoke(
+                        admission == PackageContentAdmission.Outcome.MissingArchive
+                            ? $"Cached content for package '{packageName}' version "
+                                + $"'{version}' from one authorized producer has no "
+                                + "retained archive and no usable extracted tree."
+                            : $"Cached content for package '{packageName}' version "
+                                + $"'{version}' from one authorized producer does not "
+                                + "satisfy the current payload limits.");
+                    continue;
+                }
 
-            return new PackageExtractionResult(
-                cached.RootPath!,
-                null,
-                packageName,
-                version,
-                cached.NupkgPath,
-                FromCache: true,
-                cached.ProducerKey);
+                return new PackageExtractionResult(
+                    cached.RootPath!,
+                    null,
+                    packageName,
+                    version,
+                    cached.NupkgPath,
+                    FromCache: true,
+                    cached.ProducerKey);
+            }
         }
 
         if (HttpClientFactory.IsOffline)
