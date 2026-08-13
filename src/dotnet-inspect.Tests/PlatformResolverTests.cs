@@ -174,6 +174,47 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void ResolveAssembly_AssemblyNameCannotEscapeReferencePack()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-platform-resolution-").FullName;
+        try
+        {
+            string referenceDirectory = Path.Combine(
+                root,
+                "Microsoft.NETCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            Directory.CreateDirectory(referenceDirectory);
+            Directory.CreateDirectory(Path.Combine(referenceDirectory, "System.X"));
+
+            string payload = Path.Combine(root, "payload.dll");
+            File.Copy(typeof(PlatformResolverTests).Assembly.Location, payload);
+            string valid = Path.Combine(referenceDirectory, "System.Valid.dll");
+            File.Copy(typeof(PlatformResolverTests).Assembly.Location, valid);
+
+            var escaped = PlatformResolver.ResolveAssembly(
+                "System.X/../../../../../payload",
+                frameworkSpec: "runtime@1.0.0",
+                packsDirectory: root);
+            var resolved = PlatformResolver.ResolveAssembly(
+                "System.Valid",
+                frameworkSpec: "runtime@1.0.0",
+                packsDirectory: root);
+
+            Assert.Null(escaped.AssemblyPath);
+            Assert.NotNull(escaped.Error);
+            Assert.Equal(valid, resolved.AssemblyPath);
+            Assert.Null(resolved.Error);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ClassifyAssemblySurface_UnsafeFacade_ReturnsFacade()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");

@@ -2079,8 +2079,8 @@ public class SectionPipelineTests
             AssemblyReferencesQuery.Execute(session));
 
         Assert.Equal(
-            session.AssemblyReferences().OrderBy(reference => reference.Name),
-            result.References.OrderBy(reference => reference.Name));
+            session.AssemblyReferenceIdentities().OrderBy(reference => reference.Name),
+            result.Identities.OrderBy(reference => reference.Name));
     }
 
     [Fact]
