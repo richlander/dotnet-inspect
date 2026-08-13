@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -17,9 +18,16 @@ public static class ApiSurfaceExtractor
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
 
     public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
+        => Extract(peReader.GetMetadataReader(), includeAll, typesOnly, includeCompilerGenerated);
+
+    public static ApiSurface Extract(MetadataReader reader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
     {
         var surface = new ApiSurface();
-        var reader = peReader.GetMetadataReader();
+        var currentScope = ReadCurrentScope(reader, surface);
+        var localTypes = currentScope is null
+            ? []
+            : LocalTypes(reader, currentScope);
+        var accessorMethods = AccessorMethods(reader, surface);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -152,8 +160,11 @@ public static class ApiSurfaceExtractor
             {
             apiType.Members = [];
 
-            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
-
+            var explicitImplementationBodies = GetExplicitImplementationBodies(
+                reader,
+                typeDef,
+                currentScope,
+                localTypes);
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
             // slot the C# `~Type()` destructor compiles to.
@@ -165,23 +176,39 @@ public static class ApiSurfaceExtractor
                 var method = reader.GetMethodDefinition(methodHandle);
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
-                    continue;
-
                 string methodName = reader.GetString(method.Name);
+                var isOwnedAccessor = accessorMethods.Contains(methodHandle);
+                var isRetainedExplicitImplementation = isExplicitInterfaceImplementation
+                    && (!isOwnedAccessor
+                        || methodAccess != MethodAttributes.Public
+                        || methodName.Contains('.', StringComparison.Ordinal));
+                var isFinalizer = apiType.Kind == "class"
+                    && method.GetGenericParameters().Count == 0
+                    && (objectFinalizeOverrides.Contains(methodHandle)
+                        || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
+                if (methodAccess != MethodAttributes.Public
+                    && !includeAll
+                    && !isRetainedExplicitImplementation
+                    && !isFinalizer)
+                {
+                    continue;
+                }
 
-                // Skip property accessors and event accessors
-                if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
-                    methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                // Ordinary accessors are represented by their owning property/event.
+                // Explicit-interface accessors remain method entries because whole-type
+                // decompilation consumes their bodies. Preserve legal ordinary methods
+                // whose names or flags merely resemble accessors.
+                if (isOwnedAccessor && !isRetainedExplicitImplementation)
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
-                if (methodName.StartsWith("<"))
+                if (methodName.StartsWith("<") && !includeCompilerGenerated)
                     continue;
 
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
                 if (!includeAll
-                    && !isExplicitInterfaceImplementation
+                    && !isRetainedExplicitImplementation
+                    && !isFinalizer
                     && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
@@ -194,7 +221,7 @@ public static class ApiSurfaceExtractor
                     && OperatorNames.IsOperatorMethodName(methodName);
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
-                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+                var isOverride = isVirtual && !isNewSlot && !isRetainedExplicitImplementation && !isFinalizer;
 
                 // A class finalizer is the `object.Finalize` override the C#
                 // `~Type()` destructor compiles to. It is detected by the
@@ -214,11 +241,6 @@ public static class ApiSurfaceExtractor
                 // A finalizer is never generic, so a method that overrides
                 // object.Finalize while declaring its own type parameters is still
                 // rejected — rendering it `~Type()` would erase `<T>`.
-                var isFinalizer = apiType.Kind == "class"
-                    && method.GetGenericParameters().Count == 0
-                    && (objectFinalizeOverrides.Contains(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
-
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -226,14 +248,8 @@ public static class ApiSurfaceExtractor
                     {
                         ".ctor" => "constructor",
                         _ when isOperator => "operator",
-                        // A finalizer compiles to a `Finalize` method carrying an
-                        // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
-                        // it as its own kind before the explicit-interface arm so it
-                        // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
                         _ when isFinalizer => "finalizer",
-                        _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
+                        _ when isRetainedExplicitImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
                     IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
@@ -255,7 +271,9 @@ public static class ApiSurfaceExtractor
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
-                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
+                    Accessibility = isFinalizer || isRetainedExplicitImplementation && !isOperator
+                        ? null
+                        : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     Attributes = RenderMemberAttributes(reader, method.GetCustomAttributes())
@@ -475,13 +493,15 @@ public static class ApiSurfaceExtractor
                 var evt = reader.GetEventDefinition(eventHandle);
                 var accessors = evt.GetAccessors();
 
-                // Check if adder exists
-                if (accessors.Adder.IsNil)
+                var representativeHandle = !accessors.Adder.IsNil
+                    ? accessors.Adder
+                    : accessors.Remover;
+                if (representativeHandle.IsNil)
                     continue;
 
-                var adder = reader.GetMethodDefinition(accessors.Adder);
-                var adderAccess = adder.Attributes & MethodAttributes.MemberAccessMask;
-                if (adderAccess != MethodAttributes.Public && !includeAll)
+                var representative = reader.GetMethodDefinition(representativeHandle);
+                var representativeAccess = representative.Attributes & MethodAttributes.MemberAccessMask;
+                if (representativeAccess != MethodAttributes.Public && !includeAll)
                     continue;
 
                 // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
@@ -494,7 +514,7 @@ public static class ApiSurfaceExtractor
                     evt.Type,
                     GenericContext.ForType(reader, typeDef));
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
-                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
+                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, representative.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
                     eventType += "?";
                 // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
@@ -527,9 +547,9 @@ public static class ApiSurfaceExtractor
                         eventType = eventNode.Render();
                     }
                 }
-                var adderAttributes = adder.Attributes;
-                var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
-                var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
+                var representativeAttributes = representative.Attributes;
+                var isVirtualEvent = (representativeAttributes & MethodAttributes.Virtual) != 0;
+                var isOverrideEvent = isVirtualEvent && (representativeAttributes & MethodAttributes.NewSlot) == 0;
 
                 var member = new ApiMember
                 {
@@ -542,12 +562,12 @@ public static class ApiSurfaceExtractor
                         ReturnType = eventType,
                         MemberName = reader.GetString(evt.Name)
                     },
-                    IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
+                    IsStatic = (representativeAttributes & MethodAttributes.Static) != 0,
                     IsVirtual = isVirtualEvent,
-                    IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
+                    IsAbstract = (representativeAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverrideEvent,
-                    IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
-                    Accessibility = GetAccessibility(adderAccess),
+                    IsSealed = isOverrideEvent && (representativeAttributes & MethodAttributes.Final) != 0,
+                    Accessibility = GetAccessibility(representativeAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     AdderToken = accessors.Adder.IsNil
@@ -660,6 +680,203 @@ public static class ApiSurfaceExtractor
 
         return surface;
     }
+
+    static HashSet<MethodDefinitionHandle> AccessorMethods(
+        MetadataReader reader,
+        ApiSurface surface)
+    {
+        var methods = new HashSet<MethodDefinitionHandle>();
+        foreach (var propertyHandle in reader.PropertyDefinitions)
+        {
+            try
+            {
+                var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+                if (!accessors.Getter.IsNil)
+                    methods.Add(accessors.Getter);
+                if (!accessors.Setter.IsNil)
+                    methods.Add(accessors.Setter);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                AddInspectionFailure(
+                    surface,
+                    "property accessors",
+                    propertyHandle,
+                    MetadataTypeNameFailure.Malformed(propertyHandle, ex.Message));
+            }
+        }
+        foreach (var eventHandle in reader.EventDefinitions)
+        {
+            try
+            {
+                var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+                if (!accessors.Adder.IsNil)
+                    methods.Add(accessors.Adder);
+                if (!accessors.Remover.IsNil)
+                    methods.Add(accessors.Remover);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                AddInspectionFailure(
+                    surface,
+                    "event accessors",
+                    eventHandle,
+                    MetadataTypeNameFailure.Malformed(eventHandle, ex.Message));
+            }
+        }
+        methods.UnionWith(ExtensionPropertyImplementationMethods(reader, surface));
+        return methods;
+    }
+
+    static HashSet<MethodDefinitionHandle> ExtensionPropertyImplementationMethods(
+        MetadataReader reader,
+        ApiSurface surface)
+    {
+        HashSet<MethodDefinitionHandle> methods = [];
+        foreach (var extensionClassHandle in reader.TypeDefinitions)
+        {
+            try
+            {
+                var extensionClass = reader.GetTypeDefinition(extensionClassHandle);
+                if (!AttributeReader.HasExtensionAttribute(
+                        reader,
+                        extensionClass.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                foreach (var groupingTypeHandle in extensionClass.GetNestedTypes())
+                {
+                    var groupingType = reader.GetTypeDefinition(groupingTypeHandle);
+                    if (!AttributeReader.HasExtensionAttribute(
+                            reader,
+                            groupingType.GetCustomAttributes()))
+                    {
+                        continue;
+                    }
+
+                    foreach (var propertyHandle in groupingType.GetProperties())
+                    {
+                        var property = reader.GetPropertyDefinition(propertyHandle);
+                        var accessors = property.GetAccessors();
+                        if (!TryGetExtensionMarkerName(
+                                reader,
+                                property,
+                                accessors,
+                                out string? markerName))
+                        {
+                            continue;
+                        }
+
+                        var markerTypeHandle = groupingType.GetNestedTypes().FirstOrDefault(handle =>
+                            reader.StringComparer.Equals(
+                                reader.GetTypeDefinition(handle).Name,
+                                markerName!));
+                        if (markerTypeHandle.IsNil)
+                            continue;
+                        var markerType = reader.GetTypeDefinition(markerTypeHandle);
+                        var markerMethodHandle = markerType.GetMethods().FirstOrDefault(handle =>
+                            reader.StringComparer.Equals(
+                                reader.GetMethodDefinition(handle).Name,
+                                "<Extension>$"));
+                        if (markerMethodHandle.IsNil)
+                            continue;
+
+                        var context = GenericContext.ForType(reader, markerType);
+                        if (!GuardedSignatureText.MethodText(
+                                reader,
+                                reader.GetMethodDefinition(markerMethodHandle),
+                                context).TryGetValue(out var markerSignature)
+                            || markerSignature.ParameterTypes.Length != 1
+                            || !GuardedSignatureText.PropertyText(
+                                reader,
+                                property,
+                                context).TryGetValue(out var propertySignature))
+                        {
+                            continue;
+                        }
+
+                        string propertyName = reader.GetString(property.Name);
+                        int implementationGenericArity = groupingType.GetGenericParameters().Count;
+                        foreach (var methodHandle in extensionClass.GetMethods())
+                        {
+                            var method = reader.GetMethodDefinition(methodHandle);
+                            string methodName = reader.GetString(method.Name);
+                            bool getter = !accessors.Getter.IsNil
+                                && methodName == $"get_{propertyName}";
+                            bool setter = !accessors.Setter.IsNil
+                                && methodName == $"set_{propertyName}";
+                            if (!getter && !setter)
+                                continue;
+                            if (!GuardedSignatureText.MethodText(
+                                    reader,
+                                    method,
+                                    GenericContext.ForMethod(reader, extensionClass, method))
+                                .TryGetValue(out var implementationSignature))
+                            {
+                                continue;
+                            }
+
+                            var markerAccessorHandle = getter
+                                ? accessors.Getter
+                                : accessors.Setter;
+                            bool isStaticExtensionMember = reader
+                                .GetMethodDefinition(markerAccessorHandle)
+                                .Attributes.HasFlag(MethodAttributes.Static);
+                            IEnumerable<string> expectedParameters =
+                                isStaticExtensionMember
+                                    ? propertySignature.ParameterTypes
+                                    : new[] { markerSignature.ParameterTypes[0] }
+                                        .Concat(propertySignature.ParameterTypes);
+                            if (setter)
+                                expectedParameters = expectedParameters.Append(
+                                    propertySignature.ReturnType);
+                            if (implementationSignature.ParameterTypes.SequenceEqual(
+                                    expectedParameters,
+                                    StringComparer.Ordinal)
+                                && method.GetGenericParameters().Count == implementationGenericArity
+                                && (getter
+                                    ? implementationSignature.ReturnType
+                                        == propertySignature.ReturnType
+                                    : implementationSignature.ReturnType == "void"))
+                            {
+                                methods.Add(methodHandle);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                AddInspectionFailure(
+                    surface,
+                    "extension property accessors",
+                    extensionClassHandle,
+                    MetadataTypeNameFailure.Malformed(extensionClassHandle, ex.Message));
+            }
+        }
+        return methods;
+    }
+
+    static bool TryGetExtensionMarkerName(
+        MetadataReader reader,
+        PropertyDefinition property,
+        PropertyAccessors accessors,
+        out string? markerName)
+        => AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                property.GetCustomAttributes(),
+                out markerName)
+            || !accessors.Getter.IsNil
+            && AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                reader.GetMethodDefinition(accessors.Getter).GetCustomAttributes(),
+                out markerName)
+            || !accessors.Setter.IsNil
+            && AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                reader.GetMethodDefinition(accessors.Setter).GetCustomAttributes(),
+                out markerName);
 
     private static byte? GetEffectiveNullable(
         MetadataReader reader, CustomAttributeHandleCollection attributes, byte nullableContext)
@@ -832,17 +1049,363 @@ public static class ApiSurfaceExtractor
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
-        MetadataReader reader, TypeDefinition typeDef)
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle> localTypes)
     {
         HashSet<MethodDefinitionHandle> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
+            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
+                && TargetsImplementedInterface(
+                    reader,
+                    typeDef,
+                    implementation.MethodDeclaration,
+                    currentScope,
+                    localTypes) is not InterfaceMethodImplOwnership.ProvenNonInterface)
+            {
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+            }
         }
 
         return handles;
+    }
+
+    private enum InterfaceMethodImplOwnership
+    {
+        ProvenNonInterface,
+        ProvenInterface,
+        UnresolvedExternalInheritance,
+    }
+
+    private static InterfaceMethodImplOwnership TargetsImplementedInterface(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        EntityHandle declaration,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle> localTypes)
+    {
+        EntityHandle declaringType = declaration.Kind switch
+        {
+            HandleKind.MethodDefinition => reader
+                .GetMethodDefinition((MethodDefinitionHandle)declaration)
+                .GetDeclaringType(),
+            HandleKind.MemberReference => reader
+                .GetMemberReference((MemberReferenceHandle)declaration)
+                .Parent,
+            _ => default,
+        };
+        if (declaringType.Kind is not (
+                HandleKind.TypeDefinition
+                or HandleKind.TypeReference
+                or HandleKind.TypeSpecification))
+        {
+            return InterfaceMethodImplOwnership.ProvenNonInterface;
+        }
+
+        if (declaringType.Kind == HandleKind.TypeDefinition
+            && !reader.GetTypeDefinition((TypeDefinitionHandle)declaringType)
+                .Attributes.HasFlag(TypeAttributes.Interface))
+        {
+            return InterfaceMethodImplOwnership.ProvenNonInterface;
+        }
+
+        foreach (var handle in typeDef.GetInterfaceImplementations())
+        {
+            if (reader.GetInterfaceImplementation(handle).Interface == declaringType)
+                return InterfaceMethodImplOwnership.ProvenInterface;
+        }
+
+        var declarationIdentity = TryGetNamedTypeIdentity(
+            reader,
+            declaringType,
+            currentScope);
+        if (IsSystemObjectType(reader, declaringType)
+            || TargetsClassHierarchy(
+                reader,
+                typeDef,
+                declaringType,
+                declarationIdentity,
+                currentScope,
+                localTypes))
+        {
+            return InterfaceMethodImplOwnership.ProvenNonInterface;
+        }
+
+        var pending = new Queue<EntityHandle>();
+        foreach (var handle in typeDef.GetInterfaceImplementations())
+            pending.Enqueue(reader.GetInterfaceImplementation(handle).Interface);
+
+        HashSet<MetadataNamedTypeIdentity> visited = [];
+        bool hasUnresolvedExternalOwnership = declarationIdentity is null
+            || !localTypes.ContainsKey(declarationIdentity);
+        while (pending.TryDequeue(out var interfaceType))
+        {
+            if (interfaceType == declaringType)
+                return InterfaceMethodImplOwnership.ProvenInterface;
+            if (TryGetNamedTypeIdentity(reader, interfaceType, currentScope) is not { } interfaceIdentity)
+            {
+                hasUnresolvedExternalOwnership = true;
+                continue;
+            }
+            if (!visited.Add(interfaceIdentity))
+            {
+                continue;
+            }
+            if (declarationIdentity is not null
+                && interfaceIdentity == declarationIdentity)
+                return InterfaceMethodImplOwnership.ProvenInterface;
+
+            // Same-module definitions let us close inherited InterfaceImpl edges.
+            // External inheritance cannot be proven from this reader alone. Keep
+            // that uncertainty distinct from a proven class MethodImpl so default
+            // extraction does not silently drop a possible explicit implementation.
+            if (!localTypes.TryGetValue(interfaceIdentity, out var interfaceHandle))
+            {
+                hasUnresolvedExternalOwnership = true;
+                continue;
+            }
+            var interfaceDefinition = reader.GetTypeDefinition(interfaceHandle);
+            foreach (var handle in interfaceDefinition.GetInterfaceImplementations())
+                pending.Enqueue(reader.GetInterfaceImplementation(handle).Interface);
+        }
+
+        return hasUnresolvedExternalOwnership
+            ? InterfaceMethodImplOwnership.UnresolvedExternalInheritance
+            : InterfaceMethodImplOwnership.ProvenNonInterface;
+    }
+
+    private static bool TargetsClassHierarchy(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        EntityHandle declaringType,
+        MetadataNamedTypeIdentity? declarationIdentity,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle> localTypes)
+    {
+        EntityHandle baseType = typeDef.BaseType;
+        HashSet<TypeDefinitionHandle> visited = [];
+        while (!baseType.IsNil)
+        {
+            if (baseType == declaringType)
+                return true;
+            if (declarationIdentity is not null
+                && TryGetNamedTypeIdentity(reader, baseType, currentScope) == declarationIdentity)
+            {
+                return true;
+            }
+            if (baseType.Kind == HandleKind.TypeSpecification)
+            {
+                if (TryGetNamedTypeIdentity(reader, baseType, currentScope) is not { } baseIdentity
+                    || !localTypes.TryGetValue(baseIdentity, out var baseDefinition))
+                {
+                    return false;
+                }
+                baseType = baseDefinition;
+            }
+            if (baseType.Kind != HandleKind.TypeDefinition
+                || !visited.Add((TypeDefinitionHandle)baseType))
+            {
+                return false;
+            }
+
+            baseType = reader.GetTypeDefinition((TypeDefinitionHandle)baseType).BaseType;
+        }
+
+        return false;
+    }
+
+    private static Dictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle> LocalTypes(
+        MetadataReader reader,
+        MetadataTypeScope currentScope)
+    {
+        Dictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle> types = [];
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            if (ReadDefinitionIdentity(reader, handle, currentScope) is { } identity)
+                types.TryAdd(identity, handle);
+        }
+
+        return types;
+    }
+
+    private static MetadataNamedTypeIdentity? TryGetNamedTypeIdentity(
+        MetadataReader reader,
+        EntityHandle handle,
+        MetadataTypeScope? currentScope) =>
+        handle.Kind switch
+        {
+            HandleKind.TypeDefinition => currentScope is null
+                ? null
+                : ReadDefinitionIdentity(
+                    reader,
+                    (TypeDefinitionHandle)handle,
+                    currentScope),
+            HandleKind.TypeReference => ReadReferenceIdentity(
+                reader,
+                (TypeReferenceHandle)handle,
+                currentScope),
+            HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+                reader,
+                (TypeSpecificationHandle)handle,
+                new NamedTypeIdentityProvider(currentScope),
+                context: null,
+                fallback: null),
+            _ => null,
+        };
+
+    private static MetadataNamedTypeIdentity? ReadDefinitionIdentity(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        MetadataTypeScope currentScope) =>
+        MetadataTypeDefinitionNameReader.Read(reader, handle)
+            is MetadataTypeDefinitionNameReadResult.Read read
+                ? new(read.Name, currentScope)
+                : null;
+
+    private static MetadataNamedTypeIdentity? ReadReferenceIdentity(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        MetadataTypeScope? currentScope)
+    {
+        if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read
+            || ReferenceScope(reader, handle, currentScope) is not { } scope)
+        {
+            return null;
+        }
+
+        return new(read.Name, scope);
+    }
+
+    private static MetadataTypeScope CurrentScope(MetadataReader reader) =>
+        reader.IsAssembly
+            ? new(AssemblyReferenceIdentity.FromAssemblyDefinition(reader), null)
+            : new(null, reader.GetString(reader.GetModuleDefinition().Name));
+
+    private static MetadataTypeScope? ReadCurrentScope(
+        MetadataReader reader,
+        ApiSurface surface)
+    {
+        try
+        {
+            return CurrentScope(reader);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            EntityHandle subject = MetadataTokens.EntityHandle(
+                reader.IsAssembly ? 0x20000001 : 0x00000001);
+            AddInspectionFailure(
+                surface,
+                "module identity",
+                subject,
+                MetadataTypeNameFailure.Malformed(subject, ex.Message));
+            return null;
+        }
+    }
+
+    private static MetadataTypeScope? ReferenceScope(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        MetadataTypeScope? currentScope)
+    {
+        Span<TypeReferenceHandle> rootToLeaf =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                rootToLeaf,
+                out _,
+                out EntityHandle terminal,
+                out _))
+        {
+            return null;
+        }
+        if (terminal.IsNil)
+            return null;
+
+        return terminal.Kind switch
+        {
+            HandleKind.ModuleDefinition => currentScope,
+            HandleKind.ModuleReference => new(
+                null,
+                reader.GetString(
+                    reader.GetModuleReference((ModuleReferenceHandle)terminal).Name)),
+            HandleKind.AssemblyReference => new(
+                AssemblyReferenceIdentity.From(
+                    reader,
+                    (AssemblyReferenceHandle)terminal),
+                null),
+            _ => null,
+        };
+    }
+
+    private sealed record MetadataTypeScope(
+        AssemblyReferenceIdentity? Assembly,
+        string? Module);
+
+    private sealed record MetadataNamedTypeIdentity(
+        MetadataTypeDefinitionName Name,
+        MetadataTypeScope Scope);
+
+    private sealed class NamedTypeIdentityProvider :
+        ISignatureTypeProvider<MetadataNamedTypeIdentity?, object?>
+    {
+        private readonly MetadataTypeScope? currentScope;
+
+        internal NamedTypeIdentityProvider(MetadataTypeScope? currentScope) =>
+            this.currentScope = currentScope;
+
+        public MetadataNamedTypeIdentity? GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) =>
+            currentScope is null
+                ? null
+                : ReadDefinitionIdentity(reader, handle, currentScope);
+
+        public MetadataNamedTypeIdentity? GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) =>
+            ReadReferenceIdentity(reader, handle, currentScope);
+
+        public MetadataNamedTypeIdentity? GetTypeFromSpecification(
+            MetadataReader reader,
+            object? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) =>
+            GuardedProviderDecode.TypeSpec(
+                reader,
+                handle,
+                this,
+                context,
+                fallback: null);
+
+        public MetadataNamedTypeIdentity? GetGenericInstantiation(
+            MetadataNamedTypeIdentity? genericType,
+            ImmutableArray<MetadataNamedTypeIdentity?> typeArguments) =>
+            // Interface ownership follows the generic type definition while the
+            // MethodImpl signature remains responsible for constructed arguments.
+            genericType;
+
+        public MetadataNamedTypeIdentity? GetModifiedType(
+            MetadataNamedTypeIdentity? modifier,
+            MetadataNamedTypeIdentity? unmodifiedType,
+            bool isRequired) =>
+            unmodifiedType;
+
+        public MetadataNamedTypeIdentity? GetPrimitiveType(PrimitiveTypeCode typeCode) => null;
+        public MetadataNamedTypeIdentity? GetSZArrayType(MetadataNamedTypeIdentity? elementType) => null;
+        public MetadataNamedTypeIdentity? GetArrayType(MetadataNamedTypeIdentity? elementType, ArrayShape shape) => null;
+        public MetadataNamedTypeIdentity? GetByReferenceType(MetadataNamedTypeIdentity? elementType) => null;
+        public MetadataNamedTypeIdentity? GetPointerType(MetadataNamedTypeIdentity? elementType) => null;
+        public MetadataNamedTypeIdentity? GetPinnedType(MetadataNamedTypeIdentity? elementType) => elementType;
+        public MetadataNamedTypeIdentity? GetGenericTypeParameter(object? context, int index) => null;
+        public MetadataNamedTypeIdentity? GetGenericMethodParameter(object? context, int index) => null;
+        public MetadataNamedTypeIdentity? GetFunctionPointerType(MethodSignature<MetadataNamedTypeIdentity?> signature) => null;
     }
 
     /// <summary>

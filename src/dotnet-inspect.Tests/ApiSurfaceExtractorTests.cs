@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -22,7 +23,7 @@ public class ApiSurfaceExtractorTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var surface = ApiSurfaceExtractor.Extract(peReader);
 
         // Find a method with known parameters
         var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
@@ -55,6 +56,48 @@ public class ApiSurfaceExtractorTests
         var staticMethod = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleKeywordParameterHost.Static));
         Assert.NotNull(staticMethod);
         Assert.Equal("int Static(int @params, int @void)", staticMethod.Signature);
+    }
+
+    [Fact]
+    public void Extract_FinalizerHasNoSourceModifiers()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var type = Assert.Single(surface.Types, candidate => candidate.Name == nameof(SampleFinalizerHost));
+        var finalizer = Assert.Single(type.Members, member => member.Kind == "finalizer");
+        Assert.True(finalizer.IsFinalizer);
+        Assert.Null(finalizer.Accessibility);
+        Assert.False(finalizer.IsOverride);
+        Assert.False(finalizer.IsSealed);
+    }
+
+    [Fact]
+    public void Extract_DoesNotLeakExtensionPropertyImplementationAccessor()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(SampleExtensionPropertyHost));
+        var ordinaryInstanceOverload = Assert.Single(
+            type.Members,
+            member => member.Name == "get_IsEven");
+        Assert.Equal(1, ordinaryInstanceOverload.SignatureModel?.TypeParameters.Count);
+        Assert.DoesNotContain(type.Members, member => member.Name == "get_Echo");
+        Assert.DoesNotContain(type.Members, member => member.Name == "set_Echo");
+        Assert.DoesNotContain(type.Members, member => member.Name == "get_Zero");
+        var ordinaryGenericOverload = Assert.Single(
+            type.Members,
+            member => member.Name == "get_GenericValue");
+        Assert.Equal(2, ordinaryGenericOverload.SignatureModel?.TypeParameters.Count);
     }
 
     [Fact]
@@ -1210,13 +1253,288 @@ public class ApiSurfaceExtractorTests
         Assert.Contains(
             surface.Types,
             t => (t.MetadataName ?? "").Contains("DisplayClass")
-                 && t.Members.Any(m => m.Kind == "field"));
+                 && t.Members.Any(m => m.Kind == "field")
+                 && t.Members.Any(m => m.Name.StartsWith("<", StringComparison.Ordinal)));
 
         // Auto-property backing fields (<Prop>k__BackingField) are never surfaced as fields, even
         // once compiler-generated members are opted in.
         Assert.DoesNotContain(
             surface.Types.SelectMany(t => t.Members),
             m => m.Kind == "field" && m.Name.EndsWith("k__BackingField", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Extract_LinksExplicitInterfaceAccessorsToOwningMembers()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(ExplicitSurfaceFixture));
+
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+        var @event = Assert.Single(
+            type.Members,
+            member => member.Kind == "event"
+                && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+        Assert.Contains(
+            type.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".Run", StringComparison.Ordinal));
+        Assert.Contains(type.Members, member =>
+            member.MetadataToken == property.GetterToken
+            && member.Name.Contains(".get_", StringComparison.Ordinal));
+        Assert.Contains(type.Members, member =>
+            member.MetadataToken == @event.AdderToken
+            && member.Name.Contains(".add_", StringComparison.Ordinal));
+        Assert.Contains(type.Members, member =>
+            member.MetadataToken == @event.RemoverToken
+            && member.Name.Contains(".remove_", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Extract_PreservesStandaloneAccessorPrefixedMethods()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(AccessorPrefixMethodFixture));
+
+        Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "get_Unused");
+        Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "set_Unused");
+        Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "add_Unused");
+        Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "remove_Unused");
+        Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "op_Custom");
+        Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "op_AdditionAssignment");
+    }
+
+    [Fact]
+    public void Extract_PreservesUnownedSpecialNameAccessorMethod()
+    {
+        var path = EmitUnownedSpecialNameAccessorMethod();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "SpecialNameFixture");
+
+            Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "get_Value");
+            Assert.Contains(
+                type.Members,
+                member => member.Kind == "operator" && member.Name == "op_AdditionAssignment");
+            Assert.Contains(
+                type.Members,
+                member => member.Kind == "method" && member.Name == "op_IncrementAssignment");
+            Assert.DoesNotContain(type.Members, member => member.Kind == "property");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Extract_DoesNotDuplicateMethodImplBackedOrdinaryAccessor()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(CovariantSurfaceDerived));
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property" && member.Name == "Value");
+
+        Assert.DoesNotContain(type.Members, member => member.MetadataToken == property.GetterToken);
+        Assert.DoesNotContain(type.Members, member => member.Name == "get_Value");
+    }
+
+    [Fact]
+    public void Extract_PreservesOtherAndRaiserMethodSemantics()
+    {
+        var path = EmitUnownedSpecialNameAccessorMethod();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "SemanticsFixture");
+
+            Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "OtherProperty");
+            Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "RaiseChanged");
+            Assert.Contains(type.Members, member => member.Kind == "method" && member.Name == "OtherEvent");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Extract_ClassifiesInterfaceMethodImplRowsByAccessorOwnership()
+    {
+        var path = EmitPrivateUnqualifiedInterfaceAccessor();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "Implementation");
+            var method = Assert.Single(
+                type.Members,
+                member => member.Name == "get_Value");
+            var ordinaryMethod = Assert.Single(
+                type.Members,
+                member => member.Name == "MappedMethod");
+
+            Assert.Equal("explicit-interface-implementation", method.Kind);
+            Assert.Equal("explicit-interface-implementation", ordinaryMethod.Kind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Extract_PreservesAccessorsImplementingInheritedInterfaces()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(InheritedInterfaceSurfaceFixture));
+
+        Assert.Contains(
+            type.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.Contains("get_Value", StringComparison.Ordinal));
+
+        var genericType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(GenericInheritedInterfaceSurfaceFixture));
+        Assert.Contains(
+            genericType.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.Contains("get_Value", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Extract_PreservesAccessorWhenOnlyDerivedInterfaceIsListed()
+    {
+        var path = EmitInheritedInterfaceAccessor();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+
+            var surface = ApiSurfaceExtractor.Extract(peReader);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "Implementation");
+
+            Assert.Contains(
+                type.Members,
+                member => member.Kind == "explicit-interface-implementation"
+                    && member.Name == "get_Value");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Extract_PreservesImplementationInheritedThroughExternalInterface()
+    {
+        var path = EmitExternalInheritedInterfaceImplementation();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+
+            var surface = ApiSurfaceExtractor.Extract(peReader);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "Implementation");
+            var member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "ICollectionGetEnumerator");
+
+            Assert.Equal("explicit-interface-implementation", member.Kind);
+            Assert.Null(member.Accessibility);
+
+            Assert.DoesNotContain(
+                type.Members,
+                candidate => candidate.Name == "MappedToExternalBase");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Extract_PreservesMethodImplWhenInterfaceScopeIsUnresolved()
+    {
+        using var stream = new MemoryStream(EmitUnresolvedInterfaceIdentityImplementation());
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var type = Assert.Single(surface.Types, candidate => candidate.Name == "Implementation");
+        var member = Assert.Single(type.Members, candidate => candidate.Name == "Mapped");
+
+        Assert.Equal("explicit-interface-implementation", member.Kind);
+        Assert.Null(member.Accessibility);
+    }
+
+    [Fact]
+    public void Extract_PreservesMethodImplWhenDeclarationIdentityIsUnresolved()
+    {
+        using var stream = new MemoryStream(EmitUnresolvedMethodImplDeclarationIdentity());
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var type = Assert.Single(surface.Types, candidate => candidate.Name == "Implementation");
+        var member = Assert.Single(type.Members, candidate => candidate.Name == "Mapped");
+
+        Assert.Equal("explicit-interface-implementation", member.Kind);
+        Assert.Null(member.Accessibility);
+    }
+
+    [Fact]
+    public void Extract_MetadataReaderOverloadMatchesPeReaderSurface()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var fromPe = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true,
+            includeCompilerGenerated: true);
+        var fromMetadata = ApiSurfaceExtractor.Extract(
+            peReader.GetMetadataReader(),
+            includeAll: true,
+            includeCompilerGenerated: true);
+
+        Assert.Equal(
+            fromPe.Types.Select(type => type.DefinitionName).ToArray(),
+            fromMetadata.Types.Select(type => type.DefinitionName).ToArray());
+        Assert.Equal(
+            fromPe.Types.SelectMany(type => type.Members).Select(member => member.Name).ToArray(),
+            fromMetadata.Types.SelectMany(type => type.Members).Select(member => member.Name).ToArray());
     }
 
     [Fact]
@@ -1305,6 +1623,484 @@ public class ApiSurfaceExtractorTests
             .SurfaceFieldHandles(reader, typeDef, includeAll: true, includeCompilerGenerated)
             .Select(h => reader.GetString(reader.GetFieldDefinition(h).Name))
             .ToHashSet(StringComparer.Ordinal);
+
+    static string EmitUnownedSpecialNameAccessorMethod()
+    {
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("UnownedSpecialNameAccessor"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("UnownedSpecialNameAccessor");
+        var type = module.DefineType(
+            "SpecialNameFixture",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var method = type.DefineMethod(
+            "get_Value",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Static
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var compoundAssignment = type.DefineMethod(
+            "op_AdditionAssignment",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(void),
+            [type]);
+        compoundAssignment.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var genericAssignment = type.DefineMethod(
+            "op_IncrementAssignment",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(void),
+            Type.EmptyTypes);
+        genericAssignment.DefineGenericParameters("T");
+        genericAssignment.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+
+        var semanticsType = module.DefineType(
+            "SemanticsFixture",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var otherProperty = DefineVoidMethod(semanticsType, "OtherProperty");
+        var property = semanticsType.DefineProperty(
+            "Value",
+            System.Reflection.PropertyAttributes.None,
+            typeof(int),
+            null);
+        property.AddOtherMethod(otherProperty);
+        var raiser = DefineVoidMethod(semanticsType, "RaiseChanged");
+        var otherEvent = DefineVoidMethod(semanticsType, "OtherEvent");
+        var @event = semanticsType.DefineEvent(
+            "Changed",
+            System.Reflection.EventAttributes.None,
+            typeof(Action));
+        @event.SetRaiseMethod(raiser);
+        @event.AddOtherMethod(otherEvent);
+        semanticsType.CreateType();
+
+        var path = Path.Combine(Path.GetTempPath(), $"unowned-special-name-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+
+        static System.Reflection.Emit.MethodBuilder DefineVoidMethod(
+            System.Reflection.Emit.TypeBuilder type,
+            string name)
+        {
+            var method = type.DefineMethod(
+                name,
+                System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Static,
+                typeof(void),
+                Type.EmptyTypes);
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            return method;
+        }
+    }
+
+    static string EmitPrivateUnqualifiedInterfaceAccessor()
+    {
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("PrivateUnqualifiedInterfaceAccessor"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("PrivateUnqualifiedInterfaceAccessor");
+        var contract = module.DefineType(
+            "IContract",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract);
+        var contractGetter = contract.DefineMethod(
+            "get_Value",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Abstract
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var contractProperty = contract.DefineProperty(
+            "Value",
+            System.Reflection.PropertyAttributes.None,
+            typeof(int),
+            null);
+        contractProperty.SetGetMethod(contractGetter);
+        var contractMethod = contract.DefineMethod(
+            "ContractMethod",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Abstract
+                | System.Reflection.MethodAttributes.Virtual,
+            typeof(int),
+            Type.EmptyTypes);
+
+        var implementation = module.DefineType(
+            "Implementation",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        implementation.AddInterfaceImplementation(contract);
+        var implementationGetter = implementation.DefineMethod(
+            "get_Value",
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = implementationGetter.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var implementationProperty = implementation.DefineProperty(
+            "Value",
+            System.Reflection.PropertyAttributes.None,
+            typeof(int),
+            null);
+        implementationProperty.SetGetMethod(implementationGetter);
+        implementation.DefineMethodOverride(implementationGetter, contractGetter);
+        var implementationMethod = implementation.DefineMethod(
+            "MappedMethod",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        var methodIl = implementationMethod.GetILGenerator();
+        methodIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_2);
+        methodIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        implementation.DefineMethodOverride(implementationMethod, contractMethod);
+
+        contract.CreateType();
+        implementation.CreateType();
+
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"private-unqualified-interface-accessor-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitInheritedInterfaceAccessor()
+    {
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("InheritedInterfaceAccessor"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("InheritedInterfaceAccessor");
+        var baseInterface = module.DefineType(
+            "IBase",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract);
+        var baseGetter = baseInterface.DefineMethod(
+            "get_Value",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Abstract
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var baseProperty = baseInterface.DefineProperty(
+            "Value",
+            System.Reflection.PropertyAttributes.None,
+            typeof(int),
+            null);
+        baseProperty.SetGetMethod(baseGetter);
+
+        var derivedInterface = module.DefineType(
+            "IDerived",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract);
+        derivedInterface.AddInterfaceImplementation(baseInterface);
+
+        var implementation = module.DefineType(
+            "Implementation",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        implementation.AddInterfaceImplementation(derivedInterface);
+        var implementationGetter = implementation.DefineMethod(
+            "get_Value",
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot
+                | System.Reflection.MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = implementationGetter.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var implementationProperty = implementation.DefineProperty(
+            "Value",
+            System.Reflection.PropertyAttributes.None,
+            typeof(int),
+            null);
+        implementationProperty.SetGetMethod(implementationGetter);
+        implementation.DefineMethodOverride(implementationGetter, baseGetter);
+
+        baseInterface.CreateType();
+        derivedInterface.CreateType();
+        implementation.CreateType();
+
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"inherited-interface-accessor-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitExternalInheritedInterfaceImplementation()
+    {
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ExternalInheritedInterfaceImplementation"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("ExternalInheritedInterfaceImplementation");
+        var intermediateBase = module.DefineType(
+            "IntermediateBase",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Class,
+            typeof(System.IO.Stream));
+        intermediateBase.DefineGenericParameters("T");
+        var implementation = module.DefineType(
+            "Implementation",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Class,
+            intermediateBase.MakeGenericType(typeof(int)));
+        implementation.AddInterfaceImplementation(typeof(System.Collections.ICollection));
+        var body = implementation.DefineMethod(
+            "ICollectionGetEnumerator",
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot,
+            typeof(System.Collections.IEnumerator),
+            Type.EmptyTypes);
+        var il = body.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldnull);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        implementation.DefineMethodOverride(
+            body,
+            typeof(System.Collections.IEnumerable).GetMethod("GetEnumerator")!);
+        var classOverride = implementation.DefineMethod(
+            "MappedToExternalBase",
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot,
+            typeof(void),
+            Type.EmptyTypes);
+        var classOverrideIl = classOverride.GetILGenerator();
+        classOverrideIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        implementation.DefineMethodOverride(
+            classOverride,
+            typeof(System.IO.Stream).GetMethod(nameof(System.IO.Stream.Flush), Type.EmptyTypes)!);
+        intermediateBase.CreateType();
+        implementation.CreateType();
+
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"external-inherited-interface-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static byte[] EmitUnresolvedInterfaceIdentityImplementation()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("UnresolvedInterface.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("UnresolvedInterface"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        var coreLib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        var objectRef = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var targetInterface = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("IDisposable"));
+        var unresolvedInterfaceSignature = new BlobBuilder();
+        unresolvedInterfaceSignature.WriteByte(0x1d);
+        unresolvedInterfaceSignature.WriteByte(0x12);
+        unresolvedInterfaceSignature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(targetInterface) << 2) | 1);
+        var unresolvedInterface = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(unresolvedInterfaceSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var derivedInterface = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("IDerived"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var implementation = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Implementation"),
+            objectRef,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(instructions, new ControlFlowBuilder());
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(encoder, maxStack: 0);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        var signatureHandle = metadata.GetOrAddBlob(signature);
+        var body = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signatureHandle,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var declaration = metadata.AddMemberReference(
+            targetInterface,
+            metadata.GetOrAddString("Dispose"),
+            signatureHandle);
+        metadata.AddInterfaceImplementation(derivedInterface, unresolvedInterface);
+        metadata.AddInterfaceImplementation(implementation, derivedInterface);
+        metadata.AddMethodImplementation(implementation, body, declaration);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] EmitUnresolvedMethodImplDeclarationIdentity()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("UnresolvedDeclaration.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("UnresolvedDeclaration"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        var coreLib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        var objectRef = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var targetInterface = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("ITarget"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var implementation = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Implementation"),
+            objectRef,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var malformedParentSignature = new BlobBuilder();
+        malformedParentSignature.WriteByte(0x1d);
+        malformedParentSignature.WriteByte(0x12);
+        malformedParentSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(targetInterface) << 2);
+        var malformedDeclarationParent = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(malformedParentSignature));
+
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(instructions, new ControlFlowBuilder());
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(encoder, maxStack: 0);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        var signatureHandle = metadata.GetOrAddBlob(signature);
+        var body = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signatureHandle,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var declaration = metadata.AddMemberReference(
+            malformedDeclarationParent,
+            metadata.GetOrAddString("Mapped"),
+            signatureHandle);
+        metadata.AddInterfaceImplementation(implementation, targetInterface);
+        metadata.AddMethodImplementation(implementation, body, declaration);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     // Emits (via Reflection.Emit) types that exercise every branch of the field-inclusion
     // primitive: an ordinary field, a user field that merely contains "__BackingField", a genuine
@@ -1532,6 +2328,77 @@ public class SampleCustomEventHost
     }
 }
 
+public interface IExplicitSurfaceFixture
+{
+    int Value { get; }
+    event Action Changed;
+    void Run();
+}
+
+public sealed class ExplicitSurfaceFixture : IExplicitSurfaceFixture
+{
+    int IExplicitSurfaceFixture.Value => 42;
+
+    event Action IExplicitSurfaceFixture.Changed
+    {
+        add { }
+        remove { }
+    }
+
+    void IExplicitSurfaceFixture.Run()
+    {
+    }
+}
+
+public sealed class AccessorPrefixMethodFixture
+{
+    public int get_Unused() => 1;
+    public void set_Unused(int value) { }
+    public void add_Unused(int value) { }
+    public void remove_Unused(int value) { }
+    public int op_Custom() => 2;
+    public void op_AdditionAssignment(int value) { }
+}
+
+public class CovariantSurfaceBase
+{
+    public virtual object Value => "base";
+}
+
+public sealed class CovariantSurfaceDerived : CovariantSurfaceBase
+{
+    public override string Value => "derived";
+}
+
+public interface IInheritedSurfaceBase
+{
+    int Value { get; }
+}
+
+public interface IInheritedSurfaceDerived : IInheritedSurfaceBase
+{
+}
+
+public sealed class InheritedInterfaceSurfaceFixture : IInheritedSurfaceDerived
+{
+    int IInheritedSurfaceBase.Value => 1;
+}
+
+public interface IGenericInheritedSurfaceBase<T>
+{
+    T Value { get; }
+}
+
+public interface IGenericInheritedSurfaceDerived<T> : IGenericInheritedSurfaceBase<T>
+{
+}
+
+public sealed class GenericInheritedInterfaceSurfaceFixture :
+    IGenericInheritedSurfaceDerived<int>
+{
+    int IGenericInheritedSurfaceBase<int>.Value => 1;
+}
+
 /// <summary>
 /// Sample class used for testing signature extraction.
 /// </summary>
@@ -1603,6 +2470,36 @@ public class SampleKeywordParameterHost
 
     public static int Static(int @params, int @void) => @params + @void;
 }
+
+public sealed class SampleFinalizerHost
+{
+    ~SampleFinalizerHost() { }
+}
+
+public static class SampleExtensionPropertyHost
+{
+    extension(int number)
+    {
+        public bool IsEven => number % 2 == 0;
+        public int Echo
+        {
+            get => number;
+            set { }
+        }
+        public static int Zero => 0;
+    }
+
+    public static bool get_IsEven<T>(int number) => true;
+
+    extension<T>(SampleExtensionBox<T> value)
+    {
+        public T GenericValue => default!;
+    }
+
+    public static T get_GenericValue<T, TOther>(SampleExtensionBox<T> value) => default!;
+}
+
+public sealed class SampleExtensionBox<T> { }
 
 [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public class SampleTypeAttributeHost
