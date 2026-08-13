@@ -175,6 +175,14 @@ public static class FqnParser
             if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
                 memberName = memberName[..angleIdx];
         }
+        else
+        {
+            var backtickIdx = memberName.LastIndexOf('`');
+            if (backtickIdx > 0
+                && backtickIdx < memberName.Length - 1
+                && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0)
+                memberName = memberName[..backtickIdx];
+        }
 
         return NormalizeOperatorOrSpecialMemberName(memberName);
     }

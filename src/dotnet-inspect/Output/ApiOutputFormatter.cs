@@ -202,7 +202,11 @@ public static class ApiOutputFormatter
             options.IncludeSections,
             sectionsPreResolved);
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections, selectAll);
+            type,
+            effectiveVerbosity,
+            options.IncludeSections,
+            selectAll,
+            explicitInclude: sectionsPreResolved);
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];

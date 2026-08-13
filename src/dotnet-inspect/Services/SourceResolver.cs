@@ -414,13 +414,13 @@ public static class SourceResolver
             // Detect bare type names (e.g., "Dictionary`2", "List`1") passed without a source.
             // Backticks never appear in package names — they're .NET generic arity notation.
             // Try to auto-resolve the containing library from platform ref assemblies.
-            // Exception: if the value also contains a dot after the backtick, it might be
-            // a Type.Member pattern (e.g., "List`1.IndexOf:3"), so skip this check and let
-            // MemberOptionsParser handle the splitting.
+            // Exception: if the value also contains a dot after the containing type's first
+            // backtick, it might be a Type.Member pattern (e.g., "List`1.ConvertAll`1"), so
+            // skip this check and let MemberOptionsParser handle the splitting.
             if (packagePath != null && typeName == null && packagePath.Contains('`'))
             {
                 // Check if this might be Type.Member (has a dot after the type part)
-                bool mightBeTypeDotMember = packagePath.LastIndexOf('.') > packagePath.LastIndexOf('`');
+                bool mightBeTypeDotMember = packagePath.LastIndexOf('.') > packagePath.IndexOf('`');
                 
                 if (!mightBeTypeDotMember)
                 {

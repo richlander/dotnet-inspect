@@ -273,6 +273,43 @@ public class ApiCommand
             : options;
     }
 
+    private static HashSet<string>? ResolvePipelineIndependentMemberSections(
+        MemberOptions options)
+    {
+        SectionPipeline<ApiType>[] pipelines =
+        [
+            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline()
+        ];
+
+        HashSet<string>? resolvedSections = null;
+        for (var i = 0; i < pipelines.Length; i++)
+        {
+            var pipeline = pipelines[i];
+            var bareSelectSections = i == pipelines.Length - 1
+                ? pipeline.FixedOverviewSectionNames
+                : pipeline.InfoSectionNames;
+            var result = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                pipeline.SelectableSectionNames,
+                bareSelectSections,
+                pipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            if (result.HasError || result.Sections is null)
+                return null;
+            if (resolvedSections is null)
+            {
+                resolvedSections = result.Sections;
+                continue;
+            }
+            if (!resolvedSections.SetEquals(result.Sections))
+                return null;
+        }
+
+        return resolvedSections;
+    }
+
     internal static int ExecuteStructuralTypeDiscovery(
         ApiOptions options,
         SectionPipeline<ApiType> memberPipeline)
@@ -507,8 +544,13 @@ public class ApiCommand
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionDeferred = options.SelectDeferredToListing
             || options is MemberOptions { MemberSelectionDeferredToLookup: true };
-        var selectionSections = selectionDeferred ? null : options.IncludeSections;
-        if (options.Discover == null && options.Count && !selectionDeferred
+        var selectionSections = selectionDeferred
+            ? options is MemberOptions { MemberSelectionDeferredToLookup: true } deferredMember
+                ? ResolvePipelineIndependentMemberSections(deferredMember)
+                : null
+            : options.IncludeSections;
+        var selectionValidationDeferred = selectionDeferred && selectionSections is null;
+        if (options.Discover == null && options.Count && !selectionValidationDeferred
             && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
 
@@ -524,7 +566,7 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // Discovery renders its own payload and refuses the shape projections itself with
             // an accurate reason; demanding -S first reports a requirement that is not the problem.
-            if (options.Discover == null && !selectionDeferred
+            if (options.Discover == null && !selectionValidationDeferred
                 && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
@@ -551,7 +593,7 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Print && options.Discover == null && !selectionDeferred
+        if (options.Print && options.Discover == null && !selectionValidationDeferred
             && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
@@ -567,7 +609,7 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (!selectionDeferred
+        if (!selectionValidationDeferred
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
@@ -576,7 +618,7 @@ public class ApiCommand
             if (!ValidateMemberGraphFormatConflict(memberFormat))
                 return (null!, 1);
 
-            if (!selectionDeferred)
+            if (!selectionValidationDeferred)
             {
                 memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
                 options = memberFormat;
@@ -988,8 +1030,13 @@ public class ApiCommand
     internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
+        var explicitInclude = options is MemberOptions { MemberSectionsPreResolved: true };
         var sections = new HashSet<string>(
-            pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections),
+            pipeline.GetEffectiveSections(
+                type,
+                options.Verbosity,
+                options.IncludeSections,
+                explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
         if (options.Discover is { Length: > 0 } discover)
         {
@@ -2258,7 +2305,10 @@ public class ApiCommand
             GetTypeDocumentSchema(options),
             memberPipeline.SelectableSectionNames);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
+        var effective = memberPipeline.GetDiscoverableSections(
+            filteredType,
+            options.IncludeSections,
+            explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
@@ -2651,7 +2701,9 @@ public class ApiCommand
                 .ToList();
 
         // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
-        if (options.IncludeSections is { Count: > 0 } sections)
+        if (options.IncludeSections is { } sections
+            && (sections.Count > 0
+                || options is MemberOptions { MemberSectionsPreResolved: true }))
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }

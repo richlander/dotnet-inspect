@@ -15715,6 +15715,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourcelessGenericContainingTypeAndGenericMethod_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>.ConvertAll<TOutput>",
+            "-S", "Signature", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Member_GenericTypeName_DoesNotAdmitMemberDetailSections()
     {
         var (exit, output, error) = await RunAppAsync(
