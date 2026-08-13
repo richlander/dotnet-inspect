@@ -1048,6 +1048,15 @@ public static class MemberCommand
         return members;
     }
 
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
+    }
+
     private static readonly string[] SingleOverloadSectionNames =
     [
         SectionNames.Signature,

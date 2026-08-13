@@ -554,7 +554,11 @@ public class ApiCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected = true
+        };
     }
 
     private static bool HasAuthoredMemberSectionRequest(MemberOptions options)
