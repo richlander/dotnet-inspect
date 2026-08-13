@@ -58,6 +58,7 @@ jobs:
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
       packaging: ${{ steps.filter.outputs.packaging }}
       shipped: ${{ steps.filter.outputs.shipped }}
+      skills: ${{ steps.filter.outputs.skills }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -399,7 +400,7 @@ jobs:
             # infallible. `git ls-files` exits 128 on an unreadable index.
             # Keep this list in sync with the `outputs:` block above.
             echo "::warning title=Change detection fell back::Could not determine the changed files for ${{ github.sha }}; running every job so that no validation is skipped."
-            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped; do
+            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped skills; do
               echo "$name=true" >> "$GITHUB_OUTPUT"
             done
             echo "Change detection fell back; every job filter forced true."
@@ -413,14 +414,11 @@ jobs:
           ILROUNDTRIP=false
           PACKAGING=false
           SHIPPED=false
+          SKILLS=false
           while IFS= read -r -d '' file; do
             case "$file" in
               src/*) CODE=true ;;
               tests/*) CODE=true ;;
-              # SkillCommandTests enforces equality among focused skill files,
-              # runtime registration, and embedded resources. A skills-only
-              # addition must run that gate rather than pass on a skipped lane.
-              skills/*) CODE=true ;;
               tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
               tools/DecompilerHarness/*) CODE=true ;;
               eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
@@ -505,6 +503,14 @@ jobs:
               .markdownlint.*|.markdownlint-cli2.*) DOCS=true ;;
               */.markdownlint.*|*/.markdownlint-cli2.*) DOCS=true ;;
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
+            esac
+            # Shipped SKILL.md files are embedded resources. Their focused lane
+            # checks registry/resource parity without paying for the full
+            # product matrix. Other documents under skills/ need only linting.
+            case "$file" in
+              .github/workflows/ci.yml) SKILLS=true ;;
+              skills/*/*/SKILL.md) ;;
+              skills/*/SKILL.md) SKILLS=true ;;
             esac
             # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
             # they run as their own job rather than in the hot `test` lane.
@@ -625,8 +631,9 @@ jobs:
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
+          echo "skills=$SKILLS" >> "$GITHUB_OUTPUT"
           echo "Changed files were decoded and classified without logging raw path bytes."
-          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
+          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED skills=$SKILLS"
         env:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
@@ -651,6 +658,44 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
+
+  # Shipped skills are embedded Markdown resources. A SKILL.md-only PR does
+  # not need the full product matrix, but it must still prove that every
+  # focused skill is registered and embedded and that every resource resolves.
+  skill-gate:
+    needs: changes
+    if: needs.changes.outputs.skills == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Run embedded skill tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/skill-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+            -class "DotnetInspector.Tests.SkillCommandTests" \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Skill test filter selected no tests." >&2
+            exit 1
+          fi
 
   # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
   # the separate `test-windows` job below; macOS is still uncovered by tests and
@@ -1490,6 +1535,7 @@ jobs:
     needs:
       - changes
       - markdownlint
+      - skill-gate
       - test
       # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
       # pushes to main. That passes the gate by design; the allow list below
