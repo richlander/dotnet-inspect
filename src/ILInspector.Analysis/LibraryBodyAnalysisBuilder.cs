@@ -706,7 +706,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            ScanBody(context, allocationAnalysis, scope, calls, evidence,
+            MethodCallAnalysis.Collect(
+                context,
+                new CallResolver(this, scope),
+                offset => allocationAnalysis.MultiplicityAt(offset),
+                calls,
+                evidence,
                 includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
         }
         catch (Exception ex) when (IsRecoverableMethodFailure(ex))
@@ -1194,6 +1199,27 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 il,
                 ArgumentSlotCount(caller),
                 exceptionRegions);
+    }
+
+    // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns
+    // the body traversal and projection while this resolver retains reader/scope
+    // ownership and the established malformed-metadata behavior.
+    sealed class CallResolver(
+        LibraryBodyAnalysisBuilder owner,
+        GenericScope scope)
+        : IMethodCallResolver
+    {
+        public MemberRef ResolveMember(int token)
+            => MemberResolver.ResolveMethod(
+                owner._reader,
+                MetadataTokens.EntityHandle(token),
+                scope);
+
+        public MemberRef ResolveIndirectCall(int signatureToken)
+            => owner.ResolveCalliMember(signatureToken, scope);
+
+        public int DefinitionToken(int operandToken)
+            => owner.PeelToDefinitionToken(operandToken);
     }
 
     // A value-type `newobj` whose operand is an unresolvable external TypeRef is still
@@ -3327,97 +3353,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
         return true;
     }
-
-
-    void ScanBody(
-        MethodBodyAnalysisContext context,
-        MethodAllocationAnalysis allocationAnalysis,
-        GenericScope callerScope,
-        ImmutableArray<DirectCall>.Builder calls,
-        ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
-        bool includeIndirectOpcodes)
-    {
-        var caller = context.Method;
-        foreach (var instruction in context.Instructions.Instructions)
-        {
-            int offset = instruction.Offset;
-            var opcode = instruction.OpCode;
-            switch (opcode)
-            {
-                case ILOpCode.Call:
-                case ILOpCode.Callvirt:
-                case ILOpCode.Newobj:
-                case ILOpCode.Ldftn:
-                case ILOpCode.Ldvirtftn:
-                {
-                    int token = MethodInstructionFacts.OperandInt32(instruction);
-                    var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                    bool inLoop = context.IsInLoopRegion(offset);
-                    calls.Add(new DirectCall(
-                        caller,
-                        callee,
-                        offset,
-                        token,
-                        PeelToDefinitionToken(token),
-                        ToCallKind(opcode),
-                        inLoop)
-                    {
-                        Opcode = FormatCallOpcode(opcode),
-                        ReturnAddress = instruction.NextOffset,
-                        Multiplicity =
-                            allocationAnalysis.MultiplicityAt(offset),
-                    });
-                    if (MethodSafetyAnalysis.InspectCall(
-                            caller,
-                            callee,
-                            ToCallKind(opcode),
-                            offset,
-                            token)
-                        is { } callEvidence)
-                    {
-                        unsafeEvidence.Add(callEvidence);
-                    }
-                    break;
-                }
-                case ILOpCode.Calli:
-                {
-                    int token = MethodInstructionFacts.OperandInt32(instruction);
-                    calls.Add(new DirectCall(
-                        caller,
-                        ResolveCalliMember(token, callerScope),
-                        offset,
-                        token,
-                        token,
-                        CallKind.CallIndirect,
-                        context.IsInLoopRegion(offset))
-                    {
-                        Opcode = FormatCallOpcode(opcode),
-                        ReturnAddress = instruction.NextOffset,
-                        Multiplicity =
-                            allocationAnalysis.MultiplicityAt(offset),
-                    });
-                    unsafeEvidence.Add(
-                        MethodSafetyAnalysis.CallIndirect(
-                            caller,
-                            offset,
-                            token));
-                    break;
-                }
-                default:
-                    if (MethodSafetyAnalysis.InspectOperation(
-                            caller,
-                            opcode,
-                            offset,
-                            includeIndirectOpcodes)
-                        is { } operationEvidence)
-                    {
-                        unsafeEvidence.Add(operationEvidence);
-                    }
-                    break;
-            }
-        }
-    }
-
     MemberRef ResolveCalliMember(int token, GenericScope scope)
     {
         try
@@ -3517,25 +3452,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         int tick = name.IndexOf('`');
         return tick < 0 ? name : name[..tick];
     }
-
-    static string FormatCallOpcode(ILOpCode opcode) => opcode switch
-    {
-        ILOpCode.Callvirt => "callvirt",
-        ILOpCode.Newobj => "newobj",
-        ILOpCode.Ldftn => "ldftn",
-        ILOpCode.Ldvirtftn => "ldvirtftn",
-        ILOpCode.Calli => "calli",
-        _ => "call",
-    };
-
-    static CallKind ToCallKind(ILOpCode opcode) => opcode switch
-    {
-        ILOpCode.Call => CallKind.Call,
-        ILOpCode.Callvirt => CallKind.CallVirtual,
-        ILOpCode.Newobj => CallKind.NewObject,
-        ILOpCode.Ldftn => CallKind.LoadFunction,
-        _ => CallKind.LoadVirtualFunction,
-    };
 
     GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
         => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));
