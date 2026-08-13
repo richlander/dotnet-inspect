@@ -565,13 +565,23 @@ public static class TimelineCommand
                 $"Member '{memberName}' has no method-body target.");
         }
 
-        var index = LibraryBodyIndex.Open(
+        var session = OpenAnalysisSession(
             assemblyPath,
-            includeAllocations: descriptor == AnalysisFindings.AllocationDescriptor,
+            descriptor,
+            token);
+        return inspect(session.BodyIndex, token, subject);
+    }
+
+    internal static MethodBodyInspectionSession OpenAnalysisSession(
+        string assemblyPath,
+        FindingDescriptor descriptor,
+        int token)
+        => MethodBodyInspectionSession.Open(
+            assemblyPath,
+            includeAllocations:
+                descriptor == AnalysisFindings.AllocationDescriptor,
             includeOpportunities: false,
             bodyScope: ImmutableHashSet.Create(token));
-        return inspect(index, token, subject);
-    }
 
     static TimelineDocumentView BuildCorrelatedView<T>(
         PackageVersionVector vector,
