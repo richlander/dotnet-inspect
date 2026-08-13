@@ -1295,7 +1295,7 @@ public sealed class SwitchRaisingPass : IIrPass
             if (idx == s || owned.Contains(idx))
                 continue;   // the switch dispatches the table; owned-internal edges are fine
             foreach (var node in blocks[idx].Children)
-                foreach (int target in Targets(node))
+                foreach (int target in TargetsInFunctionScope(node))
                     if (ownedOffsets.Contains(target))
                         return false;
         }
@@ -1312,11 +1312,22 @@ public sealed class SwitchRaisingPass : IIrPass
             if (owned.Contains(idx))
                 continue;
             foreach (var node in blocks[idx].Children)
-                foreach (int target in Targets(node))
+                foreach (int target in TargetsInFunctionScope(node))
                     if (target == joinOffset)
                         return false;
         }
         return true;
+    }
+
+    static IEnumerable<int> TargetsInFunctionScope(IrNode node)
+    {
+        if (node is Lambda or LocalFunctionStatement)
+            yield break;
+        foreach (int target in Targets(node))
+            yield return target;
+        foreach (var child in node.Children)
+            foreach (int target in TargetsInFunctionScope(child))
+                yield return target;
     }
 
     static IEnumerable<int> Targets(IrNode node) => node switch
@@ -1935,7 +1946,7 @@ public sealed class SwitchRaisingPass : IIrPass
             if ((idx >= s && idx <= dispatchEnd) || owned.Contains(idx))
                 continue;   // the dispatch chain legitimately jumps into the bodies
             foreach (var node in blocks[idx].Children)
-                foreach (int target in Targets(node))
+                foreach (int target in TargetsInFunctionScope(node))
                     if (ownedOffsets.Contains(target))
                         return false;
         }
