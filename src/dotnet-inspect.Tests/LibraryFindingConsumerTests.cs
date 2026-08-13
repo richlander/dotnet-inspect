@@ -158,8 +158,8 @@ public class LibraryFindingConsumerTests
     [Fact]
     public void TypeForwardersQueryProjection_PreservesIdentityUntilInertViewBoundary()
     {
-        const string TypeName = "Sample.\u001b[31mForged";
-        const string TargetAssembly = "Target\nError: forged";
+        const string TypeName = "Sample.\u200B\u001b[31mForged";
+        const string TargetAssembly = "Target\U000E0074\nError: forged";
         var inspection = new LibraryInspection();
 
         LibraryMetadataService.ApplyTypeForwardersResult(
@@ -181,6 +181,8 @@ public class LibraryFindingConsumerTests
         Assert.NotEqual(TargetAssembly, row.TargetAssembly);
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TypeName));
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TargetAssembly));
+        Assert.DoesNotContain("\u200B", row.TypeName, StringComparison.Ordinal);
+        Assert.DoesNotContain("\U000E0074", row.TargetAssembly, StringComparison.Ordinal);
     }
 
     [Fact]
