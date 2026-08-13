@@ -550,20 +550,24 @@ internal static class PackageContentAdmission
 
             if (total == buffer.Length)
             {
+                // Probe before growing so an exact-length fill (common for
+                // seekable files sized from Length) does not transiently
+                // allocate ~2× only to observe EOF and shrink back.
+                byte[] probe = new byte[1];
+                int extra = await source
+                    .ReadAsync(probe, cancellationToken)
+                    .ConfigureAwait(false);
+                if (extra == 0)
+                    return total == 0 ? [] : buffer;
                 if (total == max)
-                {
-                    // At the bound: one more byte means over-limit.
-                    byte[] probe = new byte[1];
-                    int extra = await source
-                        .ReadAsync(probe, cancellationToken)
-                        .ConfigureAwait(false);
-                    return extra == 0 ? buffer : null;
-                }
+                    return null;
 
                 int growTo = (int)Math.Min(max, Math.Max((long)buffer.Length * 2, 81920));
                 if (growTo <= buffer.Length)
                     growTo = max;
                 Array.Resize(ref buffer, growTo);
+                buffer[total++] = probe[0];
+                continue;
             }
 
             int read = await source

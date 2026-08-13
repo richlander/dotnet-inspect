@@ -553,6 +553,25 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task ReadBoundedAsync_ExactSeekableLength_AtCapacityHint_ReturnsPayload()
+    {
+        // Length-sized fill (initialCapacity == payload) must succeed without
+        // needing a grow cycle after the buffer is full — probe-before-grow
+        // observes EOF and returns the filled buffer as-is.
+        byte[] payload = new byte[200_000];
+        Array.Fill(payload, (byte)3);
+        await using var stream = new MemoryStream(payload, writable: false);
+
+        byte[]? read = await PackageContentAdmission.ReadBoundedAsync(
+            stream,
+            maxBytes: 500_000,
+            CancellationToken.None);
+
+        Assert.NotNull(read);
+        Assert.Equal(payload, read);
+    }
+
+    [Fact]
     public void NestedCommitMarkerNamedFile_CountsTowardExpandedBytes()
     {
         string root = TempDirectory();
