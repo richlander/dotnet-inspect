@@ -711,7 +711,7 @@ public class IlToolsActivationTests
         string workflow = File.ReadAllText(
             Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
 
-        foreach (string jobName in new[] { "build-native", "build-portable", "publish" })
+        foreach (string jobName in new[] { "build-native", "build-portable", "publish-azure", "publish" })
         {
             int jobStart = workflow.IndexOf(
                 $"\n  {jobName}:\n",
@@ -737,7 +737,7 @@ public class IlToolsActivationTests
 
             Assert.Contains("deep-inspect-test", needs);
             Assert.DoesNotContain("continue-on-error:", jobHeader);
-            if (jobName == "publish")
+            if (jobName.StartsWith("publish", StringComparison.Ordinal))
             {
                 Assert.Equal(
                     ["if: github.event.inputs.confirm == 'publish'"],

@@ -211,8 +211,93 @@ jobs:
           path: artifacts/package/release/*.nupkg
           if-no-files-found: error
 
-  publish:
+  publish-azure:
     needs: [resolve, deep-inspect-test, decompiler-corpus, build-native, build-portable]
+    runs-on: ubuntu-26.04
+    if: github.event.inputs.confirm == 'publish'
+    environment: azure-artifacts
+    env:
+      AZURE_ARTIFACTS_FEED_URL: https://pkgs.dev.azure.com/richlander/_packaging/dotnet-inspect/nuget/v3/index.json
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Download all packages built in this run
+        uses: actions/download-artifact@v8
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
+
+      # Apply the same reach guard before the first registry receives packages.
+      - name: Validate reach packaging
+        run: |
+          set -euo pipefail
+
+          settings_path() {
+            unzip -l "$1" | grep -oE 'tools/[^[:space:]]*DotnetToolSettings.xml' | head -1
+          }
+
+          any_pkg=$(ls packages/dotnet-inspect.any.*.nupkg)
+          any_path=$(settings_path "$any_pkg")
+          echo "any package:     $any_pkg -> $any_path"
+          case "$any_path" in
+            tools/net10.0/*) echo "OK: any package targets net10.0 (LTS reach floor)";;
+            *) echo "ERROR: any package must target net10.0 for reach, found: $any_path"; exit 1;;
+          esac
+
+          pointer_pkg=$(ls packages/dotnet-inspect.[0-9]*.nupkg)
+          pointer_path=$(settings_path "$pointer_pkg")
+          echo "pointer package: $pointer_pkg -> $pointer_path"
+          case "$pointer_path" in
+            tools/any/any/*) echo "OK: pointer is TFM-agnostic (tools/any/any)";;
+            *) echo "ERROR: pointer must be TFM-agnostic (tools/any/any), found: $pointer_path"; exit 1;;
+          esac
+        shell: bash
+
+      - name: Configure Azure Artifacts authentication
+        env:
+          AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
+        run: |
+          nuget_config="$RUNNER_TEMP/azure-artifacts.nuget.config"
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<configuration />' > "$nuget_config"
+          dotnet nuget add source "$AZURE_ARTIFACTS_FEED_URL" \
+            --name azure-artifacts \
+            --username github-actions \
+            --password "$AZURE_DEVOPS_PAT" \
+            --store-password-in-clear-text \
+            --configfile "$nuget_config"
+          echo "NUGET_CONFIG=$nuget_config" >> "$GITHUB_ENV"
+
+      # Publish the exact package artifacts that the NuGet.org/GitHub job uses.
+      - name: Publish packages to Azure Artifacts
+        run: |
+          set -euo pipefail
+
+          push_package() {
+            dotnet nuget push "$1" \
+              --source azure-artifacts \
+              --api-key AzureDevOps \
+              --skip-duplicate \
+              --configfile "$NUGET_CONFIG"
+          }
+
+          for package in packages/dotnet-inspect.win-*.nupkg \
+            packages/dotnet-inspect.linux-*.nupkg \
+            packages/dotnet-inspect.osx-*.nupkg; do
+            push_package "$package"
+          done
+
+          push_package packages/dotnet-inspect.any.*.nupkg
+          push_package packages/dotnet-inspect.[0-9]*.nupkg
+
+  publish:
+    needs: [resolve, deep-inspect-test, decompiler-corpus, build-native, build-portable, publish-azure]
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     environment: nuget

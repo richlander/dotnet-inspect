@@ -19,6 +19,19 @@ The publish workflow accepts a CI run ID only to resolve the exact commit SHA.
 It does not publish or otherwise trust packages produced by that CI run. Every
 release package is built fresh from the resolved commit in `release.yml`.
 
+## Azure Artifacts mirror
+
+Every release package is built once. The Azure Artifacts and NuGet.org publish
+jobs download the same workflow artifacts, so both destinations receive the
+same package versions and bytes from the same resolved commit. Azure
+publication completes first; only then does the workflow publish to NuGet.org
+and create the GitHub release.
+
+The private, organization-scoped `dotnet-inspect` feed has no public registry
+upstream. Its enterprise-visible `@Local` view, consumer instructions, and
+credential ownership are documented in
+[Azure Artifacts release feed](azure-artifacts-feed.md).
+
 ## Packages
 
 The tool is published as a pointer package, Native AOT packages for supported
@@ -120,8 +133,11 @@ The workflow then:
    pointer contains only their mapping under `tools/any/any`.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
-5. Publishes Native AOT packages, then the managed fallback, then the pointer.
-6. Creates a GitHub release from the package version and attaches all packages.
+5. Publishes Native AOT packages, then the managed fallback, then the pointer
+   to Azure Artifacts.
+6. Publishes the same files in the same order to NuGet.org.
+7. Creates a GitHub release from the package version and attaches the same
+   package files.
 
 The pointer is deliberately published last because it references the
 runtime-specific packages.
@@ -140,6 +156,6 @@ runtime-specific packages.
   guard.
 - **A package version already exists:** advance `VersionPrefix`; published
   package versions are immutable.
-- **A partially published release is retried:** the workflow uses
-  `--skip-duplicate`, but verify the complete package set and GitHub release
-  before treating the release as complete.
+- **A partially published release is retried:** both feeds use
+  `--skip-duplicate`, but verify the complete package set in Azure Artifacts
+  and NuGet.org and the GitHub release before treating the release as complete.
