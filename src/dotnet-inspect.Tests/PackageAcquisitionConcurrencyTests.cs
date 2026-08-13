@@ -547,10 +547,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         File.WriteAllText(refFile, "fixture");
         CommittedPackage committed = NuGetCache.CommitPackage(
             source,
-            CreateNupkg(
-                PackageName,
-                Version,
-                "platform-pack"),
+            CreateNupkgFromDirectory(source, "platform-pack"),
             PackageName,
             Version,
             TestSourceKey);
@@ -593,16 +590,22 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         const string PackageName = "Microsoft.WindowsDesktop.App.Ref";
         const string Version = "10.0.2";
         string source = Path.Combine(_testRoot, "windowsdesktop-pack");
-        Directory.CreateDirectory(Path.Combine(source, "ref", "net10.0"));
+        // Include a real ref file so the retained nupkg and extract agree;
+        // empty directories alone are not archive entries and fail product-owned
+        // admission after the commit marker is written.
+        string refFile = Path.Combine(
+            source,
+            "ref",
+            "net10.0",
+            "PresentationCore.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(refFile)!);
         File.WriteAllText(
             Path.Combine(source, $"{PackageName}.nuspec"),
             "<package />");
+        File.WriteAllText(refFile, "fixture");
         NuGetCache.CommitPackage(
             source,
-            CreateNupkg(
-                PackageName,
-                Version,
-                "windowsdesktop-pack"),
+            CreateNupkgFromDirectory(source, "windowsdesktop-pack"),
             PackageName,
             Version,
             TestSourceKey);
@@ -1362,16 +1365,14 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         const string FeedB = "https://feed-b.invalid/v3/index.json";
         string producerA = NuGetCache.GetSourceKey(FeedA);
 
+        string extracted = CreateExtractedPackage(
+            Path.Combine(_testRoot, "pinned-a"),
+            packageName,
+            "A",
+            payloadCount: 1);
         CommittedPackage committed = NuGetCache.CommitPackage(
-            CreateExtractedPackage(
-                Path.Combine(_testRoot, "pinned-a"),
-                packageName,
-                "A",
-                payloadCount: 1),
-            CreateNupkg(
-                packageName,
-                Version,
-                "pinned-a"),
+            extracted,
+            CreateNupkgFromDirectory(extracted, "pinned-a"),
             packageName,
             Version,
             producerA);
@@ -1480,6 +1481,34 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             payloadCount: 1);
 
         Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, [TestSourceKey]));
+    }
+
+    /// <summary>
+    /// Builds a retained nupkg whose entry set matches <paramref name="directory"/>
+    /// exactly so product-owned admission (commit marker + archive match) accepts
+    /// the committed slot.
+    /// </summary>
+    private string CreateNupkgFromDirectory(string directory, string name)
+    {
+        string path = Path.Combine(
+            _testRoot,
+            $"{name}-{Guid.NewGuid():N}.nupkg");
+        using (FileStream file = File.Create(path))
+        using (var archive = new ZipArchive(file, ZipArchiveMode.Create))
+        {
+            foreach (string filePath in Directory.EnumerateFiles(
+                         directory,
+                         "*",
+                         SearchOption.AllDirectories))
+            {
+                string relative = Path
+                    .GetRelativePath(directory, filePath)
+                    .Replace('\\', '/');
+                archive.CreateEntryFromFile(filePath, relative);
+            }
+        }
+
+        return path;
     }
 
     private string CreateNupkg(

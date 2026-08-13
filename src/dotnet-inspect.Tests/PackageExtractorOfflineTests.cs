@@ -174,22 +174,19 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         string version,
         string sourceKey)
     {
-        string staged = Path.Combine(
-            _cacheDir,
-            $"stage-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(staged);
-        File.WriteAllText(
-            Path.Combine(
-                staged,
-                $"{packageName.ToLowerInvariant()}.nuspec"),
-            "<package />");
+        // Retained nupkg and extract must agree: product-owned admission matches
+        // path/size/CRC against the archive after the commit marker is written.
+        string entryName = $"{packageName.ToLowerInvariant()}.nuspec";
+        const string NuspecContent = "<package />";
+        Directory.CreateDirectory(_cacheDir);
         string nupkg = Path.Combine(
             _cacheDir,
             $"stage-{Guid.NewGuid():N}.nupkg");
-        File.WriteAllBytes(
-            nupkg,
-            CreateArchive(
-                $"{packageName.ToLowerInvariant()}.nuspec"));
+        File.WriteAllBytes(nupkg, CreateArchive(entryName, NuspecContent));
+        string staged = Path.Combine(
+            _cacheDir,
+            $"stage-{Guid.NewGuid():N}");
+        ZipFile.ExtractToDirectory(nupkg, staged);
         NuGetCache.CommitPackage(
             staged,
             nupkg,
@@ -198,7 +195,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
             sourceKey);
     }
 
-    private static byte[] CreateArchive(string entryPath)
+    private static byte[] CreateArchive(string entryPath, string content)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -206,7 +203,9 @@ public sealed class PackageExtractorOfflineTests : IDisposable
             ZipArchiveMode.Create,
             leaveOpen: true))
         {
-            archive.CreateEntry(entryPath);
+            using Stream stream = archive.CreateEntry(entryPath).Open();
+            using var writer = new StreamWriter(stream);
+            writer.Write(content);
         }
 
         return buffer.ToArray();
