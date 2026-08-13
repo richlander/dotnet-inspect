@@ -529,6 +529,46 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             NuGetCache.TryGetCachedPackage(PackageName, Version, [TestSourceKey]));
     }
 
+    /// <summary>
+    /// Hostile/oversized commit markers must not be loaded wholesale when the
+    /// app-cache tier is probed (same OOM class as unbounded .nupkg.metadata).
+    /// </summary>
+    [Fact]
+    public void EnumerateCached_OversizedCommitMarker_IsAbsentWithoutHugeAlloc()
+    {
+        const string PackageName = "Marker.Bound.Test";
+        const string Version = "1.0.0";
+        string slot = NuGetCache.GetPackageCachePath(
+            PackageName,
+            Version,
+            TestSourceKey);
+        Directory.CreateDirectory(slot);
+        File.WriteAllText(
+            Path.Combine(slot, $"{PackageName.ToLowerInvariant()}.nuspec"),
+            "<package />");
+        // Just over the product cap — large enough to prove the gate, small
+        // enough that a regression still fails the test without host OOM.
+        int oversize = NuGetCache.MaxCommitMarkerBytes + 1;
+        File.WriteAllBytes(
+            Path.Combine(slot, NuGetCache.CommitMarkerFileName),
+            new byte[oversize]);
+
+        // Fail closed: oversized marker is treated as absent (Length gate
+        // rejects before any read buffer is allocated for the file body).
+        Assert.Null(
+            NuGetCache.TryGetCachedPackage(PackageName, Version, [TestSourceKey]));
+        Assert.Empty(
+            NuGetCache.ListCachedPackageContent(
+                PackageName,
+                Version,
+                [TestSourceKey]));
+        // Sanity: file still present and still over the cap (we rejected on
+        // size, not by deleting the hostile slot).
+        Assert.True(
+            new FileInfo(Path.Combine(slot, NuGetCache.CommitMarkerFileName)).Length
+            > NuGetCache.MaxCommitMarkerBytes);
+    }
+
     [Fact]
     public async Task EnsurePackAsync_ConcurrentRequestsPublishOneImmutablePack()
     {

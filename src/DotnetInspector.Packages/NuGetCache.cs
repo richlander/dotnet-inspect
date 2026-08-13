@@ -336,6 +336,15 @@ public static class NuGetCache
     /// </summary>
     internal const int MaxGlobalPackageMetadataBytes = 64 * 1024;
 
+    /// <summary>
+    /// Hard cap on the product-owned commit marker
+    /// (<see cref="CommitMarkerFileName"/>). Legitimate content is a short
+    /// ASCII line (<c>package-content-v5:id@ver:sourceKey</c>); an unbounded
+    /// <c>ReadAllText</c> would let a hostile app-cache slot OOM the host on
+    /// every <see cref="EnumerateCachedPackageContent"/> probe.
+    /// </summary>
+    internal const int MaxCommitMarkerBytes = 4 * 1024;
+
     private static bool TryReadGlobalPackageSourceKey(
         string packageDirectory,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey)
@@ -763,12 +772,43 @@ public static class NuGetCache
 
             // The source is already selected by the path; the marker restates it
             // so an entry that was moved or hand-copied between slots is not
-            // mistaken for one this source committed.
-            return File.ReadAllText(
-                Path.Combine(cachedPath, CommitMarkerFileName))
-                .Equals(
-                    GetCommitMarkerContent(packageName, version, sourceKey),
-                    StringComparison.Ordinal);
+            // mistaken for one this source committed. Bound the read the same
+            // way as global .nupkg.metadata: Length gate, fixed buffer, trailing
+            // growth probe — never File.ReadAllText.
+            string markerPath = Path.Combine(cachedPath, CommitMarkerFileName);
+            var info = new FileInfo(markerPath);
+            if (!info.Exists
+                || info.Length <= 0
+                || info.Length > MaxCommitMarkerBytes)
+            {
+                return false;
+            }
+
+            byte[] markerBytes = new byte[checked((int)info.Length)];
+            using (FileStream stream = new(
+                markerPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                int offset = 0;
+                while (offset < markerBytes.Length)
+                {
+                    int read = stream.Read(markerBytes.AsSpan(offset));
+                    if (read == 0)
+                        return false;
+
+                    offset += read;
+                }
+
+                if (stream.ReadByte() != -1)
+                    return false;
+            }
+
+            string actual = Encoding.UTF8.GetString(markerBytes);
+            return actual.Equals(
+                GetCommitMarkerContent(packageName, version, sourceKey),
+                StringComparison.Ordinal);
         }
         catch (IOException)
         {
