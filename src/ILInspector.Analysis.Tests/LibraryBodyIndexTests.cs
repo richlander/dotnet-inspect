@@ -128,6 +128,34 @@ public class LibraryBodyIndexTests
             "ReadAsync",
             genericPrivate.Evidence,
             StringComparison.Ordinal);
+
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(RequiredTokenSiblingFixture
+                    .CallsRequiredTokenSiblingAsync));
+
+        var unrelatedVirtual = Assert.Single(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                == nameof(UnrelatedVirtualSiblingConsumer
+                    .LoadAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        UnrelatedVirtualSiblingConsumer));
+        Assert.Contains(
+            "UnrelatedVirtualSiblingService::LoadAsync",
+            unrelatedVirtual.Evidence,
+            StringComparison.Ordinal);
+
+        Assert.Single(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                == nameof(GenericInvocationSiblingFixture
+                    .CallsDifferentInstantiationAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
+                == nameof(GenericInvocationSiblingFixture
+                    .CallsSameInstantiationAsync));
     }
 
     [Fact]
@@ -484,6 +512,173 @@ public class LibraryBodyIndexTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DuplicateLocalTypeIdentityFailsClosed()
+    {
+        byte[] image = BuildDuplicateLocalTypeAssembly();
+        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            "DuplicateLocalTypes.dll",
+            [.. image],
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                == "sync-call-in-async");
+    }
+
+    static byte[] BuildDuplicateLocalTypeAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "DuplicateLocalTypes.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "DuplicateLocalTypes"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    "System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                new byte[]
+                {
+                            0xB0, 0x3F, 0x5F, 0x7F,
+                            0x11, 0xD5, 0x0A, 0x3A,
+                }),
+                default,
+                default);
+        TypeReferenceHandle task =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                metadata.GetOrAddString("Task`1"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeAttributes staticType =
+            TypeAttributes.Public
+            | TypeAttributes.Abstract
+            | TypeAttributes.Sealed;
+        metadata.AddTypeDefinition(
+            staticType,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Service"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            staticType,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Service"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddTypeDefinition(
+            staticType,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Consumer"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+
+        BlobHandle intSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x08 });
+        BlobHandle taskSignature =
+            metadata.GetOrAddBlob(
+            new byte[]
+            {
+                        0x00, 0x00, 0x15, 0x12,
+                        (byte)CodedIndex
+                            .TypeDefOrRefOrSpec(task),
+                        0x01, 0x08,
+            });
+        var bodies = new BlobBuilder();
+        var encoder =
+            new MethodBodyStreamEncoder(bodies);
+        var asyncIl = new BlobBuilder();
+        asyncIl.WriteByte(
+            (byte)ILOpCode.Ldnull);
+        asyncIl.WriteByte((byte)ILOpCode.Ret);
+        int asyncBody = encoder.AddMethodBody(
+            new InstructionEncoder(asyncIl),
+            maxStack: 1);
+        var readIl = new BlobBuilder();
+        readIl.WriteByte(
+            (byte)ILOpCode.Ldc_i4_1);
+        readIl.WriteByte((byte)ILOpCode.Ret);
+        int readBody = encoder.AddMethodBody(
+            new InstructionEncoder(readIl),
+            maxStack: 1);
+        MethodAttributes publicStatic =
+            MethodAttributes.Public
+            | MethodAttributes.Static;
+        metadata.AddMethodDefinition(
+            publicStatic,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadAsync"),
+            taskSignature,
+            asyncBody,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle read =
+            metadata.AddMethodDefinition(
+                publicStatic,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Read"),
+                intSignature,
+                readBody,
+                MetadataTokens.ParameterHandle(1));
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte((byte)ILOpCode.Call);
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(read));
+        callerIl.WriteByte((byte)ILOpCode.Pop);
+        callerIl.WriteByte(
+            (byte)ILOpCode.Ldnull);
+        callerIl.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = encoder.AddMethodBody(
+            new InstructionEncoder(callerIl),
+            maxStack: 1);
+        metadata.AddMethodDefinition(
+            publicStatic,
+            MethodImplAttributes.IL
+                | (MethodImplAttributes)0x2000,
+            metadata.GetOrAddString("AnalyzeAsync"),
+            taskSignature,
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static byte[] BuildMethodImplAsyncSourceAssembly(
@@ -7029,6 +7224,69 @@ public sealed class GenericPrivateSiblingFixture<T>
     {
         await Task.Yield();
         return Read(value);
+    }
+}
+
+public static class RequiredTokenSiblingFixture
+{
+    public static int Read(int value) => value;
+
+    public static Task<int> ReadAsync(
+        int value,
+        CancellationToken cancellationToken)
+        => Task.FromResult(value);
+
+    public static async Task<int>
+        CallsRequiredTokenSiblingAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public class UnrelatedVirtualSiblingService
+{
+    public int Load() => 42;
+
+    public virtual Task<int> LoadAsync()
+        => Task.FromResult(42);
+}
+
+public sealed class UnrelatedVirtualSiblingConsumer
+{
+    readonly UnrelatedVirtualSiblingService _service =
+        new();
+
+    public async Task<int> LoadAsync()
+    {
+        await Task.Yield();
+        return _service.Load();
+    }
+}
+
+public static class GenericInvocationSiblingFixture
+{
+    public static int Read<T>() =>
+        typeof(T) == typeof(int) ? 1 : 2;
+
+    public static Task<int> ReadAsync<T>() =>
+        Task.FromResult(
+            typeof(T) == typeof(int) ? 1 : 2);
+
+    public static async Task<int>
+        CallsDifferentInstantiationAsync()
+    {
+        int value = Read<int>();
+        _ = await ReadAsync<string>();
+        return value;
+    }
+
+    public static async Task<int>
+        CallsSameInstantiationAsync()
+    {
+        int value = Read<int>();
+        _ = await ReadAsync<int>();
+        return value;
     }
 }
 

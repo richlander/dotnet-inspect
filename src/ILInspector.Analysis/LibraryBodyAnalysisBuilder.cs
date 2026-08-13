@@ -41,6 +41,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         (
             MemberRef Callee,
             string ExactCalleeIdentity,
+            int CalleeDefinitionToken,
             MethodIdentity AsyncSource),
         MemberRef?> _asyncSiblingCache = [];
     IReadOnlyDictionary<
@@ -2316,7 +2317,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         foreach (DirectCall call in candidateCalls)
         {
             MemberRef? sibling = FindAsyncSibling(
-                call.Callee,
+                call,
                 asyncSource);
             if (sibling is null
                 || IsSameMethod(sibling, asyncSource)
@@ -2349,9 +2350,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     }
 
     MemberRef? FindAsyncSibling(
-        MemberRef callee,
+        DirectCall call,
         MethodIdentity asyncSource)
     {
+        MemberRef callee = call.Callee;
         if (callee.Kind != MemberKind.Method
             || callee.Name.EndsWith("Async", StringComparison.Ordinal)
             || IsAsyncReturnType(callee.ReturnType)
@@ -2363,6 +2365,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         var key = (
             callee,
             ExactAsyncSiblingMemberIdentity(callee),
+            call.CalleeDefinitionToken,
             asyncSource);
         lock (_asyncSiblingCacheGate)
         {
@@ -2376,6 +2379,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
         MemberRef? sibling = FindAsyncSiblingCore(
             callee,
+            call.CalleeDefinitionToken,
             asyncSource);
         lock (_asyncSiblingCacheGate)
         {
@@ -2386,9 +2390,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
     MemberRef? FindAsyncSiblingCore(
         MemberRef callee,
+        int calleeDefinitionToken,
         MethodIdentity asyncSource)
     {
-        if (TryResolveTypeDefinition(callee.DeclaringType)
+        if (TryResolveTypeDefinition(
+                callee.DeclaringType,
+                calleeDefinitionToken)
             is not { } resolved)
         {
             return null;
@@ -2450,7 +2457,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (IsPotentialVirtualSelfDispatch(
                     methodDefinition,
                     candidate,
-                    asyncSource)
+                    asyncSource,
+                    (declaringDefinition.Attributes
+                        & TypeAttributes.Interface) != 0)
                 || ImplementsCandidateSlot(
                     candidate,
                     asyncSource))
@@ -2476,7 +2485,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     }
 
     (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
-        TryResolveTypeDefinition(TypeRef type)
+        TryResolveTypeDefinition(
+            TypeRef type,
+            int definitionToken = 0)
     {
         TypeRef definition = type.Kind
             == TypeRefKind.GenericInstance
@@ -2488,9 +2499,20 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         if (resolution.Origin
             is TypeReferenceOrigin.CurrentAssembly)
         {
+            EntityHandle definitionHandle =
+                MetadataTokens.EntityHandle(definitionToken);
+            if (definitionHandle.Kind
+                == HandleKind.MethodDefinition)
+            {
+                var method = _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)definitionHandle);
+                return (_reader, method.GetDeclaringType());
+            }
+
             return LocalTypeDefinitions().TryGetValue(
                 resolution.Type,
                 out TypeDefinitionHandle handle)
+                    && !handle.IsNil
                     ? (_reader, handle)
                     : null;
         }
@@ -2539,7 +2561,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     handle,
                     0);
             if (type.Resolution?.Type is { } name)
-                definitions.TryAdd(name, handle);
+            {
+                if (!definitions.TryAdd(name, handle))
+                    definitions[name] = default;
+            }
         }
         _localTypeDefinitions = definitions;
         return definitions;
@@ -2569,10 +2594,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         };
     }
 
-    static bool IsPotentialVirtualSelfDispatch(
+    bool IsPotentialVirtualSelfDispatch(
         MethodDefinition method,
         MemberRef candidate,
-        MethodIdentity asyncSource)
+        MethodIdentity asyncSource,
+        bool candidateDeclaringTypeIsInterface)
     {
         if ((method.Attributes & MethodAttributes.Virtual) == 0
             || (method.Attributes & MethodAttributes.Final) != 0)
@@ -2582,12 +2608,203 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         string sourceName = separator < 0
             ? asyncSource.Name
             : asyncSource.Name[(separator + 1)..];
-        return candidate.Name == sourceName
-            && candidate.ParameterTypes.Length
-                == asyncSource.ParameterTypes.Length
-            && candidate.HasThis == !asyncSource.IsStatic
-            && candidate.GenericArity == asyncSource.GenericArity;
+        if (candidate.Name != sourceName
+            || !AsyncSiblingTypesMatch(
+                candidate.ParameterTypes,
+                asyncSource.ParameterTypes)
+            || !AsyncSiblingTypesMatch(
+                candidate.ReturnType,
+                asyncSource.ReturnType)
+            || candidate.HasThis != !asyncSource.IsStatic
+            || candidate.GenericArity != asyncSource.GenericArity
+            || candidate.SignatureHeader
+                != asyncSource.SignatureHeader
+            || candidate.RequiredParameterCount
+                != asyncSource.RequiredParameterCount)
+        {
+            return false;
+        }
+
+        EntityHandle sourceHandle =
+            MetadataTokens.EntityHandle(
+                asyncSource.MetadataToken);
+        if (sourceHandle.Kind
+            != HandleKind.MethodDefinition)
+        {
+            return false;
+        }
+        var sourceMethod = _reader.GetMethodDefinition(
+            (MethodDefinitionHandle)sourceHandle);
+        if ((sourceMethod.Attributes
+                & MethodAttributes.Virtual) == 0
+            || (sourceMethod.Attributes
+                    & MethodAttributes.NewSlot) != 0
+                && !candidateDeclaringTypeIsInterface)
+        {
+            return false;
+        }
+
+        return SourceDerivesFrom(
+            sourceMethod.GetDeclaringType(),
+            candidate.DeclaringType);
     }
+
+    bool SourceDerivesFrom(
+        TypeDefinitionHandle sourceType,
+        TypeRef candidateDeclaringType)
+    {
+        var pending = new Stack<(
+            MetadataReader Reader,
+            TypeDefinitionHandle Definition)>();
+        var visited = new HashSet<(Guid Mvid, int Token)>();
+        pending.Push((_reader, sourceType));
+        while (pending.Count > 0
+            && visited.Count < MetadataSafetyPolicy
+                .MaxRelationshipNodes)
+        {
+            (MetadataReader reader,
+                TypeDefinitionHandle current) =
+                pending.Pop();
+            var key = (
+                reader.GetGuid(
+                    reader.GetModuleDefinition().Mvid),
+                MetadataTokens.GetToken(current));
+            if (!visited.Add(key))
+                continue;
+
+            var definition =
+                reader.GetTypeDefinition(current);
+            foreach (var handle
+                in definition.GetInterfaceImplementations())
+            {
+                EntityHandle interfaceHandle =
+                    reader.GetInterfaceImplementation(
+                        handle).Interface;
+                TypeRef interfaceType = DecodeType(
+                    reader,
+                    interfaceHandle);
+                if (SameTypeDefinition(
+                        interfaceType,
+                        candidateDeclaringType))
+                {
+                    return true;
+                }
+                if (TryResolveTypeDefinition(
+                        reader,
+                        interfaceType)
+                    is { } resolvedInterface)
+                {
+                    pending.Push(resolvedInterface);
+                }
+            }
+
+            EntityHandle baseHandle = definition.BaseType;
+            if (baseHandle.IsNil)
+                continue;
+
+            TypeRef baseType = DecodeType(
+                reader,
+                baseHandle);
+            if (SameTypeDefinition(
+                    baseType,
+                    candidateDeclaringType))
+            {
+                return true;
+            }
+
+            if (TryResolveTypeDefinition(
+                    reader,
+                    baseType)
+                is { } resolvedBase)
+            {
+                pending.Push(resolvedBase);
+            }
+        }
+        return false;
+    }
+
+    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveTypeDefinition(
+            MetadataReader sourceReader,
+            TypeRef type)
+    {
+        TypeRef definition = type.Kind
+            == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        if (definition.Resolution is not { } resolution)
+            return null;
+
+        if (resolution.Origin
+            is TypeReferenceOrigin.CurrentAssembly)
+        {
+            TypeDefinitionHandle match = default;
+            foreach (var handle
+                in sourceReader.TypeDefinitions)
+            {
+                TypeRef candidate =
+                    TypeRefDecoder.Instance
+                        .GetTypeFromDefinition(
+                            sourceReader,
+                            handle,
+                            0);
+                if (candidate.Resolution?.Type
+                    != resolution.Type)
+                {
+                    continue;
+                }
+                if (!match.IsNil)
+                    return null;
+                match = handle;
+            }
+            return match.IsNil
+                ? null
+                : (sourceReader, match);
+        }
+
+        if (resolution.Origin
+            is not TypeReferenceOrigin
+                .AssemblyReference assembly)
+        {
+            return null;
+        }
+        lock (_externalAsyncSiblingResolutionGate)
+        {
+            return TryResolveExternalTypeDefinition(
+                assembly.Assembly,
+                TypeResolutionRequestFactory.Scope(
+                    assembly.Assembly),
+                resolution.Type);
+        }
+    }
+
+    static TypeRef DecodeType(
+        MetadataReader reader,
+        EntityHandle handle)
+        => handle.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                TypeRefDecoder.Instance
+                    .GetTypeFromDefinition(
+                        reader,
+                        (TypeDefinitionHandle)handle,
+                        0),
+            HandleKind.TypeReference =>
+                TypeRefDecoder.Instance
+                    .GetTypeFromReference(
+                        reader,
+                        (TypeReferenceHandle)handle,
+                        0),
+            HandleKind.TypeSpecification =>
+                TypeRefDecoder.Instance
+                    .GetTypeFromSpecification(
+                        reader,
+                        GenericScope.Empty,
+                        (TypeSpecificationHandle)handle,
+                        0),
+            _ => TypeRef.Unsupported(
+                "base type handle is unsupported"),
+        };
 
     bool ImplementsCandidateSlot(
         MemberRef candidate,
@@ -2734,12 +2951,18 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 methodArguments),
             MemberKind.Method)
         {
+            TypeArguments = methodArguments,
             OpenParameterTypes = signature.ParameterTypes,
             OpenReturnType = signature.ReturnType,
             HasThis = signature.Header.IsInstance,
             SignatureHeader = signature.Header.RawValue,
             RequiredParameterCount =
                 signature.RequiredParameterCount,
+            TrailingParameterCanBeOmitted =
+                TrailingParameterCanBeOmitted(
+                    reader,
+                    methodDefinition,
+                    signature.ParameterTypes.Length),
             GenericArity = signature.GenericParameterCount,
         };
         return candidate.HasThis == callee.HasThis
@@ -2794,7 +3017,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
         return asynchronousCount == synchronousCount
             || IsCancellationToken(
-                asynchronous.ParameterTypes[^1]);
+                asynchronous.ParameterTypes[^1])
+                && asynchronous
+                    .TrailingParameterCanBeOmitted;
     }
 
     static bool IsSameMethod(
@@ -2827,8 +3052,39 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             && AsyncSiblingTypesMatch(
                 left.ReturnType,
                 right.ReturnType)
+            && AsyncSiblingTypesMatch(
+                left.TypeArguments,
+                right.TypeArguments)
             && left.HasThis == right.HasThis
-            && left.GenericArity == right.GenericArity;
+            && left.GenericArity == right.GenericArity
+            && left.SignatureHeader
+                == right.SignatureHeader
+            && left.RequiredParameterCount
+                == right.RequiredParameterCount;
+
+    static bool TrailingParameterCanBeOmitted(
+        MetadataReader reader,
+        MethodDefinition method,
+        int parameterCount)
+    {
+        if (parameterCount == 0)
+            return false;
+
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber != parameterCount)
+                continue;
+
+            const ParameterAttributes required =
+                ParameterAttributes.Optional
+                | ParameterAttributes.HasDefault;
+            return (parameter.Attributes & required)
+                    == required
+                && !parameter.GetDefaultValue().IsNil;
+        }
+        return false;
+    }
 
     static bool SameTypeDefinition(TypeRef left, TypeRef right)
     {

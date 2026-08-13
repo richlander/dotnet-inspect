@@ -177,6 +177,9 @@ public sealed record MemberRef(
 
     internal int RequiredParameterCount { get; init; } = -1;
 
+    // Candidate metadata only; this affects rewrite compatibility, not method identity.
+    internal bool TrailingParameterCanBeOmitted { get; init; }
+
     /// <summary>The method-signature generic parameter count.</summary>
     public int GenericArity { get; init; }
 
