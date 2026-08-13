@@ -503,6 +503,23 @@ public class InspectionAcquisitionPlanTests
         Assert.IsType<TypeDeclarationResult.Forwarded>(
             first.Session.ProbeDeclaration(
                 Name("ILInspector.Metadata", "MetadataTableProjector")));
+        ResolvedAssemblyReference retained =
+            Assert.IsType<ResolvedAssemblyReference>(
+                plan.RetainAssemblyReference(
+                    registration.Candidate));
+        Assert.Same(
+            descriptor.Registration,
+            retained.Registration);
+        using (Stream retainedStream = retained.OpenRead())
+        {
+            var retainedBytes = new byte[image.Length];
+            retainedStream.ReadExactly(retainedBytes);
+            Assert.Equal(image, retainedBytes);
+        }
+        Assert.Equal(2, opens);
+        Assert.Equal(
+            image.LongLength,
+            plan.RetainedImageBytes);
 
         MethodBodySource methodBodies = first.Session.MethodBodies;
         plan.Dispose();

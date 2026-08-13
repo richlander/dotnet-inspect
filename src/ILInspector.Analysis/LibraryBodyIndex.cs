@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
 using ILInspector.Findings;
@@ -891,6 +892,21 @@ public sealed class LibraryBodyIndex
                 bodyScope,
                 bodyTypeScope);
 
+        if (resolver is not null)
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            ImmutableArray<byte> image =
+                ImmutableCollectionsMarshal
+                    .AsImmutableArray(bytes);
+            using var imageReader = new PEReader(image);
+            return BuildFromReader(
+                path,
+                imageReader,
+                plan,
+                resolver,
+                image);
+        }
+
         // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
         // so concurrent GetMethodBody reads are served from an immutable in-memory block rather
         // than seeking a shared FileStream (which is not safe for concurrent reads). Scoped builds
@@ -904,7 +920,8 @@ public sealed class LibraryBodyIndex
             path,
             peReader,
             plan,
-            resolver);
+            resolver,
+            rootImage: default);
     }
 
     /// <summary>
@@ -939,19 +956,26 @@ public sealed class LibraryBodyIndex
             path,
             peReader,
             plan,
-            resolver);
+            resolver,
+            image);
     }
 
     static LibraryBodyIndex BuildFromReader(
         string path,
         PEReader peReader,
         LibraryBodyAnalysisPlan plan,
-        IAssemblyReferenceResolver? resolver)
+        IAssemblyReferenceResolver? resolver,
+        ImmutableArray<byte> rootImage)
     {
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyAnalysisBuilder(path, reader, peReader, resolver);
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver,
+            rootImage);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyIndex(path, analysis, plan.Features);

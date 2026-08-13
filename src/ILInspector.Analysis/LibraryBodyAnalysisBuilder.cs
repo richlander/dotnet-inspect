@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
 using ILInspector.Findings;
@@ -30,6 +32,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         ReferencedAssemblyMetadata?> _referencedAssemblyCache =
             new(ReferenceEqualityComparer.Instance);
     readonly string _assemblyName;
+    readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
     readonly object _asyncSiblingCacheGate = new();
@@ -37,32 +40,46 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     readonly Dictionary<
         (
             MemberRef Callee,
-            ResolvableTypeReference? CalleeDeclaringType,
+            string ExactCalleeIdentity,
             MethodIdentity AsyncSource),
         MemberRef?> _asyncSiblingCache = [];
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle>? _localTypeDefinitions;
 
-    internal LibraryBodyAnalysisBuilder(string path, MetadataReader reader, PEReader peReader, IAssemblyReferenceResolver? resolver = null)
+    internal LibraryBodyAnalysisBuilder(
+        string path,
+        MetadataReader reader,
+        PEReader peReader,
+        IAssemblyReferenceResolver? resolver = null,
+        ImmutableArray<byte> rootImage = default)
     {
         _path = path;
         _reader = reader;
         _peReader = peReader;
         _assemblyName = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : System.IO.Path.GetFileNameWithoutExtension(path);
+        _assemblyIdentity = reader.IsAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+            : new AssemblyReferenceIdentity(
+                _assemblyName,
+                null,
+                null,
+                null);
         _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         if (resolver is not null && reader.IsAssembly)
         {
             string fullPath = System.IO.Path.GetFullPath(path);
-            byte[] rootImage = peReader.GetEntireImage()
-                .GetContent()
-                .ToArray();
+            ImmutableArray<byte> image = rootImage.IsDefault
+                ? peReader.GetEntireImage().GetContent()
+                : rootImage;
+            byte[] bytes =
+                ImmutableCollectionsMarshal.AsArray(image)!;
             _rootAssembly = ResolvedAssemblyReference.Create(
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
                 fullPath,
                 () => new MemoryStream(
-                    rootImage,
+                    bytes,
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "LibraryBodyIndex"));
@@ -657,6 +674,15 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             result.Unsafety = MethodSafetyAnalysis.CollectOccurrences(
                 context,
                 token => CalliReturnDetail(token, scope));
+            MethodCallAnalysis.Collect(
+                context,
+                new CallResolver(this, scope),
+                offset => allocationAnalysis.MultiplicityAt(offset),
+                calls,
+                evidence,
+                includeIndirectOpcodes: hasUnsafeApiMember
+                    || hasUnsafeSignature
+                    || hasUnsafeLocals);
             var methodAttributes = methodDef.GetCustomAttributes();
             if (includeOpportunities)
             {
@@ -691,7 +717,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     opportunities.AddRange(
                         CollectAsyncSiblingOpportunities(
                             context,
-                            scope,
+                            calls,
                             asyncSource));
                 }
                 result.Opportunities = opportunities.ToImmutable();
@@ -706,13 +732,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            MethodCallAnalysis.Collect(
-                context,
-                new CallResolver(this, scope),
-                offset => allocationAnalysis.MultiplicityAt(offset),
-                calls,
-                evidence,
-                includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
         }
         catch (Exception ex) when (IsRecoverableMethodFailure(ex))
         {
@@ -1379,6 +1398,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         MethodIdentity>? _asyncStateMachineSourceMethods;
+    IReadOnlySet<MetadataTypeDefinitionName>?
+        _ambiguousAsyncStateMachineTypes;
 
     bool IsAsyncStateMachineType(TypeRef? type)
     {
@@ -1431,6 +1452,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             throw new BadImageFormatException(
                 "The async state-machine attribute is malformed or ambiguous.");
         }
+        if (stateMachineAttribute.Ignored)
+            return null;
 
         if (MethodClassificationScanner.ClassifyAsyncMethod(
                 _reader,
@@ -1446,14 +1469,30 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     : null;
         }
 
-        return physicalMethod.Name == "MoveNext"
-            && physicalMethod.DeclaringType.Resolution?.Type
-                is { } stateMachineType
-            && AsyncStateMachineSourceMethods().TryGetValue(
+        if (physicalMethod.Name != "MoveNext"
+            || physicalMethod.DeclaringType.Resolution?.Type
+                is not { } stateMachineType)
+        {
+            return null;
+        }
+
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            MethodIdentity> sources =
+                AsyncStateMachineSourceMethods();
+        if (sources.TryGetValue(
                 stateMachineType,
-                out MethodIdentity? source)
-                    ? source
-                    : null;
+                out MethodIdentity? source))
+        {
+            return source;
+        }
+        if (_ambiguousAsyncStateMachineTypes?.Contains(
+                stateMachineType) == true)
+        {
+            throw new BadImageFormatException(
+                "Multiple async source methods name this state-machine type.");
+        }
+        return null;
     }
 
     IReadOnlyDictionary<
@@ -1539,17 +1578,20 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             }
         }
 
+        _ambiguousAsyncStateMachineTypes = ambiguous;
         _asyncStateMachineSourceMethods = methods;
         return methods;
     }
 
     readonly record struct AsyncStateMachineAttributeInfo(
         bool Rejected,
+        bool Ignored,
         string? SerializedType);
 
     AsyncStateMachineAttributeInfo AsyncStateMachineAttribute(
         CustomAttributeHandleCollection attributes)
     {
+        bool sawAttribute = false;
         string? serializedType = null;
         foreach (var handle in attributes)
         {
@@ -1564,29 +1606,133 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 continue;
             }
 
-            if (serializedType is not null)
+            if (sawAttribute)
             {
                 return new(
                     Rejected: true,
+                    Ignored: false,
                     SerializedType: null);
             }
+            sawAttribute = true;
 
-            if (AttributeDecoder.TryDecode(
-                    _reader,
-                    attribute) is { FixedArguments.Length: 1 } decoded
-                && decoded.FixedArguments[0].Value is string typeName)
+            if (TryReadSerializedStateMachineType(
+                    attribute,
+                    out string? typeName))
             {
-                serializedType = typeName;
+                if (IsCurrentAssemblyStateMachineType(typeName))
+                    serializedType = typeName;
                 continue;
             }
 
             return new(
                 Rejected: true,
+                Ignored: false,
                 SerializedType: null);
         }
         return new(
             Rejected: false,
+            Ignored: sawAttribute
+                && serializedType is null,
             serializedType);
+    }
+
+    bool TryReadSerializedStateMachineType(
+        CustomAttribute attribute,
+        [NotNullWhen(true)] out string? serializedType)
+    {
+        serializedType = null;
+        try
+        {
+            BlobReader value = _reader.GetBlobReader(
+                attribute.Value);
+            if (value.ReadUInt16() != 0x0001)
+                return false;
+            serializedType = value.ReadSerializedString();
+            return serializedType is not null
+                && value.ReadUInt16() == 0
+                && value.RemainingBytes == 0;
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            serializedType = null;
+            return false;
+        }
+    }
+
+    bool IsCurrentAssemblyStateMachineType(
+        string serializedType)
+    {
+        int separator = serializedType.IndexOf(',');
+        if (separator < 0)
+            return true;
+
+        string[] assemblyParts =
+            serializedType[(separator + 1)..].Split(',');
+        if (assemblyParts.Length == 0
+            || !string.Equals(
+                assemblyParts[0].Trim(),
+                _assemblyIdentity.Name,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        foreach (string part in assemblyParts.Skip(1))
+        {
+            int equals = part.IndexOf('=');
+            if (equals < 0)
+                return false;
+            string key = part[..equals].Trim();
+            string value = part[(equals + 1)..].Trim();
+            if (key.Equals(
+                    "Version",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Version.TryParse(
+                        value,
+                        out Version? version)
+                    || version != _assemblyIdentity.Version)
+                {
+                    return false;
+                }
+            }
+            else if (key.Equals(
+                    "Culture",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string? culture = value.Equals(
+                    "neutral",
+                    StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : value;
+                if (!string.Equals(
+                        culture,
+                        _assemblyIdentity.Culture,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            else if (key.Equals(
+                    "PublicKeyToken",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string? token = value.Equals(
+                    "null",
+                    StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : value;
+                if (!string.Equals(
+                        token,
+                        _assemblyIdentity.PublicKeyToken,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     static MetadataTypeDefinitionName?
@@ -2142,32 +2288,43 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
     ImmutableArray<OptimizationOpportunity> CollectAsyncSiblingOpportunities(
         MethodBodyAnalysisContext context,
-        GenericScope callerScope,
+        ImmutableArray<DirectCall>.Builder calls,
         MethodIdentity asyncSource)
     {
         var opportunities =
             ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-        var calls = context.Instructions.Instructions
-            .Where(instruction => instruction.OpCode is
-                ILOpCode.Call or ILOpCode.Callvirt)
-            .Select(instruction => (
-                Instruction: instruction,
-                Callee: MemberResolver.ResolveMethod(
-                    _reader,
-                    MetadataTokens.EntityHandle(
-                        MethodInstructionFacts.OperandInt32(
-                            instruction)),
-                    callerScope)))
+        DirectCall[] candidateCalls = calls
+            .Where(call => call.Kind is
+                CallKind.Call or CallKind.CallVirtual)
             .ToArray();
-        foreach (var (instruction, callee) in calls)
+        var calledMethods =
+            new Dictionary<string, List<MemberRef>>(
+                StringComparer.Ordinal);
+        foreach (DirectCall call in candidateCalls)
+        {
+            if (!calledMethods.TryGetValue(
+                    call.Callee.Name,
+                    out List<MemberRef>? named))
+            {
+                named = [];
+                calledMethods.Add(
+                    call.Callee.Name,
+                    named);
+            }
+            named.Add(call.Callee);
+        }
+        foreach (DirectCall call in candidateCalls)
         {
             MemberRef? sibling = FindAsyncSibling(
-                callee,
+                call.Callee,
                 asyncSource);
             if (sibling is null
                 || IsSameMethod(sibling, asyncSource)
-                || calls.Any(call =>
-                    IsSameMethod(call.Callee, sibling)))
+                || calledMethods.TryGetValue(
+                    sibling.Name,
+                    out List<MemberRef>? named)
+                    && named.Any(called =>
+                        IsSameMethod(called, sibling)))
             {
                 continue;
             }
@@ -2175,13 +2332,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             opportunities.Add(new OptimizationOpportunity(
                 asyncSource,
                 "sync-call-in-async",
-                $"{FormatMember(callee)} is called from an async method; "
+                $"{FormatMember(call.Callee)} is called from an async method; "
                     + $"{FormatMember(sibling)} is available",
                 $"Prefer {FormatMember(sibling)} with await or await foreach "
                     + "when its behavior matches the synchronous call.",
                 "medium",
-                context.IsInLoopRegion(instruction.Offset),
-                instruction.Offset,
+                call.InLoop,
+                call.ILOffset,
                 "Name and signature shape establish the sibling relationship; "
                     + "confirm ordering, exception, cancellation, and enumeration semantics.")
             {
@@ -2205,7 +2362,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
         var key = (
             callee,
-            DefinitionResolution(callee.DeclaringType),
+            ExactAsyncSiblingMemberIdentity(callee),
             asyncSource);
         lock (_asyncSiblingCacheGate)
         {
@@ -2485,7 +2642,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     static bool HasSupportedAsyncSiblingSignature(MemberRef method)
         => IsSupportedAsyncSiblingType(method.ReturnType)
             && method.ParameterTypes.All(
-                IsSupportedAsyncSiblingType);
+                IsSupportedAsyncSiblingType)
+            && (method.SignatureHeader & 0x0F) == 0
+            && (method.SignatureHeader & 0x40) == 0
+            && (method.RequiredParameterCount < 0
+                || method.RequiredParameterCount
+                    == method.ParameterTypes.Length);
 
     static bool IsSupportedAsyncSiblingType(TypeRef type)
         => type.Kind != TypeRefKind.Unsupported
@@ -2688,6 +2850,124 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         => type.Kind == TypeRefKind.GenericInstance
             ? (type.ElementType ?? type).Resolution
             : type.Resolution;
+
+    static string ExactAsyncSiblingMemberIdentity(
+        MemberRef member)
+    {
+        var identity = new System.Text.StringBuilder();
+        AppendAsyncSiblingTypeIdentity(
+            identity,
+            member.DeclaringType);
+        identity.Append('|');
+        AppendIdentityField(identity, member.Name);
+        identity.Append('|').Append(member.SignatureHeader)
+            .Append('|').Append(member.RequiredParameterCount)
+            .Append('|').Append(member.GenericArity)
+            .Append('|').Append(member.HasThis);
+        foreach (TypeRef type in member.ParameterTypes)
+        {
+            identity.Append('|');
+            AppendAsyncSiblingTypeIdentity(identity, type);
+        }
+        identity.Append('|');
+        AppendAsyncSiblingTypeIdentity(
+            identity,
+            member.ReturnType);
+        foreach (TypeRef type in member.TypeArguments)
+        {
+            identity.Append('|');
+            AppendAsyncSiblingTypeIdentity(identity, type);
+        }
+        return identity.ToString();
+    }
+
+    static void AppendAsyncSiblingTypeIdentity(
+        System.Text.StringBuilder identity,
+        TypeRef type)
+    {
+        identity.Append((int)type.Kind).Append(';');
+        AppendIdentityField(identity, type.Assembly);
+        AppendIdentityField(identity, type.Namespace);
+        AppendIdentityField(identity, type.Name);
+        identity.Append(type.Rank).Append(';')
+            .Append(type.GenericParameterIndex)
+            .Append(';');
+        AppendIdentityField(
+            identity,
+            type.UnsupportedReason);
+        if (type.Resolution is { } resolution)
+        {
+            identity.Append('@');
+            AppendIdentityField(
+                identity,
+                resolution.Type.Namespace);
+            foreach (string segment
+                in resolution.Type.Segments)
+            {
+                AppendIdentityField(identity, segment);
+            }
+            switch (resolution.Origin)
+            {
+                case TypeReferenceOrigin.AssemblyReference assembly:
+                    identity.Append("@A");
+                    AppendIdentityField(
+                        identity,
+                        assembly.Assembly.Name);
+                    AppendIdentityField(
+                        identity,
+                        assembly.Assembly.Version?.ToString());
+                    AppendIdentityField(
+                        identity,
+                        assembly.Assembly.Culture);
+                    AppendIdentityField(
+                        identity,
+                        assembly.Assembly.PublicKeyToken);
+                    break;
+                case TypeReferenceOrigin.CurrentAssembly:
+                    identity.Append("@C");
+                    break;
+                case TypeReferenceOrigin.IntrinsicCoreLibrary:
+                    identity.Append("@I");
+                    break;
+                case TypeReferenceOrigin.ModuleReference module:
+                    identity.Append("@M");
+                    AppendIdentityField(
+                        identity,
+                        module.ModuleName);
+                    break;
+            }
+        }
+        if (type.ElementType is not null)
+        {
+            identity.Append('[');
+            AppendAsyncSiblingTypeIdentity(
+                identity,
+                type.ElementType);
+            identity.Append(']');
+        }
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            identity.Append('<');
+            AppendAsyncSiblingTypeIdentity(
+                identity,
+                argument);
+            identity.Append('>');
+        }
+    }
+
+    static void AppendIdentityField(
+        System.Text.StringBuilder identity,
+        string? value)
+    {
+        if (value is null)
+        {
+            identity.Append("-1:");
+            return;
+        }
+        identity.Append(value.Length)
+            .Append(':')
+            .Append(value);
+    }
 
     static bool AsyncSiblingTypesMatch(
         ImmutableArray<TypeRef> left,

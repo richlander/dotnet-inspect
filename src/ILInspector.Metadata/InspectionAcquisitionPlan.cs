@@ -69,9 +69,16 @@ internal abstract class CandidateSessionResult
 
     internal sealed class Ready : CandidateSessionResult
     {
-        internal Ready(AssemblyInspectionSession session) => Session = session;
+        internal Ready(
+            AssemblyInspectionSession session,
+            AssemblyImageSnapshot snapshot)
+        {
+            Session = session;
+            Snapshot = snapshot;
+        }
 
         internal AssemblyInspectionSession Session { get; }
+        internal AssemblyImageSnapshot Snapshot { get; }
     }
 
     internal sealed class Rejected : CandidateSessionResult
@@ -205,7 +212,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         ResolvedAssemblyCandidate candidate)
         => OpenSession(candidate)
             is CandidateSessionResult.Ready ready
-                ? ready.Session.RetainAssemblyReference(
+                ? ready.Snapshot.RetainAssemblyReference(
                     candidate.Assembly)
                 : null;
 
@@ -362,25 +369,27 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         bool retainReservation = false;
         try
         {
-            Stream? stream =
-                AssemblyImageSnapshot.OpenSource(
-                    entry.Candidate.Assembly);
             AssemblyInspectionSession? session = null;
             try
             {
-                long imageSize =
-                    AssemblyImageSnapshot.ReadRemainingLength(stream);
-                if (!TryReserveImage(imageSize))
+                AssemblyImageSnapshotResult snapshotResult =
+                    AssemblyImageSnapshot.Open(
+                        entry.Candidate.Assembly,
+                        TryReserveImage,
+                        ReleaseImage);
+                if (snapshotResult
+                    is AssemblyImageSnapshotResult.Rejected
+                        snapshotRejected)
                 {
                     return new CandidateSessionResult.Rejected(
-                        ResourceFailure(
-                            "The retained-image budget was exhausted."));
+                        snapshotRejected.Failure);
                 }
 
-                reservedBytes = imageSize;
-                Stream sessionSource = stream;
-                stream = null;
-                session = AssemblyInspectionSession.OpenPrefetched(sessionSource);
+                AssemblyImageSnapshot snapshot =
+                    ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                    .Snapshot;
+                reservedBytes = snapshot.Length;
+                session = AssemblyInspectionSession.Open(snapshot);
                 var inventory =
                     (CandidateRegistrationResult.Ready)entry.Inventory.Value;
                 if (!session.HasMetadata
@@ -396,7 +405,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                             "The opened image does not match the inventoried candidate."));
                 }
 
-                var ready = new CandidateSessionResult.Ready(session);
+                var ready = new CandidateSessionResult.Ready(
+                    session,
+                    snapshot);
                 session = null;
                 retainReservation = true;
                 return ready;
@@ -404,7 +415,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             finally
             {
                 session?.Dispose();
-                stream?.Dispose();
             }
         }
         catch (Exception ex) when (

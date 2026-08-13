@@ -92,6 +92,10 @@ public class LibraryBodyIndexTests
                     .CallsBothLifecycleSiblingsAsync));
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .CallsBothFileReadLinesSiblingsAsync));
+        Assert.DoesNotContain(opportunities, opportunity =>
+            opportunity.Method.Name
                 == nameof(GenericSelfSiblingFixture<int>
                     .ReadAsync));
         Assert.DoesNotContain(opportunities, opportunity =>
@@ -333,6 +337,16 @@ public class LibraryBodyIndexTests
                 diagnostic => diagnostic.Method.Contains(
                     "DuplicateAsync",
                     StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                index.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "ForeignAssemblyAsync",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                index.DirectCalls,
+                call => call.Caller.Name
+                        == "MalformedValueAsync"
+                    && call.Callee.Name == "Read");
             Assert.Contains(
                 "ReadAsync",
                 opportunity.Evidence,
@@ -360,7 +374,8 @@ public class LibraryBodyIndexTests
         {
             File.WriteAllBytes(
                 path,
-                BuildMethodImplAsyncSourceAssembly());
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true));
 
             var index = LibraryBodyIndex.Open(path);
 
@@ -371,6 +386,38 @@ public class LibraryBodyIndexTests
                     && opportunity.Method.Name
                         == "AnalyzeAsync");
             Assert.Empty(index.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false));
+            var control = LibraryBodyIndex.Open(path);
+            Assert.Single(
+                control.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+
+            foreach (byte unsupportedHeader
+                in new byte[] { 0x25, 0x60 })
+            {
+                File.WriteAllBytes(
+                    path,
+                    BuildMethodImplAsyncSourceAssembly(
+                        includeMethodImpl: false,
+                        siblingSignatureHeader:
+                            unsupportedHeader));
+                var unsupported =
+                    LibraryBodyIndex.Open(path);
+                Assert.DoesNotContain(
+                    unsupported.OptimizationOpportunities,
+                    opportunity => opportunity.Shape
+                            == "sync-call-in-async"
+                        && opportunity.Method.Name
+                            == "AnalyzeAsync");
+                Assert.Empty(unsupported.Diagnostics);
+            }
         }
         finally
         {
@@ -378,7 +425,9 @@ public class LibraryBodyIndexTests
         }
     }
 
-    static byte[] BuildMethodImplAsyncSourceAssembly()
+    static byte[] BuildMethodImplAsyncSourceAssembly(
+        bool includeMethodImpl,
+        byte siblingSignatureHeader = 0x20)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -482,12 +531,17 @@ public class LibraryBodyIndexTests
             stateMachineType,
             asyncStateMachine);
 
-        BlobHandle intSignature = metadata.GetOrAddBlob(
-            new byte[] { 0x20, 0x00, 0x08 });
+        BlobHandle voidSignature = metadata.GetOrAddBlob(
+            new byte[]
+            {
+                siblingSignatureHeader,
+                0x00,
+                0x01,
+            });
         BlobHandle taskSignature = metadata.GetOrAddBlob(
             new byte[]
             {
-                0x20,
+                siblingSignatureHeader,
                 0x00,
                 0x12,
                 (byte)CodedIndex.TypeDefOrRefOrSpec(task),
@@ -502,7 +556,7 @@ public class LibraryBodyIndexTests
                 interfaceMethod,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Read"),
-                intSignature,
+                voidSignature,
                 -1,
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle readAsync =
@@ -538,7 +592,6 @@ public class LibraryBodyIndexTests
         moveNextIl.WriteByte((byte)ILOpCode.Ldnull);
         moveNextIl.WriteByte((byte)ILOpCode.Callvirt);
         moveNextIl.WriteInt32(MetadataTokens.GetToken(read));
-        moveNextIl.WriteByte((byte)ILOpCode.Pop);
         moveNextIl.WriteByte((byte)ILOpCode.Ret);
         int moveNextBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(moveNextIl),
@@ -552,10 +605,13 @@ public class LibraryBodyIndexTests
                 new byte[] { 0x20, 0x00, 0x01 }),
             moveNextBody,
             MetadataTokens.ParameterHandle(1));
-        metadata.AddMethodImplementation(
-            sourceType,
-            source,
-            readAsync);
+        if (includeMethodImpl)
+        {
+            metadata.AddMethodImplementation(
+                sourceType,
+                source,
+                readAsync);
+        }
 
         MemberReferenceHandle attributeConstructor =
             metadata.AddMemberReference(
@@ -589,7 +645,44 @@ public class LibraryBodyIndexTests
         return image.ToArray();
     }
 
-    static byte[] BuildMalformedAsyncSourceAssembly()
+    [Fact]
+    public void OptimizationOpportunities_AmbiguousStateMachineSourceIsDiagnostic()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"AmbiguousAsyncSource-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildMalformedAsyncSourceAssembly(
+                    ambiguousSource: true));
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                index.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "MoveNext",
+                    StringComparison.Ordinal)
+                    && diagnostic.Message.Contains(
+                        "Multiple async source methods",
+                        StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] BuildMalformedAsyncSourceAssembly(
+        bool ambiguousSource = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -675,7 +768,7 @@ public class LibraryBodyIndexTests
                     "<AnalyzeAsync>d__1"),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(7));
+                MetadataTokens.MethodDefinitionHandle(9));
         metadata.AddNestedType(stateMachineType, sourceType);
         metadata.AddInterfaceImplementation(
             stateMachineType,
@@ -704,6 +797,17 @@ public class LibraryBodyIndexTests
             });
         BlobHandle voidSignature = metadata.GetOrAddBlob(
             new byte[] { 0x00, 0x00, 0x01 });
+        var malformedValueIl = new BlobBuilder();
+        malformedValueIl.WriteByte((byte)ILOpCode.Call);
+        malformedValueIl.WriteInt32(
+            MetadataTokens.GetToken(
+            MetadataTokens.MethodDefinitionHandle(7)));
+        malformedValueIl.WriteByte((byte)ILOpCode.Ldnull);
+        malformedValueIl.WriteByte((byte)ILOpCode.Ret);
+        int malformedValueBody =
+            bodyEncoder.AddMethodBody(
+                new InstructionEncoder(malformedValueIl),
+                maxStack: 1);
         MethodDefinitionHandle broken =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -721,7 +825,7 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString(
                     "MalformedValueAsync"),
                 taskSignature,
-                AddRetBody(bodyEncoder),
+                malformedValueBody,
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle duplicate =
             metadata.AddMethodDefinition(
@@ -729,6 +833,26 @@ public class LibraryBodyIndexTests
                     | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("DuplicateAsync"),
+                taskSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle foreignAssembly =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "ForeignAssemblyAsync"),
+                taskSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle competing =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "CompetingAsync"),
                 taskSignature,
                 AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
@@ -810,6 +934,19 @@ public class LibraryBodyIndexTests
             duplicate,
             attributeConstructor,
             "Sample.Source+<DuplicateAsync>d__9, MalformedAsyncSource");
+        AddAsyncStateMachineAttribute(
+            metadata,
+            foreignAssembly,
+            attributeConstructor,
+            "Sample.Source+<ForeignAssemblyAsync>d__0, OtherAssembly");
+        if (ambiguousSource)
+        {
+            AddAsyncStateMachineAttribute(
+                metadata,
+                competing,
+                attributeConstructor,
+                "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
+        }
         AddAsyncStateMachineAttribute(
             metadata,
             analyze,
@@ -5614,6 +5751,16 @@ public class OptimizationOpportunityFixtures
     {
         await Task.Yield();
         return File.ReadLines(path).Count();
+    }
+
+    public static async Task
+        CallsBothFileReadLinesSiblingsAsync(string path)
+    {
+        _ = File.ReadLines(path);
+        _ = File.ReadLinesAsync(
+            path,
+            CancellationToken.None);
+        await Task.Yield();
     }
 
     public static int MaterializesInvariantSourceInLoop(IEnumerable<int> source, int count)
