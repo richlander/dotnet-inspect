@@ -96,6 +96,21 @@ if (skillSupportDoc["code"] != "false"
         FormatValues(skillSupportDoc));
 }
 
+Dictionary<string, string> nestedSkillSupportDoc = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "skills/workflow-scenarios/examples/SKILL.md",
+    outputs);
+if (nestedSkillSupportDoc["code"] != "false"
+    || nestedSkillSupportDoc["docs"] != "true"
+    || nestedSkillSupportDoc["skills"] != "false")
+{
+    throw new InvalidOperationException(
+        $"Nested skill support document canary selected the wrong lanes: " +
+        FormatValues(nestedSkillSupportDoc));
+}
+
 Dictionary<string, string> pushedSource = RunDetection(
     repository,
     body,

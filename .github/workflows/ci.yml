@@ -394,6 +394,7 @@ jobs:
             # checks registry/resource parity without paying for the full
             # product matrix. Other documents under skills/ need only linting.
             case "$file" in
+              skills/*/*/SKILL.md) ;;
               skills/*/SKILL.md) SKILLS=true ;;
             esac
             # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
@@ -559,7 +560,17 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Run embedded skill tests
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -class "DotnetInspector.Tests.SkillCommandTests"
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/skill-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+            -class "DotnetInspector.Tests.SkillCommandTests" \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Skill test filter selected no tests." >&2
+            exit 1
+          fi
 
   # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
   # the separate `test-windows` job below; macOS is still uncovered by tests and
