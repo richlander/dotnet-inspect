@@ -519,6 +519,40 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task ReadBoundedAsync_SeekableUnderreportedLength_StillRejectsOverMax()
+    {
+        // Length claims 4 bytes; actual body is 16. Stop condition must be EOF
+        // under the bound, not the Length snapshot.
+        byte[] actual = new byte[16];
+        Array.Fill(actual, (byte)9);
+        await using var stream = new UnderreportingLengthStream(actual, reportedLength: 4);
+
+        byte[]? read = await PackageContentAdmission.ReadBoundedAsync(
+            stream,
+            maxBytes: 8,
+            CancellationToken.None);
+
+        Assert.Null(read);
+    }
+
+    [Fact]
+    public async Task ReadBoundedAsync_SeekableUnderreportedLength_DrainsFullBodyUnderMax()
+    {
+        byte[] actual = new byte[12];
+        for (int i = 0; i < actual.Length; i++)
+            actual[i] = (byte)i;
+        await using var stream = new UnderreportingLengthStream(actual, reportedLength: 3);
+
+        byte[]? read = await PackageContentAdmission.ReadBoundedAsync(
+            stream,
+            maxBytes: 32,
+            CancellationToken.None);
+
+        Assert.NotNull(read);
+        Assert.Equal(actual, read);
+    }
+
+    [Fact]
     public void NestedCommitMarkerNamedFile_CountsTowardExpandedBytes()
     {
         string root = TempDirectory();
@@ -1786,6 +1820,60 @@ public sealed class PackagePayloadAcquisitionTests
             onRead?.Invoke();
             buffer.Span.Clear();
             return ValueTask.FromResult(buffer.Length);
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Seekable stream whose <see cref="Length"/> under-reports the readable body.
+    /// </summary>
+    sealed class UnderreportingLengthStream(byte[] body, long reportedLength) : Stream
+    {
+        int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => reportedLength;
+
+        public override long Position
+        {
+            get => _position;
+            set => _position = (int)value;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_position >= body.Length)
+                return 0;
+            int n = Math.Min(count, body.Length - _position);
+            body.AsSpan(_position, n).CopyTo(buffer.AsSpan(offset, n));
+            _position += n;
+            return n;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position >= body.Length)
+                return ValueTask.FromResult(0);
+            int n = Math.Min(buffer.Length, body.Length - _position);
+            body.AsSpan(_position, n).CopyTo(buffer.Span);
+            _position += n;
+            return ValueTask.FromResult(n);
         }
 
         public override void Flush()

@@ -526,7 +526,11 @@ internal static class PackageContentAdmission
 
         int max = (int)maxBytes;
 
-        // Seekable streams: size the buffer once when the remaining length is known.
+        // Seekable Length is only a fast-reject / sizing hint — never the stop
+        // condition. A Length under-report or a file that grows after Length is
+        // observed must still drain to EOF under the bound (with a one-byte
+        // over-limit probe), matching the non-seekable path.
+        int initialCapacity = max == 0 ? 0 : Math.Min(81920, max);
         if (source.CanSeek)
         {
             long remaining = source.Length - source.Position;
@@ -534,35 +538,11 @@ internal static class PackageContentAdmission
                 remaining = 0;
             if (remaining > max)
                 return null;
-            if (remaining == 0)
-                return [];
-
-            byte[] exact = new byte[remaining];
-            int offset = 0;
-            while (offset < exact.Length)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                int read = await source
-                    .ReadAsync(
-                        exact.AsMemory(offset, exact.Length - offset),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                if (read == 0)
-                {
-                    if (offset == 0)
-                        return [];
-                    Array.Resize(ref exact, offset);
-                    return exact;
-                }
-
-                offset += read;
-            }
-
-            return exact;
+            if (remaining > initialCapacity)
+                initialCapacity = (int)remaining;
         }
 
-        // Non-seekable: grow in place up to max; shrink once at EOF.
-        byte[] buffer = max == 0 ? [] : new byte[Math.Min(81920, max)];
+        byte[] buffer = initialCapacity == 0 ? [] : new byte[initialCapacity];
         int total = 0;
         while (true)
         {
