@@ -171,6 +171,7 @@
 - Adds Rung 7 `Performance Triage` shapes: `async-state-machine` (reported as
   amortized off-loop) and `materialize-in-loop` (loop-invariant
   `ToArray`/`ToList`), plus nested-type triage drilldown (#1948, #1889).
+
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,
