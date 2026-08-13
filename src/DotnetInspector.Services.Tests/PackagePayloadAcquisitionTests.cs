@@ -234,6 +234,7 @@ public sealed class PackagePayloadAcquisitionTests
                     "Sample.dll",
                     SearchOption.AllDirectories)
                 .Single();
+            // Different length — size check alone would catch this.
             File.WriteAllBytes(dll, [9, 9, 9, 9, 9]);
 
             var store = new FileSystemPackageStore();
@@ -255,6 +256,203 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(cacheRoot, recursive: true);
             if (Directory.Exists(stagingRoot))
                 Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Same-length content swaps must fail CRC agreement, not only size.
+    /// </summary>
+    [Fact]
+    public async Task CacheHitWithArchive_RejectsSameLengthMutatedDll()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            // TestPackageArchive default content is {1,2,3}.
+            byte[] nupkgBytes = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll");
+            Directory.CreateDirectory(stagingRoot);
+            string nupkg = Path.Combine(stagingRoot, "package.nupkg");
+            File.WriteAllBytes(nupkg, nupkgBytes);
+            string realExtract = Path.Combine(stagingRoot, "from-nupkg");
+            ZipFile.ExtractToDirectory(nupkg, realExtract);
+            NuGetCache.CommitPackage(
+                realExtract,
+                nupkg,
+                PackageId,
+                Version,
+                NuGetCache.GetSourceKey(NuGetOrg.Url));
+
+            string committedRoot = Directory
+                .EnumerateFiles(
+                    cacheRoot,
+                    $"{PackageId}.{Version}.nupkg",
+                    SearchOption.AllDirectories)
+                .Select(Path.GetDirectoryName)
+                .Single()!;
+            string dll = Directory
+                .EnumerateFiles(
+                    committedRoot,
+                    "Sample.dll",
+                    SearchOption.AllDirectories)
+                .Single();
+            Assert.Equal(3, new FileInfo(dll).Length);
+            File.WriteAllBytes(dll, [9, 9, 9]);
+
+            var store = new FileSystemPackageStore();
+            using var client = new HttpClient(new NotFoundHandler());
+
+            PackagePayloadResult result =
+                await PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArchiveBackedTree_RejectsExtraEmptyDirectories()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll");
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1, 2, 3]);
+            Directory.CreateDirectory(Path.Combine(root, "extra-empty"));
+            Directory.CreateDirectory(
+                Path.Combine(root, "extra-empty", "nested"));
+
+            Assert.False(
+                PackageContentAdmission.ExtractedTreeMatchesArchive(
+                    root,
+                    archive,
+                    retainedNupkgPath: null,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// NuGet global-packages trees are not 1:1 archive extracts (OPC omitted,
+    /// sidecar metadata, nuspec casing). Without a product commit marker they
+    /// must still admit under walk-only gates.
+    /// </summary>
+    [Fact]
+    public async Task GlobalPackagesShapedTree_IsAdmittedWithoutExactArchiveMatch()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] archive = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll",
+                "Sample.Package.nuspec",
+                "[Content_Types].xml",
+                "_rels/.rels",
+                "package/services/metadata/core-properties/x.psmdcp");
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+
+            // NuGet-shaped extract: no OPC, lowercase nuspec, sidecar files.
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1, 2, 3]);
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            File.WriteAllText(Path.Combine(root, ".nupkg.metadata"), "{}");
+            File.WriteAllText(
+                Path.Combine(root, $"{PackageId}.{Version}.nupkg.sha512"),
+                "abc");
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: "global");
+            Assert.True(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+
+            // Same tree with a product commit marker must require exact match
+            // and therefore reject the NuGet-shaped divergence.
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+            Assert.False(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArchiveBackedTree_CommitMarkerDoesNotConsumeExpandedBudget()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] payload = new byte[100];
+            Array.Fill(payload, (byte)7);
+            byte[] archive = TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/Sample.dll", payload));
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                payload);
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+
+            var limits = new PackagePayloadLimits { MaxExpandedBytes = 100 };
+            Assert.True(
+                PackageContentAdmission.ExtractedTreeMatchesArchive(
+                    root,
+                    archive,
+                    retainedNupkgPath: null,
+                    limits,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 

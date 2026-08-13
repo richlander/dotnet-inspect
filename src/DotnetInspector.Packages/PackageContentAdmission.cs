@@ -7,12 +7,16 @@ namespace DotnetInspector.Packages;
 /// </summary>
 /// <remarks>
 /// Cache hits with a retained archive are revalidated against the full archive
-/// limit set, then the extracted <c>RootPath</c> is checked for reparse-point
-/// escape and for agreement with the archive's entry paths and sizes (so a
-/// valid nupkg cannot launder a mutated tree). Archive-less entries require a
-/// top-level <c>.nuspec</c> and a full tree walk that counts every filesystem
-/// node toward <see cref="PackagePayloadLimits.MaxEntryCount"/>; only the
-/// retained archive path (when present) is excluded from expanded-byte tally.
+/// limit set. Product-owned trees (app-cache slots carrying the commit marker)
+/// must then match the archive entry paths, sizes, and CRC-32 values so a valid
+/// nupkg cannot launder a mutated extract. Foreign trees such as NuGet's
+/// global-packages folder are not 1:1 extracts (OPC entries omitted, sidecar
+/// metadata files, nuspec casing) and cannot be rewritten by this product — they
+/// receive reparse-point and expanded-byte gates only. Archive-less entries
+/// require a top-level <c>.nuspec</c> and a full tree walk that counts every
+/// filesystem node toward <see cref="PackagePayloadLimits.MaxEntryCount"/>.
+/// Expanded-byte tally omits the retained archive path (when present) and the
+/// internal commit marker.
 /// </remarks>
 internal static class PackageContentAdmission
 {
@@ -59,7 +63,7 @@ internal static class PackageContentAdmission
             }
 
             if (content.RootPath is not null
-                && !ExtractedTreeMatchesArchive(
+                && !AdmitExtractedTreeWithArchive(
                     content.RootPath,
                     archive,
                     content.NupkgPath,
@@ -90,8 +94,8 @@ internal static class PackageContentAdmission
     /// Archive-less walk: every filesystem node counts toward
     /// <see cref="PackagePayloadLimits.MaxEntryCount"/>; file bytes toward
     /// <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Reparse points
-    /// fail closed. Only <paramref name="retainedNupkgPath"/> (when set) is
-    /// omitted from the expanded-byte tally.
+    /// fail closed. The retained archive path (when set) and the commit marker
+    /// are omitted from the expanded-byte tally.
     /// </summary>
     internal static bool IsExtractedTreeWithinLimits(
         string root,
@@ -104,9 +108,46 @@ internal static class PackageContentAdmission
             countEveryNodeTowardEntryLimit: true);
 
     /// <summary>
+    /// Product-owned extracts (commit marker present) must match the archive.
+    /// Foreign layouts (global-packages) get walk-only safety gates.
+    /// </summary>
+    internal static bool AdmitExtractedTreeWithArchive(
+        string root,
+        byte[] archive,
+        string? retainedNupkgPath,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken) =>
+        HasCommitMarker(root)
+            ? ExtractedTreeMatchesArchive(
+                root,
+                archive,
+                retainedNupkgPath,
+                limits,
+                cancellationToken)
+            : WalkExtractedTree(
+                root,
+                retainedNupkgPath,
+                limits,
+                countEveryNodeTowardEntryLimit: false);
+
+    static bool HasCommitMarker(string root)
+    {
+        try
+        {
+            return File.Exists(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// After a valid archive, require the extracted tree to match archive entry
-    /// paths/sizes and reject reparse points. Extra files allowed only for the
-    /// retained nupkg and the commit marker.
+    /// paths, sizes, and CRC-32 values and reject reparse points. Extra files
+    /// allowed only for the retained nupkg and the commit marker; extra
+    /// directories allowed only as parents of archive entries.
     /// </summary>
     internal static bool ExtractedTreeMatchesArchive(
         string root,
@@ -119,6 +160,9 @@ internal static class PackageContentAdmission
             return false;
 
         // First pass: no symlink escape and expanded bytes stay in bound.
+        // Entry-count is not reapplied against FS nodes here — the archive
+        // already paid MaxEntryCount; directory fan-out is constrained below
+        // by matching the expected directory set.
         if (!WalkExtractedTree(
                 root,
                 retainedNupkgPath,
@@ -128,18 +172,19 @@ internal static class PackageContentAdmission
             return false;
         }
 
-        HashSet<string> allowedExtras = new(StringComparer.OrdinalIgnoreCase)
+        HashSet<string> allowedExtraFiles = new(StringComparer.OrdinalIgnoreCase)
         {
             NuGetCache.CommitMarkerFileName,
         };
         if (retainedNupkgPath is not null)
         {
-            allowedExtras.Add(
+            allowedExtraFiles.Add(
                 Path.GetRelativePath(root, retainedNupkgPath)
                     .Replace('\\', '/'));
         }
 
-        HashSet<string> archivePaths = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> archiveFiles = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> expectedDirs = new(StringComparer.OrdinalIgnoreCase);
         try
         {
             using var zip = new ZipArchive(
@@ -148,12 +193,9 @@ internal static class PackageContentAdmission
             foreach (ZipArchiveEntry entry in zip.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string relative = entry.FullName.Replace('\\', '/');
-                if (string.IsNullOrEmpty(relative)
-                    || relative.EndsWith('/'))
-                {
+                string relative = entry.FullName.Replace('\\', '/').TrimStart('/');
+                if (string.IsNullOrEmpty(relative))
                     continue;
-                }
 
                 if (relative.Contains("..", StringComparison.Ordinal)
                     || Path.IsPathRooted(relative))
@@ -161,24 +203,41 @@ internal static class PackageContentAdmission
                     return false;
                 }
 
-                archivePaths.Add(relative);
+                bool isDirectory = relative.EndsWith('/')
+                    || (string.IsNullOrEmpty(entry.Name)
+                        && entry.Length == 0);
+                if (isDirectory)
+                {
+                    string dir = relative.TrimEnd('/');
+                    if (dir.Length > 0)
+                        RememberDirectory(expectedDirs, dir);
+                    continue;
+                }
+
+                archiveFiles.Add(relative);
+                RememberDirectoryParents(expectedDirs, relative);
+
                 string onDisk = Path.Combine(
                     root,
                     relative.Replace('/', Path.DirectorySeparatorChar));
-                if (!File.Exists(onDisk))
+                if (!File.Exists(onDisk) || IsReparsePoint(onDisk))
                     return false;
 
                 long length;
+                uint crc;
                 try
                 {
                     length = new FileInfo(onDisk).Length;
+                    if (length != entry.Length)
+                        return false;
+                    crc = ComputeFileCrc32(onDisk);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     return false;
                 }
 
-                if (length != entry.Length)
+                if (crc != entry.Crc32)
                     return false;
             }
         }
@@ -187,7 +246,6 @@ internal static class PackageContentAdmission
             return false;
         }
 
-        // No unexpected files under root (commit marker + retained nupkg OK).
         try
         {
             foreach (string file in Directory.EnumerateFiles(
@@ -198,13 +256,28 @@ internal static class PackageContentAdmission
                 string relative = Path
                     .GetRelativePath(root, file)
                     .Replace('\\', '/');
-                if (archivePaths.Contains(relative)
-                    || allowedExtras.Contains(relative))
+                if (archiveFiles.Contains(relative)
+                    || allowedExtraFiles.Contains(relative))
                 {
                     continue;
                 }
 
                 return false;
+            }
+
+            foreach (string directory in Directory.EnumerateDirectories(
+                         root,
+                         "*",
+                         SearchOption.AllDirectories))
+            {
+                if (IsReparsePoint(directory))
+                    return false;
+
+                string relative = Path
+                    .GetRelativePath(root, directory)
+                    .Replace('\\', '/');
+                if (!expectedDirs.Contains(relative))
+                    return false;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -213,6 +286,42 @@ internal static class PackageContentAdmission
         }
 
         return true;
+    }
+
+    static void RememberDirectoryParents(
+        HashSet<string> expectedDirs,
+        string relativeFile)
+    {
+        int index = 0;
+        while (index < relativeFile.Length)
+        {
+            int slash = relativeFile.IndexOf('/', index);
+            if (slash < 0)
+                break;
+
+            if (slash > 0)
+                expectedDirs.Add(relativeFile[..slash]);
+            index = slash + 1;
+        }
+    }
+
+    static void RememberDirectory(
+        HashSet<string> expectedDirs,
+        string relativeDirectory)
+    {
+        expectedDirs.Add(relativeDirectory);
+        RememberDirectoryParents(expectedDirs, relativeDirectory + "/");
+    }
+
+    static uint ComputeFileCrc32(string path)
+    {
+        var crc = new ZipCrc32();
+        using FileStream stream = File.OpenRead(path);
+        byte[] buffer = new byte[81920];
+        int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            crc.Append(buffer.AsSpan(0, read));
+        return crc.Value;
     }
 
     static bool WalkExtractedTree(
@@ -279,16 +388,10 @@ internal static class PackageContentAdmission
                     continue;
                 }
 
-                // Skip only the retained archive path from expanded tally —
-                // those bytes were already bounded by MaxArchiveBytes.
-                if (normalizedRetained is not null
-                    && string.Equals(
-                        Path.GetFullPath(entry),
-                        normalizedRetained,
-                        StringComparison.OrdinalIgnoreCase))
-                {
+                // Skip retained archive (bounded by MaxArchiveBytes) and the
+                // internal commit marker (not package content).
+                if (IsExcludedFromExpandedBytes(entry, normalizedRetained))
                     continue;
-                }
 
                 long length;
                 try
@@ -308,6 +411,25 @@ internal static class PackageContentAdmission
         }
 
         return true;
+    }
+
+    static bool IsExcludedFromExpandedBytes(
+        string path,
+        string? normalizedRetainedNupkg)
+    {
+        if (normalizedRetainedNupkg is not null
+            && string.Equals(
+                Path.GetFullPath(path),
+                normalizedRetainedNupkg,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(
+            Path.GetFileName(path),
+            NuGetCache.CommitMarkerFileName,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool HasTopLevelNuspec(string root)
