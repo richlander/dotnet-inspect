@@ -93,11 +93,12 @@ both before dispatching, and expect to update them:
 - **Does every skill added since the last release appear in both places?** A
   skill needs an `EmbeddedResource` line in
   `src/dotnet-inspect/dotnet-inspect.csproj` *and* an entry in
-  `SkillCommand.Skills`. Nothing enforces this: every test in
-  `SkillCommandTests` iterates `SkillCommand.Skills`, so a skill directory that
-  was never registered is invisible to the suite and ships as nothing at all,
-  with a green build. Compare `skills/*/SKILL.md` on disk against both lists by
-  hand, and confirm with `dotnet-inspect skill list`.
+  `SkillCommand.Skills`.
+  `SkillCommandTests.FocusedSkillFilesRegistryAndEmbeddedResourcesAgree`
+  enforces equality between `skills/*/SKILL.md` on disk, the runtime registry,
+  and embedded resources. The focused skill CI lane runs that gate for
+  `SKILL.md`-only pull requests. Confirm the generated listing with
+  `dotnet-inspect skill list`.
 - Record the outcome either way. If neither needed a change, say so; silence
   reads the same as an unchecked box.
 
