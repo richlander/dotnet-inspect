@@ -70,6 +70,30 @@ For focused invalid-Full / burndown row fixes, prefer
 
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence with the decisive reason}.
 
+### Structural review
+
+<!--
+For a changed rendered body, this generated artifact is the preferred review
+shape. Produce it from two C# AnnotatedSourceDocument revisions plus
+owner-issued node correspondence:
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review /tmp/comparison.json
+
+Paste the output verbatim. Its complete Before/After blocks and rich structural
+diff consume one CSharpStructuralComparison; do not manually place carets or
+reconstruct rows. Node ids are document-local. Correspondence must come from
+the owner that produced the revisions, never equal ids, coordinates, selected
+text, or labels. Fidelity and retained IL notes are independent evidence, not
+claims inferred from the C# transition.
+
+When this artifact is present, delete the duplicate code fences in the
+standalone Before and After sections below, but retain their validity,
+correctness, fidelity, taste, and commit verdicts.
+-->
+
+{generated full-body Before/After carets and rich structural diff}
+
 ### Benchmark target
 
 <!--
