@@ -65,10 +65,12 @@ public class SourceLinkQueryServiceTests
                         ? exactBody
                         : changedBody),
             }));
+        List<string> logs = [];
 
         SourceIntegritySummary result = await SourceIntegrityService.InspectAsync(
             documents,
             client,
+            log: logs.Add,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Verified);
@@ -76,6 +78,141 @@ public class SourceLinkQueryServiceTests
         Assert.Equal(0, result.LineEndingNormalized);
         Assert.Equal(1, result.Unverifiable);
         Assert.Equal(["/src/Mismatch.cs"], result.MismatchedFiles);
+        Assert.Contains("Source integrity checksum mismatch.", logs);
+        Assert.DoesNotContain(
+            logs,
+            message => message.Contains("/src/Mismatch.cs", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            logs,
+            message => message.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Availability_DoesNotCountCrossOriginRedirectAsReachable()
+    {
+        const string Url =
+            "https://dev.azure.com/org/project/_apis/git/repositories/repo/items"
+            + "?api-version=7.1&versionType=commit"
+            + "&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/A.cs";
+        using var client = new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage((HttpStatusCode)203)
+            {
+                RequestMessage = new HttpRequestMessage(
+                    HttpMethod.Head,
+                    "https://spsprodeus27.vssps.visualstudio.com/_signin"),
+            }));
+        List<string> logs = [];
+
+        SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
+            [Document("/src/A.cs", url: Url)],
+            client,
+            log: logs.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, result.AccessibleSourceFiles);
+        Assert.Equal(["/src/A.cs"], result.MissingSourceFiles);
+        Assert.DoesNotContain(logs, message => message.Contains(Url, StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            logs,
+            message => message.Contains("spsprodeus27", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(logs, message => message.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect()
+    {
+        byte[] body = "exact source"u8.ToArray();
+        const string Url =
+            "https://dev.azure.com/org/project/_apis/git/repositories/repo/items"
+            + "?api-version=7.1&versionType=commit"
+            + "&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/A.cs";
+        var content = new TrackingContent(body);
+        using var client = new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+                RequestMessage = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    "https://spsprodeus27.vssps.visualstudio.com/_signin"),
+            }));
+        List<string> logs = [];
+
+        SourceIntegritySummary result = await SourceIntegrityService.InspectAsync(
+            [
+                Document(
+                    "/src/A.cs",
+                    url: Url,
+                    checksum: Convert.ToHexString(SHA256.HashData(body)))
+            ],
+            client,
+            log: logs.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, result.Verified);
+        Assert.Equal(0, result.Mismatched);
+        Assert.Equal(1, result.Unverifiable);
+        Assert.Equal(0, content.ReadCount);
+        Assert.DoesNotContain(logs, message => message.Contains(Url, StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            logs,
+            message => message.Contains("spsprodeus27", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(logs, message => message.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Integrity_FailureDiagnosticsDoNotEchoArtifactUrls()
+    {
+        const string Url = "https://example.test/secret.cs";
+        List<string> logs = [];
+        using var client = new HttpClient(
+            new ThrowingHandler($"transport exposed {Url}"));
+
+        SourceIntegritySummary result = await SourceIntegrityService.InspectAsync(
+            [
+                Document(
+                    "/src/Secret.cs",
+                    url: Url,
+                    checksum: Convert.ToHexString(SHA256.HashData("expected"u8)))
+            ],
+            client,
+            log: logs.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, result.Unverifiable);
+        Assert.Contains("Source integrity fetch failed.", logs);
+        Assert.DoesNotContain(logs, message => message.Contains(Url, StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            logs,
+            message => message.Contains("/src/Secret.cs", StringComparison.Ordinal));
+        Assert.DoesNotContain(logs, message => message.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BrowserTransport_FailsClosedOnlyForAttributedSourceUrls()
+    {
+        const string Attributed =
+            "https://raw.githubusercontent.com/dotnet/runtime/"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs";
+        const string Unattributed = "https://example.test/source.cs";
+
+        SourceLinkFetch.SourceLinkFetchOriginResult attributed =
+            SourceFetchOriginValidator.Validate(
+                Attributed,
+                Attributed,
+                finalUrlReliable: false);
+        SourceLinkFetch.SourceLinkFetchOriginResult unattributed =
+            SourceFetchOriginValidator.Validate(
+                Unattributed,
+                Unattributed,
+                finalUrlReliable: false);
+
+        Assert.Equal(
+            SourceLinkFetch.SourceLinkFetchOriginStatus.Changed,
+            attributed.Status);
+        Assert.Equal(
+            SourceLinkFetch.SourceLinkFetchOriginStatus.Unattributed,
+            unattributed.Status);
+        Assert.True(unattributed.IsAllowed);
     }
 
     private static SourceDocumentObservation Document(
@@ -101,7 +238,39 @@ public class SourceLinkQueryServiceTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(respond(request));
+            HttpResponseMessage response = respond(request);
+            response.RequestMessage ??= request;
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class ThrowingHandler(string message) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromException<HttpResponseMessage>(
+                new InvalidOperationException(message));
+    }
+
+    private sealed class TrackingContent(byte[] content) : HttpContent
+    {
+        private int _readCount;
+
+        public int ReadCount => Volatile.Read(ref _readCount);
+
+        protected override async Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+        {
+            Interlocked.Increment(ref _readCount);
+            await stream.WriteAsync(content);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = content.Length;
+            return true;
         }
     }
 }

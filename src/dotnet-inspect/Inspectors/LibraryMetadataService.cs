@@ -307,9 +307,13 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         ResourcesQuery.Execute(session));
+                    ApplyTypeForwardersResult(
+                        path,
+                        inspection,
+                        logger,
+                        TypeForwardersQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
                     inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
-                    inspection.TypeForwarderInspection = ScanTypeForwarders(session, path, logger);
                 }
 
                 catch (Exception ex)
@@ -1689,40 +1693,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    /// <summary>
-    /// Scans an assembly for type forwarders.
-    /// </summary>
-    internal static FindingInspection<TypeForwarderInfo> ScanTypeForwarders(string path, VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanTypeForwarders(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning type forwarders in {path}: {ex.Message}");
-            return FailedInspection<TypeForwarderInfo>(
-                path, MetadataFindings.TypeForwarderDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<TypeForwarderInfo> ScanTypeForwarders(AssemblyInspectionSession session, string path, VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectTypeForwarders(
-                session.TypeForwarders(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning type forwarders in {path}: {ex.Message}");
-            return FailedInspection<TypeForwarderInfo>(
-                path, MetadataFindings.TypeForwarderDescriptor, ex);
-        }
-    }
-
     private static void ApplyQueryResults(
         string path,
         LibraryInspection inspection,
@@ -1768,6 +1738,13 @@ internal static class LibraryMetadataService
                 out ResourcesResult? resources))
         {
             ApplyResourcesResult(path, inspection, logger, resources);
+        }
+
+        if (results.TryGet(
+                TypeForwardersQuery.Definition,
+                out TypeForwardersResult? typeForwarders))
+        {
+            ApplyTypeForwardersResult(path, inspection, logger, typeForwarders);
         }
 
         if (results.TryGet(
@@ -1992,6 +1969,37 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown resources result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyTypeForwardersResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        TypeForwardersResult result)
+    {
+        switch (result)
+        {
+            case TypeForwardersResult.Available available:
+                inspection.TypeForwarderInspection =
+                    MetadataFindings.InspectTypeForwarders(
+                        available.Forwarders,
+                        FindingSubjectFor(path));
+                break;
+
+            case TypeForwardersResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning type forwarders in {path}: {failed.Error.Message}");
+                inspection.TypeForwarderInspection =
+                    FailedInspection<TypeForwarderInfo>(
+                        path,
+                        MetadataFindings.TypeForwarderDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown type-forwarders result '{result.GetType().Name}'.");
         }
     }
 

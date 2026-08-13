@@ -90,6 +90,10 @@ public sealed class ILOffsetProjection
     public string? File { get; init; }
     public int? Line { get; init; }
     public string? Url { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public byte[]? SourceChecksum { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SourceChecksumAlgorithm { get; init; }
     public ILOffsetMemberContext? MemberContext { get; init; }
     public ILOffsetInstructionContext? InstructionContext { get; init; }
     public List<ILOffsetExceptionContext>? ExceptionContext { get; init; }

@@ -75,9 +75,9 @@ public sealed class ScannerContext : IDisposable
     ///
     /// Returns <see langword="null"/> when the session cannot be acquired and retains the
     /// acquisition exception. Scanner adapters use their path overload to preserve their existing
-    /// failure mapping. The Resources typed-query adapter maps the retained exception directly
-    /// because reopening <see cref="AssemblyPath"/> could substitute different content for a
-    /// supplied <see cref="MetadataContext"/>.
+    /// failure mapping. Typed-query adapters map the retained exception directly because reopening
+    /// <see cref="AssemblyPath"/> could substitute different content for a supplied
+    /// <see cref="MetadataContext"/>.
     ///
     /// Scanners run sequentially (<see cref="ScannerRegistry.RunScanners"/>), so no
     /// synchronization is required.
@@ -85,8 +85,10 @@ public sealed class ScannerContext : IDisposable
     /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c>,
     /// <c>SharedSessionScanners_DoNotObserveAPathRetargetedMidRun</c>,
     /// <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>, and
-    /// <c>ResourcesQuery_OpenFailureRemainsTyped</c>, and
-    /// <c>ResourcesQuery_RetainedImageFailureDoesNotReopenPath</c>.
+    /// <c>ResourcesQuery_OpenFailureRemainsTyped</c>,
+    /// <c>ResourcesQuery_RetainedImageFailureDoesNotReopenPath</c>, and
+    /// <c>TypeForwardersQuery_OpenFailureRemainsTyped</c>, and
+    /// <c>TypeForwardersQuery_RetainedImageFailureDoesNotReopenPath</c>.
     /// </summary>
     public AssemblyInspectionSession? Session()
     {
