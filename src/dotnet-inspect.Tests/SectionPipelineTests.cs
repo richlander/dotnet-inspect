@@ -1507,6 +1507,19 @@ public class SectionPipelineTests
         Assert.Equal([ResourcesQuery.Definition], queries);
     }
 
+    [Fact]
+    public void LibraryPipeline_TargetedTypeForwarders_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Type Forwarders" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([TypeForwardersQuery.Definition], queries);
+    }
+
     // ===== Scanner registry tests =====
 
     [Fact]
@@ -1614,6 +1627,7 @@ public class SectionPipelineTests
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
+                TypeForwardersQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
     }
@@ -2071,6 +2085,7 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
             ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
     }
@@ -2105,6 +2120,7 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
             ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
     }
@@ -2139,8 +2155,178 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
             ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryInfoAndTypeForwardersSections_ShareTypedTypeForwardersQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                TypeForwardersQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.TypeForwarders,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.TypeForwarders],
+            boundSections);
+        Assert.Equal(
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
+            required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_ReturnsMetadataOrderedForwardersFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+
+        var result = Assert.IsType<TypeForwardersResult.Available>(
+            TypeForwardersQuery.Execute(session));
+
+        Assert.Contains(
+            result.Forwarders,
+            forwarder =>
+                forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard"
+                && forwarder.TargetAssembly == "ILInspector.MetadataPrimitives");
+        Assert.Equal(session.TypeForwarders(), result.Forwarders);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var forwarders = Assert.IsType<TypeForwardersResult.Available>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.Contains(
+            forwarders.Forwarders,
+            forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            TypeForwardersQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary = typeof(AssemblyInspectionSession).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            Assert.NotEmpty(canarySession.TypeForwarders());
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<TypeForwardersResult.Failed>(
+            TypeForwardersQuery.Execute(session));
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
+            model.TypeForwarderInspection!.Value);
+        Assert.Null(model.TypeForwarders);
+        Assert.Equal("Type Forwarders", Assert.Single(model.InspectionFailures!).Section);
     }
 
     [Fact]
@@ -3648,9 +3834,8 @@ public class SectionPipelineTests
         // observable that stands in for it.
         string[] sharedSessionScanners =
         [
-            // was ScanInfoCounts's fan-out
+            // remains from ScanInfoCounts's fan-out
             LibrarySections.ScannerClassifiedMethods,
-            LibrarySections.ScannerTypeForwarders,
             // workspace-backed library inspection must not reopen its package path
             LibrarySections.ScannerUnionTypes,
             LibrarySections.ScannerSwitches,
@@ -3675,7 +3860,7 @@ public class SectionPipelineTests
     [Fact]
     public void Trace_RecordsWhatRan_AndMarksBundlesAsDoingNoWorkOfTheirOwn()
     {
-        // InfoCounts is a bundle: it does no work itself and exists only to pull in two scanners.
+        // InfoCounts is a bundle: it does no work itself and exists only to pull in one scanner.
         // A trace that reported it as an ordinary scanner would attribute the bundle's dispatch
         // cost to a step that has none, and hide that the real work belongs to its prerequisites.
         var registry = LibrarySections.CreateScannerRegistry();
@@ -3802,6 +3987,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
             ],
             requested.OrderBy(query => query.Name, StringComparer.Ordinal));
 
@@ -3938,11 +4124,6 @@ public class SectionPipelineTests
                 m => m.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger)),
                 m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
                     m.ClassifiedMethodInspection!.Value)),
-
-            ("TypeForwarders",
-                m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
-                m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
-                    m.TypeForwarderInspection!.Value)),
 
             ("AuditSignals",
                 m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
@@ -4227,7 +4408,6 @@ public class SectionPipelineTests
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
-        LibrarySections.ScannerTypeForwarders,
         LibrarySections.ScannerUnionTypes,
         LibrarySections.ScannerSwitches,
         LibrarySections.ScannerAuditSignals,
@@ -4236,7 +4416,6 @@ public class SectionPipelineTests
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
-        $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
         $"unions={PayloadCount(model.UnionTypeInspection)}",
         $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
