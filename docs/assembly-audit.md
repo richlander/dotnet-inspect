@@ -63,6 +63,8 @@ The package result is gated by
 `PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
 which derives the expected text-source set from the package model and requires
 each source to contribute independently;
+`Package_MultiplePackages_SignalsIncludePackageFileConcerns` gates parity
+between single-package and survey-mode file-path evidence;
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
 content-free detail shapes, and
 `PackageSignals_ReportsNoArtifactTextConcernForBackslashes` gates the close
@@ -76,8 +78,11 @@ coverage.
 
 Library and package Signals include an `Identifier confusion` row. The package
 scope covers the selected package ID, alternate package ID, dependency IDs,
-runtime dependency IDs, and RID companion-package IDs. The library scope covers
-the assembly name plus direct and transitive assembly-reference names.
+runtime dependency IDs, and RID companion-package IDs. Library Signals covers
+the selected assembly name and direct assembly-reference names. The explicit
+library audit additionally resolves and inspects the transitive reference
+closure; that unbounded traversal remains behind the explicit section gesture
+rather than entering Signals.
 
 | Value | Meaning |
 | ----- | ------- |
@@ -98,7 +103,7 @@ Select `Audit: Identifier Confusion` for the detected cases, or select
 `@Audit` to include them with the other audit evidence:
 
 ```bash
-dotnet-inspect library X -S "Signals,Audit: Identifier Confusion"
+dotnet-inspect library X -S "Audit: Identifier Confusion"
 dotnet-inspect package X -S "Signals,Audit: Identifier Confusion"
 ```
 
@@ -114,7 +119,9 @@ homoglyphs, generic non-ASCII cases, and ASCII close negatives.
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates the content-free Markdown and JSONL shapes, and
 `PackageAudit_InspectsPackageAndDependencyIdentifierLocations` plus
-`LibraryAudit_InspectsAssemblyAndReferenceNames` gate the two identifier scopes.
+`LibraryAudit_InspectsAssemblyAndReferenceNames` gate the typed identifier
+scopes. `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
+gates the explicit library producer demand.
 
 ## Build Audit Fields
 

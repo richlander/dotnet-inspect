@@ -74,7 +74,17 @@ internal static class IdentifierConfusionAudit
         return cases;
     }
 
-    public static IReadOnlyList<IdentifierConfusionCase> InspectLibrary(LibraryInspection model)
+    public static IReadOnlyList<IdentifierConfusionCase> InspectLibrarySummary(
+        LibraryInspection model)
+        => InspectLibrary(model, includeTransitiveReferences: false);
+
+    public static IReadOnlyList<IdentifierConfusionCase> InspectLibrary(
+        LibraryInspection model)
+        => InspectLibrary(model, includeTransitiveReferences: true);
+
+    private static IReadOnlyList<IdentifierConfusionCase> InspectLibrary(
+        LibraryInspection model,
+        bool includeTransitiveReferences)
     {
         List<IdentifierConfusionCase> cases = [];
         if (model.AssemblyInfo is not { } assembly)
@@ -98,10 +108,14 @@ internal static class IdentifierConfusionAudit
             }
         }
 
-        if (assembly.TransitiveReferences is { } transitiveReferences)
+        if (includeTransitiveReferences
+            && model.IdentifierConfusionTransitiveReferences is { } transitiveReferences)
         {
             for (int index = 0; index < transitiveReferences.Count; index++)
             {
+                if (transitiveReferences[index].Depth == 0)
+                    continue;
+
                 Add(
                     cases,
                     $"{nameof(model.AssemblyInfo)}.{nameof(assembly.TransitiveReferences)}[{index}]."

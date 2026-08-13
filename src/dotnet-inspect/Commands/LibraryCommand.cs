@@ -486,6 +486,7 @@ public class LibraryCommand
                 // Assembly references are a cheap metadata fact. Discovery never needs the
                 // transitive projection because References effectiveness is established directly.
                 CollectReferenceTree = false,
+                CollectIdentifierConfusionReferenceTree = false,
             };
         }
         else
@@ -494,8 +495,10 @@ public class LibraryCommand
                 options.Verbosity, options.IncludeSections, options.FixedOverview);
             inspectionOptions = inspectionOptions with
             {
-                CollectReferenceTree = options.Tree
-                    && candidates.Contains(SectionNames.References),
+                CollectReferenceTree =
+                    options.Tree && candidates.Contains(SectionNames.References),
+                CollectIdentifierConfusionReferenceTree =
+                    candidates.Contains(SectionNames.IdentifierConfusion),
             };
         }
 

@@ -2258,6 +2258,23 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryIdentifierConfusionSection_DemandsTypedAssemblyReferencesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        HashSet<string> identifierAudit =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.IdentifierConfusion,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            identifierAudit);
+
+        Assert.Equal([AssemblyReferencesQuery.Definition], required);
+    }
+
+    [Fact]
     public void AssemblyReferencesQuery_ReturnsDirectReferencesFromBorrowedContent()
     {
         using var session = AssemblyInspectionSession.Open(
@@ -4082,6 +4099,7 @@ public class SectionPipelineTests
             "Metadata: TypeDef",
             "Metadata: TypeRef",
             "Metadata: TypeSpec",
+            SectionNames.IdentifierConfusion,
             SectionNames.SourceLinkAvailability,
             SectionNames.SourceLinkFiles,
             SectionNames.SourceLinkIntegrity,

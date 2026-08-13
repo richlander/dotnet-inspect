@@ -923,6 +923,8 @@ public class PackageCommand
             || options.IncludeSections?.Any(IsPackageFileSection) == true
             || (options.FixedOverview
                 && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
+            || options.IncludeSections?.Contains(PackageSections.Signals) == true
+            || options.IncludeSections?.Contains(PackageSections.AuditArtifactText) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.Count && !options.JsonOutput && rowSection == null)
         {

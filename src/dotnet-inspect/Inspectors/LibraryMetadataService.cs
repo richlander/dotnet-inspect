@@ -351,6 +351,24 @@ internal static class LibraryMetadataService
                     maxDepth: options.ReferenceTreeDepth);
             }
 
+            if (options.CollectIdentifierConfusionReferenceTree
+                && inspection.AssemblyInfo?.References is { } auditReferences)
+            {
+                var sourceDir = Path.GetDirectoryName(path);
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                visited.Add(
+                    inspection.AssemblyInfo.AssemblyName
+                    ?? Path.GetFileNameWithoutExtension(path));
+
+                inspection.IdentifierConfusionTransitiveReferences =
+                    BuildTransitiveReferences(
+                        auditReferences,
+                        sourceDir,
+                        visited,
+                        logger,
+                        deduplicate: true);
+            }
+
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 

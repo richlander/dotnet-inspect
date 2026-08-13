@@ -75,11 +75,11 @@ public class IdentifierConfusionAuditTests
                 [
                     new AssemblyReference("Contoso.Δelta", "1.0.0.0", null, null),
                 ],
-                TransitiveReferences =
-                [
-                    new AssemblyReferenceNode { Name = "Micrοsoft.Transitive" },
-                ],
             },
+            IdentifierConfusionTransitiveReferences =
+            [
+                new AssemblyReferenceNode { Name = "Micrοsoft.Transitive", Depth = 1 },
+            ],
         };
 
         IReadOnlyList<IdentifierConfusionCase> cases =
@@ -154,6 +154,34 @@ public class IdentifierConfusionAuditTests
             "1 non-ASCII identifier; 1 reserved-prefix homoglyph (Microsoft)",
             signal.Evidence);
         Assert.DoesNotContain(secret, signal.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LibrarySignals_KeepTransitiveReferenceTraversalExplicit()
+    {
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Contoso.Root",
+                References =
+                [
+                    new AssemblyReference("System.Runtime", "1.0.0.0", null, null),
+                ],
+                TransitiveReferences =
+                [
+                    new AssemblyReferenceNode { Name = "Micrοsoft.Transitive" },
+                ],
+            },
+        };
+
+        AuditSignalBuilder.RefreshLibraryAuditSignals(model);
+
+        AuditSignal signal = Assert.Single(
+            model.AuditSignals!,
+            value => value.Signal == "Identifier confusion");
+        Assert.Equal("None", signal.Value);
+        Assert.Equal("all inspected assembly names use ASCII characters", signal.Evidence);
     }
 
     private static void AssertCase(

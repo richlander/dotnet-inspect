@@ -347,7 +347,7 @@ internal static class AuditSignalBuilder
         private static SignalValue? ResolveIdentityIdentifierConfusion(
             in LibrarySignalContext context) =>
             IdentifierConfusionAudit.Summarize(
-                    IdentifierConfusionAudit.InspectLibrary(context.Inspection),
+                    IdentifierConfusionAudit.InspectLibrarySummary(context.Inspection),
                     "assembly names")
                 .ToSignalValue();
 

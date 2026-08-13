@@ -157,6 +157,78 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteReferenceFixtureAssembly(
+        string path,
+        string assemblyName,
+        params string[] references)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        foreach (string reference in references)
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(reference),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        }
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static (string RootPath, string TempDir)
+        CreateIdentifierConfusionReferenceGraph()
+    {
+        const string directName = "\u0405ystem.Direct";
+        const string transitiveName = "Micr\u03BFsoft.Transitive";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, $"{directName}.dll"),
+            directName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, $"{transitiveName}.dll"),
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, "Bridge.dll"),
+            "Bridge",
+            transitiveName);
+        string rootPath = Path.Combine(tempDir, "Root.dll");
+        WriteReferenceFixtureAssembly(rootPath, "Root", directName, "Bridge");
+        return (rootPath, tempDir);
+    }
+
     private static void WriteMalformedTypeNameAssembly(string path)
     {
         var metadata = new MetadataBuilder();
@@ -11451,6 +11523,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.True(
+                exit == 0,
+                $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("AssemblyInfo.References[", output);
+            Assert.Contains("AssemblyInfo.TransitiveReferences[", output);
+            Assert.Contains("U+0405→S", output);
+            Assert.Contains("U+03BF→O", output);
+            Assert.Equal(2, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_EmptySelectedSection_CountsZero()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -20261,6 +20363,77 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsIncludePackageFileConcerns()
+    {
+        var (cleanPackage, cleanTempDir) = CreateLocalReadmePackage(
+            "Test.Containment.Clean",
+            "README.md",
+            "readme");
+        var (hostilePackage, hostileTempDir) = CreateLocalReadmePackage(
+            "Test.Containment.Hostile",
+            "README.md",
+            "readme",
+            extraFiles: [("docs/\u202Esecret.txt", "payload")]);
+        try
+        {
+            var single = await RunAppAsync(
+                "package",
+                hostilePackage,
+                "-v:q",
+                "-S",
+                PackageSections.Signals,
+                "--json",
+                "--tips",
+                "q");
+            var multi = await RunAppAsync(
+                "package",
+                cleanPackage,
+                hostilePackage,
+                "-v:q",
+                "-S",
+                PackageSections.Signals,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.True(
+                single.Exit == 0,
+                $"exit={single.Exit}\nstdout:\n{single.Output}\nstderr:\n{single.Error}");
+            Assert.True(
+                multi.Exit == 0,
+                $"exit={multi.Exit}\nstdout:\n{multi.Output}\nstderr:\n{multi.Error}");
+            Assert.Empty(single.Error);
+            Assert.Empty(multi.Error);
+
+            using var singleDocument = JsonDocument.Parse(single.Output);
+            using var multiDocument = JsonDocument.Parse(multi.Output);
+            JsonElement singleSignal = Assert.Single(
+                singleDocument.RootElement.GetProperty("audit_signals").EnumerateArray(),
+                IsArtifactTextContainmentSignal);
+            JsonElement hostileResult = Assert.Single(
+                multiDocument.RootElement.EnumerateArray(),
+                package => package.GetProperty("package_name").GetString()
+                    == "Test.Containment.Hostile");
+            JsonElement multiSignal = Assert.Single(
+                hostileResult.GetProperty("audit_signals").EnumerateArray(),
+                IsArtifactTextContainmentSignal);
+
+            Assert.Equal("Required", singleSignal.GetProperty("value").GetString());
+            Assert.Equal("format/bidi (Cf)", singleSignal.GetProperty("evidence").GetString());
+            Assert.Equal("Required", multiSignal.GetProperty("value").GetString());
+            Assert.Equal("format/bidi (Cf)", multiSignal.GetProperty("evidence").GetString());
+        }
+        finally
+        {
+            Directory.Delete(cleanTempDir, recursive: true);
+            Directory.Delete(hostileTempDir, recursive: true);
+        }
+
+        static bool IsArtifactTextContainmentSignal(JsonElement signal)
+            => signal.GetProperty("signal").GetString() == "Artifact text containment";
     }
 
     [Fact]

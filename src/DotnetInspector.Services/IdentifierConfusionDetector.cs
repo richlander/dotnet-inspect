@@ -42,9 +42,10 @@ public static class IdentifierConfusionDetector
             return null;
 
         List<int> nonAscii = [];
+        HashSet<int> seenNonAscii = [];
         foreach (Rune rune in identifier.EnumerateRunes())
         {
-            if (!rune.IsAscii && !nonAscii.Contains(rune.Value))
+            if (!rune.IsAscii && seenNonAscii.Add(rune.Value))
                 nonAscii.Add(rune.Value);
         }
 

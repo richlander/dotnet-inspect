@@ -1026,20 +1026,27 @@ kinds, but never the field values. It is not the scalar-by-scalar refusal survey
 mode described below: it reports one row per contained presentation field and
 does not change rendering policy. Explicit document payloads remain raw by
 contract. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
-and `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
-summary and detail reporting boundaries. This is intentionally not a global CLI signal. Other
-commands and projections still have their own presentation models, so adopting
-the flags at the root today would claim coverage they do not have.
+and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
+summary across single-package and survey modes;
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
+detail reporting boundary. This is intentionally not a global CLI signal.
+Other commands and projections still have their own presentation models, so
+adopting the flags at the root today would claim coverage they do not have.
 
 Identifier confusion is a separate semantic risk from rendering. Package IDs
 and assembly names containing non-ASCII characters remain safe to carry as
-graphic text, so `TextConcern` correctly stays empty. Package and library
-Signals nevertheless report those identifiers for review, and a bounded
-high-similarity check confirms Greek/Cyrillic homoglyphs in the ecosystem
-prefixes `System`, `Microsoft`, and `Azure`. The explicit
-`Audit: Identifier Confusion` section exposes model locations, classifications,
-matched prefixes, similarity, and code points without echoing identifier
-content. `IdentifierConfusionDetectorTests` gates the detector boundary and
+graphic text, so `TextConcern` correctly stays empty. Package Signals and
+library Signals over the selected assembly plus direct references nevertheless
+report those identifiers for review, and a bounded high-similarity check
+confirms Greek/Cyrillic homoglyphs in the ecosystem prefixes `System`,
+`Microsoft`, and `Azure`. The explicit library
+`Audit: Identifier Confusion` section additionally resolves the transitive
+reference closure; the unbounded traversal requires that explicit gesture. The
+section exposes model locations, classifications, matched prefixes, similarity,
+and code points without echoing identifier content.
+`IdentifierConfusionDetectorTests` gates the detector boundary,
+`LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
+gates the library producer demand, and
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates content-free Markdown and structured output.
 

@@ -198,8 +198,9 @@ row when the library presentation model carries `InertString` through its
 complete text surface; until then, the package row does not claim library
 coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
 `PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
-and `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
-summary, provenance, and listing.
+`Package_MultiplePackages_SignalsIncludePackageFileConcerns`, and
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
+summary, single/multi-package parity, provenance, and listing.
 
 Library and package Signals also report `Identifier confusion` for assembly
 names and package IDs. Every non-ASCII identifier character is reported as an
@@ -212,12 +213,14 @@ content-free locations, classifications, similarity, and code points; the
 Signal and audit rows never repeat the identifier value. This is separate from
 artifact-text containment: a homoglyph is ordinary graphic text and does not
 require `InertString` encoding, while an ASCII backslash triggers neither
-concern.
+concern. Library Signals stays bounded to the selected assembly and its direct
+references. The explicit library audit additionally resolves and inspects the
+transitive reference closure.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
 | `library X -S Signals` | Metadata + provenance | Library metadata/provenance and identifier-confusion signals; a missing library PDB is acquired to resolve SourceLink. |
-| `library X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name and reference locations, classifications, similarity, and code points. |
+| `library X -S "Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name, direct-reference, and resolved transitive-reference locations, classifications, similarity, and code points. |
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |

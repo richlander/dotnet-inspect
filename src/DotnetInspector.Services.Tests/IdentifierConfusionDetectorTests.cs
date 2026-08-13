@@ -50,4 +50,13 @@ public class IdentifierConfusionDetectorTests
         Assert.NotEmpty(result.NonAsciiCodePoints);
         Assert.Null(result.ReservedPrefixMatch);
     }
+
+    [Fact]
+    public void NonAsciiEvidencePreservesFirstSeenDistinctOrder()
+    {
+        IdentifierConfusion result = Assert.IsType<IdentifierConfusion>(
+            IdentifierConfusionDetector.Inspect("Δelta.ΣΔЖΣ"));
+
+        Assert.Equal([0x0394, 0x03A3, 0x0416], result.NonAsciiCodePoints);
+    }
 }

@@ -100,7 +100,7 @@ public static class LibrarySections
                 SourceLinkDiscoverable)
             .Add<Symbols>()
             .Add<Signals>(HasAssemblyInfo)
-            .Add<IdentifierConfusion>()
+            .Add<IdentifierConfusion>(AssemblyReferencesQuery.Definition)
             .Add<Switches>(SwitchesQuery.Definition)
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
@@ -462,9 +462,10 @@ public static class LibrarySections
     public sealed class IdentifierConfusion : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.IdentifierConfusion;
-        public static bool IsExpensive => false;
+        public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => IdentifierConfusionAudit.InspectLibrary(model).Count > 0;
