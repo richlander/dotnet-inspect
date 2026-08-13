@@ -110,6 +110,33 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void CompilationRequiredMode_DeclinesUnstructuredCompatibilitySignature()
+    {
+        var type = Specimen();
+        var constructor = Assert.Single(type.Members, member => member.Kind == "constructor");
+        constructor.SignatureModel = null;
+        constructor.Signature =
+            "void .ctor([External.Marker(typeof(Gamma.Widget))] Alpha.Widget value)";
+
+        var single = MemberBodyProducer.ProduceMember(
+            type,
+            constructor,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Equal(MemberBodyProductionStatus.Failed, single.Status);
+        Assert.DoesNotContain("External.Marker", single.Text);
+        Assert.Equal(type.Members.Count, batch.Count);
+        Assert.Equal(single, batch[constructor]);
+    }
+
+    [Fact]
     public void ProduceMember_RendersExpressionBodiedArrow()
     {
         var type = Specimen();

@@ -298,7 +298,7 @@ internal static class CSharpDeclarationWriter
                 .ToHashSet(StringComparer.Ordinal);
             var delegateQualificationOnlyReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
                 .Concat(options.IncludeSignatureAttributes
-                    ? CollectQualificationOnlyAttributeTypeReferences(
+                    ? CollectDeclaredAttributeTypeReferences(
                         delegateInvoke.Attributes,
                         delegateInvoke)
                     : CollectDeclaredAttributeTypeReferences(delegateInvoke.Attributes))
@@ -1055,6 +1055,13 @@ internal static class CSharpDeclarationWriter
         }
         else
         {
+            if (!options.IncludeSignatureAttributes
+                && !CanSafelySuppressCompatibilitySignatureAttributes(member))
+            {
+                throw new NotSupportedException(
+                    $"Member '{member.Name}' requires compatibility signature text, "
+                    + "whose signature attributes cannot be suppressed safely.");
+            }
             signature = member.Signature ?? member.ReturnType ?? "";
         }
         if (string.IsNullOrWhiteSpace(signature))
@@ -1221,6 +1228,12 @@ internal static class CSharpDeclarationWriter
         string separator = options.IncludeCustomAttributes ? "\n" : " ";
         return string.Join(separator, attributeLines) + separator + declarationLine;
     }
+
+    static bool CanSafelySuppressCompatibilitySignatureAttributes(ApiMember member)
+        => member.SignatureModel is { } model
+            && model.ReturnAttributes.Count == 0
+            && model.Parameters.All(parameter => parameter.Attributes.Count == 0)
+            && model.Accessors.All(accessor => accessor.ReturnAttributes.Count == 0);
 
     static IEnumerable<string> CollectTypeReferences(ApiType type)
     {

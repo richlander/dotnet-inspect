@@ -598,14 +598,11 @@ public static class MemberBodyProducer
                 stream?.Dispose();
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Degrade honestly, matching ComposeCore: the failure reason is the
             // rendered text instead of silently disappearing.
-            return new MemberRenderResult(
-                MemberBodyProductionStatus.Failed,
-                $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
-                []);
+            return FailedMemberRender(ex);
         }
     }
 
@@ -654,30 +651,37 @@ public static class MemberBodyProducer
 
                 foreach (var member in type.Members)
                 {
-                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-                    var sb = new StringBuilder();
-                    bool any = false;
-                    ComposeMembers(
-                        sb,
-                        type,
-                        pipelineSource,
-                        reader,
-                        typeHandle,
-                        union,
-                        bodyNamespaces,
-                        ref any,
-                        only: member,
-                        attributeMode: attributeMode);
-
-                    if (!any)
+                    try
                     {
-                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
-                        continue;
-                    }
+                        var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                        var sb = new StringBuilder();
+                        bool any = false;
+                        ComposeMembers(
+                            sb,
+                            type,
+                            pipelineSource,
+                            reader,
+                            typeHandle,
+                            union,
+                            bodyNamespaces,
+                            ref any,
+                            only: member,
+                            attributeMode: attributeMode);
 
-                    var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
-                    string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
-                    results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                        if (!any)
+                        {
+                            results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+                            continue;
+                        }
+
+                        var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+                        string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        results[member] = FailedMemberRender(ex);
+                    }
                 }
 
                 return results;
@@ -688,13 +692,19 @@ public static class MemberBodyProducer
                 stream?.Dispose();
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Degrade honestly: return whatever composed so far; the caller falls
             // back to its own rendering for any member missing from the map.
             return results;
         }
     }
+
+    static MemberRenderResult FailedMemberRender(Exception ex)
+        => new(
+            MemberBodyProductionStatus.Failed,
+            $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
+            []);
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,

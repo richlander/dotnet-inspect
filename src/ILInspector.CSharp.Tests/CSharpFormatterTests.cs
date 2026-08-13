@@ -857,6 +857,97 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void DelegateAttributeSuffixCollisionRemainsQualified()
+    {
+        var type = new ApiType
+        {
+            Name = "Callback",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Other.MarkerAttribute",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["External.Marker"],
+                        Type = "int",
+                        Name = "value"
+                    }
+                ]
+            }
+        };
+
+        var declaration = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            Usings = ["External", "Other"]
+        }).FormatDelegate(type, invoke);
+
+        Assert.Equal(
+            "public delegate MarkerAttribute Callback([External.Marker] int value);",
+            declaration);
+    }
+
+    [Fact]
+    public void SignatureSuppressionDeclinesUnstructuredCompatibilityText()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature =
+                "void .ctor([External.Marker(typeof(Gamma.Widget))] Alpha.Widget value)"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeSignatureAttributes = false
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => formatter.FormatMember(type, constructor));
+
+        Assert.Contains(
+            "signature attributes cannot be suppressed safely",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SignatureSuppressionAllowsAttributeFreeModeledCompatibilityText()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Map",
+            Kind = "method",
+            Signature = "void Map(T value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Map",
+                TypeParameters = [new TypeParameter { Name = "T" }],
+                Parameters = [new ApiParameter { Type = "T", Name = "value" }]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeSignatureAttributes = false
+        });
+
+        var declaration = formatter.FormatMember(type, method, ["T"]);
+
+        Assert.Equal("public void Map<T>(T value)", declaration);
+    }
+
+    [Fact]
     public void OmittedPrimaryConstructorAttributesDoNotAffectTypeNames()
     {
         var type = new ApiType
