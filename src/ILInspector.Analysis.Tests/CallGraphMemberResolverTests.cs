@@ -313,6 +313,114 @@ public sealed class CallGraphMemberResolverTests
         Assert.NotEqual(literalSelector.Key, nestedSelector.Key);
     }
 
+    // End-to-end: the identity the product projects for a call-graph target's declaring type is
+    // the identity its resolver matches, and it distinguishes nesting from a literal delimiter.
+    // The flattened metadata spelling — which cannot — is published only where it names one type.
+    [Fact]
+    public void DeclaringTypeIdentity_IsCarriedAndMatchedWithoutFlattening()
+    {
+        MetadataTypeDefinitionName nestedName = Name("Samples", ["Outer", "Inner"]);
+        MetadataTypeDefinitionName literalName = Name("Samples", ["Outer+Inner"]);
+        TypeRef nestedType = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                nestedName));
+        TypeRef literalType = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                literalName));
+
+        Assert.Equal(
+            "Samples.Outer+Inner",
+            CallGraphMemberResolver.DefinitionIdentity(nestedType));
+        Assert.Equal(
+            @"Samples.Outer\+Inner",
+            CallGraphMemberResolver.DefinitionIdentity(literalType));
+        Assert.NotEqual(
+            CallGraphMemberResolver.DefinitionIdentity(nestedType),
+            CallGraphMemberResolver.DefinitionIdentity(literalType));
+
+        Assert.Equal(
+            "Samples.Outer+Inner",
+            CallGraphMemberResolver.UnambiguousMetadataIdentity(nestedType));
+        Assert.Null(CallGraphMemberResolver.UnambiguousMetadataIdentity(literalType));
+
+        // A type whose namespace or segment carries the other delimiter is withheld too.
+        Assert.Null(CallGraphMemberResolver.UnambiguousMetadataIdentity(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                "Outer.Inner",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", ["Outer.Inner"])))));
+
+        // A decoder-free TypeRef keeps the legacy spelling: there is no structured name that
+        // could contradict it.
+        Assert.Equal(
+            "Samples.Widget",
+            CallGraphMemberResolver.UnambiguousMetadataIdentity(
+                TypeRef.Definition("Samples", "Samples", "Widget")));
+        Assert.Null(CallGraphMemberResolver.DefinitionIdentity(
+            TypeRef.Definition("Samples", "Samples", "Widget")));
+
+        // The carried identity is exactly what the resolver matches on the other side.
+        var nestedMember = Method("int");
+        nestedMember.MetadataToken = 0x06000001;
+        var literalMember = Method("string");
+        literalMember.MetadataToken = 0x06000002;
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "Samples",
+                    Name = "Outer.Inner",
+                    MetadataName = "Outer+Inner",
+                    DefinitionName = nestedName,
+                    Members = [nestedMember],
+                },
+                new ApiType
+                {
+                    Namespace = "Samples",
+                    Name = "Outer+Inner",
+                    MetadataName = "Outer+Inner",
+                    DefinitionName = literalName,
+                    Members = [literalMember],
+                },
+            ],
+        };
+
+        Assert.Same(
+            nestedMember,
+            CallGraphMemberResolver.ResolveDefinitionIdentity(
+                surface,
+                CallGraphMemberResolver.DefinitionIdentity(nestedType)!,
+                nestedMember.Name,
+                CallGraphMemberResolver.CreateSelector(surface.Types[0], nestedMember).Key)!
+                .Member);
+        Assert.Same(
+            literalMember,
+            CallGraphMemberResolver.ResolveDefinitionIdentity(
+                surface,
+                CallGraphMemberResolver.DefinitionIdentity(literalType)!,
+                literalMember.Name,
+                CallGraphMemberResolver.CreateSelector(surface.Types[1], literalMember).Key)!
+                .Member);
+    }
+
+    static MetadataTypeDefinitionName Name(string @namespace, string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(@namespace, [.. segments]))
+            .Name;
+
     static ApiMember Method(string parameterType) => new()
     {
         Name = "M",

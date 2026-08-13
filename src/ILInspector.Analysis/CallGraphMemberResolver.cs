@@ -61,6 +61,45 @@ public static class CallGraphMemberResolver
             : Resolve(type, memberName, selectorKey, metadataToken);
     }
 
+    /// <summary>
+    /// The exact escaped structured identity of a named type, as
+    /// <see cref="MetadataTypeDefinitionName.ToEscapedFullName"/> spells it, or null when the
+    /// decoder retained no structured name for it. This is the identity
+    /// <see cref="ResolveDefinitionIdentity"/> matches, so a host carries it end-to-end rather
+    /// than re-deriving one from display text.
+    /// </summary>
+    public static string? DefinitionIdentity(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return type.Resolution?.Type.ToEscapedFullName();
+    }
+
+    /// <summary>
+    /// The flattened <c>{namespace}.{name}</c> metadata identity, but only where it names exactly
+    /// one type. Null when it does not.
+    /// </summary>
+    /// <remarks>
+    /// The flattened spelling joins nested segments with <c>+</c> and the namespace with
+    /// <c>.</c>, so a type whose own metadata name contains either delimiter produces the same
+    /// text as a genuinely nested type. Publishing it there would let a consumer match — and
+    /// navigate to — a different type, so it is withheld instead: a consumer that finds no legacy
+    /// identity falls back to <see cref="DefinitionIdentity"/>, which stays injective.
+    /// </remarks>
+    public static string? UnambiguousMetadataIdentity(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        if (type.Resolution?.Type is { } definitionName && IsAmbiguousWhenFlattened(definitionName))
+            return null;
+
+        return string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+    }
+
+    static bool IsAmbiguousWhenFlattened(MetadataTypeDefinitionName name) =>
+        name.Namespace.Contains('+', StringComparison.Ordinal)
+        || name.Segments.Any(segment =>
+            segment.Contains('+', StringComparison.Ordinal)
+            || segment.Contains('.', StringComparison.Ordinal));
+
     public static CallGraphMemberSelector CreateSelector(MemberRef member)
     {
         ArgumentNullException.ThrowIfNull(member);

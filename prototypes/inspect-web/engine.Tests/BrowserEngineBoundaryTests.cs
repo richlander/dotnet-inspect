@@ -445,6 +445,216 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Null(targets[3].TypeMetadataId);
     }
 
+    // A package coordinate becomes a flat-container path segment and a cache key. Both halves are
+    // validated before either use, so a segment-breaking coordinate never reaches the cache or
+    // the network — the failing handler below proves no request was attempted.
+    [Theory]
+    [InlineData("evil/../other", "1.0.0")]
+    [InlineData("..", "1.0.0")]
+    [InlineData("Example", "1.0.0/../9.9.9")]
+    [InlineData("Example", "1.0.0?x=1")]
+    [InlineData("Example", "1.0.0 ")]
+    [InlineData("Example", "notaversion")]
+    public async Task PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess(
+        string packageId,
+        string version)
+    {
+        BrowserPackageCacheStats before = BrowserPackageWorkspace.Stats();
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.AcquireAsync(packageId, version));
+
+        Assert.Contains("is not a valid NuGet package", failure.Message, StringComparison.Ordinal);
+        BrowserPackageCacheStats after = BrowserPackageWorkspace.Stats();
+        Assert.Equal(before.Packages, after.Packages);
+        Assert.Equal(before.Resident, after.Resident);
+        Assert.Equal(before.ResidentBytes, after.ResidentBytes);
+    }
+
+    [Fact]
+    public async Task PackageVersionIndex_ValidatesTheIdBeforeRequestingIt()
+    {
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.GetVersionsAsync("evil/../other"));
+
+        Assert.Contains("is not a valid NuGet package id", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageVersionIndex_RejectsPathBreakingVersionText()
+    {
+        InvalidDataException failure = Assert.Throws<InvalidDataException>(
+            () => BrowserPackageWorkspace.ParseVersions(
+                System.Text.Encoding.UTF8.GetBytes(
+                    """{"versions":["1.0.0","1.0.0/../9.9.9"]}"""),
+                "example"));
+
+        Assert.Contains(
+            "not valid NuGet version text",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    // The default package load runs under explicit bounds and says so when it stops early. Both
+    // halves matter: an ordinary projection must be untouched, and the bound must be reachable.
+    [Fact]
+    public void ApiSurfaceProjection_IsBoundedAndReportsTruncation()
+    {
+        byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope(
+            [Coordinate("Bounded.Surface", Package(image, "lib/net11.0/Bounded.Surface.dll"))]);
+
+        AssemblyContextApiSurfaceResult complete = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits));
+
+        Assert.Null(complete.Truncation);
+        Assert.True(complete.IsComplete);
+        Assert.Null(BrowserApiSurfacePolicy.TruncationNotice(complete.Truncation));
+        int projectedTypes = complete.Assemblies.Assemblies
+            .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+            .Sum(entry => entry.Value.Surface.Types.Count);
+        Assert.True(projectedTypes > 0);
+        Assert.True(projectedTypes < BrowserApiSurfacePolicy.MaxTypes);
+
+        AssemblyContextApiSurfaceResult truncated = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(1, 1, 1)));
+
+        Assert.NotNull(truncated.Truncation);
+        Assert.False(truncated.IsComplete);
+        string notice = Assert.IsType<string>(
+            BrowserApiSurfacePolicy.TruncationNotice(truncated.Truncation));
+        Assert.Contains("API surface truncated", notice, StringComparison.Ordinal);
+
+        // A truncation is carried beside participant failures, never instead of them.
+        Assert.Equal(
+            notice,
+            BrowserSurfaceProjection.Notice(truncated.Assemblies.Assemblies, notice));
+    }
+
+    // A nested Outer+Inner and a type whose own metadata name is literally "Outer+Inner" share a
+    // flattened spelling. The browser must carry an identity that tells them apart, and must not
+    // publish the flattened one where it names both.
+    [Fact]
+    public void CallGraphTargets_DistinguishNestedFromLiteralPlusDeclaringTypes()
+    {
+        TypeRef nested = ResolvedDefinition("Example", ["Outer", "Inner"]);
+        TypeRef literalPlus = ResolvedDefinition("Example", ["Outer+Inner"]);
+        TypeRef returnType = TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void");
+        CallGraphNode[] nodes =
+        [
+            new(
+                0,
+                new MemberRef(
+                    nested,
+                    "Run",
+                    ImmutableArray<TypeRef>.Empty,
+                    returnType,
+                    MemberKind.Method),
+                "nested",
+                CallGraphNodeKind.Normal),
+            new(
+                1,
+                new MemberRef(
+                    literalPlus,
+                    "Run",
+                    ImmutableArray<TypeRef>.Empty,
+                    returnType,
+                    MemberKind.Method),
+                "literal",
+                CallGraphNodeKind.Normal),
+        ];
+
+        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(nodes);
+
+        // Both declaring types flatten to the same metadata spelling. That spelling genuinely
+        // names the nested type, so it is still published for it; for the literal-plus type it
+        // names the other one, so it is withheld rather than published as if it named this one.
+        Assert.Equal("Outer+Inner", nested.Name);
+        Assert.Equal("Outer+Inner", literalPlus.Name);
+        Assert.Equal("Example.Outer+Inner", targets[0].TypeMetadataId);
+        Assert.Null(targets[1].TypeMetadataId);
+
+        // The escaped structured identity resolves each target uniquely, and is the same
+        // projection a browsable type row carries as its id.
+        Assert.Equal("Example.Outer+Inner", targets[0].TypeDefinitionId);
+        Assert.Equal(@"Example.Outer\+Inner", targets[1].TypeDefinitionId);
+        Assert.NotEqual(targets[0].TypeDefinitionId, targets[1].TypeDefinitionId);
+        Assert.Equal(
+            targets[0].TypeDefinitionId,
+            BrowserSurfaceProjection.Type(
+                new ApiType
+                {
+                    Namespace = "Example",
+                    Name = "Outer.Inner",
+                    MetadataName = "Outer+Inner",
+                    DefinitionName = DefinitionName("Example", ["Outer", "Inner"]),
+                    Kind = "class",
+                },
+                "Example.dll",
+                "asset:example",
+                "Example").DefinitionId);
+        Assert.Equal(
+            targets[1].TypeDefinitionId,
+            BrowserSurfaceProjection.Type(
+                new ApiType
+                {
+                    Namespace = "Example",
+                    Name = "Outer+Inner",
+                    MetadataName = "Outer+Inner",
+                    DefinitionName = DefinitionName("Example", ["Outer+Inner"]),
+                    Kind = "class",
+                },
+                "Example.dll",
+                "asset:example",
+                "Example").DefinitionId);
+    }
+
+    [Fact]
+    public void CallGraphTargets_KeepTheLegacyIdentityWhereItIsUnambiguous()
+    {
+        TypeRef declaring = ResolvedDefinition("Example", ["Outer`1", "Widget`1"]);
+        CallGraphNode[] nodes =
+        [
+            new(
+                0,
+                new MemberRef(
+                    declaring,
+                    "Run",
+                    ImmutableArray<TypeRef>.Empty,
+                    TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void"),
+                    MemberKind.Method),
+                "nested",
+                CallGraphNodeKind.Normal),
+        ];
+
+        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(nodes);
+
+        Assert.Equal("Example.Outer`1+Widget`1", targets[0].TypeMetadataId);
+        Assert.Equal("Example.Outer`1+Widget`1", targets[0].TypeDefinitionId);
+    }
+
+    static TypeRef ResolvedDefinition(string @namespace, string[] segments)
+        => TypeRef.Definition(
+            "Example",
+            @namespace,
+            string.Join('+', segments),
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                DefinitionName(@namespace, segments)));
+
+    static MetadataTypeDefinitionName DefinitionName(string @namespace, string[] segments)
+        => Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(@namespace, [.. segments]))
+            .Name;
+
     static BrowserPackageCoordinate Coordinate(string id, byte[] nupkg)
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);

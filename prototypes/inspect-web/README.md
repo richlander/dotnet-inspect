@@ -79,10 +79,18 @@ graph opens one workspace over every package the site currently has open.
 Coordinates are temporarily leased while that composite scope is assembled, so
 acquiring a later package cannot evict an earlier archive and leave it alive
 outside cache accounting.
-Call-graph targets carry both display spelling and exact metadata type identity;
-navigation uses the latter so nested and generic type names retain `+` and
-arity. Constructed generic nodes recover assembly identity from their
-definition. Synthetic array and function-pointer nodes remain visible but carry
+Call-graph targets carry a display spelling, the exact escaped structured type
+identity (`typeDefinitionId`), and the flattened metadata spelling
+(`typeMetadataId`); navigation uses an identity rather than the display name, so
+nested and generic type names retain `+` and arity. The flattened spelling cannot
+tell a nested `Outer+Inner` from a type whose own metadata name contains a
+literal `+`, so the product publishes it only where it names exactly one type and
+withholds it otherwise — `CallGraphMemberResolver.UnambiguousMetadataIdentity`
+owns that decision, and `DefinitionIdentity` is the injective identity the same
+resolver matches on the other side.
+`CallGraphTargets_DistinguishNestedFromLiteralPlusDeclaringTypes` gates the
+distinction at the browser boundary. Constructed generic nodes recover assembly
+identity from their definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
 body selector even when the graph has no `MethodDef` token.
 
@@ -97,6 +105,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
 | `engine/BrowserPackageWorkspace.cs` | acquisition, the package cache, exact package/version/framework identity, participant minting, and the bounded workspace registry |
+| `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
 | `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
@@ -119,6 +128,17 @@ limit` cases gate those client boundaries. A nupkg response must
 declare its content length. The cache reserves that length and evicts enough
 unleased content before allocating the response array; reservations participate
 in the same 12-package/128 MB aggregate while the download is in flight.
+
+A coordinate is validated before it can key the cache or reach the network. The
+package id must satisfy NuGet's own id grammar and the version must be exact,
+parsable NuGet version text — `PackageCoordinateValidator` in
+`DotnetInspector.Packages` owns both rules, and the versions a feed's index
+reports are held to the same rule. The flat-container address then percent-escapes
+each coordinate as one path segment, so a slash, dot segment, query, or fragment
+can neither rewrite the request path nor collide with another coordinate's cache
+key. `PackageCoordinateValidatorTests` and
+`BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`
+gate both halves.
 
 Acquisition is bounded before content enters either cache or workspace. A
 version-index response may contain at most 1 MB, one downloaded nupkg at most
@@ -152,7 +172,7 @@ the full budget.
 
 | Operation | Workspace | Query that owns the session |
 | --- | --- | --- |
-| `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.Execute(group, scope)` |
+| `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
@@ -162,10 +182,24 @@ the full budget.
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
 them. It asks the API-surface query for the composed scope — the default consumer
-surface plus non-public types from the include-all surface — so a public type
-keeps its public member list while non-public types remain reachable through the
-accessibility filter. Public types hidden by the extractor stay hidden rather
-than re-entering the default bucket with private members. Every accessibility
+surface plus non-public types — so a public type keeps its public member list
+while non-public types remain reachable through the accessibility filter. Public
+types hidden by the extractor stay hidden rather than re-entering the default
+bucket with private members. That scope is one extraction inside
+`ApiSurfaceExtractor`, not two composed in the query layer, so a package load
+materializes each image's surface once.
+
+A package load is not an explicit request for unbounded work, so it never
+invokes the whole-group or participant entry points, which are declared
+`InspectionCost.Unbounded`. `BannedSymbols.txt` makes that a compile error here.
+`QueryPackage` calls `ExecuteBounded` with `BrowserApiSurfacePolicy.Limits` and
+selects only the requested coordinate's participants, so another open package's
+surface is never materialized to be discarded. If a projection reaches a bound it
+stops at a whole participant — no type is returned with a shortened member list —
+and the response's `inspectionError` names the bound, what was projected, and how
+many assemblies were not. `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
+gates the bound and its non-vacuity; the truncation contract itself is gated by
+`AssemblyContextApiSurfaceQueryTests`. Every accessibility
 bucket's id, label, order, default, and count comes from the query's own
 `ApiAccessibilityBucket` values; the browser classifies nothing and orders no
 label. Member identity is likewise product-owned: the stable selector, digest,

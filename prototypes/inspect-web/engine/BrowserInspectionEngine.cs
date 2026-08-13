@@ -57,22 +57,34 @@ public static partial class BrowserInspectionEngine
             targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
+        // Only this coordinate's assemblies are projected. A composite workspace may hold several
+        // packages, and projecting all of them here materialized every other package's surface
+        // only to discard it.
+        BrowserWorkspaceParticipant[] requested =
+        [
+            .. scope.SurfaceParticipants.Where(candidate =>
+                candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)),
+        ];
+
         // The site's default path shows public types by default and reaches non-public ones
         // through the accessibility filter, so it asks for the composed scope: a public type
-        // keeps its public member list even though non-public types are present.
+        // keeps its public member list even though non-public types are present. The projection
+        // runs under the browser's explicit bounds; an early stop is reported, never silent.
         AssemblyContextApiSurfaceResult surfaces = scope.UseSurface(group =>
-            AssemblyContextApiSurfaceQuery.Execute(
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
                 group,
-                ApiSurfaceScope.PublicWithNonPublicTypes));
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits,
+                [.. requested.Select(participant => participant.Participant)]));
 
-        // The query walks the group's participants in order and returns one entry each, so entry
-        // i is participant i. Assert that rather than assume it: a correlation that silently
-        // slipped would attribute one assembly's types to another.
-        if (surfaces.Assemblies.Assemblies.Length != scope.SurfaceParticipants.Length)
+        // The query walks the selected participants in order and returns one entry each until a
+        // bound stops it, so entry i is selected participant i. Assert that rather than assume
+        // it: a correlation that silently slipped would attribute one assembly's types to another.
+        if (surfaces.Assemblies.Assemblies.Length > requested.Length)
         {
             throw new InvalidOperationException(
-                "The API surface query returned a different number of entries than the workspace "
-                + "has participants, so per-assembly attribution cannot be trusted.");
+                "The API surface query returned more entries than the workspace selected "
+                + "participants, so per-assembly attribution cannot be trusted.");
         }
 
         var assemblies = new List<BrowserAssemblySurface>();
@@ -85,7 +97,7 @@ public static partial class BrowserInspectionEngine
                 continue;
             }
 
-            BrowserWorkspaceParticipant participant = scope.SurfaceParticipants[index];
+            BrowserWorkspaceParticipant participant = requested[index];
             if (!ReferenceEquals(
                     available.Subject.Registration,
                     participant.Assembly.Registration))
@@ -94,9 +106,6 @@ public static partial class BrowserInspectionEngine
                     "The API surface query's entry order does not match the workspace's "
                     + "participant order, so per-assembly attribution cannot be trusted.");
             }
-
-            if (!participant.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal))
-                continue;
 
             BrowserTypeSurface[] assemblyTypes =
             [
@@ -124,13 +133,15 @@ public static partial class BrowserInspectionEngine
             types.AddRange(assemblyTypes);
         }
 
+        string? notice = BrowserSurfaceProjection.Notice(
+            surfaces.Assemblies.Assemblies,
+            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation));
         if (assemblies.Count == 0)
         {
             throw new InvalidOperationException(
                 $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
                 + $"{coordinate.Framework} produced an API surface. "
-                + (BrowserSurfaceProjection.ApiSurfaceFailures(surfaces.Assemblies.Assemblies)
-                    ?? "The workspace reported no failure."));
+                + (notice ?? "The workspace reported no failure."));
         }
 
         // Two assemblies in one package may ship the same type. Qualify only the collisions, so
@@ -170,7 +181,7 @@ public static partial class BrowserInspectionEngine
                     .Where(type => IsDefaultBucket(surfaces, type))
                     .Sum(type => type.Members),
                 [.. coordinate.Package.Documents()],
-                BrowserSurfaceProjection.ApiSurfaceFailures(surfaces.Assemblies.Assemblies)),
+                notice),
             BrowserJsonContext.Default.BrowserPackageSurface);
     }
 
@@ -863,13 +874,27 @@ public static partial class BrowserInspectionEngine
             scope.SurfaceParticipant(coordinate, surfaceAsset);
         BrowserWorkspaceParticipant participant =
             scope.ImplementationParticipant(surfaceParticipant);
-        AssemblyApiSurface implementation = BrowserSurfaceProjection.Require(
+        // One participant, under the same browser bounds as the package load: a body selector is
+        // resolved against the implementation surface, and an over-budget implementation must
+        // fail visibly rather than resolve against a silently shortened surface.
+        AssemblyContextApiSurfaceResult implementationSurfaces =
             scope.UseImplementationParticipant(
                 participant,
-                (group, member) => AssemblyContextApiSurfaceQuery.ExecuteParticipant(
+                (group, member) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
                     group,
-                    member,
-                    ApiSurfaceScope.IncludeAll)),
+                    ApiSurfaceScope.IncludeAll,
+                    BrowserApiSurfacePolicy.Limits,
+                    [member]));
+        if (implementationSurfaces.Truncation is { } truncation)
+        {
+            throw new InvalidOperationException(
+                $"The implementation surface for '{typeId}' exceeds the browser projection "
+                + $"bounds, so the selected body cannot be resolved. "
+                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
+        }
+
+        AssemblyApiSurface implementation = BrowserSurfaceProjection.Require(
+            implementationSurfaces.Assemblies.Assemblies.Single(),
             $"Implementation surface for '{typeId}'");
         Analysis.CallGraphMemberResolution resolution =
             Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity(
@@ -994,7 +1019,8 @@ public static partial class BrowserInspectionEngine
             identity?.Culture,
             identity?.PublicKeyToken,
             node.Member.DeclaringType.ToQualifiedDisplayString(),
-            definition is null ? null : MetadataTypeId(definition),
+            definition is null ? null : LegacyMetadataTypeId(definition),
+            DefinitionTypeId(definition),
             node.Member.Name,
             [.. node.Member.OpenSignatureParameters.Select(type => type.ToQualifiedDisplayString())],
             node.Member.OpenSignatureReturn.ToQualifiedDisplayString(),
@@ -1004,10 +1030,22 @@ public static partial class BrowserInspectionEngine
             node.Kind.ToString().ToLowerInvariant());
     }
 
-    static string MetadataTypeId(Analysis.TypeRef type)
-    {
-        return string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-    }
+    /// <summary>
+    /// The exact escaped structured identity of a call-graph target's declaring type — the same
+    /// identity the browsable type surface carries and the same one the product's resolver
+    /// matches. The product owns both projections; the host only carries them.
+    /// </summary>
+    static string? DefinitionTypeId(Analysis.TypeRef? type) =>
+        type is null ? null : Analysis.CallGraphMemberResolver.DefinitionIdentity(type);
+
+    /// <summary>
+    /// The legacy flattened metadata identity, published only where the product reports that it
+    /// names exactly one type. A nested <c>Outer+Inner</c> and a type whose own metadata name
+    /// contains a literal <c>+</c> share that spelling, so a consumer matching on it would
+    /// navigate to the wrong type.
+    /// </summary>
+    static string? LegacyMetadataTypeId(Analysis.TypeRef type) =>
+        Analysis.CallGraphMemberResolver.UnambiguousMetadataIdentity(type);
 
     static Analysis.TypeRef? DeclaringTypeDefinition(Analysis.TypeRef type)
     {

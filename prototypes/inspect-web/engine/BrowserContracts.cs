@@ -314,6 +314,7 @@ public sealed record BrowserCallGraphTarget(
     string? AssemblyPublicKeyToken,
     string TypeFullName,
     string? TypeMetadataId,
+    string? TypeDefinitionId,
     string MemberName,
     string[] ParameterTypes,
     string ReturnType,
