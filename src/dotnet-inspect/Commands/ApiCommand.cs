@@ -178,6 +178,7 @@ public class ApiCommand
             MemberPipelineDeferredToLookup = false,
             MemberSelectionDeferredToLookup = false
         };
+        resolved = IncludeCallerScopeSection(resolved, pipeline);
 
         return ValidateResolvedMemberSelection(resolved, pipeline);
     }
@@ -240,11 +241,13 @@ public class ApiCommand
         MemberOptions options,
         SectionPipeline<ApiType> pipeline)
     {
-        var resolved = options with
-        {
-            MemberPipelineDeferredToLookup = false,
-            MemberSelectionDeferredToLookup = false
-        };
+        var resolved = IncludeCallerScopeSection(
+            options with
+            {
+                MemberPipelineDeferredToLookup = false,
+                MemberSelectionDeferredToLookup = false
+            },
+            pipeline);
         return ValidateResolvedMemberSelection(resolved, pipeline);
     }
 
@@ -309,6 +312,53 @@ public class ApiCommand
 
         return resolvedSections;
     }
+
+    private static MemberOptions IncludeCallerScopeSection(
+        MemberOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        if (!options.HasCallerScope
+            || options.Tree
+            || IsStandaloneMermaid(options)
+            || options.IncludeSections is not null
+            && UsesSingleSectionOutput(options)
+            || !pipeline.SelectableSectionNames.Contains(
+                SectionNames.Callers,
+                StringComparer.OrdinalIgnoreCase))
+            return options;
+        if (options.IncludeSections?.Contains(SectionNames.Callers) == true)
+            return options;
+
+        var includeSections = options.IncludeSections is { Count: > 0 } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        includeSections.Add(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
+    }
+
+    private static bool UsesSingleSectionOutput(MemberOptions options)
+        => options.Discover is null
+           && (options.Count
+               || options.Print
+               || options.TabularExplicitlySet
+               || ShapeProjectionOutput.ActiveShapeCount(
+                   options.Value,
+                   options.Urls,
+                   options.Paths) > 0);
+
+    internal static bool RequiresCallerScopeResolution(MemberOptions options, ApiType type)
+        => options.HasCallerScope
+           && options.IncludeSections is { } sections
+           && (sections.Contains(SectionNames.Callers, StringComparer.OrdinalIgnoreCase)
+               && ApiMemberDetailSectionDescriptors.Callers.CanRender(type)
+               || sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)
+               && ApiMemberDetailSectionDescriptors.CallGraph.CanRender(type));
+
+    private static bool IsStandaloneMermaid(MemberOptions options)
+        => options.MermaidOutput
+           && (options.FormatFlagExplicitlySet
+               || options.IncludeSections is { Count: 1 } sections
+               && sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase));
 
     internal static int ExecuteStructuralTypeDiscovery(
         ApiOptions options,
@@ -429,7 +479,8 @@ public class ApiCommand
         var deferMemberSelection = memberPipelineRequiresLookup
             && options.IncludeSections is null
             && (options.Select is not null
-                || options.SelectDefault);
+                || options.SelectDefault
+                || options is MemberOptions { HasCallerScope: true });
         if (options is MemberOptions memberOptions && memberPipelineRequiresLookup)
         {
             options = memberOptions with
@@ -535,6 +586,12 @@ public class ApiCommand
                         options = options with { IncludeSections = selectResult.Sections };
                 }
             }
+        }
+
+        if (options is MemberOptions callerScopeOptions
+            && !callerScopeOptions.MemberPipelineDeferredToLookup)
+        {
+            options = IncludeCallerScopeSection(callerScopeOptions, memberPipeline);
         }
 
         // A deferred select has no IncludeSections yet, and the preamble cannot know whether a

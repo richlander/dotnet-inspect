@@ -366,6 +366,214 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallerScope_DoesNotInvalidateCallGraphCount()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.CallGraph],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(int.TryParse(result.Output.Trim(), out var count));
+        Assert.True(count > 0, "fixture must produce a non-empty graph");
+    }
+
+    [Fact]
+    public async Task CallerScope_DoesNotInvalidateCallGraphTabularOutput()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.CallGraph],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.StartsWith("from\t", result.Output, StringComparison.Ordinal);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
+    }
+
+    [Fact]
+    public async Task CallerScope_WithTabularOutputAndNoSelection_StillSelectsCallers()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.Inner)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.StartsWith("caller\t", result.Output, StringComparison.Ordinal);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
+    }
+
+    [Fact]
+    public async Task CallerScope_DoesNotAcquireScopeForNonGraphSelection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            OverloadIndex = 1,
+            IncludeSections = [SectionNames.Signature],
+            CallerScopeDirectories = ["/definitely/not/a/caller/scope"],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CallerScope_DoesNotAcquireScopeForIneffectiveGraphSelection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.Data)],
+            OverloadIndex = 1,
+            IncludeSections = [SectionNames.Callers],
+            CallerScopeDirectories = ["/definitely/not/a/caller/scope"],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Directory not found", result.Error);
+    }
+
+    [Fact]
+    public async Task CallerScope_PreservesBroadBodyIndexSections()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.CalledTypes],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(int.TryParse(result.Output.Trim(), out var count));
+        Assert.True(count > 0, "fixture must produce called-type evidence");
+    }
+
+    [Fact]
+    public async Task CallerScope_PreservesSingleSectionValueValidation()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.Calls],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            Columns = ["Callee"],
+            Value = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("section 'Calls' does not expose value values.", result.Error);
+        Assert.DoesNotContain("--value requires -S/--select to match exactly one section.", result.Error);
+    }
+
+    [Fact]
+    public async Task CallerScope_DoesNotInjectUnsupportedCallersIntoBroadPipeline()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = nameof(MemberCallGraphFixture),
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.MethodGroups],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Method Groups", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CallGraphTree_WithCallerScope_RendersTheSelectedGraph()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            Tree = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
+        Assert.Contains("├─", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphMermaid_WithCallerScope_RendersTheSelectedGraph()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            MermaidOutput = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("graph TD", result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
+    }
+
+    [Fact]
+    public async Task EnvironmentMermaidFallback_WithCallerScope_RendersCallers()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            CallerScopeDirectories = [Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!],
+            MermaidOutput = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Callers", result.Output);
+        Assert.DoesNotContain("graph TD", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task CallGraphSection_RendersEdgeTableByDefault()
     {
         var result = await RunCallGraphAsync(
@@ -995,6 +1203,8 @@ public class MemberCallGraphSectionTests
 
 public static class MemberCallGraphFixture
 {
+    public static int Data;
+
     public static void RootCall() => Mid();
 
     public static void Mid() => Inner();

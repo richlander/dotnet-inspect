@@ -182,12 +182,7 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            var callersImplicitlySelected = ShouldImplicitlySelectCallers(effectiveOptions);
-            if (callersImplicitlySelected)
-                effectiveOptions = IncludeCallersSection(effectiveOptions);
-            var authoredSelection = callersImplicitlySelected
-                ? ExcludeCallersSection(effectiveOptions)
-                : effectiveOptions;
+            var authoredSelection = effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -219,9 +214,7 @@ public static class MemberCommand
                             detailPipeline)
                         is not { } detailOptions)
                         return 1;
-                    effectiveOptions = callersImplicitlySelected
-                        ? IncludeCallersSection(detailOptions)
-                        : detailOptions;
+                    effectiveOptions = detailOptions;
                 }
             }
 
@@ -420,7 +413,7 @@ public static class MemberCommand
             // Expand --bin/--directory, --project, and --caller-package into assemblies
             // for cross-assembly callers and Call Graph traversal, in addition to the
             // selected member's own assembly.
-            if (effectiveOptions.HasCallerScope)
+            if (ApiCommand.RequiresCallerScopeResolution(effectiveOptions, apiType))
             {
                 var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
                 callerScopeAssemblySet = await CallerScopeResolver.ResolveAsync(
@@ -593,52 +586,6 @@ public static class MemberCommand
             .ToList();
         return sections.Count > 0;
     }
-
-    private static MemberOptions IncludeCallersSection(MemberOptions options)
-    {
-        var includeSections = options.IncludeSections is { Count: > 0 } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        includeSections.Add(SectionNames.Callers);
-        return options with
-        {
-            IncludeSections = includeSections,
-            CallerScopeSectionImplicitlySelected = true
-        };
-    }
-
-    private static MemberOptions ExcludeCallersSection(MemberOptions options)
-    {
-        var includeSections = options.IncludeSections is { } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : [];
-        includeSections.Remove(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
-    }
-
-    private static bool ShouldImplicitlySelectCallers(MemberOptions options)
-        => options.HasCallerScope
-           && options.IncludeSections?.Contains(SectionNames.Callers) != true
-           && (!options.JsonOutput || options.IncludeSections is { Count: > 0 })
-           && !options.Tree
-           && !IsStandaloneMermaid(options)
-           && (options.IncludeSections is null || !UsesSingleSectionOutput(options));
-
-    private static bool UsesSingleSectionOutput(MemberOptions options)
-        => options.Discover is null
-           && (options.Count
-               || options.Print
-               || options.TabularExplicitlySet
-               || ShapeProjectionOutput.ActiveShapeCount(
-                   options.Value,
-                   options.Urls,
-                   options.Paths) > 0);
-
-    private static bool IsStandaloneMermaid(MemberOptions options)
-        => options.MermaidOutput
-           && (options.FormatFlagExplicitlySet
-               || options.IncludeSections is { Count: 1 } sections
-               && sections.Contains(SectionNames.CallGraph));
 
     private static IEnumerable<int> BodyMethodTokens(
         ApiType type,
