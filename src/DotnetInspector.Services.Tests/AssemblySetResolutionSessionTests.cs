@@ -103,6 +103,52 @@ public class AssemblySetResolutionSessionTests
         }
     }
 
+    [Fact]
+    public void BuildApiSurface_ValidEmptyAssemblyIsRetained()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"empty-surface-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildInternalOnlyAssembly());
+        try
+        {
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build([path]));
+
+            Assert.Empty(surface.Types);
+            Assert.Empty(surface.TypeForwarders);
+            Assert.Empty(surface.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void BuildApiSurface_NetmoduleUsesModuleExtraction()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"module-surface-{Guid.NewGuid():N}.netmodule");
+        File.WriteAllBytes(path, BuildNetmodule());
+        try
+        {
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build([path]));
+
+            ApiType type = Assert.Single(surface.Types);
+            Assert.Equal("N.Widget", type.FullName);
+            Assert.Empty(surface.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     static byte[] BuildDependency()
     {
         MetadataBuilder metadata =
@@ -175,6 +221,42 @@ public class AssemblySetResolutionSessionTests
             metadata.GetOrAddString("String"),
             coreLibrary,
             typeDefinitionId: 0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildInternalOnlyAssembly()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("InternalOnly");
+        AddType(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        AddType(
+            metadata,
+            "Hidden",
+            TypeAttributes.NotPublic
+                | TypeAttributes.Class);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNetmodule()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    "Widget.netmodule"),
+            mvid:
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        AddType(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        AddType(metadata, "Widget");
         return Serialize(metadata);
     }
 

@@ -104,11 +104,13 @@ public static class ApiOutputFormatter
                     failure.SubjectAssembly is null
                         ? null
                         : CSharpIdentifier.ContainRenderedText(
-                            failure.SubjectAssembly.Name),
+                            AssemblyIdentityFormatter.Format(
+                                failure.SubjectAssembly)),
                     failure.DependencyAssembly is null
                         ? null
                         : CSharpIdentifier.ContainRenderedText(
-                            failure.DependencyAssembly.Name)))
+                            AssemblyIdentityFormatter.Format(
+                                failure.DependencyAssembly))))
                 .ToList();
         }
 

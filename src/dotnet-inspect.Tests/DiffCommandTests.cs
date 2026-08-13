@@ -282,7 +282,13 @@ public class DiffCommandTests
             0,
             MetadataTypeNameFailureMechanism.Metadata,
             "InvalidImage",
-            "Adjacency inventory failed.\n| injected")
+            "Adjacency inventory failed.\n| injected",
+            DependencyAssembly:
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    null))
         {
             SourceAssemblyPath =
                 "/private/cache/NewImage.dll",
@@ -305,6 +311,10 @@ public class DiffCommandTests
         DiffInspectionFailureRow row =
             Assert.Single(view.InspectionFailures!);
         Assert.Equal("NewImage.dll", row.Assembly);
+        Assert.Equal(
+            "Dependency, Version=2.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null",
+            row.DependencyAssembly);
         Assert.DoesNotContain('\n', row.Detail);
         Assert.Contains("injected", row.Detail, StringComparison.Ordinal);
         string json = JsonSerializer.Serialize(
@@ -321,6 +331,17 @@ public class DiffCommandTests
         Assert.DoesNotContain(
             "/private/cache",
             json,
+            StringComparison.Ordinal);
+        string markdown =
+            DiffOutputFormatter.RenderDocumentView(view);
+        Assert.Contains(
+            "| Dependency Assembly |",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=2.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null",
+            markdown,
             StringComparison.Ordinal);
     }
 

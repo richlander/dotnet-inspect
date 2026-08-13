@@ -3367,6 +3367,63 @@ public partial class CommandExecutionTests
                 json.Output,
                 StringComparison.Ordinal);
 
+            var findingMarkdown = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.FindingTransitions.Name,
+                "--tips",
+                "q");
+            var findingJson = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.FindingTransitions.Name,
+                "--json",
+                "--tips",
+                "q");
+            var findingTable = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.FindingTransitions.Name,
+                "--table",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, findingMarkdown.Exit);
+            Assert.Contains(
+                "## Inspection Failures",
+                findingMarkdown.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                findingMarkdown.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(1, findingJson.Exit);
+            Assert.Contains(
+                "inspection_failures",
+                findingJson.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                findingJson.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(1, findingTable.Exit);
+            Assert.Contains(
+                "API comparison is incomplete",
+                findingTable.Error,
+                StringComparison.Ordinal);
+
             string[][] singleShapeModes =
             [
                 ["--table"],
@@ -10785,7 +10842,8 @@ public partial class CommandExecutionTests
             error,
             StringComparison.Ordinal);
         Assert.Contains(
-            "via 'Dependency'",
+            "via 'Dependency, Version=1.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null'",
             error,
             StringComparison.Ordinal);
     }

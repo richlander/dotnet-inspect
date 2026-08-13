@@ -323,41 +323,54 @@ public static class ApiDiffAnalyzer
         {
             TypeDiffs = typeDiffs,
             InspectionFailures =
-            [
-                .. oldSurface.InspectionFailures.Select(failure =>
-                    new ApiDiffInspectionFailure(
-                        "old",
-                        failure.Operation,
-                        failure.SubjectToken,
-                        failure.Mechanism,
-                        failure.Kind,
-                        failure.Detail,
-                        failure.SubjectAssembly,
-                        failure.DependencyAssembly)
-                    {
-                        SourceAssemblyPath =
-                            failure.SourceAssemblyPath,
-                    }),
-                .. newSurface.InspectionFailures.Select(failure =>
-                    new ApiDiffInspectionFailure(
-                        "new",
-                        failure.Operation,
-                        failure.SubjectToken,
-                        failure.Mechanism,
-                        failure.Kind,
-                        failure.Detail,
-                        failure.SubjectAssembly,
-                        failure.DependencyAssembly)
-                    {
-                        SourceAssemblyPath =
-                            failure.SourceAssemblyPath,
-                    }),
-            ],
+                ProjectInspectionFailures(
+                    oldSurface,
+                    newSurface),
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
             TotalPotentiallyBreaking = totalPotentiallyBreaking
         };
     }
+
+    public static IReadOnlyList<ApiDiffInspectionFailure>
+        ProjectInspectionFailures(
+            ApiSurface oldSurface,
+            ApiSurface newSurface)
+    {
+        ArgumentNullException.ThrowIfNull(oldSurface);
+        ArgumentNullException.ThrowIfNull(newSurface);
+
+        return
+        [
+            .. oldSurface.InspectionFailures.Select(
+                static failure =>
+                    ProjectInspectionFailure(
+                        "old",
+                        failure)),
+            .. newSurface.InspectionFailures.Select(
+                static failure =>
+                    ProjectInspectionFailure(
+                        "new",
+                        failure)),
+        ];
+    }
+
+    static ApiDiffInspectionFailure ProjectInspectionFailure(
+        string side,
+        ApiSurfaceInspectionFailure failure) =>
+        new(
+            side,
+            failure.Operation,
+            failure.SubjectToken,
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail,
+            failure.SubjectAssembly,
+            failure.DependencyAssembly)
+        {
+            SourceAssemblyPath =
+                failure.SourceAssemblyPath,
+        };
 
     internal static bool HasIncompleteTypeIdentity(
         ApiSurface surface) =>

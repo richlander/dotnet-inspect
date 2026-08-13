@@ -2324,6 +2324,49 @@ public class ApiOutputFormatterTests
             "inspection failure dependency assembly");
     }
 
+    [Fact]
+    public void BuildFullApiView_PreservesCompleteDependencyIdentity()
+    {
+        var surface = new ApiSurface();
+        surface.InspectionFailures.Add(
+            CreateFailure(new Version(1, 0, 0, 0)));
+        surface.InspectionFailures.Add(
+            CreateFailure(new Version(2, 0, 0, 0)));
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            surface,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Normal,
+            });
+
+        Assert.Equal(
+            [
+                "Dependency, Version=1.0.0.0, "
+                    + "Culture=neutral, PublicKeyToken=null",
+                "Dependency, Version=2.0.0.0, "
+                    + "Culture=neutral, PublicKeyToken=null",
+            ],
+            view.InspectionFailures!
+                .Select(static row => row.DependencyAssembly)
+                .ToList());
+
+        static ApiSurfaceInspectionFailure CreateFailure(
+            Version version) =>
+            new(
+                ApiSurface.ConstraintResolutionOperation,
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "Unavailable",
+                "Dependency resolution failed.",
+                DependencyAssembly:
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        version,
+                        null,
+                        null));
+    }
+
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---
 
     [Fact]

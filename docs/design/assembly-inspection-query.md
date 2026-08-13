@@ -293,11 +293,15 @@ resolution-aware builder. Direct Research path acquisition likewise creates one 
 catalog per side and binds exact identities within the supplied assembly group, without
 introducing an engine-to-tool dependency. The acquired `AssemblySet` remains alive while
 the session reads package files, and acquisition or extraction failures become typed surface
-failures instead of log-only omissions.
+failures instead of log-only omissions. A successful read remains successful when its surface
+has no public API, and a managed netmodule uses the existing resolution-unaware module
+extraction path rather than being reported as an assembly acquisition failure
+(`BuildApiSurface_ValidEmptyAssemblyIsRetained` and
+`BuildApiSurface_NetmoduleUsesModuleExtraction`).
 `BuildApiSurface_ClassifiesConstraintAcrossAssemblySet` gates cross-library classification
-through this path. The CLI still owns endpoint-range parsing, compatibility filtering, ranking,
-and rendering; it does not select package TFMs, merge assembly surfaces, or manage extraction
-directories.
+through this path. The CLI still owns endpoint-range parsing, compatibility filtering,
+ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
+extraction directories.
 
 **Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
 wide platform type browse, and direct Research API comparison use the Metadata-owned
@@ -409,7 +413,9 @@ source-image identity, so equal side/token pairs from different inputs do not co
 (`FromApiDiff_ScopesInspectionFailureToSubjectAssembly` and
 `FromApiDiff_ScopesInspectionFailureToSourceImage`). Dependency assembly identity also survives
 API, diff, Research, and CLI projection rather than being inferred from display text
-(`FromApiDiff_ScopesInspectionFailureToDependencyAssembly`). Diff member filtering preserves the
+(`FromApiDiff_ScopesInspectionFailureToDependencyAssembly`,
+`BuildFullApiView_PreservesCompleteDependencyIdentity`, and
+`BuildDocumentView_ProjectsInspectionFailuresToJson`). Diff member filtering preserves the
 failure set, document JSON/Markdown renders contained failure rows, and single-shape output
 reports an explicit incomplete-comparison diagnostic; every incomplete comparison exits
 nonzero (`FilterApiDiffByMemberTargets_PreservesInspectionFailures`,

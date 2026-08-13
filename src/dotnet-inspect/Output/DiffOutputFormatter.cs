@@ -221,6 +221,7 @@ public static class DiffOutputFormatter
                     "Mechanism",
                     "Kind",
                     "Detail",
+                    "Dependency Assembly",
                 ],
                 [
                     "side",
@@ -230,6 +231,7 @@ public static class DiffOutputFormatter
                     "mechanism",
                     "kind",
                     "detail",
+                    "dependency_assembly",
                 ],
                 view.InspectionFailures?.Select(row => new[]
                 {
@@ -240,6 +242,7 @@ public static class DiffOutputFormatter
                     row.Mechanism,
                     row.Kind,
                     row.Detail,
+                    row.DependencyAssembly ?? "",
                 }));
         }
 
@@ -385,15 +388,6 @@ public static class DiffOutputFormatter
         return writer.ToString().TrimEnd();
     }
 
-    static string AssemblyIdentityDisplay(
-        AssemblyReferenceIdentity? identity) =>
-        identity is null
-            ? ""
-            : $"{identity.Name}, Version={identity.Version}, "
-                + $"Culture={identity.Culture ?? "neutral"}, "
-                + "PublicKeyToken="
-                + $"{identity.PublicKeyToken ?? "null"}";
-
     static List<DiffInspectionFailureRow>? BuildInspectionFailureRows(
         IReadOnlyList<ApiDiffInspectionFailure> failures) =>
         failures.Count == 0
@@ -407,7 +401,7 @@ public static class DiffOutputFormatter
                             failure.SubjectAssembly is null
                                 ? Path.GetFileName(
                                     failure.SourceAssemblyPath ?? "")
-                                : AssemblyIdentityDisplay(
+                                : AssemblyIdentityFormatter.Format(
                                     failure.SubjectAssembly),
                             failure.Operation,
                             $"0x{failure.SubjectToken:X8}",
@@ -417,7 +411,7 @@ public static class DiffOutputFormatter
                                 failure.Detail),
                             failure.DependencyAssembly is null
                                 ? null
-                                : AssemblyIdentityDisplay(
+                                : AssemblyIdentityFormatter.Format(
                                     failure.DependencyAssembly))),
             ];
 

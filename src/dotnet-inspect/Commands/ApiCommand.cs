@@ -1102,11 +1102,13 @@ public class ApiCommand
         string assembly =
             failure.SubjectAssembly is null
                 ? ""
-                : $" in '{failure.SubjectAssembly.Name}'";
+                : $" in '{AssemblyIdentityFormatter.Format(
+                    failure.SubjectAssembly)}'";
         string dependency =
             failure.DependencyAssembly is null
                 ? ""
-                : $" via '{failure.DependencyAssembly.Name}'";
+                : $" via '{AssemblyIdentityFormatter.Format(
+                    failure.DependencyAssembly)}'";
         CommandError.WriteWarning(
             "Generic-constraint classification was incomplete"
                 + $"{assembly}{dependency} "

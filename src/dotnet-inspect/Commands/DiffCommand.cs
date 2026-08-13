@@ -204,6 +204,11 @@ public class DiffCommand
                         () => CreateImplementationComparisonInput(
                             inputs,
                             options)));
+                IReadOnlyList<ApiDiffInspectionFailure>
+                    inspectionFailures =
+                        ApiDiffAnalyzer.ProjectInspectionFailures(
+                            inputs.FromSurface,
+                            inputs.ToSurface);
 
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
@@ -213,7 +218,8 @@ public class DiffCommand
                         options,
                         queryResults,
                         context.HttpClient,
-                        logger);
+                        logger,
+                        inspectionFailures);
                     return inspectionIncomplete ? 1 : 0;
                 }
 
@@ -235,11 +241,37 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderFindingTransitionsView(
-                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        var output =
+                            inspectionFailures.Count == 0
+                                || options.NameOnly
+                                ? DiffOutputFormatter.RenderFindingTransitionsView(
+                                    view,
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows))
+                                : DiffOutputFormatter.RenderDocumentView(
+                                    DiffOutputFormatter.BuildDocumentView(
+                                        inputs.Name,
+                                        inputs.FromVersion,
+                                        inputs.ToVersion,
+                                        changes: null,
+                                        analysisDiff: null,
+                                        implementationDiff: null,
+                                        findingTransitions: view,
+                                        inspectionFailures),
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows));
                         Console.WriteLine(output);
                     }
-                    return 0;
+                    if (inspectionFailures.Count > 0
+                        && (options.Tabular
+                            || options.Tsv
+                            || options.Jsonl
+                            || options.NameOnly))
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            inspectionFailures);
+                    }
+                    return inspectionFailures.Count > 0 ? 1 : 0;
                 }
 
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
@@ -267,11 +299,33 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderImplementationDiffView(
-                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        var output =
+                            inspectionFailures.Count == 0
+                                || options.NameOnly
+                                ? DiffOutputFormatter.RenderImplementationDiffView(
+                                    view,
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows))
+                                : DiffOutputFormatter.RenderDocumentView(
+                                    DiffOutputFormatter.BuildDocumentView(
+                                        inputs.Name,
+                                        inputs.FromVersion,
+                                        inputs.ToVersion,
+                                        changes: null,
+                                        analysisDiff: null,
+                                        implementationDiff: view,
+                                        findingTransitions: null,
+                                        inspectionFailures),
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows));
                         Console.WriteLine(output);
                     }
-                    return 0;
+                    if (options.Tabular || options.NameOnly)
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            inspectionFailures);
+                    }
+                    return inspectionFailures.Count > 0 ? 1 : 0;
                 }
 
                 if (SelectsAnalysisDiff(options))
@@ -296,11 +350,35 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderAnalysisDiffView(
-                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        var output =
+                            inspectionFailures.Count == 0
+                                || options.NameOnly
+                                ? DiffOutputFormatter.RenderAnalysisDiffView(
+                                    view,
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows))
+                                : DiffOutputFormatter.RenderDocumentView(
+                                    DiffOutputFormatter.BuildDocumentView(
+                                        inputs.Name,
+                                        inputs.FromVersion,
+                                        inputs.ToVersion,
+                                        changes: null,
+                                        analysisDiff: view,
+                                        implementationDiff: null,
+                                        findingTransitions: null,
+                                        inspectionFailures),
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows));
                         Console.WriteLine(output);
                     }
-                    return 0;
+                    if (options.Tsv
+                        || options.Jsonl
+                        || options.NameOnly)
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            inspectionFailures);
+                    }
+                    return inspectionFailures.Count > 0 ? 1 : 0;
                 }
 
                 var diff = BuildApiDiff(
@@ -331,14 +409,18 @@ public class DiffCommand
                             options.Rows);
                     }
 
-                    WriteIncompleteComparisonDiagnostic(diff);
+                    WriteIncompleteComparisonDiagnostic(
+                        diff.InspectionFailures);
                 }
                 else
                 {
                     var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
                     Console.WriteLine(output);
                     if (options.NameOnly)
-                        WriteIncompleteComparisonDiagnostic(diff);
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            diff.InspectionFailures);
+                    }
                 }
 
                 return diff.InspectionFailures.Count > 0 ? 1 : 0;
@@ -768,7 +850,9 @@ public class DiffCommand
         DiffOptions options,
         InspectionQueryResults queryResults,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        IReadOnlyList<ApiDiffInspectionFailure>
+            inspectionFailures)
     {
         var selected = options.IncludeSections
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -845,17 +929,17 @@ public class DiffCommand
             analysisView,
             implementationView,
             findingTransitionsView,
-            changesDiff?.InspectionFailures ?? []);
+            inspectionFailures);
 
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
-            return changesDiff?.InspectionFailures.Count > 0;
+            return inspectionFailures.Count > 0;
         }
 
         Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
             view, OutputFormatter.CreateWindowedOptions(options.Rows)));
-        return changesDiff?.InspectionFailures.Count > 0;
+        return inspectionFailures.Count > 0;
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -1896,14 +1980,16 @@ public class DiffCommand
         };
     }
 
-    static void WriteIncompleteComparisonDiagnostic(ApiDiff diff)
+    static void WriteIncompleteComparisonDiagnostic(
+        IReadOnlyCollection<ApiDiffInspectionFailure>
+            inspectionFailures)
     {
-        if (diff.InspectionFailures.Count == 0)
+        if (inspectionFailures.Count == 0)
             return;
 
         CommandError.WriteWarning(
             "API comparison is incomplete because metadata inspection "
-                + $"reported {diff.InspectionFailures.Count} failure(s); "
+                + $"reported {inspectionFailures.Count} failure(s); "
                 + "use Markdown or JSON output for failure details.");
     }
 

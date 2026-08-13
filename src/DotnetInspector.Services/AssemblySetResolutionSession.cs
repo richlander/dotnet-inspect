@@ -102,9 +102,25 @@ public sealed class AssemblySetResolutionSession : IDisposable
             Name = name,
             Tfm = tfm,
         };
+        bool readSurface = false;
         foreach (AcquisitionFailure failure
             in _acquisitionFailures)
         {
+            ApiSurface? moduleSurface =
+                AssemblyReader.ExtractModuleApiSurface(
+                    failure.Path,
+                    includeAll);
+            if (moduleSurface is not null)
+            {
+                MergeSurface(
+                    merged,
+                    moduleSurface,
+                    failure.Path,
+                    log);
+                readSurface = true;
+                continue;
+            }
+
             merged.InspectionFailures.Add(
                 new ApiSurfaceInspectionFailure(
                     "acquire API surface",
@@ -148,32 +164,43 @@ public sealed class AssemblySetResolutionSession : IDisposable
             ApiSurface surface =
                 ((ResolutionAwareApiSurfaceOutcome.Read)outcome)
                     .Surface;
-            surface.SetInspectionSourceAssemblyPath(
-                participant.Path);
-            log?.Invoke(
-                $"  + {Path.GetFileNameWithoutExtension(participant.Path)}: "
-                    + $"{surface.PublicTypeCount} types");
-            merged.Types.AddRange(surface.Types);
-            merged.TypeForwarders.AddRange(
-                surface.TypeForwarders);
-            merged.IsTypeForwardingAssembly |=
-                surface.IsTypeForwardingAssembly;
-            merged.MergeInspectionFailuresFrom(surface);
-            merged.PublicTypeCount += surface.PublicTypeCount;
-            merged.PublicMethodCount += surface.PublicMethodCount;
-            merged.PublicPropertyCount += surface.PublicPropertyCount;
-            merged.PublicEventCount += surface.PublicEventCount;
-            merged.PublicFieldCount += surface.PublicFieldCount;
+            MergeSurface(
+                merged,
+                surface,
+                participant.Path,
+                log);
+            readSurface = true;
         }
 
         merged.Types = merged.Types
             .OrderBy(static type => type.FullName)
             .ToList();
-        return merged.Types.Count == 0
-            && merged.TypeForwarders.Count == 0
+        return !readSurface
             && merged.InspectionFailures.Count == 0
                 ? null
                 : merged;
+    }
+
+    static void MergeSurface(
+        ApiSurface merged,
+        ApiSurface surface,
+        string path,
+        Action<string>? log)
+    {
+        surface.SetInspectionSourceAssemblyPath(path);
+        log?.Invoke(
+            $"  + {Path.GetFileNameWithoutExtension(path)}: "
+                + $"{surface.PublicTypeCount} types");
+        merged.Types.AddRange(surface.Types);
+        merged.TypeForwarders.AddRange(surface.TypeForwarders);
+        merged.IsTypeForwardingAssembly |=
+            surface.IsTypeForwardingAssembly;
+        merged.MergeInspectionFailuresFrom(surface);
+        merged.PublicTypeCount += surface.PublicTypeCount;
+        merged.PublicMethodCount += surface.PublicMethodCount;
+        merged.PublicPropertyCount += surface.PublicPropertyCount;
+        merged.PublicEventCount += surface.PublicEventCount;
+        merged.PublicFieldCount += surface.PublicFieldCount;
     }
 
     static ResolvedAssemblyReference? TryCreateManagedAssembly(
