@@ -23,6 +23,7 @@ internal static class BrowserSurfaceProjection
     internal static BrowserTypeSurface Type(
         ApiType type,
         string assembly,
+        string assemblyId,
         string assemblyName)
     {
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
@@ -56,6 +57,7 @@ internal static class BrowserSurfaceProjection
             accessibility,
             bucket.Id,
             assembly,
+            assemblyId,
             assemblyName,
             members.Length,
             string.Join(' ', modifiers),

@@ -188,6 +188,11 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
   assert.equal(
     graphTargetNavigationDisposition({ status: "missing" }, target),
     "platform");
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      { ...target, assemblyVersion: null }),
+    "none");
 });
 
 test("call graph navigation rejects assembly identity skew", () => {
@@ -223,6 +228,7 @@ test("call graph navigation rejects assembly identity skew", () => {
 test("call graph navigation joins asset names through metadata identity", () => {
   const type = {
     assembly: "Physical.dll",
+    assemblyId: "asset:physical",
     assemblyName: "Logical",
     metadataId: "Example.Widget"
   };
@@ -230,6 +236,7 @@ test("call graph navigation joins asset names through metadata identity", () => 
     ...packageAt("1.0.0", "net8.0"),
     types: [type],
     assemblies: [{
+      id: "asset:physical",
       name: "Logical",
       version: "1.0.0.0",
       culture: null,
@@ -248,6 +255,40 @@ test("call graph navigation joins asset names through metadata identity", () => 
     status: "unique",
     pkg,
     type
+  });
+});
+
+test("call graph navigation joins duplicate metadata names by asset identity", () => {
+  const firstType = {
+    assembly: "A.dll",
+    assemblyId: "asset:a",
+    assemblyName: "Logical",
+    metadataId: "Example.Widget"
+  };
+  const secondType = {
+    assembly: "B.dll",
+    assemblyId: "asset:b",
+    assemblyName: "Logical",
+    metadataId: "Example.Widget"
+  };
+  const pkg = {
+    ...packageAt("1.0.0", "net8.0"),
+    types: [firstType, secondType],
+    assemblies: [
+      { id: "asset:a", name: "Logical", version: "1.0.0.0" },
+      { id: "asset:b", name: "Logical", version: "2.0.0.0" }
+    ]
+  };
+  const target = {
+    assembly: "Logical",
+    assemblyVersion: "2.0.0.0",
+    typeMetadataId: "Example.Widget"
+  };
+
+  assert.deepEqual(resolveLoadedGraphTargetCandidate([pkg], target), {
+    status: "unique",
+    pkg,
+    type: secondType
   });
 });
 
@@ -387,6 +428,12 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /state\.retryAction = openRuntimePackFromHome/);
+  assert.match(
+    appSource,
+    /state\.retryAction = options\.retryAction/);
+  assert.match(
+    appSource,
+    /state\.retryAction = runCallGraphDemo/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

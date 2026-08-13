@@ -67,6 +67,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             TypeRef.CoreLibrary,
             "System",
             name,
+            [name],
             new TypeReferenceOrigin.IntrinsicCoreLibrary());
     }
 
@@ -100,6 +101,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 assembly,
                 ns,
                 name,
+                TypeNameSegments(
+                    reader,
+                    chain,
+                    static (metadata, item) =>
+                        metadata.GetTypeDefinition(item).Name),
                 new TypeReferenceOrigin.CurrentAssembly(),
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
@@ -145,6 +151,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                     assembly.Name,
                     ns,
                     name,
+                    TypeNameSegments(
+                        reader,
+                        chain,
+                        static (metadata, item) =>
+                            metadata.GetTypeReference(item).Name),
                     new TypeReferenceOrigin.AssemblyReference(assembly),
                     FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyHandle),
                     FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, assemblyHandle));
@@ -174,6 +185,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
                 ns,
                 name,
+                TypeNameSegments(
+                    reader,
+                    chain,
+                    static (metadata, item) =>
+                        metadata.GetTypeReference(item).Name),
                 origin,
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
@@ -222,6 +238,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         string assembly,
         string ns,
         string name,
+        ImmutableArray<string> segments,
         TypeReferenceOrigin origin,
         bool trustedFrameworkAssembly = true,
         bool trustedProtobufAssembly = true)
@@ -229,7 +246,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         MetadataTypeDefinitionNameResult result =
             MetadataTypeDefinitionName.Create(
                 ns,
-                [.. name.Split('+')]);
+                segments);
         if (result is not MetadataTypeDefinitionNameResult.Valid valid)
         {
             return TypeRef.Unsupported(
@@ -243,6 +260,18 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             new ResolvableTypeReference(origin, valid.Name),
             trustedFrameworkAssembly,
             trustedProtobufAssembly);
+    }
+
+    static ImmutableArray<string> TypeNameSegments<THandle>(
+        MetadataReader reader,
+        ReadOnlySpan<THandle> chain,
+        Func<MetadataReader, THandle, StringHandle> getName)
+        where THandle : struct
+    {
+        var segments = ImmutableArray.CreateBuilder<string>(chain.Length);
+        foreach (THandle handle in chain)
+            segments.Add(reader.GetString(getName(reader, handle)));
+        return segments.MoveToImmutable();
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)

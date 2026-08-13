@@ -5012,7 +5012,8 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
         ? `Couldn’t load ${key}: ${state.runtimePackError}`
         : `Couldn’t load ${key} from the .NET runtime pack.`;
       state.errorTitle = "Platform library failed";
-      state.retryAction = () => openPlatformLibrary(assembly, pack);
+      state.retryAction = options.retryAction
+        ?? (() => openPlatformLibrary(assembly, pack));
       render();
       return;
     }
@@ -7782,9 +7783,23 @@ async function runCallGraphDemo() {
     "Microsoft.Extensions.DependencyInjection.Abstractions",
     "10.0.0",
     "net10.0");
+  if (!targetPackage) {
+    state.retryAction = runCallGraphDemo;
+    render();
+    return;
+  }
   const loggingPackage = await loadPackage("Microsoft.Extensions.Logging", "10.0.0", "net10.0");
+  if (!loggingPackage) {
+    state.retryAction = runCallGraphDemo;
+    render();
+    return;
+  }
   const httpPackage = await loadPackage("Microsoft.Extensions.Http", "10.0.0", "net10.0");
-  if (!targetPackage || !loggingPackage || !httpPackage) return;
+  if (!httpPackage) {
+    state.retryAction = runCallGraphDemo;
+    render();
+    return;
+  }
 
   activatePackage(state.packages.find(item =>
     item.id === "Microsoft.Extensions.DependencyInjection.Abstractions"
@@ -7797,6 +7812,8 @@ async function runCallGraphDemo() {
   if (!type || !member || overloadIndex < 0) {
     state.loading = false;
     state.error = "The call graph demo member was not found in the selected package.";
+    state.errorTitle = "Call graph demo failed";
+    state.retryAction = runCallGraphDemo;
     render();
     return;
   }
@@ -7891,7 +7908,10 @@ async function restoreWorkspaceFromLocation(
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
     if (isRuntimePackId(targetModel.id) && loc.library) {
-      await applyPlatformLibraryScope(loc.library, navigationSeq);
+      await applyPlatformLibraryScope(
+        loc.library,
+        navigationSeq,
+        () => restoreWorkspaceFromLocation(loc, deep));
       if (navigationSeq !== state.navigationSeq) return;
     }
     applyDeepLink(deep);
@@ -8206,7 +8226,10 @@ window.addEventListener("popstate", () => {
 // (lazily loading that assembly if needed via the same drill-in path as clicking it), or
 // clear the scope for the aggregate platform, then restore the deep-linked selection.
 async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
-  await applyPlatformLibraryScope(loc.library, navigationSeq);
+  await applyPlatformLibraryScope(
+    loc.library,
+    navigationSeq,
+    () => restorePlatformScopeThenDeepLink(loc, state.navigationSeq));
   if (navigationSeq !== state.navigationSeq) return;
   applyDeepLink(loc);
   render();
@@ -8215,7 +8238,10 @@ async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
 
 // Load and scope to a single platform library key (or clear the scope when null). Reuses
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
-async function applyPlatformLibraryScope(libraryKey, navigationSeq = null) {
+async function applyPlatformLibraryScope(
+  libraryKey,
+  navigationSeq = null,
+  retryAction = null) {
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   const key = String(libraryKey || "").replace(/\.dll$/i, "");
   if (!key) { state.libraryScope = null; return; }
@@ -8225,7 +8251,10 @@ async function applyPlatformLibraryScope(libraryKey, navigationSeq = null) {
     try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
   }
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
-  await openPlatformLibrary(key, platformPackForAssembly(key), { navigationSeq });
+  await openPlatformLibrary(
+    key,
+    platformPackForAssembly(key),
+    { navigationSeq, retryAction });
 }
 
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
@@ -8240,7 +8269,13 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
     if (loc.library) {
-      await applyPlatformLibraryScope(loc.library, navigationSeq);
+      await applyPlatformLibraryScope(
+        loc.library,
+        navigationSeq,
+        () => restoreRuntimePackFromHistory(
+          loc,
+          deep,
+          state.navigationSeq));
       if (navigationSeq !== state.navigationSeq) return;
     }
     applyDeepLink(deep);

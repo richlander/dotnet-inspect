@@ -104,6 +104,7 @@ public static partial class BrowserInspectionEngine
                     .Select(type => BrowserSurfaceProjection.Type(
                         type,
                         participant.Asset.AssemblyName,
+                        participant.Asset.Id,
                         participant.Assembly.Identity.Name)),
             ];
             BrowserTypeSurface[] publicTypes =

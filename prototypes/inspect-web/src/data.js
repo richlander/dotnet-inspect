@@ -192,9 +192,12 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
       const assembly = String(
         type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
         .replace(/\.dll$/i, "");
-      const descriptor = (pkg.assemblies ?? []).find(candidate =>
-        String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
-          === assembly.toLowerCase());
+      const descriptors = pkg.assemblies ?? [];
+      const descriptor = type.assemblyId
+        ? descriptors.find(candidate => candidate.id === type.assemblyId)
+        : descriptors.find(candidate =>
+            String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+              === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
           && (type.metadataId ?? type.queryId ?? type.id) === typeId) {
@@ -211,6 +214,12 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
 export function graphTargetNavigationDisposition(candidate, target) {
   if (candidate.status === "ambiguous") return "blocked";
   if (candidate.status === "unique") return "loaded";
+  if (Object.prototype.hasOwnProperty.call(
+      target ?? {},
+      "assemblyVersion")
+      && !target?.assemblyVersion) {
+    return "none";
+  }
   return target?.kind === "external"
       && target.assembly
       && callGraphTargetTypeId(target)
