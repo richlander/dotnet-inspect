@@ -83,6 +83,7 @@ internal static class PackageContentAdmission
                         archive,
                         content.NupkgPath,
                         limits,
+                        content.RequiresArchiveTreeMatch,
                         cancellationToken))
                 {
                     return Outcome.LimitsExceeded;
@@ -128,18 +129,22 @@ internal static class PackageContentAdmission
             countEveryNodeTowardEntryLimit: true);
 
     /// <summary>
-    /// Product-owned extracts (commit marker present) must match the archive.
-    /// Foreign layouts (global-packages) get walk-only safety gates plus the
-    /// same top-level <c>.nuspec</c> usability gate as archive-less slots so a
-    /// retained nupkg beside an empty folder is not published as content.
+    /// Product-owned extracts must match the archive. Ownership is the
+    /// immutable <paramref name="requiresArchiveTreeMatch"/> flag from the
+    /// store (or a still-present commit marker as a belt-and-suspenders check
+    /// for hand-constructed test content). Foreign layouts (global-packages)
+    /// get walk-only safety gates plus the same top-level <c>.nuspec</c>
+    /// usability gate as archive-less slots so a retained nupkg beside an
+    /// empty folder is not published as content.
     /// </summary>
     internal static bool AdmitExtractedTreeWithArchive(
         string root,
         byte[] archive,
         string? retainedNupkgPath,
         PackagePayloadLimits limits,
+        bool requiresArchiveTreeMatch,
         CancellationToken cancellationToken) =>
-        HasCommitMarker(root)
+        requiresArchiveTreeMatch || HasCommitMarker(root)
             ? ExtractedTreeMatchesArchive(
                 root,
                 archive,

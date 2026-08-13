@@ -46,7 +46,8 @@ public sealed class FileSystemPackageStore : IPackageStore
             cached.ExtractPath,
             cachedNupkg,
             fromCache: true,
-            cached.ProducerKey);
+            cached.ProducerKey,
+            requiresArchiveTreeMatch: cached.RequiresArchiveTreeMatch);
     }
 
     /// <inheritdoc />
@@ -90,7 +91,8 @@ public sealed class FileSystemPackageStore : IPackageStore
                 committed.ExtractPath,
                 committed.NupkgPath,
                 fromCache: true,
-                committed.ProducerKey);
+                committed.ProducerKey,
+                requiresArchiveTreeMatch: true);
         }
         finally
         {

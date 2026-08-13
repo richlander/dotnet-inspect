@@ -18,7 +18,10 @@ public sealed record CommittedPackage(
 /// An exact cached package payload and the canonical identity of the source
 /// that produced it.
 /// </summary>
-internal sealed record CachedPackage(string ExtractPath, string ProducerKey);
+internal sealed record CachedPackage(
+        string ExtractPath,
+        string ProducerKey,
+        bool RequiresArchiveTreeMatch);
 
 /// <summary>
 /// Utilities for working with NuGet package caches.
@@ -224,7 +227,10 @@ public static class NuGetCache
                 {
                     InfoTracker.RecordCacheHit();
                     CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
-                    return new CachedPackage(appPackageDir, sourceKey);
+                    return new CachedPackage(
+                        appPackageDir,
+                        sourceKey,
+                        RequiresArchiveTreeMatch: true);
                 }
             }
         }
@@ -256,7 +262,10 @@ public static class NuGetCache
             return null;
         }
 
-        return new CachedPackage(packageDirectory, producerKey);
+        return new CachedPackage(
+            packageDirectory,
+            producerKey,
+            RequiresArchiveTreeMatch: false);
     }
 
     private static bool TryReadGlobalPackageSourceKey(

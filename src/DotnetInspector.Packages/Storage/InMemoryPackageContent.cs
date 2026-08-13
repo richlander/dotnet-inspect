@@ -42,6 +42,13 @@ public sealed class InMemoryPackageContent : IPackageContent
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// In-memory content has no extracted tree; archive validation alone
+    /// admits the payload.
+    /// </remarks>
+    public bool RequiresArchiveTreeMatch => false;
+
+    /// <inheritdoc />
     public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
     {
         stream = new MemoryStream(_nupkgBytes, writable: false);

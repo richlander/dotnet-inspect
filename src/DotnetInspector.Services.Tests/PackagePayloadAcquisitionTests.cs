@@ -359,6 +359,54 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
+    /// Product-owned provenance requires archive tree match even when the
+    /// commit marker file is missing (concurrent delete race).
+    /// </summary>
+    [Fact]
+    public async Task ProductOwned_WithoutMarker_StillRequiresArchiveTreeMatch()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] original = [1, 2, 3, 4];
+            byte[] mutated = [9, 9, 9, 9]; // same length, different CRC
+            byte[] nuspec = """<?xml version="1.0"?><package />"""u8.ToArray();
+            byte[] archive = TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/Sample.dll", original),
+                ("Sample.Package.nuspec", nuspec));
+            string nupkg = Path.Combine(root, $"{PackageId}.{Version}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                mutated);
+            File.WriteAllBytes(
+                Path.Combine(root, "Sample.Package.nuspec"),
+                nuspec);
+            // No commit marker on disk.
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: "app-cache",
+                requiresArchiveTreeMatch: true);
+            Assert.False(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A retained nupkg with no extracted package layout must not admit as
     /// foreign/global-packages content — filesystem consumers never fall back
     /// to reading assets from the archive.
