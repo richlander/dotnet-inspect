@@ -515,9 +515,33 @@ public static class PackageExtractor
 
                     if (download is HttpRetryHelper.DownloadToFileResult.Succeeded)
                     {
-                        byte[] archive = await File.ReadAllBytesAsync(
-                                nupkgPath)
-                            .ConfigureAwait(false);
+                        // Re-admit through the same bounded reader used on the
+                        // host-neutral path so a raced or swapped on-disk file
+                        // cannot bypass MaxArchiveBytes via ReadAllBytesAsync.
+                        byte[]? archive;
+                        await using (FileStream onDisk = new(
+                            nupkgPath,
+                            FileMode.Open,
+                            FileAccess.Read,
+                            FileShare.Read,
+                            bufferSize: 81920,
+                            FileOptions.Asynchronous | FileOptions.SequentialScan))
+                        {
+                            archive = await PackageContentAdmission.ReadBoundedAsync(
+                                    onDisk,
+                                    PackagePayloadLimits.Default.MaxArchiveBytes,
+                                    CancellationToken.None)
+                                .ConfigureAwait(false);
+                        }
+
+                        if (archive is null)
+                        {
+                            sourceSuppliedUnusablePayload = true;
+                            log?.Invoke(
+                                $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
+                            continue;
+                        }
+
                         if (PackageArchiveValidator.Validate(archive)
                             is PackageArchiveValidation.Rejected rejection)
                         {
