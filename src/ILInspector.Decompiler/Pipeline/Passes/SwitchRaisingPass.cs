@@ -1024,7 +1024,10 @@ public sealed class SwitchRaisingPass : IIrPass
 
     /// <summary>
     /// Successor block indices (including conditional/no-terminator fall-through),
-    /// or false for an unsupported section shape such as a direct structured transfer.
+    /// or false for an unsupported section shape. A terminal <see cref="Continue"/>
+    /// has no successor in this container and keeps its enclosing-loop owner when
+    /// wrapped in a switch; <see cref="Break"/> declines because the new switch
+    /// would capture it.
     /// </summary>
     internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
@@ -1038,7 +1041,7 @@ public sealed class SwitchRaisingPass : IIrPass
         var last = block.Children.Count > 0 ? block.Children[^1] : null;
         switch (last)
         {
-            case Return or Throw:
+            case Return or Throw or Continue:
                 return true;
             case Branch branch:
                 if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int bt))
@@ -1052,7 +1055,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 if (idx + 1 < blocks.Count)
                     succs.Add(idx + 1);
                 return true;
-            case SwitchBranch or Leave or EndFinally or EndFilter or Break or Continue:
+            case SwitchBranch or Leave or EndFinally or EndFilter or Break:
                 return false;
             default:
                 if (idx + 1 < blocks.Count)
@@ -2052,7 +2055,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var tail = sectionBlocks[^1];
         var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
-        if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
+        if (!TerminatesSwitchSection(tailLast))
             tail.Add(new Break());
 
         var body = new BlockContainer();
@@ -2060,6 +2063,10 @@ public sealed class SwitchRaisingPass : IIrPass
             body.Add(block);
         return body;
     }
+
+    static bool TerminatesSwitchSection(IrNode? node)
+        => node is Return or Throw or Break or Continue
+            or Branch or ConditionalBranch or SwitchBranch;
 
     static void BuildCaseTargetJoin(
         IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
@@ -2321,7 +2328,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 tail.Add(node);
 
         var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
-        if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
+        if (!TerminatesSwitchSection(tailLast))
             tail.Add(new Break());
 
         var body = new BlockContainer();

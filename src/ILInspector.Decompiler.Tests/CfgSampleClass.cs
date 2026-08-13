@@ -2666,6 +2666,41 @@ public class CfgSampleClass
         }
     }
 
+    // A source continue in every table case skips the post-switch statement.
+    // The pipeline may preserve that transfer by moving the statement into the
+    // default section and rendering the terminating case sections with break.
+    public static int SwitchCaseContinueInLoop(int value, int limit)
+    {
+        int result = 0;
+        do
+        {
+            switch (value)
+            {
+                case 0:
+                    result += 1;
+                    continue;
+                case 1:
+                    result += 2;
+                    continue;
+                case 2:
+                    result += 3;
+                    continue;
+                case 3:
+                    result += 4;
+                    continue;
+                case 4:
+                    result += 5;
+                    continue;
+                default:
+                    result += 10;
+                    break;
+            }
+            result += 100;
+        }
+        while (result < limit);
+        return result;
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }

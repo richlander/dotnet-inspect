@@ -394,26 +394,56 @@ region exit with no successor, switch raising declines it, and structuring does
 not classify it as a jump predecessor. Nested `Leave` clone ownership has no
 executable-edge overlap; `StructuringFlowFactsTests` owns that separate contract.
 
-The pre-switch corpus also contains 12 blocks whose direct `Break`/`Continue`
-leaves the current block container. Those are not lexical fall-through edges:
-switch raising declines them explicitly, while the differential excludes
-`Cfg.Build`'s current default projection from the agreement claim. Another 45
-blocks contain a conditional arm ending in `Break`; their other path has a real
-in-container fall-through edge, so switch raising continues to model that edge.
-Synthetic cases separately pin direct non-final transfers and transfers owned
-by a nested loop. This is the measured prerequisite for consolidation:
-`Cfg.Build` must first represent or reject direct structured transfers before
-switch raising can consume it wholesale.
+The pre-switch corpus also contains 12 blocks whose direct `Break` leaves the
+current block container and zero direct `Continue` blocks. A break is not a
+lexical fall-through edge, and wrapping it in a switch would capture its
+enclosing-loop owner, so switch raising declines it while the differential
+excludes `Cfg.Build`'s current default projection from the agreement claim. A
+terminal `Continue` is different: it has no successor in the section container,
+and a switch cannot capture its enclosing-loop owner, so switch raising accepts
+it as a terminating section. `Cfg.Build` still projects lexical-next
+fall-through for both structured transfers, so the differential excludes both
+from executable-edge agreement; for `Continue`, the two views actively disagree
+until the shared CFG can represent the enclosing owner. Another 45 blocks
+contain a conditional arm ending in `Break`; their other path has a real
+in-container fall-through edge, so the successor view continues to model that
+edge. A synthetic case where such an arm precedes `EndFinally` pins that the
+independent unsupported terminator declines the block instead.
+
+`ControlFlowViews_AgreeOnSyntheticBoundaryTerminators` owns these boundaries in
+the fast `Area=Pass` lane, including a terminal `Continue`, a non-final transfer,
+an explicitly branched lexical-next edge, and a transfer owned by a nested loop.
+It also asserts that the default pipeline still contains exactly one
+`SwitchRaisingPass` anchor before constructing the pre-switch slice. This is the
+measured prerequisite for consolidation: `Cfg.Build` must first represent or
+reject direct structured transfers before switch raising can consume it
+wholesale.
+
+The compiler-produced loop/switch/`continue` witness is an output canary, not a
+corpus instance of that pre-switch boundary. Both before and after the original
+differential change, the default pipeline raises the switch, moves the
+post-switch statement into `default`, and renders the terminating cases with
+`break`; no `Continue` exists before switch raising because structuring runs
+later. The terminal-`Continue` acceptance is therefore unreachable in today's
+single default-pipeline pass and has zero corpus coverage; it is a supported
+boundary for an already-structured input, pinned directly rather than presented
+as measured default behavior. `SwitchRaisingTerminalContinuationTests` pins the
+compiler-produced no-movement result, an already-structured loop where terminal
+`Continue` nodes remain `continue` after switch wrapping, a mixed
+continue/joining switch, and the close negative where a nested loop-owned
+`Break` still forces the wrapping attempt to decline.
 
 On the .NET 11 Preview 7 CoreLib, the gate covers 42,640 methods, 45,505
 containers, 48,559 resolved explicit edges, zero external explicit edges,
 53,367 implicit fall-through edges (including 342 switch default edges),
 122,969 switch-modeled blocks, 113 terminal `Leave`s, 10 `EndFinally`
-terminators, zero `EndFilter` terminators, 12 direct structured-transfer blocks,
-and 45 nested structured-transfer blocks with zero differences over the
-supported overlap. That evidence makes `Cfg.Build` the owner of flat structural
-edge semantics, but not yet the owner for direct structured transfers. Switch
-raising's supported view has a narrower acceptance domain, not different edges.
+terminators, zero `EndFilter` terminators, 12 direct `Break` blocks, zero direct
+`Continue` blocks, and 45 nested structured-transfer blocks with zero
+differences over the supported overlap. That evidence makes `Cfg.Build` the
+owner of flat structural edge semantics, but not yet the owner for direct
+structured transfers. Within the flat overlap, switch raising has a narrower
+acceptance domain rather than different edges; accepted structured `Continue`
+remains the explicit owner-aware exception outside that overlap.
 `StructuringFlowFacts` remains a separate region-aware projection because its
 label and clone-ownership facts are not executable edges.
 
