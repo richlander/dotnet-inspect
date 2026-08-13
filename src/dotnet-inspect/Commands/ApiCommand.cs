@@ -944,14 +944,21 @@ public class ApiCommand
         bool failureDetailsRendered =
             !options.Count
             && (options.JsonOutput
-                || (!options.Tabular
-                    && ApiOutputFormatter
+                || (options.Tabular
+                    ? ApiOutputFormatter
+                        .ShouldRenderSurfaceInspectionFailureTableView(
+                            options)
+                    : ApiOutputFormatter
                         .RendersInspectionFailures(
                             api,
                             options)));
         bool constraintDetailsRendered =
-            options.JsonOutput
-            && !options.Count;
+            !options.Count
+            && (options.JsonOutput
+                || (options.Tabular
+                    && ApiOutputFormatter
+                        .ShouldRenderSurfaceInspectionFailureTableView(
+                            options)));
         if (!failureDetailsRendered)
         {
             int rejectedRows = CountRejectedMetadataRows(api);
@@ -988,6 +995,45 @@ public class ApiCommand
         }
         else if (options.Tabular)
         {
+            if (ApiOutputFormatter
+                .ShouldRenderSurfaceInspectionFailureTableView(
+                    options))
+            {
+                var failureRows =
+                    OutputFormatter.RenderProjectedTable(
+                        !options.NoHeader,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        (writer, formatter, writerOptions) =>
+                        {
+                            writerOptions.IncludeSections =
+                                [SectionNames.InspectionFailures];
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                ApiViewContext.Default,
+                                writerOptions);
+                        });
+                ProjectionDiagnostics.DiagnoseRendered(
+                    options.Fields ?? options.Columns,
+                    failureRows);
+                if (!TryReportEmptyProjection(
+                        failureRows,
+                        options))
+                {
+                    return 1;
+                }
+                Console.Out.Write(
+                    OutputFormatter.LimitRenderedTableRows(
+                        failureRows,
+                        options.Rows,
+                        !options.NoHeader));
+                return successExitCode;
+            }
+
             if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
             {
                 // Deliberately the same machinery as the fall-through below -- projection,

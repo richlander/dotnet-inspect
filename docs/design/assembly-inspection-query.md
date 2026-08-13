@@ -404,9 +404,10 @@ withholds kind-incomplete resolutions from catalog promotion. The reproduced tra
 missing-binding outcome retains typed kind-failure evidence rather than becoming a
 success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
 case. The equivalent unavailable, missing-type, and ambiguity arms are typed but remain
-unverified. A failed binding after one or more forwarding hops retains the terminal assembly
-identity rather than being attributed to the initial facade
-(`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity`). An
+unverified. A failed binding or rejected terminal declaration after one or more forwarding hops retains the
+terminal assembly identity rather than being attributed to the initial facade
+(`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity` and
+`ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity`). An
 API surface that copies a resolved forwarded type also carries that target surface's bounded,
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
@@ -422,7 +423,14 @@ only failures scoped to selected forwarded types
 (`ResolutionSession_PreservesTargetSurfaceRejectionCause`,
 `ApiServices_ScopesTargetWideFailureToRequestedForwardedType`,
 `TypeCommand_PreservesOnlyFailuresForSelectedForwardedTypes`, and
-`TypeCommand_PreservesFailureForRejectedSelectedForwardedType`). Research change identities
+`TypeCommand_PreservesFailureForRejectedSelectedForwardedType`). A forwarding lookup that ends
+without a resolved definition becomes a scoped inspection failure instead of a verbose-only
+omission, without interpreting a hostile assembly identity as a path
+(`ApiServices_UnresolvedForwarderIsVisibleWithoutOpeningTraversalTarget`). Explicitly selecting
+`Inspection Failures` under table or JSONL output serializes those failure rows rather than
+unrelated type rows, and rendered constraint failures are not duplicated on stderr
+(`TypeListing_TabularInspectionFailuresSelectionRendersFailures` and
+`TypeListing_TabularConstraintFailuresDoNotDuplicateDiagnostics`). Research change identities
 retain the subject assembly when available and otherwise the source-image identity, so equal
 side/token pairs from different inputs do not collapse
 (`FromApiDiff_ScopesInspectionFailureToSubjectAssembly` and

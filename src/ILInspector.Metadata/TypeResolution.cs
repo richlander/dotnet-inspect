@@ -316,6 +316,38 @@ public abstract class TypeResolutionFailure
     {
     }
 
+    internal AssemblyReferenceIdentity? AssemblyIdentity =>
+        this switch
+        {
+            CandidateOpenFailed open =>
+                open.Assembly.Identity,
+            KindDependencyUnbound
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            KindDependencyUnavailable
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            KindDependencyTypeNotFound notFound =>
+                notFound.Assembly.Assembly.Identity,
+            KindDependencyAmbiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.AssemblyBinding ambiguity,
+            } when ambiguity.Target
+                is AssemblyBindingTarget.AssemblyReference target =>
+                    target.Identity,
+            KindDependencyAmbiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.TypeDeclaration ambiguity,
+            } => ambiguity.Assembly.Assembly.Identity,
+            _ => null,
+        };
+
     /// <summary>The single-image declaration probe rejected the type name.</summary>
     public sealed class DeclarationRejected : TypeResolutionFailure
     {
@@ -1004,6 +1036,56 @@ public abstract class TypeResolutionOutcome
         Hops = hops;
 
     public ImmutableArray<TypeForwardingHop> Hops { get; }
+
+    /// <summary>
+    /// Exact identity of the terminal assembly named by the outcome. Rejected
+    /// forwarding chains use failure evidence first and otherwise retain the
+    /// final forwarding target.
+    /// </summary>
+    /// <remarks>
+    /// <c>ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity</c>
+    /// gates the rejected-chain fallback.
+    /// </remarks>
+    public AssemblyReferenceIdentity? TerminalAssemblyIdentity =>
+        this switch
+        {
+            Resolved resolved =>
+                resolved.Definition.Assembly.Assembly.Identity,
+            NotFound notFound =>
+                notFound.LastAssembly.Assembly.Identity,
+            UnboundBinding
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            Unavailable
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            Ambiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.AssemblyBinding ambiguity,
+            } when ambiguity.Target
+                is AssemblyBindingTarget.AssemblyReference target =>
+                    target.Identity,
+            Ambiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.TypeDeclaration ambiguity,
+            } => ambiguity.Assembly.Assembly.Identity,
+            Rejected rejected =>
+                rejected.Failure.AssemblyIdentity
+                    ?? LastForwardingTarget(rejected.Hops),
+            _ => null,
+        };
+
+    static AssemblyReferenceIdentity? LastForwardingTarget(
+        ImmutableArray<TypeForwardingHop> hops) =>
+        hops.IsDefaultOrEmpty
+            ? null
+            : hops[^1].TargetReference;
 
     /// <summary>An exact type definition was resolved.</summary>
     public sealed class Resolved : TypeResolutionOutcome

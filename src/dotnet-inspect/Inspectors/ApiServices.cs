@@ -259,6 +259,11 @@ internal static class ApiServices
             if (outcome is not TypeResolutionOutcome.Resolved resolved
                 || resolved.Hops.IsDefaultOrEmpty)
             {
+                AddForwardedResolutionFailure(
+                    api,
+                    dllPath,
+                    forwarder,
+                    outcome);
                 logger.Log(
                     $"Could not resolve forwarded type '{forwarder.TypeName}': {outcome.GetType().Name}.");
                 continue;
@@ -477,6 +482,48 @@ internal static class ApiServices
                 SourceAssemblyPath = targetAssembly.Path,
                 AffectedTypeDefinitions =
                     [.. affectedTypes],
+            });
+    }
+
+    static void AddForwardedResolutionFailure(
+        ApiSurface api,
+        string sourceAssemblyPath,
+        TypeForwarder forwarder,
+        TypeResolutionOutcome outcome)
+    {
+        string kind =
+            outcome switch
+            {
+                TypeResolutionOutcome.Rejected rejected =>
+                    rejected.Failure.GetType().Name,
+                TypeResolutionOutcome.Unavailable unavailable =>
+                    unavailable.Failure.Kind.ToString(),
+                TypeResolutionOutcome.Resolved =>
+                    "MissingForwardingEvidence",
+                _ => outcome.GetType().Name,
+            };
+        AssemblyReferenceIdentity? subjectAssembly =
+            outcome.Hops.IsDefaultOrEmpty
+                ? null
+                : outcome.Hops[0]
+                    .SourceAssembly.Assembly.Identity;
+
+        api.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "resolve forwarded type",
+                0,
+                MetadataTypeNameFailureMechanism.Metadata,
+                kind,
+                $"Forwarded type '{forwarder.TypeName}' "
+                    + $"could not be resolved: {kind}.",
+                subjectAssembly,
+                outcome.TerminalAssemblyIdentity)
+            {
+                SourceAssemblyPath = sourceAssemblyPath,
+                AffectedTypeDefinitions =
+                    forwarder.DefinitionName is null
+                        ? []
+                        : [forwarder.DefinitionName],
             });
     }
 }

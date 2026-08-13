@@ -421,7 +421,9 @@ internal static class TypeParameterKindClassifier
                     RecordResolutionFailure(
                         handle,
                         rejected.Failure,
-                        request);
+                        request,
+                        dependencyAssembly:
+                            rejected.TerminalAssemblyIdentity);
                     break;
                 case TypeResolutionOutcome.Unavailable unavailable:
                     RecordResolutionFailure(
@@ -500,7 +502,8 @@ internal static class TypeParameterKindClassifier
         void RecordResolutionFailure(
             EntityHandle handle,
             TypeResolutionFailure failure,
-            TypeResolutionRequest? request = null)
+            TypeResolutionRequest? request = null,
+            AssemblyReferenceIdentity? dependencyAssembly = null)
         {
             string detail = failure switch
             {
@@ -549,7 +552,12 @@ internal static class TypeParameterKindClassifier
                         + "frozen type-resolution plan.",
                 _ => "Generic-constraint resolution was rejected.",
             };
-            RecordResolutionFailure(handle, detail, request, failure);
+            RecordResolutionFailure(
+                handle,
+                detail,
+                request,
+                failure,
+                dependencyAssembly);
         }
 
         void RecordResolutionFailure(
@@ -592,40 +600,7 @@ internal static class TypeParameterKindClassifier
             TypeResolutionRequest? request,
             TypeResolutionFailure? failure)
         {
-            AssemblyReferenceIdentity? failureAssembly =
-                failure switch
-                {
-                    TypeResolutionFailure.CandidateOpenFailed open =>
-                        open.Assembly.Identity,
-                    TypeResolutionFailure.KindDependencyUnbound
-                    {
-                        Target:
-                            AssemblyBindingTarget.AssemblyReference target,
-                    } => target.Identity,
-                    TypeResolutionFailure.KindDependencyUnavailable
-                    {
-                        Target:
-                            AssemblyBindingTarget.AssemblyReference target,
-                    } => target.Identity,
-                    TypeResolutionFailure.KindDependencyTypeNotFound
-                        notFound => notFound.Assembly.Assembly.Identity,
-                    TypeResolutionFailure.KindDependencyAmbiguous
-                    {
-                        Ambiguity:
-                            TypeResolutionAmbiguity.AssemblyBinding
-                                ambiguity,
-                    } when ambiguity.Target
-                        is AssemblyBindingTarget.AssemblyReference target =>
-                            target.Identity,
-                    TypeResolutionFailure.KindDependencyAmbiguous
-                    {
-                        Ambiguity:
-                            TypeResolutionAmbiguity.TypeDeclaration
-                                ambiguity,
-                    } => ambiguity.Assembly.Assembly.Identity,
-                    _ => null,
-                };
-            return failureAssembly
+            return failure?.AssemblyIdentity
                 ?? (request?.Start
                     is TypeResolutionStart.Reference reference
                         ? reference.Value
@@ -634,34 +609,7 @@ internal static class TypeParameterKindClassifier
 
         static AssemblyReferenceIdentity? GetDependencyAssembly(
             TypeResolutionOutcome outcome) =>
-            outcome switch
-            {
-                TypeResolutionOutcome.Unavailable
-                {
-                    Target:
-                        AssemblyBindingTarget.AssemblyReference target,
-                } => target.Identity,
-                TypeResolutionOutcome.NotFound notFound =>
-                    notFound.LastAssembly.Assembly.Identity,
-                TypeResolutionOutcome.UnboundBinding
-                {
-                    Target:
-                        AssemblyBindingTarget.AssemblyReference target,
-                } => target.Identity,
-                TypeResolutionOutcome.Ambiguous
-                {
-                    Ambiguity:
-                        TypeResolutionAmbiguity.AssemblyBinding ambiguity,
-                } when ambiguity.Target
-                    is AssemblyBindingTarget.AssemblyReference target =>
-                        target.Identity,
-                TypeResolutionOutcome.Ambiguous
-                {
-                    Ambiguity:
-                        TypeResolutionAmbiguity.TypeDeclaration ambiguity,
-                } => ambiguity.Assembly.Assembly.Identity,
-                _ => null,
-            };
+            outcome.TerminalAssemblyIdentity;
 
         TypeResolutionRequest? CreateRequest(
             MetadataReader reader,

@@ -10441,6 +10441,85 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--jsonl")]
+    public async Task
+        TypeListing_TabularInspectionFailuresSelectionRendersFailures(
+            string format)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-tabular-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-S",
+                "Inspection Failures",
+                format,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "inventory assembly adjacency",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "\"kind\":\"class\"",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeListing_TabularConstraintFailuresDoNotDuplicateDiagnostics()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constraint-tabular-{Guid.NewGuid():N}.dll");
+        WriteModuleConstraintAssembly(path);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-S",
+                "Inspection Failures",
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "\"operation\":\"resolve generic parameter constraints\"",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "\"kind\":\"class\"",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {

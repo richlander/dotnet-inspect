@@ -303,6 +303,13 @@ public static class ApiOutputFormatter
         => options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.ApiInfo);
 
+    internal static bool
+        ShouldRenderSurfaceInspectionFailureTableView(
+            ApiOptions options) =>
+        options.IncludeSections is { Count: 1 } sections
+        && sections.Contains(
+            SectionNames.InspectionFailures);
+
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
         if (options.IncludeSections is { Count: 1 })

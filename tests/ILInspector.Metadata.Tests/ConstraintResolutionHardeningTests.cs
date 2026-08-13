@@ -874,6 +874,48 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity()
+    {
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Facade",
+                "Type",
+                constructed: false);
+        byte[] facadeImage =
+            BuildForwarder(
+                "Facade",
+                "Target",
+                "Type");
+        byte[] targetImage =
+            BuildModuleExportTarget(
+                "Target",
+                "Part.netmodule");
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference facade =
+            Descriptor(facadeImage);
+        ResolvedAssemblyReference target =
+            Descriptor(targetImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(facade, target));
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "Target",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
     public void SameImageConstructedBaseHopPreservesTerminalKindDependency()
     {
         byte[] dependencyImage =
@@ -2001,6 +2043,28 @@ public class ConstraintResolutionHardeningTests
             metadata.GetOrAddString(targetType),
             target,
             typeDefinitionId: 0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModuleExportTarget(
+        string assemblyName,
+        string moduleName)
+    {
+        MetadataBuilder metadata =
+            NewMetadata(assemblyName);
+        AddModule(metadata);
+        AssemblyFileHandle module =
+            metadata.AddAssemblyFile(
+                metadata.GetOrAddString(moduleName),
+                metadata.GetOrAddBlob(
+                    new byte[] { 1, 2, 3 }),
+                containsMetadata: true);
+        metadata.AddExportedType(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Type"),
+            module,
+            typeDefinitionId: 1);
         return Serialize(metadata);
     }
 

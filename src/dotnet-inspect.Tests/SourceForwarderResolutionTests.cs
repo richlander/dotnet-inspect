@@ -875,7 +875,7 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
-    public void ApiServices_DoesNotOpenTraversalTarget()
+    public void ApiServices_UnresolvedForwarderIsVisibleWithoutOpeningTraversalTarget()
     {
         string parent = CreateDirectory();
         string directory = Path.Combine(parent, "input");
@@ -903,6 +903,25 @@ public class SourceForwarderResolutionTests
                 includeAll: false);
 
             Assert.Empty(api.Types);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(
+                "resolve forwarded type",
+                failure.Operation);
+            Assert.Equal(
+                "Facade",
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    failure.SubjectAssembly).Name);
+            Assert.Equal(
+                "../payload",
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    failure.DependencyAssembly).Name);
+            Assert.Equal(
+                [TypeName()],
+                failure.AffectedTypeDefinitions);
+            Assert.Equal(
+                Path.GetFullPath(facadePath),
+                failure.SourceAssemblyPath);
         }
         finally
         {
