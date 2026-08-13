@@ -27,6 +27,9 @@ public static class SectionNames
 
     // ===== Member Sections (ApiMemberSectionDescriptors) =====
 
+    /// <summary>Fixed member-kind census for a type.</summary>
+    public const string MemberInfo = "Member Info";
+
     /// <summary>Section for enum values.</summary>
     public const string Values = "Values";
 

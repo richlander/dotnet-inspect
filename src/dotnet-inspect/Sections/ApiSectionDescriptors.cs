@@ -100,9 +100,21 @@ public static class ApiMemberSectionDescriptors
 {
     /// <summary>Builds the section pipeline for the type-detail view.</summary>
     public static SectionPipeline<ApiType> CreatePipeline()
+        => CreatePipeline(includeMemberInfo: false);
+
+    /// <summary>Builds the section pipeline for the broad member-list view.</summary>
+    public static SectionPipeline<ApiType> CreateBroadMemberPipeline()
+        => CreatePipeline(includeMemberInfo: true);
+
+    private static SectionPipeline<ApiType> CreatePipeline(bool includeMemberInfo)
     {
-        return new SectionPipeline<ApiType>()
-            .Add<TypeInfo>()
+        var pipeline = new SectionPipeline<ApiType>()
+            .Add<TypeInfo>();
+
+        if (includeMemberInfo)
+            pipeline.Add<MemberInfo>();
+
+        return pipeline
             .Add<Values>()
             .Add<TypeParameters>()
             .Add<TypeInterfaces>()
@@ -142,12 +154,12 @@ public static class ApiMemberSectionDescriptors
     /// Type identity fact table.
     /// </summary>
     /// <remarks>
-    /// The only section on this pipeline whose size does not grow with the type under inspection,
-    /// which is why it declares <see cref="SectionSizeClass.Fixed"/>. Every other section here
-    /// enumerates members, interfaces, type parameters, or IL, so all of them scale with the
-    /// target. <c>CanRender</c> is unconditional because the view always populates the section for
-    /// this pipeline; the member-detail and overload-inventory views use different pipelines that
-    /// do not register it.
+    /// The only section on the type-detail pipeline whose size does not grow with the type under
+    /// inspection, which is why it declares <see cref="SectionSizeClass.Fixed"/>. Every other
+    /// section there enumerates members, interfaces, type parameters, or IL, so all of them scale
+    /// with the target. <c>CanRender</c> is unconditional because the view always populates the
+    /// section for this pipeline; the member-detail and overload-inventory views use different
+    /// pipelines that do not register it.
     /// <para>
     /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. This pipeline is not a curated
     /// catalog, so its ladder still selects by position and <c>IsExpensive</c>; without the flag a
@@ -161,6 +173,20 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model) => true;
+    }
+
+    /// <summary>
+    /// Fixed member-kind census for the broad member-list context.
+    /// </summary>
+    public sealed class MemberInfo : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.MemberInfo;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static SectionCost Cost => SectionCost.NetworkFree;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => true;
     }
@@ -557,7 +583,9 @@ public static class ApiMemberSectionPipelines
             ? ApiMemberDetailSectionDescriptors.CreatePipeline()
             : UsesOverloadInventoryPipeline(options)
                 ? ApiMemberOverloadSectionDescriptors.CreatePipeline()
-            : ApiMemberSectionDescriptors.CreatePipeline();
+                : options is MemberOptions
+                    ? ApiMemberSectionDescriptors.CreateBroadMemberPipeline()
+                    : ApiMemberSectionDescriptors.CreatePipeline();
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }

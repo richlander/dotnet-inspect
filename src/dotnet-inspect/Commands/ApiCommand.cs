@@ -1610,6 +1610,13 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
+            if (IsExplicitMemberInfoSelector(options))
+            {
+                CommandError.Write(
+                    $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+                    "Use --jsonl, --tsv, or --table for the census rows.");
+                return 1;
+            }
             WriteJsonTypeOutput(type, options);
             return 0;
         }
@@ -2387,7 +2394,11 @@ public class ApiCommand
     /// on table columns. Mirrors the equivalent set in <c>LibraryCommand</c>.
     /// </summary>
     private static readonly HashSet<string> TypeFieldLayoutSections =
-        new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.TypeInfo,
+            SectionNames.MemberInfo,
+        };
 
     /// <summary>
     /// Where a type was acquired from. Not derivable from <see cref="ApiType"/>, so it has to be
@@ -2907,6 +2918,13 @@ public class ApiCommand
         => selector.Equals(
             SectionNames.AnnotatedSourceDocument,
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExplicitMemberInfoSelector(ApiOptions options)
+        => options.IncludeSections?.Contains(SectionNames.MemberInfo) == true
+           && (options.Select is null
+               || options.Select.Any(selector => selector.Equals(
+                   SectionNames.MemberInfo,
+                   StringComparison.OrdinalIgnoreCase)));
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

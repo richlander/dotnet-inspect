@@ -582,6 +582,8 @@ A single `type Type` uses `Type Info`, a type listing uses `API Info`, broad
 For a dotted `member Type.Member` target, metadata lookup first determines
 whether the final segment belongs to the type or implies a member, then
 discovery reports the matching pipeline.
+Broad member lists also expose `Member Info` as an explicit fixed-shape census
+of member kinds, including zero counts, without enumerating members.
 Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
 Package and library expose authored categories rather than a computed `@All`;
 workflow categories such as `@Source` and `@Audit` expand to focused section

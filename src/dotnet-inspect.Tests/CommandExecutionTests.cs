@@ -5036,7 +5036,204 @@ public partial class CommandExecutionTests
 
         var sections = SectionHeadings(output);
         Assert.DoesNotContain(SectionNames.TypeInfo, sections);
+        Assert.DoesNotContain(SectionNames.MemberInfo, sections);
         Assert.NotEmpty(sections);
+    }
+
+    [Fact]
+    public async Task Member_MemberInfo_RendersFixedMemberKindCounts()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-S", SectionNames.MemberInfo, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal([SectionNames.MemberInfo], SectionHeadings(output));
+
+        var rows = ParseFactTable(output);
+        Assert.Equal("System.Text.Json.JsonSerializer", rows["Type"]);
+        Assert.Equal("0", rows["Values"]);
+        Assert.True(int.Parse(rows["Properties"]) > 0);
+        Assert.True(int.Parse(rows["Methods"]) > 0);
+
+        Assert.DoesNotContain("## Properties", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Method Groups", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_MemberInfo_RespectsTheActiveMemberKindFilter()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-k", "property", "-S", SectionNames.MemberInfo, "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var rows = ParseFactTable(output);
+        Assert.True(int.Parse(rows["Properties"]) > 0);
+        Assert.Equal("0", rows["Methods"]);
+        Assert.Equal("0", rows["Fields"]);
+    }
+
+    [Theory]
+    [InlineData("-v:q")]
+    [InlineData("-v:m")]
+    [InlineData("-v:n")]
+    [InlineData("-v:d")]
+    public async Task Member_MemberInfo_IsExplicitOnly(string verbosity)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            verbosity, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(SectionNames.MemberInfo, SectionHeadings(output));
+    }
+
+    [Fact]
+    public async Task Member_MemberInfo_DoesNotGrowWithTheType()
+    {
+        var large = await RenderMemberInfoLabelsAsync("System.String");
+        var small = await RenderMemberInfoLabelsAsync("System.DayOfWeek");
+        var vocabulary = DeclaredMemberInfoLabels();
+
+        Assert.Equal(11, vocabulary.Count);
+        Assert.Equal(
+            vocabulary.OrderBy(label => label, StringComparer.Ordinal),
+            large.OrderBy(label => label, StringComparer.Ordinal));
+        Assert.Equal(
+            vocabulary.OrderBy(label => label, StringComparer.Ordinal),
+            small.OrderBy(label => label, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Member_MemberInfo_ProjectsTheSameRowsInEveryMachineMode()
+    {
+        string[] target =
+        [
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-S", SectionNames.MemberInfo
+        ];
+
+        var (markdownExit, markdown, _) = await RunAppAsync([.. target, "--tips", "q"]);
+        var (tsvExit, tsv, _) = await RunAppAsync([.. target, "--tsv", "--tips", "q"]);
+        var (jsonlExit, jsonl, _) = await RunAppAsync([.. target, "--jsonl", "--tips", "q"]);
+        var (countExit, count, _) = await RunAppAsync([.. target, "--count", "--tips", "q"]);
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, countExit);
+
+        var markdownRows = ParseFactTable(markdown).Count;
+        var tsvLines = SplitOutputLines(tsv);
+        var jsonlLines = SplitOutputLines(jsonl);
+
+        Assert.Equal("field\tvalue", tsvLines[0]);
+        Assert.Equal(markdownRows, tsvLines.Length - 1);
+        Assert.Equal(markdownRows, jsonlLines.Length);
+        Assert.Equal(markdownRows.ToString(), count.Trim());
+    }
+
+    [Fact]
+    public async Task Member_MemberInfo_RejectsWholeDocumentJsonRatherThanDroppingTheCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-S", SectionNames.MemberInfo, "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(
+            $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains("--jsonl", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("@All")]
+    [InlineData("*Info")]
+    public async Task Member_MemberInfo_ImplicitJsonSelectorsPreserveDocumentJson(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.DayOfWeek", "--platform", "System.Runtime",
+            "-S", selector, "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEqual(string.Empty, output.Trim());
+        Assert.Equal(string.Empty, error);
+    }
+
+    [Theory]
+    [InlineData("--fields", "NoSuchField")]
+    [InlineData("--columns", "NoSuchColumn")]
+    public async Task Member_MemberInfo_ReportsUnmatchedProjections(
+        string projection, string name)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-S", SectionNames.MemberInfo, "--tsv", projection, name, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(name, error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Field", "field")]
+    [InlineData("Value", "value")]
+    public async Task Member_MemberInfo_ProjectsSynthesizedFactTableColumns(
+        string column, string header)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-S", SectionNames.MemberInfo, "--tsv", "--columns", column, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(string.Empty, error);
+        var lines = SplitOutputLines(output);
+        Assert.Equal(header, lines[0]);
+        Assert.Equal(12, lines.Length);
+    }
+
+    [Theory]
+    [InlineData()]
+    [InlineData("-k", "property")]
+    [InlineData("--unsafe")]
+    public async Task Member_MemberInfo_DiscoveryListsExactlyTheRenderedFields(
+        params string[] extraArgs)
+    {
+        string[] target =
+        [
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            .. extraArgs
+        ];
+
+        var (discoverExit, discovery, _) = await RunAppAsync(
+            [.. target, "-D", SectionNames.MemberInfo, "--tips", "q"]);
+        var (renderExit, rendered, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.MemberInfo, "--tips", "q"]);
+
+        Assert.Equal(0, discoverExit);
+        Assert.Equal(0, renderExit);
+        var renderedFields = ParseFactTable(rendered).Keys;
+        var advertisedFields = ParseFirstColumn(discovery, "Name");
+        Assert.NotEmpty(renderedFields);
+        Assert.NotEmpty(advertisedFields);
+        Assert.Equal(
+            renderedFields.OrderBy(field => field, StringComparer.Ordinal),
+            advertisedFields.OrderBy(field => field, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Type_MemberInfo_IsNotSelectableOutsideTheBroadMemberContext()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "System.String", "-S", SectionNames.MemberInfo, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains($"Select value '{SectionNames.MemberInfo}' not found.", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -5248,6 +5445,40 @@ public partial class CommandExecutionTests
         Assert.StartsWith("field\n", output, StringComparison.Ordinal);
         Assert.Contains("\nType\n", output, StringComparison.Ordinal);
         Assert.Equal(string.Empty, error);
+    }
+
+    private static Dictionary<string, string> ParseFactTable(string output) =>
+        output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|')
+                           && !line.StartsWith("| ---", StringComparison.Ordinal)
+                           && line != "| Field | Value |")
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            .ToDictionary(
+                cells => cells[0].Trim(),
+                cells => cells[1].Trim(),
+                StringComparer.Ordinal);
+
+    private static async Task<IReadOnlyCollection<string>> RenderMemberInfoLabelsAsync(string typeName)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeName, "-S", SectionNames.MemberInfo, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        return ParseFactTable(output).Keys;
+    }
+
+    private static IReadOnlyCollection<string> DeclaredMemberInfoLabels()
+    {
+        var labels = typeof(MemberInfoSection)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property =>
+                property.GetCustomAttribute<MarkoutPropertyNameAttribute>()?.Name
+                    ?? Regex.Replace(property.Name, "(?<=[a-z0-9])(?=[A-Z])", " "))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(labels);
+        return labels;
     }
 
     private static List<string> SectionHeadings(string output) =>

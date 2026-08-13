@@ -6310,6 +6310,32 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void BroadMemberPipeline_AddsFixedExplicitMemberInfoOnlyInThatContext()
+    {
+        var broad = ApiMemberSectionPipelines.Create(new MemberOptions());
+        var type = ApiMemberSectionPipelines.Create(new TypeOptions());
+        var overloads = ApiMemberSectionPipelines.Create(new MemberOptions
+        {
+            MemberFilter = ["Contains"]
+        });
+        var detail = ApiMemberSectionPipelines.Create(new MemberOptions
+        {
+            MemberFilter = ["Contains"],
+            OverloadIndex = 1
+        });
+
+        Assert.Equal(32, broad.AllSectionNames.Length);
+        Assert.Equal(
+            [SectionNames.TypeInfo, SectionNames.MemberInfo],
+            broad.FixedOverviewSectionNames);
+        Assert.Contains(SectionNames.MemberInfo, broad.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.MemberInfo, broad.InfoSectionNames);
+        Assert.DoesNotContain(SectionNames.MemberInfo, type.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.MemberInfo, overloads.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.MemberInfo, detail.AllSectionNames);
+    }
+
+    [Fact]
     public void LibraryPipeline_InfoPreset_HasDenseSections()
     {
         var pipeline = LibrarySections.CreatePipeline();

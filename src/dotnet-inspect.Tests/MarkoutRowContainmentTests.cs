@@ -328,6 +328,7 @@ public class MarkoutRowContainmentTests
         "MemberIndexRow.Digest",
         "MemberIndexRow.Selector",
         "MemberIndexRow.Stable",
+        "MemberInfoSection.Type",
         "MemberRow.Description",
         "MemberRow.Digest",
         "MemberRow.Name",

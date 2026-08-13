@@ -97,6 +97,14 @@ public class TypeView
     public TypeInfoSection? TypeInfo { get; set; }
 
     /// <summary>
+    /// Fixed member-kind census. Counts summarize the member inventory without
+    /// adding one row per member.
+    /// </summary>
+    [MarkoutSection(Name = "Member Info")]
+    [JsonIgnore]
+    public MemberInfoSection? MemberInfo { get; set; }
+
+    /// <summary>
     /// Enum values without Description column (default).
     /// </summary>
     [MarkoutSection(Name = "Values", IgnoreProperty = nameof(EnumValueRow.Description))]
@@ -541,6 +549,35 @@ public class TypeInfoSection
     public string? Tfm { get; init; }
 
     public string? Source { get; init; }
+}
+
+/// <summary>
+/// Fixed-shape census of the member kinds available on a type.
+/// </summary>
+/// <remarks>
+/// Every property contributes exactly one row, including zero-valued counts. The fixed declaration
+/// count and target-independent row set are enforced by
+/// <c>CommandExecutionTests.Member_MemberInfo_DoesNotGrowWithTheType</c>.
+/// </remarks>
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+public class MemberInfoSection
+{
+    public required string Type { get; init; }
+    public int Values { get; init; }
+    public int Constructors { get; init; }
+    public int Finalizer { get; init; }
+    public int Fields { get; init; }
+    public int Properties { get; init; }
+    public int Methods { get; init; }
+    public int Operators { get; init; }
+
+    [MarkoutPropertyName("Explicit Interface Implementations")]
+    public int ExplicitInterfaceImplementations { get; init; }
+
+    [MarkoutPropertyName("Extension Methods")]
+    public int ExtensionMethods { get; init; }
+
+    public int Events { get; init; }
 }
 
 /// <summary>

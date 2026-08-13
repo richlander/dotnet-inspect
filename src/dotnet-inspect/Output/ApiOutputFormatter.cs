@@ -512,6 +512,11 @@ public static class ApiOutputFormatter
         var title = memberDetail
             ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
             : $"{FormatGenericFullName(type)}{packageInfo}";
+        var memberInfo = options is MemberOptions
+                         && !ApiMemberSectionPipelines.UsesDetailPipeline(options)
+                         && !ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
+            ? BuildMemberInfo(type, options)
+            : null;
 
         return new TypeView
         {
@@ -561,9 +566,34 @@ public static class ApiOutputFormatter
                 Tfm = selectedTfm,
                 Source = apiSource,
             },
+            MemberInfo = memberInfo,
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;
+    }
+
+    private static MemberInfoSection BuildMemberInfo(ApiType type, ApiOptions options)
+    {
+        var members = GroupMembersByKind(
+                type, options.MemberFilter, options.UnsafeOnly, options.KindFilter)
+            .SelectMany(group => group.Value)
+            .ToList();
+
+        return new MemberInfoSection
+        {
+            Type = FormatGenericFullName(type),
+            Values = members.Count(member => member.EnumValue.HasValue),
+            Constructors = members.Count(member => member.Kind == "constructor"),
+            Finalizer = members.Count(member => member.Kind == "finalizer"),
+            Fields = members.Count(member => member.Kind == "field" && !member.EnumValue.HasValue),
+            Properties = members.Count(member => member.Kind == "property"),
+            Methods = members.Count(member => member.Kind == "method"),
+            Operators = members.Count(member => member.Kind == "operator"),
+            ExplicitInterfaceImplementations =
+                members.Count(member => member.Kind == "explicit-interface-implementation"),
+            ExtensionMethods = members.Count(member => member.Kind == "extension-method"),
+            Events = members.Count(member => member.Kind == "event"),
+        };
     }
 
     private static List<MarkoutField> BuildMemberDetailSummary(
