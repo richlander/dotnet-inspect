@@ -12005,6 +12005,25 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(
             occurrences,
             occurrence => occurrence.Switch == "DotnetInspector.Fixtures.Lookalike");
+        Assert.Contains(
+            occurrences,
+            occurrence => occurrence.Switch == "TestSwitch.Ignored");
+
+        var inventory =
+            AppContextSwitchProjectionProducer.ProduceInventory(
+                session.MethodBodies);
+        Assert.Single(
+            inventory,
+            occurrence => occurrence.Switch == "DotnetInspector.Fixtures.Duplicate");
+        Assert.DoesNotContain(
+            inventory,
+            occurrence => occurrence.Switch.StartsWith(
+                "TestSwitch.",
+                StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith("Switch.", StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith(
+                    "System.Resources.UseSystemResourceKeys",
+                    StringComparison.Ordinal));
 
         var (exit, output, error) = await RunAppAsync(
             "library", assemblyPath, "-S", "Switches", "--rows", "20");

@@ -73,6 +73,68 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void SwitchesQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        string path =
+            typeof(DotnetInspector.Fixtures.AppContextSwitchFixture).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplySwitchesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            SwitchesQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.SwitchInspection.Findings(),
+            item => item.Payload.Switch == "DotnetInspector.Fixtures.AppContextOnly");
+        var row = Assert.Single(
+            new LibraryInspectionView(inspection).SwitchesSection!,
+            item => item.Switch.Contains(
+                "DotnetInspector.Fixtures.AppContextOnly",
+                StringComparison.Ordinal));
+
+        Assert.Same(MetadataFindings.SwitchDescriptor, finding.Descriptor);
+        Assert.Equal("AppContext", finding.Payload.Kind);
+        Assert.Equal("<code>DotnetInspector.Fixtures.AppContextOnly</code>", row.Switch);
+    }
+
+    [Fact]
+    public void SwitchesQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string Kind = "App\u200BContext";
+        const string Switch = "Sample\U000E0074.Switch";
+        const string Api = "Sample.Api\nError: forged";
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplySwitchesResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new SwitchesResult.Available(
+                ImmutableArray.Create(
+                    new SwitchInfo(Kind, Switch, Api))));
+
+        SwitchInfo payload = Assert.Single(
+            inspection.SwitchInspection.Findings()).Payload;
+        SwitchRow row = Assert.Single(
+            new LibraryInspectionView(inspection).SwitchesSection!);
+
+        Assert.Equal(Kind, payload.Kind);
+        Assert.Equal(Switch, payload.Switch);
+        Assert.Equal(Api, payload.Api);
+        Assert.NotEqual(Kind, row.Kind);
+        Assert.DoesNotContain("\U000E0074", row.Switch, StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', row.Api);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Kind));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Switch));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Api));
+        Assert.StartsWith("<code>", row.Switch, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Api, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ClassifiedMethodScanner_RetainsFindingSemanticsAndDisplayProjection()
     {
         var inspection = new LibraryInspection();
@@ -322,10 +384,7 @@ public class LibraryFindingConsumerTests
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
         var logger = new VerboseLogger(enabled: false);
-        var inspection = new LibraryInspection
-        {
-            SwitchInspection = LibraryMetadataService.ScanSwitches(missingPath, logger),
-        };
+        var inspection = new LibraryInspection();
 
         inspection.Apply(LibraryMetadataService.ScanClassifiedMethods(missingPath, logger));
         LibraryMetadataService.ApplyExtensionMethodsResult(
@@ -358,6 +417,12 @@ public class LibraryFindingConsumerTests
             logger,
             new UnionTypesResult.Failed(
                 new FileNotFoundException("Union type input was not found.", missingPath)));
+        LibraryMetadataService.ApplySwitchesResult(
+            missingPath,
+            inspection,
+            logger,
+            new SwitchesResult.Failed(
+                new FileNotFoundException("Switch input was not found.", missingPath)));
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
