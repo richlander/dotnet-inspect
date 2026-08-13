@@ -1551,6 +1551,13 @@ public static class PackageExtractor
         if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
             is { } wellKnownIndexUrl)
         {
+            // Attribute only this request. A clean 404 leaves no telemetry mark;
+            // transport/parse failures do. nuget.org's well-known flat-container
+            // is authoritative for presence — do not consult the service index
+            // after a clean 404, or a later SI outage would convert absence into
+            // Failure for complete-source floating resolution.
+            int wellKnownFailuresBefore =
+                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
             var versions = await FetchVersionListAsync(
                 client,
                 wellKnownIndexUrl,
@@ -1559,6 +1566,14 @@ public static class PackageExtractor
                 cancellationToken).ConfigureAwait(false);
             if (versions != null)
                 return versions;
+
+            int wellKnownFailuresAfter =
+                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+            if (source.IsNuGetOrg
+                && wellKnownFailuresAfter == wellKnownFailuresBefore)
+            {
+                return null;
+            }
         }
 
         // Fall back to V3 service index discovery

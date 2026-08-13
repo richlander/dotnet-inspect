@@ -844,6 +844,38 @@ public sealed class PackageCoordinateResolverTests
     }
 
     /// <summary>
+    /// After an authoritative nuget.org flat-container 404, a later service-index
+    /// outage must not convert absence into Failure. Discovery must stop at the
+    /// clean 404 rather than consulting SI.
+    /// </summary>
+    [Fact]
+    public async Task FloatingCoordinate_IgnoresNuGetOrgServiceIndexOutageAfterFlatContainer404()
+    {
+        using var client = new HttpClient(
+            new NuGetOrgAbsentPrivatePresentHandler(serviceIndexOutage: true));
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate(
+                    NuGetOrgAbsentPrivatePresentHandler.PackageId),
+                [
+                    NuGetOrgAbsentPrivatePresentHandler.NuGetOrgSource,
+                    NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
+                ],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+        Assert.Equal("1.0.0", resolved.Coordinate.Version);
+        Assert.Equal(
+            NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
+            Assert.Single(resolved.Coordinate.Sources));
+    }
+
+    /// <summary>
     /// The CLI's own floating resolution reaches this resolver, so the
     /// workspace's stricter rule must be opt-in rather than the default. This
     /// is the shape that failed Windows CI twice from a cold cache: a
@@ -1242,7 +1274,9 @@ public sealed class PackageCoordinateResolverTests
         }
     }
 
-    sealed class NuGetOrgAbsentPrivatePresentHandler(bool outage = false)
+    sealed class NuGetOrgAbsentPrivatePresentHandler(
+        bool outage = false,
+        bool serviceIndexOutage = false)
         : HttpMessageHandler
     {
         internal const string PackageId = "contoso.internal";
@@ -1266,8 +1300,12 @@ public sealed class PackageCoordinateResolverTests
             return url switch
             {
                 "https://api.nuget.org/v3/index.json" =>
-                    Json(
-                        """{"resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
+                    serviceIndexOutage
+                        ? Task.FromResult(
+                            new HttpResponseMessage(
+                                HttpStatusCode.ServiceUnavailable))
+                        : Json(
+                            """{"resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json" =>
                     Task.FromResult(
                         new HttpResponseMessage(
