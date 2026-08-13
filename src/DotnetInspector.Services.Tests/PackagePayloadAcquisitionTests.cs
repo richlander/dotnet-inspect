@@ -679,6 +679,57 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     /// <summary>
+    /// Directory enumeration failures during the walk must fail closed as a
+    /// rejection, not escape as an unhandled IO fault (archive-less has no
+    /// outer catch around the walk).
+    /// </summary>
+    [Fact]
+    public void ExtractedTreeWalk_UnreadableDirectory_FailsClosed()
+    {
+        if (OperatingSystem.IsWindows())
+            return; // chmod mode bits are the portable probe
+
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        string locked = Path.Combine(root, "locked");
+        Directory.CreateDirectory(locked);
+        File.WriteAllText(
+            Path.Combine(root, $"{PackageId}.nuspec"),
+            """<?xml version="1.0"?><package />""");
+        try
+        {
+            // Owner-only nothing: EnumerateFileSystemEntries throws.
+            File.SetUnixFileMode(locked, UnixFileMode.None);
+            Assert.False(
+                PackageContentAdmission.IsExtractedTreeWithinLimits(
+                    root,
+                    retainedNupkgPath: null,
+                    PackagePayloadLimits.Default));
+        }
+        finally
+        {
+            try
+            {
+                File.SetUnixFileMode(
+                    locked,
+                    UnixFileMode.UserRead
+                        | UnixFileMode.UserWrite
+                        | UnixFileMode.UserExecute);
+            }
+            catch (IOException)
+            {
+                // Best-effort restore so recursive delete can clean up.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// App-cache slots for every authorized producer precede the single
     /// global-packages tier — not app+global per producer.
     /// </summary>

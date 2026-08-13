@@ -384,69 +384,69 @@ internal static class PackageContentAdmission
         while (pending.Count > 0)
         {
             string directory = pending.Pop();
-            IEnumerable<string> children;
+            // Incremental enum: do not materialize a whole directory before the
+            // entry-count gate can reject a hostile fan-out. Guard the whole
+            // foreach — GetEnumerator/MoveNext throw outside the old
+            // EnumerateFileSystemEntries-only try.
             try
             {
-                // Incremental: do not materialize a whole directory before the
-                // entry-count gate can reject a hostile fan-out.
-                children = Directory.EnumerateFileSystemEntries(directory);
+                foreach (string entry in Directory.EnumerateFileSystemEntries(
+                             directory))
+                {
+                    if (countEveryNodeTowardEntryLimit)
+                    {
+                        entryCount++;
+                        if (entryCount > limits.MaxEntryCount)
+                            return false;
+                    }
+
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = File.GetAttributes(entry);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        return false;
+                    }
+
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        return false;
+
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        pending.Push(entry);
+                        continue;
+                    }
+
+                    // Skip retained archive (bounded by MaxArchiveBytes) and the
+                    // root commit marker only (not package content).
+                    if (IsExcludedFromExpandedBytes(
+                            entry,
+                            normalizedRetained,
+                            normalizedMarker,
+                            pathComparison))
+                        continue;
+
+                    long length;
+                    try
+                    {
+                        length = new FileInfo(entry).Length;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        return false;
+                    }
+
+                    if (length > limits.MaxExpandedBytes - expandedBytes)
+                        return false;
+
+                    expandedBytes += length;
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return false;
-            }
-
-            foreach (string entry in children)
-            {
-                if (countEveryNodeTowardEntryLimit)
-                {
-                    entryCount++;
-                    if (entryCount > limits.MaxEntryCount)
-                        return false;
-                }
-
-                FileAttributes attributes;
-                try
-                {
-                    attributes = File.GetAttributes(entry);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    return false;
-                }
-
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                    return false;
-
-                if ((attributes & FileAttributes.Directory) != 0)
-                {
-                    pending.Push(entry);
-                    continue;
-                }
-
-                // Skip retained archive (bounded by MaxArchiveBytes) and the
-                // root commit marker only (not package content).
-                if (IsExcludedFromExpandedBytes(
-                        entry,
-                        normalizedRetained,
-                        normalizedMarker,
-                        pathComparison))
-                    continue;
-
-                long length;
-                try
-                {
-                    length = new FileInfo(entry).Length;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    return false;
-                }
-
-                if (length > limits.MaxExpandedBytes - expandedBytes)
-                    return false;
-
-                expandedBytes += length;
             }
         }
 
