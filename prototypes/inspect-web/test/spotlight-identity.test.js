@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   graphTargetNavigationDisposition,
@@ -23,6 +24,7 @@ import {
   scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.js";
 
@@ -188,6 +190,34 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
     "platform");
 });
 
+test("call graph navigation rejects assembly identity skew", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: "neutral",
+    assemblyPublicKeyToken: "0011223344556677"
+  };
+  const exact = {
+    name: "Example",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: "0011223344556677"
+  };
+
+  assert.equal(callGraphAssemblyIdentityMatches(target, exact), true);
+  assert.equal(
+    callGraphAssemblyIdentityMatches(target, { ...exact, version: "2.0.0.0" }),
+    false);
+});
+
+test("relationship navigation rejects ambiguous dotted identities", () => {
+  const first = { id: "A:N.T", queryId: "N.T" };
+  const second = { id: "B:N.T", queryId: "N.T" };
+
+  assert.equal(uniqueTypeByQueryId([first], "N.T"), first);
+  assert.equal(uniqueTypeByQueryId([first, second], "N.T"), null);
+});
+
 test("incomplete call graphs produce a visible diagnostic", () => {
   assert.equal(callGraphDiagnosticsMessage({
     isIncomplete: true,
@@ -303,10 +333,10 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
   assert.match(
     appSource,
-    /\(candidate\.queryId \?\? candidate\.id\) === fullName/);
+    /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.definitionId \?\? type\.id/);
   assert.match(
     appSource,
-    /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.id/);
+    /if \(!pkg && tabs\.length\) \{\s+const target = tabs\[/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

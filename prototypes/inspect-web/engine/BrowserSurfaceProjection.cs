@@ -40,8 +40,10 @@ internal static class BrowserSurfaceProjection
 
         BrowserMemberSurface[] members = [.. type.Members.Select(member => Member(type, member))];
         string metadataId = MetadataId(type);
+        string definitionId = type.DefinitionName?.ToEscapedFullName() ?? metadataId;
         return new BrowserTypeSurface(
-            type.DefinitionName?.ToEscapedFullName() ?? metadataId,
+            definitionId,
+            definitionId,
             type.FullName,
             metadataId,
             type.Name,

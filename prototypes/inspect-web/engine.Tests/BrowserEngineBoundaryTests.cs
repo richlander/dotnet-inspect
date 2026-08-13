@@ -322,6 +322,7 @@ public sealed class BrowserEngineBoundaryTests
         BrowserTypeSurface projected = BrowserSurfaceProjection.Type(type, "Sample.dll");
 
         Assert.Equal("Sample.Outer+Inner", projected.Id);
+        Assert.Equal(projected.Id, projected.DefinitionId);
         Assert.Equal("Sample.Outer.Inner", projected.QueryId);
         Assert.Equal(projected.Id, projected.MetadataId);
 
@@ -341,9 +342,14 @@ public sealed class BrowserEngineBoundaryTests
             BrowserSurfaceProjection.Type(literalPlus, "Sample.dll");
 
         Assert.Equal(@"Sample.Outer\+Inner", projectedLiteral.Id);
+        Assert.Equal(projectedLiteral.Id, projectedLiteral.DefinitionId);
         Assert.NotEqual(projected.Id, projectedLiteral.Id);
         Assert.Equal("Sample.Outer+Inner", projectedLiteral.QueryId);
         Assert.Equal(projected.MetadataId, projectedLiteral.MetadataId);
+
+        BrowserTypeSurface qualified = projected with { Id = $"Sample.dll:{projected.Id}" };
+        Assert.NotEqual(qualified.Id, qualified.DefinitionId);
+        Assert.Equal(projected.DefinitionId, qualified.DefinitionId);
     }
 
     static string NestedDocumentation(int depth)
@@ -402,7 +408,13 @@ public sealed class BrowserEngineBoundaryTests
             new(3, arrayMember, "array", CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(nodes);
+        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(
+            nodes,
+            [new AssemblyReferenceIdentity(
+                "Example",
+                new Version(1, 2, 3, 4),
+                "neutral",
+                "0011223344556677")]);
 
         Assert.Equal(["n0", "n1", "n2", "n3"], targets.Select(target => target.Id));
         Assert.Equal(
@@ -413,6 +425,9 @@ public sealed class BrowserEngineBoundaryTests
             target =>
             {
                 Assert.Equal("Example", target.Assembly);
+                Assert.Equal("1.2.3.4", target.AssemblyVersion);
+                Assert.Equal("neutral", target.AssemblyCulture);
+                Assert.Equal("0011223344556677", target.AssemblyPublicKeyToken);
                 Assert.Equal("Example.Outer.Widget<int>", target.TypeFullName);
                 Assert.Equal("Example.Outer`1+Widget`1", target.TypeMetadataId);
             });

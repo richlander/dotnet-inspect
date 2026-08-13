@@ -109,9 +109,13 @@ public static partial class BrowserInspectionEngine
             [
                 .. assemblyTypes.Where(type => IsDefaultBucket(surfaces, type)),
             ];
+            AssemblyReferenceIdentity identity = participant.Assembly.Identity;
             assemblies.Add(new BrowserAssemblySurface(
                 participant.Asset.Id,
-                participant.Asset.AssemblyName,
+                identity.Name,
+                identity.Version?.ToString() ?? "",
+                identity.Culture,
+                identity.PublicKeyToken,
                 participant.Asset.Path,
                 publicTypes.Length,
                 publicTypes.Sum(type => type.Members)));
@@ -587,7 +591,10 @@ public static partial class BrowserInspectionEngine
                     scope.ImplementationParticipants.Length,
                     callerAssemblies,
                     view.Tier.ToString()),
-                Targets(projection.Nodes),
+                Targets(
+                    projection.Nodes,
+                    scope.ImplementationParticipants.Select(
+                        participant => participant.Assembly.Identity)),
                 Diagnostics(
                     view.Diagnostics,
                     projection.HasUnexploredTraversalBoundary,
@@ -957,12 +964,33 @@ public static partial class BrowserInspectionEngine
         return builder.ToString();
     }
 
-    static BrowserCallGraphTarget Target(CallGraphNode node)
+    static BrowserCallGraphTarget Target(
+        CallGraphNode node,
+        IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities)
     {
         Analysis.TypeRef? definition = DeclaringTypeDefinition(node.Member.DeclaringType);
+        AssemblyReferenceIdentity? identity =
+            (definition?.Resolution?.Origin as Analysis.TypeReferenceOrigin.AssemblyReference)
+                ?.Assembly;
+        if (identity is null && definition is not null)
+        {
+            AssemblyReferenceIdentity[] matches =
+            [
+                .. loadedIdentities.Where(candidate =>
+                    candidate.Name.Equals(definition.Assembly, StringComparison.OrdinalIgnoreCase)),
+            ];
+            if (matches.Length > 0
+                && matches.All(candidate => candidate.IsEquivalentTo(matches[0])))
+            {
+                identity = matches[0];
+            }
+        }
         return new BrowserCallGraphTarget(
             $"n{node.Id}",
-            definition?.Assembly ?? node.Member.DeclaringType.Assembly ?? "",
+            identity?.Name ?? definition?.Assembly ?? node.Member.DeclaringType.Assembly ?? "",
+            identity?.Version?.ToString(),
+            identity?.Culture,
+            identity?.PublicKeyToken,
             node.Member.DeclaringType.ToQualifiedDisplayString(),
             definition is null ? null : MetadataTypeId(definition),
             node.Member.Name,
@@ -989,10 +1017,13 @@ public static partial class BrowserInspectionEngine
         return type.Kind == Analysis.TypeRefKind.Definition ? type : null;
     }
 
-    internal static BrowserCallGraphTarget[] Targets(IEnumerable<CallGraphNode> nodes)
+    internal static BrowserCallGraphTarget[] Targets(
+        IEnumerable<CallGraphNode> nodes,
+        IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null)
     {
         ArgumentNullException.ThrowIfNull(nodes);
-        return [.. nodes.Select(Target)];
+        AssemblyReferenceIdentity[] identities = [.. loadedIdentities ?? []];
+        return [.. nodes.Select(node => Target(node, identities))];
     }
 
     internal static BrowserCallGraphDiagnostics Diagnostics(

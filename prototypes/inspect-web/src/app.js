@@ -21,6 +21,7 @@ import {
   scopedRequestState,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
@@ -477,6 +478,12 @@ function parseLocation() {
       const idx = tabs.findIndex(tab => pkg && tab.id.toLowerCase() === pkg.toLowerCase());
       active = idx >= 0 ? idx : 0;
     }
+  }
+  if (!pkg && tabs.length) {
+    const target = tabs[Math.min(Math.max(0, active), tabs.length - 1)];
+    pkg = target.id;
+    version = target.version;
+    framework = target.framework;
   }
 
   const view = resolveView(viewToken);
@@ -5857,7 +5864,7 @@ async function loadSelectedMemberAnnotatedSource() {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       type: type.queryId ?? type.id,
-      typeIdentity: type.id,
+      typeIdentity: type.definitionId ?? type.id,
       member: overload.name,
       signature: overload.signature,
       selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
@@ -6015,8 +6022,8 @@ async function renderTypeGraph() {
   const meta = state.typeMetadata;
   const definition = meta ? buildTypeGraphMermaid(meta) : null;
   if (!definition) return;
-  const fullNameOf = new Map(
-    (meta.graphNodes || []).map((node, index) => [`t${index}`, node.id]));
+  const graphNodeOf = new Map(
+    (meta.graphNodes || []).map((node, index) => [`t${index}`, node]));
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
@@ -6048,14 +6055,16 @@ async function renderTypeGraph() {
     viewport.querySelectorAll("g.node").forEach(node => {
       const dataId = node.getAttribute("data-id");
       const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
-      const fullName = fullNameOf.get(dataId || idMatch?.[1]);
-      if (!fullName) return;
-      const target = state.package.types.find(candidate =>
-        (candidate.queryId ?? candidate.id) === fullName);
+      const graphNode = graphNodeOf.get(dataId || idMatch?.[1]);
+      if (!graphNode) return;
+      const fullName = graphNode.id;
+      const target = graphNode.role === "self"
+        ? selectedType()
+        : uniqueTypeByQueryId(state.package.types, fullName);
       if (target) {
         node.classList.add("nav-node");
         node.style.cursor = "pointer";
-        node.addEventListener("click", () => navigateToTypeByName(fullName));
+        node.addEventListener("click", () => navigateToType(target));
         return;
       }
       // Reported by metadata but not in the browsable surface (internal type or a
@@ -6074,9 +6083,12 @@ async function renderTypeGraph() {
 }
 
 function navigateToTypeByName(fullName) {
-  const target = state.package.types.find(candidate =>
-    (candidate.queryId ?? candidate.id) === fullName);
+  const target = uniqueTypeByQueryId(state.package.types, fullName);
   if (!target) return;
+  navigateToType(target);
+}
+
+function navigateToType(target) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
@@ -6098,8 +6110,7 @@ function navigateToTypeByName(fullName) {
 // included (with an accessibility filter), so only types in OTHER assemblies
 // remain unbrowsable.
 function typeIsNavigable(fullName) {
-  return !!state.package && state.package.types.some(candidate =>
-    (candidate.queryId ?? candidate.id) === fullName);
+  return !!state.package && uniqueTypeByQueryId(state.package.types, fullName) !== null;
 }
 
 // Render a related-type chip: an active button when it resolves to a browsable
@@ -6392,7 +6403,7 @@ async function loadSelectedMemberCallGraph() {
     framework: state.package.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
-    typeIdentity: type.id,
+    typeIdentity: type.definitionId ?? type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     signature: overload.signature,
     selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,

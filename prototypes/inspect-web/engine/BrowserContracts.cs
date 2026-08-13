@@ -40,18 +40,22 @@ public sealed record BrowserAccessibilityDescriptor(
 public sealed record BrowserAssemblySurface(
     string Id,
     string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken,
     string Asset,
     int PublicTypes,
     int PublicMembers);
 
 /// <summary>
-/// One type row. <see cref="QueryId"/> is the identity a Research projection is asked for and
+/// One type row. <see cref="Id"/> is the browser key, <see cref="DefinitionId"/> is the escaped
+/// structured metadata identity, <see cref="QueryId"/> is the identity a Research projection is asked for, and
 /// <see cref="MetadataId"/> is the exact metadata lookup name (nested types delimited by
-/// <c>+</c>); they are separate because the two are not interchangeable, and neither is display
-/// text.
+/// <c>+</c>). They are separate because none is interchangeable with another or with display text.
 /// </summary>
 public sealed record BrowserTypeSurface(
     string Id,
+    string DefinitionId,
     string QueryId,
     string MetadataId,
     string Name,
@@ -300,6 +304,9 @@ public sealed record BrowserCallGraphDiagnostics(
 public sealed record BrowserCallGraphTarget(
     string Id,
     string Assembly,
+    string? AssemblyVersion,
+    string? AssemblyCulture,
+    string? AssemblyPublicKeyToken,
     string TypeFullName,
     string? TypeMetadataId,
     string MemberName,

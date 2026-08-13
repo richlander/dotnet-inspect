@@ -157,6 +157,27 @@ export function callGraphTargetTypeId(target) {
   return target?.typeMetadataId || "";
 }
 
+export function uniqueTypeByQueryId(types, queryId) {
+  const matches = (types ?? []).filter(type =>
+    (type.queryId ?? type.id) === queryId);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function callGraphAssemblyIdentityMatches(target, assembly) {
+  if (!target?.assemblyVersion) return true;
+  if (!assembly) return false;
+  const normalizeCulture = value => {
+    const normalized = String(value ?? "").toLowerCase();
+    return normalized === "neutral" ? "" : normalized;
+  };
+  return String(assembly.name ?? "").toLowerCase()
+      === String(target.assembly ?? "").toLowerCase()
+    && String(assembly.version ?? "") === String(target.assemblyVersion)
+    && normalizeCulture(assembly.culture) === normalizeCulture(target.assemblyCulture)
+    && String(assembly.publicKeyToken ?? "").toLowerCase()
+      === String(target.assemblyPublicKeyToken ?? "").toLowerCase();
+}
+
 export function resolveLoadedGraphTargetCandidate(packages, target) {
   const typeId = callGraphTargetTypeId(target);
   if (!typeId || !target?.assembly) return { status: "missing" };
@@ -165,7 +186,11 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
     if (!pkg || pkg.isRuntimePack) continue;
     for (const type of pkg.types ?? []) {
       const assembly = String(type.assembly ?? pkg.assembly ?? "").replace(/\.dll$/i, "");
+      const descriptor = (pkg.assemblies ?? []).find(candidate =>
+        String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+          === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
+          && callGraphAssemblyIdentityMatches(target, descriptor)
           && (type.metadataId ?? type.queryId ?? type.id) === typeId) {
         matches.push({ pkg, type });
         if (matches.length > 1) return { status: "ambiguous" };
