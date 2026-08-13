@@ -520,21 +520,28 @@ public static class PackageMetadataService
             url)
                 ? client
                 : untrustedClient;
-        HttpRetryHelper.HttpRetryResult result =
-            await HttpRetryHelper.GetWithRetryResultAsync(
+        // Bound like GetStringWithRetryAsync: hostile registration/search/index
+        // documents must not force an unbounded string allocation. Preserve
+        // StatusCode so 404 stays Present/Absent (not Indeterminate).
+        HttpRetryHelper.HttpBodyFetchResult body =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                 endpointClient,
                 url,
+                static _ => true,
                 log: log,
                 auth: NuGetCredentialScope.AuthFor(source, url, log),
-                trafficKind: trafficKind).ConfigureAwait(false);
-        using HttpResponseMessage? response = result.Response;
-        if (response is null)
+                trafficKind: trafficKind,
+                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes)
+                .ConfigureAwait(false);
+        if (body.Status != HttpRetryHelper.HttpBodyFetchStatus.Success
+            || body.Bytes is null)
         {
-            return new TextFetchResult(null, result.StatusCode);
+            return new TextFetchResult(null, body.StatusCode);
         }
 
-        string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        return new TextFetchResult(content, result.StatusCode);
+        return new TextFetchResult(
+            System.Text.Encoding.UTF8.GetString(body.Bytes),
+            body.StatusCode ?? HttpStatusCode.OK);
     }
 
     private static async Task<PackageProbeResult> ProbePackageAsync(

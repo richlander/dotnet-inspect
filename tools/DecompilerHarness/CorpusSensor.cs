@@ -562,7 +562,7 @@ internal static class CorpusSensor
             return;
 
         var unions = UnionTypeScanner.Scan(pe)
-            .Where(union => union.ImplementsIUnion && union.CaseTypes.Count > 0)
+            .Where(union => union.ImplementsIUnion && union.CaseTypes.Length > 0)
             .ToArray();
         if (unions.Length == 0)
             return;
