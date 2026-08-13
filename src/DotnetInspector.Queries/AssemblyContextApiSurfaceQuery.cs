@@ -125,15 +125,79 @@ public sealed record AssemblyApiSurface(
     ApiSurface Surface,
     ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
 
+/// <summary>Which bound stopped a bounded API-surface projection.</summary>
+public enum ApiSurfaceProjectionLimit
+{
+    /// <summary>More participants were selected than the projection may walk.</summary>
+    Participants,
+
+    /// <summary>The projected types reached the type bound.</summary>
+    Types,
+
+    /// <summary>The projected members reached the member bound.</summary>
+    Members,
+}
+
+/// <summary>
+/// Hard bounds for one API-surface projection. A host with a fixed work and output budget —
+/// Browser/Wasm is the motivating one — declares them explicitly instead of invoking the
+/// unbounded projection and hoping the artifact is small.
+/// </summary>
+/// <remarks>
+/// The bounds are on the projection, not on one image's metadata: a participant is projected
+/// whole or not at all, so no type is ever returned with a shortened member list. Exceeding a
+/// bound is reported as <see cref="ApiSurfaceProjectionTruncation"/>, never as a smaller
+/// success-shaped result.
+/// </remarks>
+public sealed record ApiSurfaceProjectionLimits
+{
+    public ApiSurfaceProjectionLimits(int maxParticipants, int maxTypes, int maxMembers)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxParticipants, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxTypes, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxMembers, 1);
+        MaxParticipants = maxParticipants;
+        MaxTypes = maxTypes;
+        MaxMembers = maxMembers;
+    }
+
+    /// <summary>The most participants one projection may walk.</summary>
+    public int MaxParticipants { get; }
+
+    /// <summary>The most types one projection may return.</summary>
+    public int MaxTypes { get; }
+
+    /// <summary>The most members one projection may return.</summary>
+    public int MaxMembers { get; }
+}
+
+/// <summary>
+/// The explicit report that a bounded projection stopped early: which bound stopped it, what that
+/// bound was, and what was and was not projected.
+/// </summary>
+public sealed record ApiSurfaceProjectionTruncation(
+    ApiSurfaceProjectionLimit Limit,
+    int Bound,
+    int ProjectedParticipants,
+    int OmittedParticipants,
+    int ProjectedTypes,
+    int ProjectedMembers);
+
 /// <summary>
 /// Ordered API-surface outcomes for every participant in one assembly context group, plus the
 /// accessibility buckets over every type the group's available participants projected.
 /// </summary>
+/// <remarks>
+/// <see cref="Truncation"/> is null for a complete projection. When it is not null the result is
+/// explicitly partial and <see cref="IsComplete"/> is false, so a consumer cannot mistake a
+/// bounded projection for the whole surface.
+/// </remarks>
 public sealed record AssemblyContextApiSurfaceResult(
     AssemblyContextResult<AssemblyApiSurface> Assemblies,
-    ImmutableArray<ApiAccessibilityBucket> Accessibility)
+    ImmutableArray<ApiAccessibilityBucket> Accessibility,
+    ApiSurfaceProjectionTruncation? Truncation = null)
 {
-    public bool IsComplete => Assemblies.IsComplete;
+    public bool IsComplete => Assemblies.IsComplete && Truncation is null;
 }
 
 /// <summary>
@@ -150,6 +214,14 @@ public static class AssemblyContextApiSurfaceQuery
 {
     public static InspectionQuery<AssemblyContextApiSurfaceResult> Definition { get; } =
         new("Assembly context API surface", InspectionCost.Unbounded);
+
+    /// <summary>
+    /// The bounded projection: the same evidence under caller-declared participant, type, and
+    /// member bounds, with any early stop reported as
+    /// <see cref="ApiSurfaceProjectionTruncation"/>.
+    /// </summary>
+    public static InspectionQuery<AssemblyContextApiSurfaceResult> BoundedDefinition { get; } =
+        new("Assembly context API surface (bounded)", InspectionCost.NetworkFree);
 
     public static AssemblyContextApiSurfaceResult Execute(
         AssemblyContextGroup group,
@@ -193,38 +265,122 @@ public static class AssemblyContextApiSurfaceQuery
             session => Project(session, scope));
     }
 
+    /// <summary>
+    /// Projects a selected participant set under explicit bounds, stopping at the first bound it
+    /// would exceed and reporting that stop.
+    /// </summary>
+    /// <param name="group">The binding-consistent group that owns every session opened here.</param>
+    /// <param name="scope">How much of each participant's surface to project.</param>
+    /// <param name="limits">The caller's hard participant, type, and member bounds.</param>
+    /// <param name="participants">
+    /// The participants to project, in the order they should be projected. Null projects every
+    /// participant of <paramref name="group"/>. Selecting a subset is how a host that needs one
+    /// package's surface out of a multi-package workspace avoids materializing the rest.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// A participant is projected whole or not at all: once the projected types or members reach
+    /// their bound, the remaining participants are not walked and the result carries an
+    /// <see cref="ApiSurfaceProjectionTruncation"/>. Nothing is silently trimmed, and no type is
+    /// ever returned with a shortened member list.
+    /// </para>
+    /// <para>
+    /// Accessibility buckets are computed over the participants that were actually projected, so
+    /// a truncated result's buckets describe exactly the rows it carries.
+    /// </para>
+    /// </remarks>
+    public static AssemblyContextApiSurfaceResult ExecuteBounded(
+        AssemblyContextGroup group,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits limits,
+        IReadOnlyList<AssemblyContextParticipant>? participants = null)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(limits);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
+        IReadOnlyList<AssemblyContextParticipant> selected =
+            participants ?? group.Participants;
+        ApiSurfaceProjectionTruncation? truncation = null;
+        int walked = 0;
+        if (selected.Count > limits.MaxParticipants)
+        {
+            truncation = new ApiSurfaceProjectionTruncation(
+                ApiSurfaceProjectionLimit.Participants,
+                limits.MaxParticipants,
+                ProjectedParticipants: limits.MaxParticipants,
+                OmittedParticipants: selected.Count - limits.MaxParticipants,
+                ProjectedTypes: 0,
+                ProjectedMembers: 0);
+            selected = [.. selected.Take(limits.MaxParticipants)];
+        }
+
+        var entries = ImmutableArray.CreateBuilder<AssemblyContextEntry<AssemblyApiSurface>>(
+            selected.Count);
+        int types = 0;
+        int members = 0;
+        foreach (AssemblyContextParticipant participant in selected)
+        {
+            AssemblyContextEntry<AssemblyApiSurface> entry =
+                AssemblyContextQueryExecutor.ExecuteParticipant(
+                    group,
+                    participant,
+                    session => Project(session, scope));
+            entries.Add(entry);
+            walked++;
+            if (entry is not AssemblyContextEntry<AssemblyApiSurface>.Available available)
+                continue;
+
+            types += available.Value.Surface.Types.Count;
+            members += available.Value.Surface.Types.Sum(type => type.Members.Count);
+            bool overTypes = types > limits.MaxTypes;
+            if (!overTypes && members <= limits.MaxMembers)
+                continue;
+
+            truncation = new ApiSurfaceProjectionTruncation(
+                overTypes ? ApiSurfaceProjectionLimit.Types : ApiSurfaceProjectionLimit.Members,
+                overTypes ? limits.MaxTypes : limits.MaxMembers,
+                ProjectedParticipants: walked,
+                OmittedParticipants: selected.Count - walked
+                    + (truncation?.OmittedParticipants ?? 0),
+                ProjectedTypes: types,
+                ProjectedMembers: members);
+            break;
+        }
+
+        var assemblies = new AssemblyContextResult<AssemblyApiSurface>(entries.DrainToImmutable());
+        return new AssemblyContextApiSurfaceResult(
+            assemblies,
+            ApiAccessibility.Buckets(
+                assemblies.Assemblies
+                    .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                    .SelectMany(entry => entry.Value.Surface.Types)
+                    .Select(type => type.Accessibility)),
+            truncation);
+    }
+
+    /// <summary>
+    /// Projects one participant at one scope. Every scope — including the composed one — is a
+    /// single extraction: the extractor owns which types and members each scope keeps, so the
+    /// composed surface is no longer built by materializing the same image's surface twice and
+    /// discarding most of the second.
+    /// </summary>
     static AssemblyApiSurface Project(
         AssemblyInspectionSession session,
         ApiSurfaceScope scope)
     {
-        ApiSurface surface =
-            session.ApiSurface(includeAll: scope == ApiSurfaceScope.IncludeAll);
-        if (scope != ApiSurfaceScope.PublicWithNonPublicTypes)
-            return new AssemblyApiSurface(surface, [.. surface.InspectionFailures]);
-
-        ApiSurface all = session.ApiSurface(includeAll: true);
-        var projected = surface.Types
-            .Select(MetadataTypeIdentity)
-            .ToHashSet(StringComparer.Ordinal);
-        foreach (ApiType type in all.Types)
-        {
-            if (ApiAccessibility.Classify(type.Accessibility).Id != "public"
-                && projected.Add(MetadataTypeIdentity(type)))
-            {
-                surface.Types.Add(type);
-            }
-        }
-
-        // Both extractions observed the same image, so an inspection failure either surface
-        // recorded is a real rejection of the composed projection.
-        surface.InspectionFailures =
-        [
-            .. surface.InspectionFailures
-                .Concat(all.InspectionFailures)
-                .Distinct(),
-        ];
+        ApiSurface surface = session.ApiSurface(ExtractionScope(scope));
         return new AssemblyApiSurface(surface, [.. surface.InspectionFailures]);
     }
+
+    static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
+    {
+        ApiSurfaceScope.IncludeAll => ApiSurfaceExtractionScope.IncludeAll,
+        ApiSurfaceScope.PublicWithNonPublicTypes =>
+            ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+        _ => ApiSurfaceExtractionScope.Public,
+    };
 
     internal static string MetadataTypeIdentity(ApiType type)
     {

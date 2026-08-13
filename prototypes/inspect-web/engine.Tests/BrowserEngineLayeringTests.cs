@@ -73,6 +73,25 @@ public sealed class BrowserEngineLayeringTests
                 "M:DotnetInspector.Queries.AssemblyContextGroup.RetainAssemblyReference",
                 StringComparison.Ordinal));
 
+        // A package load is not an explicit request for unbounded work: the whole-group and
+        // participant API-surface entry points are declared InspectionCost.Unbounded, so the
+        // browser can reach only the bounded overload.
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.Execute(",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteParticipant(",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteBounded",
+                StringComparison.Ordinal));
+
         // #3932's streaming form releases the participant terminally, and this engine reuses one
         // workspace across exports, so a later whole-group query over the same group would find
         // the released participant unavailable.

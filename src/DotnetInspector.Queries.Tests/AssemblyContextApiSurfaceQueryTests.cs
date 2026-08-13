@@ -312,6 +312,239 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     static string SelfPath =>
         typeof(AssemblyContextApiSurfaceQueryTests).Assembly.Location;
 
+    // The composed scope is one extraction, so it must still answer exactly what the two-pass
+    // composition answered: the public surface's types with their public member lists, plus the
+    // non-public types with their complete ones, and nothing else.
+    [Fact]
+    public void PublicWithNonPublicTypes_EqualsThePublicAndNonPublicPartsOfBothScopes()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+
+        AssemblyApiSurface composed = Available(
+            AssemblyContextApiSurfaceQuery.Execute(
+                    group,
+                    ApiSurfaceScope.PublicWithNonPublicTypes)
+                .Assemblies);
+        AssemblyApiSurface publicOnly = Available(
+            AssemblyContextApiSurfaceQuery.Execute(group).Assemblies);
+        AssemblyApiSurface all = Available(
+            AssemblyContextApiSurfaceQuery.Execute(group, includeAll: true).Assemblies);
+
+        string[] expected =
+        [
+            .. publicOnly.Surface.Types
+                .Select(AssemblyContextApiSurfaceQuery.MetadataTypeIdentity)
+                .Concat(all.Surface.Types
+                    .Where(type => ApiAccessibility.Classify(type.Accessibility).Id != "public")
+                    .Select(AssemblyContextApiSurfaceQuery.MetadataTypeIdentity))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        Assert.Equal(
+            expected,
+            composed.Surface.Types
+                .Select(AssemblyContextApiSurfaceQuery.MetadataTypeIdentity)
+                .Order(StringComparer.Ordinal));
+
+        // Member lists come from the matching pass, per type.
+        foreach (ApiType type in composed.Surface.Types)
+        {
+            string identity = AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type);
+            IEnumerable<ApiType> source =
+                ApiAccessibility.Classify(type.Accessibility).Id == "public"
+                    ? publicOnly.Surface.Types
+                    : all.Surface.Types;
+            ApiType counterpart = Assert.Single(
+                source,
+                candidate =>
+                    AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(candidate) == identity);
+            Assert.Equal(
+                counterpart.Members.Select(member => member.Name).Order(),
+                type.Members.Select(member => member.Name).Order());
+        }
+    }
+
+    [Fact]
+    public void ExecuteBounded_WithGenerousLimitsMatchesTheUnboundedProjection()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+
+        AssemblyContextApiSurfaceResult unbounded =
+            AssemblyContextApiSurfaceQuery.Execute(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes);
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(64, 100_000, 1_000_000));
+
+        Assert.Null(bounded.Truncation);
+        Assert.True(bounded.IsComplete);
+        Assert.Equal(
+            Available(unbounded.Assemblies).Surface.Types.Count,
+            Available(bounded.Assemblies).Surface.Types.Count);
+        Assert.Equal(
+            unbounded.Accessibility.Select(bucket => (bucket.Id, bucket.Count)),
+            bounded.Accessibility.Select(bucket => (bucket.Id, bucket.Count)));
+    }
+
+    // Non-vacuity: the bound is reachable and reported, and the reported result stays honest —
+    // IsComplete is false and the counts describe exactly the rows it carries.
+    [Fact]
+    public void ExecuteBounded_ReportsTypeTruncationInsteadOfPartialSuccess()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(64, 1, 1_000_000));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.Types, truncation.Limit);
+        Assert.Equal(1, truncation.Bound);
+        Assert.Equal(1, truncation.ProjectedParticipants);
+        Assert.Equal(0, truncation.OmittedParticipants);
+        Assert.True(truncation.ProjectedTypes > 1);
+        Assert.False(bounded.IsComplete);
+
+        // The projected participant is whole: no type came back with a shortened member list.
+        AssemblyApiSurface surface = Available(bounded.Assemblies);
+        Assert.Equal(truncation.ProjectedTypes, surface.Surface.Types.Count);
+    }
+
+    [Fact]
+    public void ExecuteBounded_ReportsMemberTruncation()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(64, 1_000_000, 1));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.Members, truncation.Limit);
+        Assert.True(truncation.ProjectedMembers > 1);
+    }
+
+    [Fact]
+    public void ExecuteBounded_StopsFanOutAndReportsUnprojectedParticipants()
+    {
+        byte[] bytes = File.ReadAllBytes(SelfPath);
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        SelfPath,
+                        AssemblyResolutionProvenance.Local("first")),
+                    policy),
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(bytes) with { Name = "Second" },
+                        path: null,
+                        () => new MemoryStream(bytes, writable: false),
+                        AssemblyResolutionProvenance.Local("second")),
+                    policy),
+            ]);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(1, 1_000_000, 1_000_000));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.Participants, truncation.Limit);
+        Assert.Equal(1, truncation.OmittedParticipants);
+        Assert.Single(bounded.Assemblies.Assemblies);
+        Assert.False(bounded.IsComplete);
+    }
+
+    // Selecting participants is how a host projects one package out of a multi-package workspace
+    // without materializing the rest.
+    [Fact]
+    public void ExecuteBounded_ProjectsOnlyTheSelectedParticipants()
+    {
+        byte[] bytes = File.ReadAllBytes(SelfPath);
+        var policy = new TestBindingPolicy();
+        int selectedOpens = 0;
+        int otherOpens = 0;
+        var selected = new AssemblyContextParticipant(
+            ResolvedAssemblyReference.Create(
+                IdentityOf(bytes),
+                path: null,
+                () =>
+                {
+                    Interlocked.Increment(ref selectedOpens);
+                    return new MemoryStream(bytes, writable: false);
+                },
+                AssemblyResolutionProvenance.Local("selected")),
+            policy);
+        var other = new AssemblyContextParticipant(
+            ResolvedAssemblyReference.Create(
+                IdentityOf(bytes) with { Name = "Other" },
+                path: null,
+                () =>
+                {
+                    Interlocked.Increment(ref otherOpens);
+                    return new MemoryStream(bytes, writable: false);
+                },
+                AssemblyResolutionProvenance.Local("other")),
+            policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([selected, other]);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(64, 1_000_000, 1_000_000),
+                [selected]);
+
+        Assert.Null(bounded.Truncation);
+        var available = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            Assert.Single(bounded.Assemblies.Assemblies));
+        Assert.Same(selected.Assembly.Registration, available.Subject.Registration);
+        Assert.Equal(1, selectedOpens);
+        Assert.Equal(0, otherOpens);
+    }
+
+    [Fact]
+    public void ExecuteBounded_RejectsNonPositiveLimits()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceProjectionLimits(0, 1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceProjectionLimits(1, 0, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceProjectionLimits(1, 1, 0));
+    }
+
+    [Fact]
+    public void BoundedDefinition_IsNotClassifiedUnbounded()
+    {
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            AssemblyContextApiSurfaceQuery.Definition.Cost);
+        Assert.Equal(
+            InspectionCost.NetworkFree,
+            AssemblyContextApiSurfaceQuery.BoundedDefinition.Cost);
+    }
+
     static AssemblyContextGroup SelfGroup(InspectionWorkspace workspace)
         => workspace.CreateAssemblyContextGroup(
             [

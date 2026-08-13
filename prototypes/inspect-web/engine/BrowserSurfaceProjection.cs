@@ -162,6 +162,26 @@ internal static class BrowserSurfaceProjection
     }
 
     /// <summary>
+    /// The response's visible notice: participant failures, partial extraction, and an explicit
+    /// bounded-projection truncation, or null when there is nothing to report. A truncation is
+    /// carried beside the failures rather than instead of them, so a bounded response never reads
+    /// as a complete one.
+    /// </summary>
+    internal static string? Notice(
+        ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries,
+        string? truncation)
+    {
+        string? failures = ApiSurfaceFailures(entries);
+        return (failures, truncation) switch
+        {
+            (null, null) => null,
+            (null, { } only) => only,
+            ({ } only, null) => only,
+            var (left, right) => $"{left}; {right}",
+        };
+    }
+
+    /// <summary>
     /// The value an available entry produced, or a visible failure naming why the participant
     /// could not answer. A participant-scoped export has exactly one answer, so a rejection is an
     /// error rather than a row beside other rows.

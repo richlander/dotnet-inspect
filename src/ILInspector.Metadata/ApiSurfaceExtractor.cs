@@ -8,6 +8,26 @@ using CSharpText;
 
 namespace ILInspector.Metadata;
 
+/// <summary>How much of an assembly's API surface one extraction projects.</summary>
+public enum ApiSurfaceExtractionScope
+{
+    /// <summary>
+    /// The default consumer surface: public types with their public members, minus the types and
+    /// members the extractor hides.
+    /// </summary>
+    Public,
+
+    /// <summary>Every type and member the extractor reaches, including non-public and hidden ones.</summary>
+    IncludeAll,
+
+    /// <summary>
+    /// The default consumer surface plus non-public types, each carrying its complete member
+    /// list. A public type keeps its public member list, and a public type the extractor hides
+    /// stays hidden rather than re-entering with an include-all member list.
+    /// </summary>
+    PublicWithNonPublicTypes,
+}
+
 /// <summary>
 /// Extracts public API surface from assemblies.
 /// </summary>
@@ -17,7 +37,33 @@ public static class ApiSurfaceExtractor
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
 
     public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// Extracts one API surface at an explicit scope.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ApiSurfaceExtractionScope.PublicWithNonPublicTypes"/> is a single walk, not a
+    /// composition of two: the per-type decision below is exactly "would the public surface have
+    /// kept this type?", and only a type the public surface excludes for its visibility carries
+    /// the include-all member rules. Composing it from two extractions materialized the same
+    /// image's surface twice and discarded most of the second.
+    /// </remarks>
+    public static ApiSurface Extract(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
     {
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
 
@@ -36,7 +82,7 @@ public static class ApiSurfaceExtractor
             // non-public types, including nested private/internal types, so ranking/triage rows
             // that already surface non-public IL can be copied into type/member drill commands.
             // Compiler-generated types are still skipped below regardless.
-            if (!typeDef.IsPublic && !includeAll)
+            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
             string metadataName = reader.GetString(typeDef.Name);
@@ -47,9 +93,21 @@ public static class ApiSurfaceExtractor
             if (TypeFilters.IsCompilerGenerated(metadataName) && !includeCompilerGenerated)
                 continue;
 
-            // Skip EditorBrowsable(Never) and Obsolete types unless --all
-            if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+            // Whether this type's members follow the include-all rules. Every member decision
+            // below reads this local, so the composed scope keeps a public type's public member
+            // list while a non-public type carries its complete one.
+            bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
+                || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
+                    && !typeDef.IsPublic);
+
+            // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
+            // extractor hides stays hidden in the composed scope too: it is suppressed, not
+            // demoted into the non-public bucket with an include-all member list.
+            if (!includeAll
+                && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+            {
                 continue;
+            }
 
             var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
 

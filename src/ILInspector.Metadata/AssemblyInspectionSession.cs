@@ -96,6 +96,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
 
+    /// <summary>The API surface at one explicit extraction scope.</summary>
+    public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
+        => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
+
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
     {
