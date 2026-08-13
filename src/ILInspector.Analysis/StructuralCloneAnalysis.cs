@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -45,6 +46,7 @@ public enum StructuralCloneSide
 public enum StructuralCloneBlockerKind
 {
     NoMethodBody,
+    UnsupportedMethodImplementation,
     ExceptionHandling,
     UnsupportedMethodSignature,
     UnsupportedLocalSignature,
@@ -54,6 +56,7 @@ public enum StructuralCloneBlockerKind
     InvalidArgumentSlot,
     InvalidMetadataOperand,
     TerminalFallThrough,
+    BodySizeLimit,
     InstructionLimit,
     BlockLimit,
     LocalLimit,
@@ -93,6 +96,8 @@ public sealed record StructuralCloneCorrespondence(
 
 /// <summary>Bounded-work receipt for one comparison.</summary>
 public sealed record StructuralCloneVerificationReceipt(
+    int LeftBodyBytes,
+    int RightBodyBytes,
     int LeftInstructions,
     int RightInstructions,
     int LeftBlocks,
@@ -108,7 +113,8 @@ public sealed record StructuralCloneComparisonLimits(
     int MaximumInstructions = 10_000,
     int MaximumBlocks = 128,
     int MaximumLocals = 256,
-    int MaximumVerificationSteps = 100_000);
+    int MaximumVerificationSteps = 100_000,
+    int MaximumBodyBytes = 1_000_000);
 
 /// <summary>
 /// Product-owned result for one A-vs-A structural body comparison.
@@ -222,11 +228,12 @@ public sealed record StructuralCloneComparison
 /// </para>
 /// <para>
 /// Exactness covers normalized opcode encodings, argument positions, explicit
-/// local bijection and local types, <c>InitLocals</c>, constants, metadata
-/// operands, branch roles, and switch-target order. Method parameter/return
-/// types and declared <c>MaxStack</c> are outside this body relation. The
-/// method-signature calling convention, instance/static shape, generic arity,
-/// argument count, and void/value return shape remain exact preconditions.
+/// local bijection and local types, <c>InitLocals</c> when locals exist,
+/// constants, metadata operands, branch roles, and switch-target order. Method
+/// parameter/return types and declared <c>MaxStack</c> are outside this body
+/// relation. The method-signature calling convention, instance/static shape,
+/// generic arity, argument count, and void/value return shape remain exact
+/// preconditions.
 /// Nops and redundant branches are retained rather than normalized away.
 /// </para>
 /// </remarks>
@@ -273,7 +280,7 @@ public static class StructuralCloneAnalysis
                 rightAddress,
                 disposition,
                 [.. leftBody.Blockers, .. rightBody.Blockers],
-                Receipt(leftBody.Facts, rightBody.Facts, 0, false, false));
+                Receipt(leftBody, rightBody, 0, false, false));
         }
 
         return Compare(leftBody.Facts!, rightBody.Facts!, limits);
@@ -357,10 +364,15 @@ public static class StructuralCloneAnalysis
         bool initLocals,
         StructuralCloneMethodSignature signature,
         StructuralCloneComparisonLimits? limits = null,
-        StructuralCloneSide side = StructuralCloneSide.Left)
+        StructuralCloneSide side = StructuralCloneSide.Left,
+        int? bodyBytes = null)
     {
         ArgumentNullException.ThrowIfNull(instructions);
         ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
+        BodyMeasurements measurements = BodyMeasurements.From(
+            instructions,
+            locals.Length,
+            bodyBytes);
         if (instructions.Blocks.Blocks.Any(static block =>
             block.Edges.ExternalTargets.Count > 0
                 || block.Edges.LeavesRegion))
@@ -370,7 +382,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.ExternalControlFlow,
                     side,
-                    "The block graph contains external or region-leaving control flow."));
+                    "The block graph contains external or region-leaving control flow."),
+                measurements);
         }
         if (!instructions.IsComplete)
         {
@@ -380,7 +393,8 @@ public static class StructuralCloneAnalysis
                     StructuralCloneBlockerKind.IncompleteBody,
                     side,
                     instructions.Blocks.IncompleteReason
-                        ?? "Instruction decode did not complete."));
+                        ?? "Instruction decode did not complete."),
+                measurements);
         }
         if (instructions.Instructions.IsEmpty
             || instructions.Instructions[^1].FallsThrough)
@@ -390,7 +404,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.TerminalFallThrough,
                     side,
-                    "The method body is empty or its final instruction falls through past the body."));
+                    "The method body is empty or its final instruction falls through past the body."),
+                measurements);
         }
         if (!instructions.Blocks.Regions.IsEmpty)
         {
@@ -399,7 +414,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.ExceptionHandling,
                     side,
-                    "Exception-handling bodies are outside the first-slice contract."));
+                    "Exception-handling bodies are outside the first-slice contract."),
+                measurements);
         }
         if (locals.Any(static local => !SupportedType(local)))
         {
@@ -408,7 +424,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.UnsupportedLocalSignature,
                     side,
-                    "The local signature contains an unsupported type shape."));
+                    "The local signature contains an unsupported type shape."),
+                measurements);
         }
 
         ImmutableArray<StructuralCloneBlocker> limitBlockers =
@@ -417,7 +434,8 @@ public static class StructuralCloneAnalysis
         {
             return BodyProduction.NotCompleted(
                 StructuralCloneDisposition.LimitReached,
-                limitBlockers);
+                limitBlockers,
+                measurements);
         }
         try
         {
@@ -426,8 +444,9 @@ public static class StructuralCloneAnalysis
             return BodyProduction.Completed(
                 new StructuralCloneBodyFacts(
                     method,
+                    measurements.BodyBytes,
                     instructions.Instructions.Length,
-                    initLocals,
+                    initLocals && locals.Length > 0,
                     [
                         .. locals.Select(
                             StructuralCloneTypeIdentity.Create),
@@ -442,7 +461,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.InvalidLocalSlot,
                     side,
-                    ex.Message));
+                    ex.Message),
+                measurements);
         }
         catch (InvalidArgumentSlotException ex)
         {
@@ -451,7 +471,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.InvalidArgumentSlot,
                     side,
-                    ex.Message));
+                    ex.Message),
+                measurements);
         }
         catch (InvalidOperationException ex)
         {
@@ -460,7 +481,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.IncompleteBody,
                     side,
-                    ex.Message));
+                    ex.Message),
+                measurements);
         }
     }
 
@@ -483,6 +505,20 @@ public static class StructuralCloneAnalysis
                         StructuralCloneBlockerKind.NoMethodBody,
                         side,
                         "The method definition has no IL body."));
+            }
+            MethodImplAttributes implementation =
+                definition.ImplAttributes;
+            if ((implementation & MethodImplAttributes.CodeTypeMask)
+                    != MethodImplAttributes.IL
+                || (implementation & MethodImplAttributes.ManagedMask)
+                    != MethodImplAttributes.Managed)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.UnsupportedMethodImplementation,
+                        side,
+                        $"Method implementation flags {implementation} do not describe managed IL."));
             }
             if (!SignatureBlobGuard.IsSafeToDecode(
                     reader,
@@ -515,8 +551,9 @@ public static class StructuralCloneAnalysis
                 decodedSignature.GenericParameterCount,
                 decodedSignature.RequiredParameterCount,
                 decodedSignature.ParameterTypes.Length,
-                decodedSignature.ReturnType.Equals(
-                    TypeRef.CoreLib("System", "Void")));
+                definition.DecodeSignature(
+                    VoidShapeTypeProvider.Instance,
+                    GenericScope.Empty).ReturnType);
 
             MethodBodyBlock body =
                 image.GetMethodBody(definition.RelativeVirtualAddress);
@@ -529,12 +566,46 @@ public static class StructuralCloneAnalysis
                         side,
                         "Exception-handling bodies are outside the first-slice contract."));
             }
+            int bodyBytes = body.GetILReader().Length;
+            if (bodyBytes > limits.MaximumBodyBytes)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.LimitReached,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.BodySizeLimit,
+                        side,
+                        $"IL body size {bodyBytes} bytes exceeds "
+                        + $"{limits.MaximumBodyBytes}."),
+                    new BodyMeasurements(
+                        bodyBytes,
+                        InstructionCount: 0,
+                        BlockCount: 0,
+                        LocalCount: 0));
+            }
 
             ImmutableArray<TypeRef> locals = [];
             if (!body.LocalSignature.IsNil)
             {
                 StandaloneSignature localSignature =
                     reader.GetStandaloneSignature(body.LocalSignature);
+                int localCount = ReadLocalCount(
+                    reader,
+                    localSignature.Signature);
+                if (localCount > limits.MaximumLocals)
+                {
+                    return BodyProduction.NotCompleted(
+                        StructuralCloneDisposition.LimitReached,
+                        new StructuralCloneBlocker(
+                            StructuralCloneBlockerKind.LocalLimit,
+                            side,
+                            $"Local count {localCount} exceeds "
+                            + $"{limits.MaximumLocals}."),
+                        new BodyMeasurements(
+                            bodyBytes,
+                            InstructionCount: 0,
+                            BlockCount: 0,
+                            localCount));
+                }
                 if (!SignatureBlobGuard.IsSafeToDecode(
                         reader,
                         localSignature.Signature,
@@ -553,6 +624,10 @@ public static class StructuralCloneAnalysis
             }
 
             MethodInstructions instructions = MethodInstructions.Decode(body);
+            BodyMeasurements measurements = BodyMeasurements.From(
+                instructions,
+                locals.Length,
+                bodyBytes);
             if (InvalidMetadataOperand(
                     reader,
                     instructions,
@@ -561,7 +636,8 @@ public static class StructuralCloneAnalysis
             {
                 return BodyProduction.NotCompleted(
                     StructuralCloneDisposition.Failed,
-                    invalidOperand);
+                    invalidOperand,
+                    measurements);
             }
             return Produce(
                 method,
@@ -570,7 +646,8 @@ public static class StructuralCloneAnalysis
                 body.LocalVariablesInitialized,
                 signature,
                 limits,
-                side);
+                side,
+                bodyBytes);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -826,7 +903,10 @@ public static class StructuralCloneAnalysis
                     or HandleKind.TypeReference
                     or HandleKind.TypeSpecification,
             OperandKind.InlineSig =>
-                handle.Kind == HandleKind.StandaloneSignature,
+                handle.Kind == HandleKind.StandaloneSignature
+                && ValidCallSiteSignature(
+                    reader,
+                    (StandaloneSignatureHandle)handle),
             OperandKind.InlineTok =>
                 handle.Kind is HandleKind.TypeDefinition
                     or HandleKind.TypeReference
@@ -860,6 +940,45 @@ public static class StructuralCloneAnalysis
         };
         return table is { } value
             && row <= reader.GetTableRowCount(value);
+    }
+
+    static bool ValidCallSiteSignature(
+        MetadataReader reader,
+        StandaloneSignatureHandle handle)
+    {
+        StandaloneSignature signature =
+            reader.GetStandaloneSignature(handle);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                signature.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            return false;
+        }
+
+        BlobReader blob = reader.GetBlobReader(signature.Signature);
+        return blob.ReadSignatureHeader().Kind == SignatureKind.Method;
+    }
+
+    static int ReadLocalCount(
+        MetadataReader reader,
+        BlobHandle signature)
+    {
+        BlobReader blob = reader.GetBlobReader(signature);
+        if (blob.ReadSignatureHeader().Kind
+            != SignatureKind.LocalVariables)
+        {
+            throw new BadImageFormatException(
+                "A method body local signature does not have the local-variable signature kind.");
+        }
+
+        int count = blob.ReadCompressedInteger();
+        if (count < 0)
+        {
+            throw new BadImageFormatException(
+                "A method body local signature has an invalid local count.");
+        }
+        return count;
     }
 
     static StructuralCloneBlocker InvalidOperandBlocker(
@@ -1506,12 +1625,14 @@ public static class StructuralCloneAnalysis
         =>
         [
             .. LimitsFor(
+                left.BodyBytes,
                 left.InstructionCount,
                 left.Graph.Blocks.Length,
                 left.Locals.Length,
                 limits,
                 StructuralCloneSide.Left),
             .. LimitsFor(
+                right.BodyBytes,
                 right.InstructionCount,
                 right.Graph.Blocks.Length,
                 right.Locals.Length,
@@ -1525,6 +1646,9 @@ public static class StructuralCloneAnalysis
         StructuralCloneComparisonLimits limits,
         StructuralCloneSide side)
         => LimitsFor(
+            instructions.Instructions.IsEmpty
+                ? 0
+                : instructions.Instructions[^1].NextOffset,
             instructions.Instructions.Length,
             instructions.Blocks.Blocks.Length,
             locals,
@@ -1532,6 +1656,7 @@ public static class StructuralCloneAnalysis
             side);
 
     static ImmutableArray<StructuralCloneBlocker> LimitsFor(
+        int bodyBytes,
         int instructions,
         int blocks,
         int locals,
@@ -1539,6 +1664,14 @@ public static class StructuralCloneAnalysis
         StructuralCloneSide side)
     {
         var blockers = ImmutableArray.CreateBuilder<StructuralCloneBlocker>();
+        if (bodyBytes > limits.MaximumBodyBytes)
+        {
+            blockers.Add(new StructuralCloneBlocker(
+                StructuralCloneBlockerKind.BodySizeLimit,
+                side,
+                $"IL body size {bodyBytes} bytes exceeds "
+                + $"{limits.MaximumBodyBytes}."));
+        }
         if (instructions > limits.MaximumInstructions)
         {
             blockers.Add(new StructuralCloneBlocker(
@@ -1571,12 +1704,33 @@ public static class StructuralCloneAnalysis
         bool exhausted,
         bool witness)
         => new(
+            left?.BodyBytes ?? 0,
+            right?.BodyBytes ?? 0,
             left?.InstructionCount ?? 0,
             right?.InstructionCount ?? 0,
             left?.Graph.Blocks.Length ?? 0,
             right?.Graph.Blocks.Length ?? 0,
             left?.Locals.Length ?? 0,
             right?.Locals.Length ?? 0,
+            steps,
+            exhausted,
+            witness);
+
+    static StructuralCloneVerificationReceipt Receipt(
+        BodyProduction left,
+        BodyProduction right,
+        int steps,
+        bool exhausted,
+        bool witness)
+        => new(
+            left.Measurements.BodyBytes,
+            right.Measurements.BodyBytes,
+            left.Measurements.InstructionCount,
+            right.Measurements.InstructionCount,
+            left.Measurements.BlockCount,
+            right.Measurements.BlockCount,
+            left.Measurements.LocalCount,
+            right.Measurements.LocalCount,
             steps,
             exhausted,
             witness);
@@ -1634,6 +1788,9 @@ public static class StructuralCloneAnalysis
         ArgumentOutOfRangeException.ThrowIfLessThan(
             limits.MaximumVerificationSteps,
             1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumBodyBytes,
+            1);
     }
 }
 
@@ -1687,29 +1844,65 @@ internal sealed record StructuralCloneGraph(
 
 internal sealed record StructuralCloneBodyFacts(
     MetadataMethodAddress Method,
+    int BodyBytes,
     int InstructionCount,
     bool InitLocals,
     ImmutableArray<StructuralCloneTypeIdentity> Locals,
     StructuralCloneMethodSignature Signature,
     StructuralCloneGraph Graph);
 
+internal readonly record struct BodyMeasurements(
+    int BodyBytes,
+    int InstructionCount,
+    int BlockCount,
+    int LocalCount)
+{
+    public static BodyMeasurements From(
+        MethodInstructions instructions,
+        int localCount,
+        int? bodyBytes = null)
+        => new(
+            bodyBytes
+                ?? (instructions.Instructions.IsEmpty
+                    ? 0
+                    : instructions.Instructions[^1].NextOffset),
+            instructions.Instructions.Length,
+            instructions.Blocks.Blocks.Length,
+            localCount);
+
+    public static BodyMeasurements From(
+        StructuralCloneBodyFacts facts)
+        => new(
+            facts.BodyBytes,
+            facts.InstructionCount,
+            facts.Graph.Blocks.Length,
+            facts.Locals.Length);
+}
+
 internal sealed record BodyProduction(
     StructuralCloneDisposition Disposition,
     StructuralCloneBodyFacts? Facts,
-    ImmutableArray<StructuralCloneBlocker> Blockers)
+    ImmutableArray<StructuralCloneBlocker> Blockers,
+    BodyMeasurements Measurements)
 {
     public static BodyProduction Completed(StructuralCloneBodyFacts facts)
-        => new(StructuralCloneDisposition.Completed, facts, []);
+        => new(
+            StructuralCloneDisposition.Completed,
+            facts,
+            [],
+            BodyMeasurements.From(facts));
 
     public static BodyProduction NotCompleted(
         StructuralCloneDisposition disposition,
-        StructuralCloneBlocker blocker)
-        => new(disposition, null, [blocker]);
+        StructuralCloneBlocker blocker,
+        BodyMeasurements measurements = default)
+        => new(disposition, null, [blocker], measurements);
 
     public static BodyProduction NotCompleted(
         StructuralCloneDisposition disposition,
-        ImmutableArray<StructuralCloneBlocker> blockers)
-        => new(disposition, null, blockers);
+        ImmutableArray<StructuralCloneBlocker> blockers,
+        BodyMeasurements measurements = default)
+        => new(disposition, null, blockers, measurements);
 }
 
 internal sealed class BlockRefinementKey : IEquatable<BlockRefinementKey>
@@ -1825,6 +2018,69 @@ internal readonly record struct WitnessResult(
     bool Found,
     bool LimitReached,
     int Steps);
+
+sealed class VoidShapeTypeProvider
+    : ISignatureTypeProvider<bool, GenericScope>
+{
+    public static readonly VoidShapeTypeProvider Instance = new();
+
+    public bool GetPrimitiveType(PrimitiveTypeCode typeCode)
+        => typeCode == PrimitiveTypeCode.Void;
+
+    public bool GetTypeFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        byte rawTypeKind)
+        => false;
+
+    public bool GetTypeFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        byte rawTypeKind)
+        => false;
+
+    public bool GetTypeFromSpecification(
+        MetadataReader reader,
+        GenericScope genericContext,
+        TypeSpecificationHandle handle,
+        byte rawTypeKind)
+        => false;
+
+    public bool GetSZArrayType(bool elementType) => false;
+
+    public bool GetArrayType(bool elementType, ArrayShape shape)
+        => false;
+
+    public bool GetByReferenceType(bool elementType) => false;
+
+    public bool GetPointerType(bool elementType) => false;
+
+    public bool GetPinnedType(bool elementType) => false;
+
+    public bool GetGenericInstantiation(
+        bool genericType,
+        ImmutableArray<bool> typeArguments)
+        => false;
+
+    public bool GetGenericTypeParameter(
+        GenericScope genericContext,
+        int index)
+        => false;
+
+    public bool GetGenericMethodParameter(
+        GenericScope genericContext,
+        int index)
+        => false;
+
+    public bool GetFunctionPointerType(MethodSignature<bool> signature)
+        => false;
+
+    public bool GetModifiedType(
+        bool modifier,
+        bool unmodifiedType,
+        bool isRequired)
+        => unmodifiedType;
+}
 
 sealed class InvalidLocalSlotException(string message)
     : InvalidOperationException(message);

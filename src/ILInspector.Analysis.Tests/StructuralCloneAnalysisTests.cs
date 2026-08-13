@@ -173,6 +173,161 @@ public class StructuralCloneAnalysisTests
         };
 
     [Fact]
+    public void Compare_CalliRequiresAMethodSignaturePayload()
+    {
+        byte[] calli =
+        [
+            0x16, 0xD3,
+            0x29, 0x01, 0x00, 0x00, 0x11,
+            0x2A,
+        ];
+        using PEReader invalidImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x07, 0x00]));
+        using PEReader validImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x00, 0x00, 0x01]));
+
+        StructuralCloneComparison invalid =
+            StructuralCloneAnalysis.Compare(
+                invalidImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        StructuralCloneComparison valid =
+            StructuralCloneAnalysis.Compare(
+                validImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            invalid.Disposition);
+        Assert.Contains(
+            invalid.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.InvalidMetadataOperand);
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            valid.Relation);
+    }
+
+    [Fact]
+    public void Compare_SpoofedSystemVoidRemainsAValueReturn()
+    {
+        using PEReader image = OpenImage(
+            BuildSpoofVoidTwinAssembly());
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
+    }
+
+    [Fact]
+    public void Compare_NonIlMethodImplementationIsUnsupported()
+    {
+        using PEReader image = OpenImage(
+            BuildTwinAssembly(
+                [0x2A],
+                MethodImplAttributes.Native));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Unsupported,
+            comparison.Disposition);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.UnsupportedMethodImplementation);
+    }
+
+    [Fact]
+    public void Compare_ZeroLocalHeaderFormatDoesNotChangeInitLocals()
+    {
+        using PEReader image = OpenImage(
+            BuildHeaderTwinAssembly());
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
+    }
+
+    [Fact]
+    public void Compare_PeLimitsReportMeasurementsAndBoundBodyDecode()
+    {
+        using PEReader instructionImage = OpenFixture();
+        MetadataReader reader = instructionImage.GetMetadataReader();
+        StructuralCloneComparison instructionLimited =
+            StructuralCloneAnalysis.Compare(
+                instructionImage,
+                Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
+                Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)),
+                new StructuralCloneComparisonLimits(
+                    MaximumInstructions: 1));
+
+        using PEReader bodyImage = OpenImage(
+            BuildTwinAssembly(
+                [.. Enumerable.Repeat((byte)0x00, 64), 0x2A]));
+        StructuralCloneComparison bodyLimited =
+            StructuralCloneAnalysis.Compare(
+                bodyImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2),
+                new StructuralCloneComparisonLimits(
+                    MaximumBodyBytes: 8));
+
+        using PEReader localImage = OpenImage(
+            BuildLocalCountTwinAssembly());
+        StructuralCloneComparison localLimited =
+            StructuralCloneAnalysis.Compare(
+                localImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2),
+                new StructuralCloneComparisonLimits(
+                    MaximumLocals: 1));
+
+        AssertLimit(
+            instructionLimited,
+            StructuralCloneBlockerKind.InstructionLimit);
+        Assert.True(
+            instructionLimited.Receipt.LeftInstructions > 1);
+        Assert.True(
+            instructionLimited.Receipt.RightInstructions > 1);
+        Assert.True(
+            instructionLimited.Receipt.LeftBlocks > 0);
+        AssertLimit(
+            bodyLimited,
+            StructuralCloneBlockerKind.BodySizeLimit);
+        Assert.Equal(65, bodyLimited.Receipt.LeftBodyBytes);
+        Assert.Equal(0, bodyLimited.Receipt.LeftInstructions);
+        AssertLimit(
+            localLimited,
+            StructuralCloneBlockerKind.LocalLimit);
+        Assert.Equal(2, localLimited.Receipt.LeftLocals);
+        Assert.Equal(0, localLimited.Receipt.LeftInstructions);
+    }
+
+    [Fact]
     public void Compare_NormalizesLocalSlotsWithExplicitTypedBijection()
     {
         StructuralCloneBodyFacts left = Facts(
@@ -728,7 +883,10 @@ public class StructuralCloneAnalysisTests
         return Serialize(metadata, bodies);
     }
 
-    static byte[] BuildTwinAssembly(byte[] il)
+    static byte[] BuildTwinAssembly(
+        byte[] il,
+        MethodImplAttributes implementation =
+            MethodImplAttributes.IL)
     {
         MetadataBuilder metadata = AssemblyMetadata();
         AddFixtureType(metadata);
@@ -742,6 +900,124 @@ public class StructuralCloneAnalysisTests
             bodyEncoder,
             il,
             localSignature: default);
+        AddMethod(
+            metadata,
+            "Left",
+            firstBody,
+            implementation: implementation);
+        AddMethod(
+            metadata,
+            "Right",
+            secondBody,
+            implementation: implementation);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildCalliTwinAssembly(
+        byte[] il,
+        byte[] signature)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        metadata.AddStandaloneSignature(
+            metadata.GetOrAddBlob(signature));
+        AddFixtureType(metadata);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int firstBody = AddBody(
+            bodyEncoder,
+            il,
+            localSignature: default);
+        int secondBody = AddBody(
+            bodyEncoder,
+            il,
+            localSignature: default);
+        AddMethod(metadata, "Left", firstBody);
+        AddMethod(metadata, "Right", secondBody);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildSpoofVoidTwinAssembly()
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AssemblyReferenceHandle spoof =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle spoofVoid =
+            metadata.AddTypeReference(
+                spoof,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Void"));
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        byte[] il = [0x14, 0x2A];
+        int firstBody = AddBody(
+            bodyEncoder,
+            il,
+            localSignature: default);
+        int secondBody = AddBody(
+            bodyEncoder,
+            il,
+            localSignature: default);
+        AddMethod(
+            metadata,
+            "Left",
+            firstBody,
+            signature: AddClassReturnSignature(
+                metadata,
+                spoofVoid));
+        AddMethod(
+            metadata,
+            "Right",
+            secondBody,
+            signature: AddObjectReturnSignature(metadata));
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildHeaderTwinAssembly()
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AddFixtureType(metadata);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int firstBody = AddBody(
+            bodyEncoder,
+            [0x2A],
+            localSignature: default,
+            maxStack: 8,
+            attributes: MethodBodyAttributes.InitLocals);
+        int secondBody = AddBody(
+            bodyEncoder,
+            [0x2A],
+            localSignature: default,
+            maxStack: 9,
+            attributes: MethodBodyAttributes.InitLocals);
+        AddMethod(metadata, "Left", firstBody);
+        AddMethod(metadata, "Right", secondBody);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildLocalCountTwinAssembly()
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        var signature = new BlobBuilder();
+        signature.WriteBytes(
+            new byte[] { 0x07, 0x02, 0x1C, 0x1C });
+        StandaloneSignatureHandle locals =
+            metadata.AddStandaloneSignature(
+                metadata.GetOrAddBlob(signature));
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int firstBody = AddBody(bodyEncoder, [0x2A], locals);
+        int secondBody = AddBody(bodyEncoder, [0x2A], locals);
         AddMethod(metadata, "Left", firstBody);
         AddMethod(metadata, "Right", secondBody);
         return Serialize(metadata, bodies);
@@ -803,30 +1079,55 @@ public class StructuralCloneAnalysisTests
     static int AddBody(
         MethodBodyStreamEncoder bodies,
         byte[] il,
-        StandaloneSignatureHandle localSignature)
+        StandaloneSignatureHandle localSignature,
+        int maxStack = 1,
+        MethodBodyAttributes? attributes = null)
     {
         var code = new BlobBuilder(il.Length);
         code.WriteBytes(il);
         return bodies.AddMethodBody(
             new InstructionEncoder(code),
-            maxStack: 1,
+            maxStack,
             localVariablesSignature: localSignature,
-            attributes: localSignature.IsNil
-                ? MethodBodyAttributes.None
-                : MethodBodyAttributes.InitLocals);
+            attributes: attributes
+                ?? (localSignature.IsNil
+                    ? MethodBodyAttributes.None
+                    : MethodBodyAttributes.InitLocals));
     }
 
     static void AddMethod(
         MetadataBuilder metadata,
         string name,
-        int bodyOffset)
+        int bodyOffset,
+        BlobHandle signature = default,
+        MethodImplAttributes implementation =
+            MethodImplAttributes.IL)
         => metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
-            MethodImplAttributes.IL,
+            implementation,
             metadata.GetOrAddString(name),
-            AddVoidSignature(metadata),
+            signature.IsNil
+                ? AddVoidSignature(metadata)
+                : signature,
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
+
+    static BlobHandle AddClassReturnSignature(
+        MetadataBuilder metadata,
+        TypeReferenceHandle type)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteBytes(
+            new byte[] { 0x00, 0x00, 0x12 });
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(type) * 4 + 1);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddObjectReturnSignature(
+        MetadataBuilder metadata)
+        => metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x1C });
 
     static BlobHandle AddVoidSignature(MetadataBuilder metadata)
     {
