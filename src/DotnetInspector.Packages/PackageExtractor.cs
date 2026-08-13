@@ -594,6 +594,9 @@ public static class PackageExtractor
             }
 
             // Differentiate "package doesn't exist" from "version doesn't exist"
+            // from "some authorized source never answered". A nonempty listing
+            // from one feed must not suppress failures on another — the missing
+            // pin may live only on the unreadable source.
             var knownVersions = await GetVersionsAsync(
                 client,
                 packageName,
@@ -601,11 +604,22 @@ public static class PackageExtractor
                 limit: null,
                 log: null,
                 sourceOptions: sourceOptions).ConfigureAwait(false);
+            if (FeedFailureTelemetry.Current is { HasFailures: true } hopFailures)
+            {
+                return PackageExtractionOutcome.Error(
+                    (hopFailures.DescribeFailure(packageName)
+                        ?? InertString.Format(
+                            TextPolicy.Field,
+                            $"Package '{packageName}' could not be fully resolved from every authorized source."))
+                        .ToString());
+            }
+
             if (knownVersions == null || knownVersions.Count == 0)
             {
                 return PackageExtractionOutcome.Error(
-                    (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
-                        ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                    InertString.Format(
+                        TextPolicy.Field,
+                        $"Package '{packageName}' not found.")
                         .ToString());
             }
 

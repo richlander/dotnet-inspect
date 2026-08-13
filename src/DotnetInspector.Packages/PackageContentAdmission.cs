@@ -4,13 +4,14 @@ namespace DotnetInspector.Packages;
 /// Applies current payload limits to content returned by a package store.
 /// </summary>
 /// <remarks>
-/// Cache hits with a retained archive are revalidated against the full limit
-/// set (archive bytes, expanded bytes, entry count, structural ZIP rules).
-/// When a filesystem <c>RootPath</c> is also present, the extracted tree is
-/// measured as well: consumers open files under that root, so a valid archive
-/// must not launder a damaged or symlink-escaping tree. Entries that keep only
-/// an extracted tree (stripped <c>.nupkg</c>) require a top-level
-/// <c>.nuspec</c> and the same tree walk.
+/// Cache hits with a retained archive are revalidated against the full archive
+/// limit set. When a filesystem <c>RootPath</c> is also present, the extracted
+/// tree is checked for reparse-point escape and expanded-byte limits — not for
+/// archive entry count, which is a ZIP central-directory concept and is always
+/// lower than the post-extract filesystem node count (directories, retained
+/// nupkg, commit marker). Archive-less entries (stripped <c>.nupkg</c>) require
+/// a top-level <c>.nuspec</c> and a full tree walk that counts every filesystem
+/// node toward <see cref="PackagePayloadLimits.MaxEntryCount"/>.
 /// </remarks>
 internal static class PackageContentAdmission
 {
@@ -54,20 +55,19 @@ internal static class PackageContentAdmission
                 }
             }
 
-            // Archive alone is not enough when consumers will open RootPath.
-            if (content.RootPath is not null)
+            // Archive limits already bound ZIP structure. The tree check only
+            // rejects symlink escape and expanded-byte growth under RootPath.
+            if (content.RootPath is not null
+                && !IsExtractedTreeSafeAfterArchive(
+                    content.RootPath,
+                    limits))
             {
-                return IsExtractedTreeWithinLimits(content.RootPath, limits)
-                    ? Outcome.Admissible
-                    : Outcome.LimitsExceeded;
+                return Outcome.LimitsExceeded;
             }
 
             return Outcome.Admissible;
         }
 
-        // No retained archive. Require a top-level .nuspec — empty lib/tools
-        // directories alone are not a usable package and must not mask a
-        // downloadable copy.
         if (content.RootPath is null
             || !HasTopLevelNuspec(content.RootPath))
         {
@@ -80,20 +80,39 @@ internal static class PackageContentAdmission
     }
 
     /// <summary>
-    /// Walks files and directories under <paramref name="root"/> without
-    /// following reparse points. Every filesystem entry counts toward
-    /// <see cref="PackagePayloadLimits.MaxEntryCount"/>; file bytes count
-    /// toward <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Stops as
-    /// soon as either limit is crossed or a symlink/junction is observed.
+    /// Archive-less walk: every filesystem node counts toward
+    /// <see cref="PackagePayloadLimits.MaxEntryCount"/>; file bytes toward
+    /// <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Reparse points
+    /// fail closed.
     /// </summary>
     internal static bool IsExtractedTreeWithinLimits(
         string root,
-        PackagePayloadLimits limits)
+        PackagePayloadLimits limits) =>
+        WalkExtractedTree(
+            root,
+            limits,
+            countEveryNodeTowardEntryLimit: true);
+
+    /// <summary>
+    /// Post-archive walk: do not re-apply ZIP entry count to filesystem nodes;
+    /// still reject reparse points and enforce expanded bytes.
+    /// </summary>
+    internal static bool IsExtractedTreeSafeAfterArchive(
+        string root,
+        PackagePayloadLimits limits) =>
+        WalkExtractedTree(
+            root,
+            limits,
+            countEveryNodeTowardEntryLimit: false);
+
+    static bool WalkExtractedTree(
+        string root,
+        PackagePayloadLimits limits,
+        bool countEveryNodeTowardEntryLimit)
     {
         if (!Directory.Exists(root))
             return false;
 
-        // Reject a RootPath that is itself a reparse point (symlink/junction).
         if (IsReparsePoint(root))
             return false;
 
@@ -108,8 +127,6 @@ internal static class PackageContentAdmission
             List<string> children;
             try
             {
-                // Materialize inside the guard: EnumerateFileSystemEntries is
-                // lazy and MoveNext can throw after the constructor returns.
                 children = Directory
                     .EnumerateFileSystemEntries(directory)
                     .ToList();
@@ -121,14 +138,16 @@ internal static class PackageContentAdmission
 
             foreach (string entry in children)
             {
-                entryCount++;
-                if (entryCount > limits.MaxEntryCount)
-                    return false;
+                if (countEveryNodeTowardEntryLimit)
+                {
+                    entryCount++;
+                    if (entryCount > limits.MaxEntryCount)
+                        return false;
+                }
 
                 FileAttributes attributes;
                 try
                 {
-                    // Do not follow the final component when reading attributes.
                     attributes = File.GetAttributes(entry);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -154,6 +173,10 @@ internal static class PackageContentAdmission
                 {
                     return false;
                 }
+
+                // Retained nupkg bytes were already bounded by MaxArchiveBytes.
+                if (entry.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 if (length > limits.MaxExpandedBytes - expandedBytes)
                     return false;
@@ -192,10 +215,6 @@ internal static class PackageContentAdmission
         }
     }
 
-    /// <summary>
-    /// Reads at most <paramref name="maxBytes"/> from <paramref name="source"/>,
-    /// or returns null when the stream carries more.
-    /// </summary>
     internal static async Task<byte[]?> ReadBoundedAsync(
         Stream source,
         long maxBytes,

@@ -199,16 +199,20 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task CacheHitWithArchive_StillRejectsDamagedExtractedTree()
+    public async Task CacheHitWithArchive_StillRejectsSymlinkDamagedExtractedTree()
     {
         string cacheRoot = TempDirectory();
         string stagingRoot = TempDirectory();
+        string outside = TempDirectory();
         NuGetCache.Initialize(
             "dotnet-inspect-test",
             cacheRoot,
             skipNuGetCache: true);
         try
         {
+            Directory.CreateDirectory(outside);
+            File.WriteAllBytes(Path.Combine(outside, "Outside.dll"), [9]);
+
             string extracted = Path.Combine(stagingRoot, "extracted");
             string assembly = Path.Combine(
                 extracted,
@@ -231,8 +235,8 @@ public sealed class PackagePayloadAcquisitionTests
                 Version,
                 NuGetCache.GetSourceKey(NuGetOrg.Url));
 
-            // Leave the retained nupkg intact but replace the extracted tree
-            // with an oversize entry set that would fail MaxEntryCount.
+            // Leave the retained nupkg intact but plant a symlink escape in the
+            // extracted tree consumers would open.
             string committedRoot = Directory
                 .EnumerateFiles(
                     cacheRoot,
@@ -240,8 +244,10 @@ public sealed class PackagePayloadAcquisitionTests
                     SearchOption.AllDirectories)
                 .Select(Path.GetDirectoryName)
                 .Single()!;
-            for (int i = 0; i < 10; i++)
-                Directory.CreateDirectory(Path.Combine(committedRoot, $"pad{i}"));
+            string libDir = Path.Combine(committedRoot, "lib");
+            if (Directory.Exists(libDir))
+                Directory.Delete(libDir, recursive: true);
+            File.CreateSymbolicLink(libDir, outside);
 
             var store = new FileSystemPackageStore();
             using var client = new HttpClient(new NotFoundHandler());
@@ -251,7 +257,6 @@ public sealed class PackagePayloadAcquisitionTests
                     client,
                     Coordinate(NuGetOrg),
                     store,
-                    limits: new PackagePayloadLimits { MaxEntryCount = 5 },
                     cancellationToken:
                         TestContext.Current.CancellationToken);
 
@@ -263,6 +268,8 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(cacheRoot, recursive: true);
             if (Directory.Exists(stagingRoot))
                 Directory.Delete(stagingRoot, recursive: true);
+            if (Directory.Exists(outside))
+                Directory.Delete(outside, recursive: true);
         }
     }
 

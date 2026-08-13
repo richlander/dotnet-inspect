@@ -367,6 +367,21 @@ public static class NuGetCache
 
         if (Directory.Exists(targetPath))
         {
+            // A concurrent winner may have published between the validity
+            // check and Exists. Re-check before treating the slot as corrupt.
+            if (IsCommittedPackageValid(
+                targetPath,
+                normalizedName,
+                normalizedVersion,
+                sourceKey))
+            {
+                return OpenCommittedPackage(
+                    targetPath,
+                    normalizedName,
+                    normalizedVersion,
+                    sourceKey);
+            }
+
             throw new InvalidDataException(
                 $"Package cache entry '{targetPath}' is incomplete or corrupt. Clear the cache before retrying.");
         }
