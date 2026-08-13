@@ -1962,16 +1962,17 @@ public sealed class SwitchRaisingPass : IIrPass
         return preds;
     }
 
-    /// <summary>No block outside the dispatch chain (or the owned bodies) may branch into a body.</summary>
+    /// <summary>No block outside the dispatch chain may enter a consumed dispatch block or owned body.</summary>
     static bool OnlyReachedByChain(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, int dispatchEnd, HashSet<int> leaveTargets)
     {
         var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
-        if (ownedOffsets.Overlaps(leaveTargets))
+        var consumedDispatchOffsets = Enumerable.Range(s + 1, dispatchEnd - s)
+            .Select(i => blocks[i].StartOffset)
+            .ToHashSet();
+        if (ownedOffsets.Overlaps(leaveTargets) || consumedDispatchOffsets.Overlaps(leaveTargets))
             return false;
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if (owned.Contains(idx))
-                continue;
             foreach (var node in blocks[idx].Children)
             {
                 if (idx >= s
@@ -1982,8 +1983,11 @@ public sealed class SwitchRaisingPass : IIrPass
                     continue;
                 }
                 foreach (int target in TargetsInFunctionScope(node))
-                    if (ownedOffsets.Contains(target))
+                    if (consumedDispatchOffsets.Contains(target)
+                        || (!owned.Contains(idx) && ownedOffsets.Contains(target)))
+                    {
                         return false;
+                    }
             }
         }
         return true;

@@ -93,7 +93,8 @@ public class ComparisonChainSwitchExpressionRaisingTests
         TypeRef governingType,
         bool extraTempRead = false,
         bool nestedCaseEntry = false,
-        bool dispatchHeadCaseEntry = false)
+        bool dispatchHeadCaseEntry = false,
+        bool nestedDispatchEntry = false)
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
         LoadArgument V() => new(0, "v", governingType);
@@ -102,7 +103,7 @@ public class ComparisonChainSwitchExpressionRaisingTests
         Block ValueBlock(int offset, int result) =>
             AddAll(new Block(offset), new StoreLocal(0, int32, new Constant(result, int32)), new Branch(0x50));
 
-        var head = new Block(nestedCaseEntry ? 0x08 : 0x00);
+        var head = new Block(nestedCaseEntry || nestedDispatchEntry ? 0x08 : 0x00);
         if (dispatchHeadCaseEntry)
         {
             var enteringArm = AddAll(new Block(), new Branch(0x40));
@@ -122,9 +123,11 @@ public class ComparisonChainSwitchExpressionRaisingTests
         join.Add(new Return(new LoadLocal(0, int32)));                     // (single read in the faithful shape)
 
         var container = new BlockContainer();
-        if (nestedCaseEntry)
+        if (nestedCaseEntry || nestedDispatchEntry)
         {
-            var enteringArm = AddAll(new Block(), new Branch(0x40));
+            var enteringArm = AddAll(
+                new Block(),
+                new Branch(nestedDispatchEntry ? 0x10 : 0x40));
             container.Add(AddAll(
                 new Block(0x00),
                 new IfStatement(
@@ -185,6 +188,17 @@ public class ComparisonChainSwitchExpressionRaisingTests
         var function = BuildComparisonChainSwitch(
             TypeRef.CoreLib("System", "Int32"),
             dispatchHeadCaseEntry: true);
+
+        Assert.False(RaisesSwitchExpression(function));
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void NestedBranchEnteringSecondComparison_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildComparisonChainSwitch(
+            TypeRef.CoreLib("System", "Int32"),
+            nestedDispatchEntry: true);
 
         Assert.False(RaisesSwitchExpression(function));
     }
