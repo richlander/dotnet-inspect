@@ -475,15 +475,25 @@ public static class PackageExtractor
 
                 try
                 {
-                    var ok = await HttpRetryHelper.DownloadToFileWithRetryAsync(
-                        client,
-                        nupkgUrl,
-                        nupkgPath,
-                        log: log,
-                        auth: NuGetCredentialScope.AuthFor(source, nupkgUrl, log),
-                        trafficKind: NetworkTrafficKind.PackageDownload)
-                        .ConfigureAwait(false);
-                    if (ok)
+                    HttpRetryHelper.DownloadToFileResult download =
+                        await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                            client,
+                            nupkgUrl,
+                            nupkgPath,
+                            log: log,
+                            auth: NuGetCredentialScope.AuthFor(source, nupkgUrl, log),
+                            trafficKind: NetworkTrafficKind.PackageDownload)
+                            .ConfigureAwait(false);
+                    if (download
+                        is HttpRetryHelper.DownloadToFileResult.RejectedPayload)
+                    {
+                        sourceSuppliedUnusablePayload = true;
+                        log?.Invoke(
+                            $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
+                        continue;
+                    }
+
+                    if (download is HttpRetryHelper.DownloadToFileResult.Succeeded)
                     {
                         byte[] archive = await File.ReadAllBytesAsync(
                                 nupkgPath)

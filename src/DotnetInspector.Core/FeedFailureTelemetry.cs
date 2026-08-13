@@ -67,13 +67,22 @@ public static class FeedFailureTelemetry
     private static readonly AsyncLocal<FeedFailureCollector?> CurrentValue = new();
 
     /// <summary>
-    /// Begins collecting source failures. Disposing restores the previous collector.
+    /// Begins collecting source failures. Disposing restores the previous collector
+    /// and merges this scope's failures into it when a parent scope is open.
     /// </summary>
+    /// <remarks>
+    /// Nested scopes keep <see cref="Current"/> isolated while they run so a
+    /// per-source lookup can decide Failed vs Absent from only that source's
+    /// traffic. On dispose, recorded failures still reach the outer hop scope
+    /// that builds the operator-facing message — otherwise a 401 nested under
+    /// latest-version resolution is discarded and reported as "not found".
+    /// </remarks>
     public static IDisposable Scope()
     {
         var previous = CurrentValue.Value;
-        CurrentValue.Value = new FeedFailureCollector();
-        return new CollectorScope(previous);
+        var current = new FeedFailureCollector();
+        CurrentValue.Value = current;
+        return new CollectorScope(previous, current);
     }
 
     /// <summary>The collector for the current scope, or null when nothing is collecting.</summary>
@@ -112,9 +121,20 @@ public static class FeedFailureTelemetry
             NetworkTelemetry.CurrentTrafficKind));
     }
 
-    private sealed class CollectorScope(FeedFailureCollector? previous) : IDisposable
+    private sealed class CollectorScope(
+        FeedFailureCollector? previous,
+        FeedFailureCollector current) : IDisposable
     {
-        public void Dispose() => CurrentValue.Value = previous;
+        public void Dispose()
+        {
+            if (previous is not null)
+            {
+                foreach (FeedFailure failure in current.Failures)
+                    previous.Add(failure);
+            }
+
+            CurrentValue.Value = previous;
+        }
     }
 }
 

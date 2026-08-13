@@ -629,7 +629,8 @@ public class HttpRetryHelperTests
 
         try
         {
-            Assert.True(
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.Succeeded,
                 await HttpRetryHelper.DownloadToFileWithRetryAsync(
                     client,
                     "https://feed.example/package.nupkg",
@@ -639,6 +640,36 @@ public class HttpRetryHelperTests
                         TestContext.Current.CancellationToken,
                     maxDownloadedBytes: 16));
             Assert.Equal(16, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            if (File.Exists(destination))
+                File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFile_RejectsAdvertisedOversizeAsTypedResult()
+    {
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-oversize-download-{Guid.NewGuid():N}");
+        using var client = new HttpClient(
+            new DownloadHandler(new byte[1], contentLength: 600_000_000));
+
+        try
+        {
+            Assert.Equal(
+                HttpRetryHelper.DownloadToFileResult.RejectedPayload,
+                await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client,
+                    "https://feed.example/package.nupkg",
+                    destination,
+                    retryCount: 0,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    maxDownloadedBytes: 16));
+            Assert.False(File.Exists(destination));
         }
         finally
         {
