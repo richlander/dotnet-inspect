@@ -220,11 +220,11 @@ internal static class PackageContentAdmission
                 if (string.IsNullOrEmpty(relative))
                     continue;
 
-                if (relative.Contains("..", StringComparison.Ordinal)
-                    || Path.IsPathRooted(relative))
-                {
+                // Segment rules match PackageArchiveValidator / StorePath: interior
+                // dots (Foo..dll) are legal; only exact "." / ".." segments
+                // and rooted paths are rejected.
+                if (HasUnsafeArchiveRelativePath(relative))
                     return false;
-                }
 
                 bool isDirectory = relative.EndsWith('/')
                     || (string.IsNullOrEmpty(entry.Name)
@@ -495,6 +495,36 @@ internal static class PackageContentAdmission
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// True when an archive-relative path is unsafe for tree matching.
+    /// Segments use <see cref="StorePath.IsSafeSegment"/> so names like
+    /// <c>Foo..dll</c> are allowed while exact <c>..</c> segments are not.
+    /// </summary>
+    static bool HasUnsafeArchiveRelativePath(string relative)
+    {
+        if (relative.Length > PackageArchiveValidator.MaxEntryPathLength
+            || Path.IsPathRooted(relative))
+        {
+            return true;
+        }
+
+        // Keep trailing-slash directory markers addressable: empty segments from
+        // leading/trailing separators are ignored; an empty path is already
+        // skipped by the caller.
+        foreach (string segment in relative.Split(
+                     '/',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (segment.Length > PackageArchiveValidator.MaxEntrySegmentLength
+                || !StorePath.IsSafeSegment(segment))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static bool IsReparsePoint(string path)

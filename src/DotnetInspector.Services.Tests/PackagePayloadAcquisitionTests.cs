@@ -457,6 +457,75 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public void ArchiveBackedTree_AllowsInteriorDoubleDotFileName()
+    {
+        // Segment safety (StorePath.IsSafeSegment) permits Foo..dll; a substring
+        // ".." check would false-reject a legal package entry.
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[] payload = [1, 2, 3];
+            byte[] archive = TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/Foo..dll", payload));
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "net10.0", "Foo..dll"),
+                payload);
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+
+            Assert.True(
+                PackageContentAdmission.ExtractedTreeMatchesArchive(
+                    root,
+                    archive,
+                    retainedNupkgPath: null,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArchiveBackedTree_RejectsExactDotDotSegment()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            // Craft a central-directory path the tree matcher must still refuse
+            // even if ZipArchive surfaces it.
+            byte[] archive = TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/../Escape.dll", [1, 2, 3]));
+            Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                Path.Combine(root, "lib", "Escape.dll"),
+                [1, 2, 3]);
+            File.WriteAllText(
+                Path.Combine(root, NuGetCache.CommitMarkerFileName),
+                "complete");
+
+            Assert.False(
+                PackageContentAdmission.ExtractedTreeMatchesArchive(
+                    root,
+                    archive,
+                    retainedNupkgPath: null,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ArchiveLessTree_CountsDecoyNupkgTowardExpandedBytes()
     {
         string root = TempDirectory();
