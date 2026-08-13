@@ -318,6 +318,44 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
+    public void DispatchHeadDirectBranchEnteringContinueCase_RemainsFlat()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0);
+        dispatch.Add(new ConditionalBranch(
+            new LoadArgument(1, "enterCase", s_bool),
+            0x20));
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x20, 0x30]));
+        loopBody.Add(dispatch);
+
+        var defaultBody = new Block(0x18);
+        defaultBody.Add(new Continue());
+        loopBody.Add(defaultBody);
+
+        var firstCase = new Block(0x20);
+        firstCase.Add(new Continue());
+        loopBody.Add(firstCase);
+
+        var secondCase = new Block(0x30);
+        secondCase.Add(new Continue());
+        loopBody.Add(secondCase);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [new Parameter("value", s_int), new Parameter("enterCase", s_bool)]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+    }
+
+    [Fact]
     public void NestedFunctionBranchOffset_DoesNotEnterOuterContinueCase()
     {
         var loopBody = new BlockContainer();

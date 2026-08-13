@@ -1315,8 +1315,12 @@ public sealed class SwitchRaisingPass : IIrPass
                 continue;
             foreach (var node in blocks[idx].Children)
             {
-                if (idx == s && node is Branch or ConditionalBranch or SwitchBranch)
-                    continue;   // direct dispatch scaffolding is expected; nested entries are not
+                if (idx == s
+                    && ReferenceEquals(node, blocks[idx].Children[^1])
+                    && node is SwitchBranch)
+                {
+                    continue;
+                }
                 foreach (int target in TargetsInFunctionScope(node))
                     if (ownedOffsets.Contains(target))
                         return false;
@@ -1972,9 +1976,10 @@ public sealed class SwitchRaisingPass : IIrPass
             {
                 if (idx >= s
                     && idx <= dispatchEnd
+                    && ReferenceEquals(node, blocks[idx].Children[^1])
                     && node is Branch or ConditionalBranch or SwitchBranch)
                 {
-                    continue;   // direct chain dispatches are expected; nested entries are not
+                    continue;
                 }
                 foreach (int target in TargetsInFunctionScope(node))
                     if (ownedOffsets.Contains(target))
@@ -2258,13 +2263,8 @@ public sealed class SwitchRaisingPass : IIrPass
             if (index == switchIndex)
                 continue;
             foreach (var child in blocks[index].Children)
-            {
-                foreach (var node in child.Descendants.Prepend(child))
-                {
-                    if (Targets(node).Contains(switchOffset))
-                        return false;
-                }
-            }
+                if (TargetsInFunctionScope(child).Contains(switchOffset))
+                    return false;
         }
         return true;
     }
