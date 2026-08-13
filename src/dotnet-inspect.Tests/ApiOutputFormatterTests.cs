@@ -1319,18 +1319,27 @@ public class ApiOutputFormatterTests
     /// cost stays proportional to that declaration rather than to a fixed allowance that
     /// each list is free to spend in full.
     /// </summary>
+    /// <remarks>
+    /// The gate uses current-thread allocation rather than elapsed time so scheduler
+    /// contention cannot spend the budget. Calibration on this input measured 221,415,280
+    /// bytes for the graph resolver and 9,140,435,984 bytes for the per-list walk it
+    /// replaced. Four KiB per parameter leaves nearly three times the current allocation
+    /// while the regressed implementation exceeds the resulting budget by over an order
+    /// of magnitude.
+    /// </remarks>
     [Fact]
     public void ConstraintRestatement_ResolvesManyCyclicListsWithoutPerListWaste()
     {
         const int Lists = 512;
         const int Length = 317;
+        const int AllocationBudgetPerParameter = 4 * 1024;
         string dllPath = EmitManyCyclicListsSample(Lists, Length);
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             var types = surface.Types
                 .Where(candidate => candidate.Name.StartsWith("Many", StringComparison.Ordinal))
@@ -1342,9 +1351,11 @@ public class ApiOutputFormatterTests
                     type.TypeParameters,
                     typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind)));
 
+            long allocationBudget = (long)Lists * Length * AllocationBudgetPerParameter;
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Classifying {Lists} cyclic lists of {Length} parameters took {stopwatch.Elapsed}.");
+                allocated <= allocationBudget,
+                $"Classifying {Lists} cyclic lists of {Length} parameters allocated {allocated:N0} bytes; "
+                    + $"the linear-work budget is {allocationBudget:N0} bytes.");
         }
         finally
         {
