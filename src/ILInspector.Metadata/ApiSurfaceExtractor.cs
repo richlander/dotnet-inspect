@@ -187,9 +187,11 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
 
-                var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
-                var isOperator = IsOperatorMethodName(methodName);
                 var methodAttributes = method.Attributes;
+                var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
+                var isOperator = methodAttributes.HasFlag(MethodAttributes.SpecialName)
+                    && method.GetGenericParameters().Count == 0
+                    && OperatorNames.IsOperatorMethodName(methodName);
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
@@ -1187,9 +1189,6 @@ public static class ApiSurfaceExtractor
         token = blob;
         return true;
     }
-
-    private static bool IsOperatorMethodName(string methodName) =>
-        methodName.StartsWith("op_", StringComparison.Ordinal);
 
     private static void AttachLocalExtensionMethods(ApiSurface surface)
     {

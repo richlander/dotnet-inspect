@@ -1296,7 +1296,106 @@ public sealed class CSharpDeclarationWriterTests
     public void MemberDeclaration_FormatsOperatorsWithTupleReturns(string name, string signature, string expected)
     {
         var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
-        var member = new ApiMember { Name = name, Kind = "method", Signature = signature, IsStatic = true };
+        var member = new ApiMember { Name = name, Kind = "operator", Signature = signature, IsStatic = true };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_LeavesOrdinaryOperatorNamedMemberAsMethod()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "op_AdditionAssignment",
+            Kind = "method",
+            Signature = "void op_AdditionAssignment(int other)",
+        };
+
+        Assert.Equal(
+            "public void op_AdditionAssignment(int other)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(Samples.Tuples other)",
+        "public void operator +=(Samples.Tuples other)")]
+    [InlineData(
+        "op_CheckedAdditionAssignment",
+        "void op_CheckedAdditionAssignment(Samples.Tuples other)",
+        "public void operator checked +=(Samples.Tuples other)")]
+    [InlineData(
+        "op_ModulusAssignment",
+        "void op_ModulusAssignment(Samples.Tuples other)",
+        "public void operator %=(Samples.Tuples other)")]
+    [InlineData(
+        "op_CheckedMultiplicationAssignment",
+        "void op_CheckedMultiplicationAssignment(Samples.Tuples other)",
+        "public void operator checked *=(Samples.Tuples other)")]
+    [InlineData(
+        "op_IncrementAssignment",
+        "void op_IncrementAssignment()",
+        "public void operator ++()")]
+    public void MemberDeclaration_FormatsInstanceAssignmentOperators(
+        string name,
+        string signature,
+        string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember { Name = name, Kind = "operator", Signature = signature };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    [InlineData(
+        "op_CheckedModulusAssignment",
+        "void op_CheckedModulusAssignment(int other)",
+        false,
+        null,
+        "public void op_CheckedModulusAssignment(int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "Samples.Tuples op_AdditionAssignment(Samples.Tuples left, Samples.Tuples right)",
+        true,
+        null,
+        "public static Samples.Tuples op_AdditionAssignment(Samples.Tuples left, Samples.Tuples right)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "Samples.Tuples op_AdditionAssignment(int other)",
+        false,
+        null,
+        "public Samples.Tuples op_AdditionAssignment(int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(int left, int right)",
+        false,
+        null,
+        "public void op_AdditionAssignment(int left, int right)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(int other)",
+        false,
+        "private",
+        "private void op_AdditionAssignment(int other)")]
+    public void MemberDeclaration_LeavesNonCSharpAssignmentShapesAsMethods(
+        string name,
+        string signature,
+        bool isStatic,
+        string? accessibility,
+        string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = signature,
+            IsStatic = isStatic,
+            Accessibility = accessibility,
+        };
 
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }

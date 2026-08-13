@@ -123,6 +123,88 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void OperatorProjectionRequiresValidatedInstanceAssignmentShape()
+    {
+        var valueType = TypeRef.Definition(
+            "Fixture",
+            "",
+            "Vec",
+            ValueTypeHint.ValueType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var method = new MethodRef(
+            valueType,
+            "op_AdditionAssignment",
+            voidType,
+            [valueType],
+            HasThis: true)
+        {
+            IsOperator = MetadataFactState.Yes,
+            IsSpecialName = true,
+        };
+        Call InstanceCall(MethodRef callee, bool includeOther = true)
+            => new(
+                callee,
+                isVirtual: false,
+                includeOther
+                    ? [new LoadArgument(0, "value", valueType), new LoadArgument(1, "other", valueType)]
+                    : [new LoadArgument(0, "value", valueType)]);
+
+        Assert.Equal(
+            "AssignmentStatement",
+            AnnotatedSourceNodeKindProjection.OperatorKind(InstanceCall(method)));
+        Assert.Null(AnnotatedSourceNodeKindProjection.OperatorKind(
+            InstanceCall(method with { IsOperator = MetadataFactState.No })));
+        Assert.Null(AnnotatedSourceNodeKindProjection.OperatorKind(
+            InstanceCall(method with { IsSpecialName = false })));
+        Assert.Null(AnnotatedSourceNodeKindProjection.OperatorKind(InstanceCall(method, includeOther: false)));
+    }
+
+    [Fact]
+    public void CheckedInstanceAssignmentPublishesCheckedStatementRange()
+    {
+        using var source = MetadataSource.Open(typeof(PrintedBodyMapTests).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(PrintedBodyMapTests).FullName!,
+            nameof(CheckedInstanceAssignment));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+
+        var map = PrintedBodyMap.Create(ranges);
+        var statement = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "CheckedStatement"
+                && Text(map, node.Extent).Contains("+=", StringComparison.Ordinal));
+
+        Assert.Contains("checked {", Text(map, statement.Extent), StringComparison.Ordinal);
+    }
+
+    static int CheckedInstanceAssignment(PrintedInstanceAssignmentValue other)
+    {
+        var value = default(PrintedInstanceAssignmentValue);
+        checked
+        {
+            value += other;
+        }
+        return value.Value;
+    }
+
+    public struct PrintedInstanceAssignmentValue
+    {
+        public int Value;
+
+        public void operator +=(PrintedInstanceAssignmentValue other)
+        {
+            Value += other.Value;
+        }
+
+        public void operator checked +=(PrintedInstanceAssignmentValue other)
+        {
+            Value = checked(Value + other.Value);
+        }
+    }
+
+    [Fact]
     public void ReplayToleratesKindsAddedByANewerProducer()
     {
         var map = new PrintedBodyMap(

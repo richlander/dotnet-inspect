@@ -62,17 +62,78 @@ public class OperatorNamesTests
         => Assert.Equal(expected, OperatorNames.FormatDisplayName(input));
 
     [Theory]
+    [InlineData("op_AdditionAssignment", "operator +=")]
+    [InlineData("op_CheckedAdditionAssignment", "checked operator +=")]
+    [InlineData("op_ModulusAssignment", "operator %=")]
+    [InlineData("op_CheckedMultiplicationAssignment", "checked operator *=")]
+    [InlineData("op_IncrementAssignment", "operator ++")]
+    [InlineData("op_CheckedIncrementAssignment", "checked operator ++")]
+    public void Assignment_operators(string input, string expected)
+        => Assert.Equal(expected, OperatorNames.FormatDisplayName(input));
+
+    [Theory]
     [InlineData("ToString")]
     [InlineData("GetHashCode")]
     [InlineData("Equals")]
     [InlineData("get_Length")]
     [InlineData("set_Value")]
+    [InlineData("op_CheckedModulusAssignment")]
+    [InlineData("op_CheckedBitwiseAndAssignment")]
+    [InlineData("op_CheckedUnsignedRightShiftAssignment")]
     public void Non_operator_names_pass_through(string input)
         => Assert.Equal(input, OperatorNames.FormatDisplayName(input));
 
     [Fact]
     public void Unknown_op_prefix_passes_through()
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
+
+    [Theory]
+    [InlineData("op_AdditionAssignment")]
+    [InlineData("op_CheckedAdditionAssignment")]
+    [InlineData("op_CheckedMultiplicationAssignment")]
+    [InlineData("op_IncrementAssignment")]
+    [InlineData("op_CheckedIncrementAssignment")]
+    [InlineData("op_Exponent")]
+    [InlineData("op_IntegerDivision")]
+    [InlineData("op_Concatenate")]
+    [InlineData("op_Like")]
+    public void Recognizes_language_operator_names(string input)
+        => Assert.True(OperatorNames.IsOperatorMethodName(input));
+
+    [Theory]
+    [InlineData("op_Custom")]
+    [InlineData("op_SomeFutureOp")]
+    [InlineData("op_CheckedModulusAssignment")]
+    [InlineData("op_CheckedBitwiseAndAssignment")]
+    [InlineData("op_CheckedUnsignedRightShiftAssignment")]
+    public void Rejects_unknown_op_prefix_names(string input)
+        => Assert.False(OperatorNames.IsOperatorMethodName(input));
+
+    [Theory]
+    [InlineData("op_AdditionAssignment", false, true, "void", 1, true)]
+    [InlineData("op_CheckedMultiplicationAssignment", false, true, "void", 1, true)]
+    [InlineData("op_IncrementAssignment", false, true, "void", 0, true)]
+    [InlineData("op_AdditionAssignment", true, true, "void", 1, false)]
+    [InlineData("op_AdditionAssignment", false, false, "void", 1, false)]
+    [InlineData("op_AdditionAssignment", false, true, "int", 1, false)]
+    [InlineData("op_AdditionAssignment", false, true, "void", 2, false)]
+    [InlineData("op_IncrementAssignment", false, true, "void", 1, false)]
+    [InlineData("op_CheckedModulusAssignment", false, true, "void", 1, false)]
+    public void CSharp_instance_assignment_operator_shape(
+        string name,
+        bool isStatic,
+        bool isPublic,
+        string returnType,
+        int parameterCount,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.IsCSharpInstanceAssignmentOperator(
+                name,
+                isStatic,
+                isPublic,
+                returnType,
+                parameterCount));
 
     [Theory]
     [InlineData("op_CheckedAddition", "op_Addition")]
@@ -84,6 +145,9 @@ public class OperatorNamesTests
     [InlineData("op_CheckedUnaryNegation", "op_UnaryNegation")]
     [InlineData("op_CheckedExplicit", "op_Explicit")]
     [InlineData("op_CheckedImplicit", "op_Implicit")]
+    [InlineData("op_CheckedAdditionAssignment", "op_AdditionAssignment")]
+    [InlineData("op_CheckedMultiplicationAssignment", "op_MultiplicationAssignment")]
+    [InlineData("op_CheckedIncrementAssignment", "op_IncrementAssignment")]
     public void UncheckedOperator_maps_checked_operator_to_its_sibling(string input, string expected)
         => Assert.Equal(expected, OperatorNames.UncheckedOperator(input));
 
@@ -91,9 +155,25 @@ public class OperatorNamesTests
     [InlineData("op_Addition")]
     [InlineData("op_Explicit")]
     [InlineData("op_CheckedModulus")]
+    [InlineData("op_CheckedModulusAssignment")]
+    [InlineData("op_CheckedBitwiseAndAssignment")]
+    [InlineData("op_CheckedUnsignedRightShiftAssignment")]
     [InlineData("op_Checked")]
     [InlineData("get_Length")]
     [InlineData("ToString")]
     public void UncheckedOperator_returns_null_for_non_checked_or_unpaired_names(string input)
         => Assert.Null(OperatorNames.UncheckedOperator(input));
+
+    [Theory]
+    [InlineData("op_Addition", "op_CheckedAddition")]
+    [InlineData("op_Explicit", "op_CheckedExplicit")]
+    [InlineData("op_AdditionAssignment", "op_CheckedAdditionAssignment")]
+    [InlineData("op_Implicit", null)]
+    [InlineData("op_Modulus", null)]
+    [InlineData("op_Equality", null)]
+    [InlineData("get_Length", null)]
+    public void CheckedOperator_maps_only_operators_with_checked_siblings(
+        string input,
+        string? expected)
+        => Assert.Equal(expected, OperatorNames.CheckedOperator(input));
 }

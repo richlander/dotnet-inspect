@@ -19,7 +19,7 @@ public class SkeletonEmitTests
     const string FixtureType = "ILInspector.Decompiler.Tests.SkeletonEmitFixture";
 
     [Fact]
-    public void SkeletonCompilesPastExplicitImplAndConstEnum()
+    public void SkeletonCompilesPastWholeModuleHazards()
     {
         var sum = Assert.Single(FidelityCheck.Evaluate(
             typeof(SkeletonEmitFixture).Assembly.Location,
@@ -27,8 +27,9 @@ public class SkeletonEmitTests
             method => method.Method == "Sum"));
 
         // The point is that the whole-module skeleton compiles: an unhandled
-        // explicit impl (CS0106) or const enum (CS0266) would surface here as a
-        // RecompileFail/ContextFail, not as the clean opcode comparison below.
+        // explicit impl / instance assignment operator (CS0106) or const enum
+        // (CS0266) would surface here as a RecompileFail/ContextFail, not as the
+        // clean opcode comparison below.
         Assert.False(sum.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton failed to compile for {FixtureType}.Sum: {sum.Status} / {sum.Detail}");
@@ -49,6 +50,18 @@ public class SkeletonEmitTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void SkeletonPreservesOrdinaryOperatorNamedMethods()
+    {
+        const string Type = "ILInspector.Decompiler.Tests.SkeletonOrdinaryOperatorNameHazard";
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonEmitFixture).Assembly.Location,
+            type => type == Type,
+            method => method.Method == "Invoke"));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }
 
     [Theory]

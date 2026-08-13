@@ -95,6 +95,13 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
 
     /// <summary>
+    /// The generic member definition's return type before declaring-type or
+    /// method type-argument substitution. Paired with
+    /// <see cref="DefinitionParameterTypes"/> for exact MethodDef identity.
+    /// </summary>
+    public TypeRef? DefinitionReturnType { get; init; }
+
+    /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
     /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
     /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag),

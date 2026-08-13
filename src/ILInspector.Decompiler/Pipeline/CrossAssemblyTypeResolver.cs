@@ -179,6 +179,10 @@ internal sealed class CrossAssemblyTypeResolver
             DeclaringType = UpgradeTypeReference(method.DeclaringType),
             ReturnType = UpgradeTypeReference(method.ReturnType),
             ParameterTypes = [.. method.ParameterTypes.Select(UpgradeTypeReference)],
+            DefinitionReturnType = method.DefinitionReturnType is null
+                ? null
+                : UpgradeTypeReference(method.DefinitionReturnType),
+            DefinitionParameterTypes = [.. method.DefinitionParameterTypes.Select(UpgradeTypeReference)],
             TypeArguments = [.. method.TypeArguments.Select(UpgradeTypeReference)],
         };
 
@@ -335,7 +339,13 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
-                    FactState(MethodDefinitionFacts.IsOperator(method, callee.Name, callee.HasThis)),
+                    FactState(MethodDefinitionFacts.IsOperator(
+                        method,
+                        callee.Name,
+                        callee.HasThis,
+                        callee.ReturnType,
+                        callee.ParameterTypes,
+                        parameterRefKinds)),
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
             }
 
@@ -422,18 +432,44 @@ internal sealed class CrossAssemblyTypeResolver
             ? callee.DeclaringType.TypeArguments
             : [];
         var methodArguments = callee.TypeArguments;
-        var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
-        if (!SameSignatureType(returnType, callee.ReturnType, allowCoreLibraryAliases))
+        var definitionReturnType = callee.DefinitionReturnType;
+        if (definitionReturnType is not null
+            && !SameSignatureType(signature.ReturnType, definitionReturnType, allowCoreLibraryAliases))
+        {
             return false;
+        }
+        var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
+        if (definitionReturnType is null
+            && !SameSignatureType(returnType, callee.ReturnType, allowCoreLibraryAliases))
+        {
+            return false;
+        }
 
         if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
             return false;
+        bool hasDefinitionParameters = !callee.DefinitionParameterTypes.IsDefaultOrEmpty;
+        if (hasDefinitionParameters
+            && signature.ParameterTypes.Length != callee.DefinitionParameterTypes.Length)
+        {
+            return false;
+        }
         var parameters = ImmutableArray.CreateBuilder<TypeRef>(signature.ParameterTypes.Length);
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
-            var parameter = signature.ParameterTypes[i].Instantiate(typeArguments, methodArguments);
-            if (!SameSignatureType(parameter, callee.ParameterTypes[i], allowCoreLibraryAliases))
+            if (hasDefinitionParameters
+                && !SameSignatureType(
+                    signature.ParameterTypes[i],
+                    callee.DefinitionParameterTypes[i],
+                    allowCoreLibraryAliases))
+            {
                 return false;
+            }
+            var parameter = signature.ParameterTypes[i].Instantiate(typeArguments, methodArguments);
+            if (!hasDefinitionParameters
+                && !SameSignatureType(parameter, callee.ParameterTypes[i], allowCoreLibraryAliases))
+            {
+                return false;
+            }
             parameters.Add(parameter);
         }
 
@@ -806,7 +842,6 @@ internal sealed class CrossAssemblyTypeResolver
 
     static bool NeedsOperatorFact(MethodRef method)
         => method.IsOperator == MetadataFactState.Unknown
-            && !method.HasThis
             && method.Name.StartsWith("op_", StringComparison.Ordinal);
 
     static bool NeedsAccessorFact(MethodRef method)

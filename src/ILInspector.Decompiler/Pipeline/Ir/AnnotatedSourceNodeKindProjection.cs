@@ -1,3 +1,5 @@
+using CSharpText;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -162,8 +164,31 @@ internal static class AnnotatedSourceNodeKindProjection
     /// </summary>
     internal static string? OperatorKind(Call call)
     {
-        if (call.Callee.HasThis
-            || (call.Callee.IsOperator == MetadataFactState.No || !call.Callee.IsSpecialName)
+        if (call.Callee.HasThis)
+        {
+            if (call.Callee.IsOperator != MetadataFactState.Yes || !call.Callee.IsSpecialName)
+                return null;
+
+            string instanceName = call.Callee.Name;
+            bool isChecked = instanceName.StartsWith("op_Checked", StringComparison.Ordinal);
+            string? suffix = isChecked
+                ? instanceName["op_Checked".Length..]
+                : instanceName.StartsWith("op_", StringComparison.Ordinal)
+                    ? instanceName["op_".Length..]
+                    : null;
+            string? symbol = suffix is null
+                ? null
+                : isChecked
+                    ? OperatorNames.MapCheckedAssignment(suffix)
+                    : OperatorNames.MapAssignment(suffix);
+            bool isIncrement = suffix is "IncrementAssignment" or "DecrementAssignment";
+            int expectedArgumentCount = isIncrement ? 1 : 2;
+            return symbol is not null && call.Arguments.Count == expectedArgumentCount
+                ? "AssignmentStatement"
+                : null;
+        }
+
+        if ((call.Callee.IsOperator == MetadataFactState.No || !call.Callee.IsSpecialName)
                 && !MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
         {
             return null;

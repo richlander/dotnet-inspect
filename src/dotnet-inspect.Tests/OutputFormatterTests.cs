@@ -1153,6 +1153,44 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PopulateMemberSections_FormatsOnlyTypedOperatorsAsOperators()
+    {
+        var type = new ApiType
+        {
+            Name = "Ord",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = "op_AdditionAssignment",
+                    Signature = "void op_AdditionAssignment(int value)"
+                },
+                new ApiMember
+                {
+                    Kind = "operator",
+                    Name = "op_AdditionAssignment",
+                    Signature = "void op_AdditionAssignment(Ord value)"
+                }
+            ]
+        };
+        var methods = new MethodsView();
+        var operators = new OperatorsView();
+
+        ApiOutputFormatter.PopulateMemberSections(
+            new TypeView(), methods, operators, new ExplicitInterfaceImplementationsView(),
+            new ExtensionMethodsView(), new EventsView(), type, new MemberOptions());
+
+        Assert.Equal("op_AdditionAssignment", Assert.Single(methods.Rows!).Name);
+        Assert.Equal("operator +=", Assert.Single(operators.Rows!).Name);
+
+        var (table, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
+        Assert.Contains(table.Rows!, row => row.Kind.Contains("method") && row.Name == "op_AdditionAssignment");
+        Assert.Contains(table.Rows!, row => row.Kind.Contains("operator") && row.Name == "operator +=");
+    }
+
+    [Fact]
     public async Task WriteSignatureDecodeWarning_EmitsNothingWhenNoMemberDegraded()
     {
         Assert.Empty(await CaptureErrorAsync(() => ApiOutputFormatter.WriteSignatureDecodeWarning(new TypeView())));
