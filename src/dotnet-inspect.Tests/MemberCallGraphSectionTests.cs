@@ -9,6 +9,116 @@ namespace DotnetInspector.Tests;
 public class MemberCallGraphSectionTests
 {
     [Fact]
+    public async Task PreResolvedBroadSection_IsRejectedAfterDottedLookupSelectsOverloadInventory()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.MethodGroups],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains($"Select value '{SectionNames.MethodGroups}' not found.", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedDottedStructuralDiscovery_UsesTheLookupSelectedPipeline()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.MethodGroups],
+            Discover = [SectionNames.MethodGroups],
+            Schema = true,
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains($"Section '{SectionNames.MethodGroups}' not found.", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedDottedSection_WithRawSelector_UsesTheLookupSelectedPipeline()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            Select = [SectionNames.Methods],
+            IncludeSections = [SectionNames.Signature],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedSection_OverridesStaleRawSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = [SectionNames.Methods],
+            IncludeSections = [SectionNames.Signature],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task EmptyPreResolvedSection_DoesNotResolveStaleRawSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            Select = [SectionNames.Methods],
+            IncludeSections = [],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedDetailSection_IgnoresStaleAllSelectorDuringAutoSelection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = [SelectResolver.AllSelector],
+            IncludeSections = [SectionNames.Signature],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task CallGraphSection_RendersEdgeTableByDefault()
     {
         var result = await RunCallGraphAsync(

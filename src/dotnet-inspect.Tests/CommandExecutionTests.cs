@@ -4622,6 +4622,163 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(sections);
     }
 
+    [Fact]
+    public async Task Member_DottedOverloadInventory_BareSelectUsesActualPipeline()
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-S", "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "--tips", "q");
+
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Contains("## Methods", dotted.Output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--tsv")]
+    public async Task Member_DottedOverloadInventory_GlobCardinalityUsesActualPipeline(
+        string format)
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-S", "Member*", format, "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "Member*", format, "--tips", "q");
+
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Equal(explicitMember.Error, dotted.Error);
+        Assert.NotEqual(string.Empty, dotted.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_MultiSectionGlobFailsActualCardinality()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", "Call*", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_AcceptsOverloadOnlySection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SectionNames.SourceLocations, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Equal(string.Empty, error);
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_SchemaUsesActualPipeline()
+    {
+        var broadOnly = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-D", SectionNames.MethodGroups, "--schema", "--count", "--tips", "q");
+        var sourceLocations = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-D", SectionNames.SourceLocations, "--schema", "--count", "--tips", "q");
+
+        Assert.Equal(1, broadOnly.Exit);
+        Assert.Equal(string.Empty, broadOnly.Output.Trim());
+        Assert.Contains($"Section '{SectionNames.MethodGroups}' not found.", broadOnly.Error, StringComparison.Ordinal);
+        Assert.Equal(0, sourceLocations.Exit);
+        Assert.NotEqual(string.Empty, sourceLocations.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_DottedStructuralSchema_IgnoresSelectLikeExplicitMemberForm()
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-D", "--schema", "-S", "Bogus", "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-m", "Clone", "-D", "--schema", "-S", "Bogus", "--tips", "q");
+
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Equal(explicitMember.Error, dotted.Error);
+        Assert.DoesNotContain("Bogus", dotted.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedDetail_RejectsInventoryOnlySections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SectionNames.Methods, "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(
+            $"Select value '{SectionNames.Methods}' not found.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DottedLookup_ReportsTreeFormatConflictBeforeLookup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Missing.Type.Member", "--platform", "System.Runtime",
+            "-S", SectionNames.CallGraph, "--tree", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(
+            "--tree is a standalone output format and cannot combine with another output format.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_DottedLookup_ReportsSelectorlessCountErrorBeforeLookup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Missing.Type.Member", "--platform", "System.Runtime",
+            "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Type_TypeInfo_ProjectsSynthesizedFactTableColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", SectionNames.TypeInfo, "--tsv", "--columns", "Field", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("field\n", output, StringComparison.Ordinal);
+        Assert.Contains("\nType\n", output, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error);
+    }
+
     private static List<string> SectionHeadings(string output) =>
         [.. output.Split('\n')
             .Select(line => line.TrimEnd('\r'))

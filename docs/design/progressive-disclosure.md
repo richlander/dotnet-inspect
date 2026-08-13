@@ -111,6 +111,12 @@ performance, metadata, SourceLink, and other domains together.
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
 
+Structural discovery normally avoids target inspection. Dotted
+`member Type.Member` arguments are the exception because the last dot may also
+belong to a namespace-qualified or nested type. The command resolves that
+boundary against metadata first, then reports the structural schema of the
+resulting broad-member or overload-inventory pipeline.
+
 ## Network and source capabilities
 
 Package acquisition and symbol/source acquisition are separate.

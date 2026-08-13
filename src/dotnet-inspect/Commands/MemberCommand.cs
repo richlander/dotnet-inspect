@@ -102,20 +102,36 @@ public static class MemberCommand
                     MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
                 };
             }
-            else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
+
+            memberPipeline = ApiMemberSectionPipelines.Create(options);
+
+            // Structural discovery ignores -S. Once lookup has identified the actual member
+            // pipeline, report that schema directly just as the non-dotted path does.
+            if (options.Discover is not null && !options.EffectiveDiscovery)
             {
-                var actualPipeline = ApiMemberSectionPipelines.Create(options);
-                var actualSelect = SelectResolver.ResolveSelectAsSections(
-                    options.Select,
-                    actualPipeline.SelectableSectionNames,
-                    actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap(),
-                    selectDefault: options.SelectDefault);
-                if (SelectOutput.WriteUnresolved(actualSelect))
-                    return 1;
-                if (actualSelect.Sections != null)
-                    options = options with { IncludeSections = actualSelect.Sections };
+                return ApiCommand.ExecuteStructuralTypeDiscovery(options, memberPipeline);
             }
+
+            if (options.MemberSelectionDeferredToLookup)
+            {
+                if (ApiCommand.ReresolveSectionsForMemberLookup(options) is not { } resolved)
+                    return 1;
+                options = resolved;
+                memberPipeline = ApiMemberSectionPipelines.Create(options);
+            }
+            else if (ApiCommand.RevalidateResolvedMemberSections(options, memberPipeline) is { } revalidated)
+            {
+                options = revalidated;
+                if (options.MemberPipelineDeferredToLookup)
+                {
+                    if (ApiCommand.FinalizeResolvedMemberSelection(options, memberPipeline)
+                        is not { } finalized)
+                        return 1;
+                    options = finalized;
+                }
+            }
+            else
+                return 1;
 
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
@@ -165,7 +181,16 @@ public static class MemberCommand
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
                 if (autoOverloads.Count == 1)
+                {
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                    var detailPipeline = ApiMemberSectionPipelines.Create(effectiveOptions);
+                    if (ApiCommand.RevalidateResolvedMemberSections(effectiveOptions, detailPipeline)
+                        is not { } detailSections
+                        || ApiCommand.FinalizeResolvedMemberSelection(detailSections, detailPipeline)
+                        is not { } detailOptions)
+                        return 1;
+                    effectiveOptions = detailOptions;
+                }
             }
 
             if (effectiveOptions.OverloadIndex.HasValue
@@ -380,7 +405,11 @@ public static class MemberCommand
                 var schema = ApiCommand.ToQueryableSchema(
                     ApiCommand.GetTypeDocumentSchema(effectiveOptions),
                     effectiveOptions);
-                if (!ProjectionDiagnostics.ValidateProjection(schema, projectionSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                if (!ApiCommand.ValidateTypeProjection(
+                        schema,
+                        projectionSections,
+                        effectiveOptions.Fields,
+                        effectiveOptions.Columns))
                     return 1;
             }
 
@@ -495,8 +524,9 @@ public static class MemberCommand
         if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
-        if ((options.SelectDefault && options.Select is null)
-            || IsPureSelector(options.Select, SelectResolver.AllSelector))
+        if (!options.MemberSectionsPreResolved
+            && ((options.SelectDefault && options.Select is null)
+                || IsPureSelector(options.Select, SelectResolver.AllSelector)))
             return false;
 
         sections = SingleOverloadSectionNames

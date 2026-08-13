@@ -284,6 +284,28 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    /// <summary>
+    /// True when a dotted type argument may resolve either as a namespace-qualified type or as
+    /// <c>Type.Member</c>. The member pipeline, selection, and structural discovery stay deferred
+    /// until metadata lookup determines which context is real.
+    /// </summary>
+    public bool MemberPipelineDeferredToLookup { get; init; }
+
+    /// <summary>
+    /// True when raw section selectors must also wait for the member pipeline selected by lookup.
+    /// Pre-resolved <see cref="ApiOptions.IncludeSections"/> still validate argument-only contracts
+    /// in the preamble, then use <see cref="MemberPipelineDeferredToLookup"/> for post-lookup
+    /// pipeline validation.
+    /// </summary>
+    public bool MemberSelectionDeferredToLookup { get; init; }
+
+    /// <summary>
+    /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
+    /// preamble. Retained raw selectors are provenance only and must not override that set or
+    /// control later member-pipeline transitions.
+    /// </summary>
+    public bool MemberSectionsPreResolved { get; init; }
+
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }
