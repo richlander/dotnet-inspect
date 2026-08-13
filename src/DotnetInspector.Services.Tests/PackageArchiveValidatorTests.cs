@@ -88,6 +88,30 @@ public sealed class PackageArchiveValidatorTests
             Validate(archive));
     }
 
+    /// <summary>
+    /// ZipArchive does not treat a saturated classic central-directory size as
+    /// a ZIP64 trigger. A payload that saturates only that field while pointing
+    /// classic offset at one directory and ZIP64 at another must not validate
+    /// the ZIP64 sizes while the decoder extracts the classic directory.
+    /// </summary>
+    [Fact]
+    public void Validate_RejectsZip64TriggeredOnlyByClassicDirectorySize()
+    {
+        byte[] archive = WithZip64DirectorySizeOnlySaturation(
+            decoyContent: "hello"u8.ToArray(),
+            realContent: new byte[64 * 1024]);
+
+        var rejected = Assert.IsType<PackageArchiveValidation.Rejected>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxExpandedBytes = 4096 },
+                TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(
+            "expands to more than",
+            rejected.Reason,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Validate_AcceptsDirectoryEntries()
     {
@@ -671,6 +695,115 @@ public sealed class PackageArchiveValidatorTests
     /// tiny decoy entry while a second, denser central directory and local
     /// payload sit where a prefix-tolerant reader would look.
     /// </summary>
+    static byte[] WithZip64DirectorySizeOnlySaturation(
+        byte[] decoyContent,
+        byte[] realContent)
+    {
+        byte[] decoyName = "ok.txt"u8.ToArray();
+        byte[] realName = "lib/net10.0/A.dll"u8.ToArray();
+        uint decoyCrc = Crc32(decoyContent);
+        uint realCrc = Crc32(realContent);
+
+        using var ms = new MemoryStream();
+        long decoyLocal = ms.Position;
+        WriteLocalStored(ms, decoyName, decoyContent, decoyCrc);
+        long realLocal = ms.Position;
+        WriteLocalStored(ms, realName, realContent, realCrc);
+
+        long dirA = ms.Position;
+        WriteCentralStored(
+            ms,
+            decoyName,
+            decoyContent.Length,
+            decoyCrc,
+            (uint)decoyLocal);
+        long dirAEnd = ms.Position;
+        uint sizeA = (uint)(dirAEnd - dirA);
+
+        long zip64Eocd = ms.Position;
+        Span<byte> zip64 = stackalloc byte[56];
+        BinaryPrimitives.WriteUInt32LittleEndian(zip64, 0x06064B50);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64[4..], 44);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip64[12..], 45);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip64[14..], 45);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64[24..], 1);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64[32..], 1);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64[40..], sizeA);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64[48..], (ulong)dirA);
+        ms.Write(zip64);
+
+        long dirB = ms.Position;
+        WriteCentralStored(
+            ms,
+            realName,
+            realContent.Length,
+            realCrc,
+            (uint)realLocal);
+
+        Span<byte> locator = stackalloc byte[20];
+        BinaryPrimitives.WriteUInt32LittleEndian(locator, 0x07064B50);
+        BinaryPrimitives.WriteUInt64LittleEndian(locator[8..], (ulong)zip64Eocd);
+        BinaryPrimitives.WriteUInt32LittleEndian(locator[16..], 1);
+        ms.Write(locator);
+
+        Span<byte> eocd = stackalloc byte[22];
+        BinaryPrimitives.WriteUInt32LittleEndian(eocd, 0x06054B50);
+        BinaryPrimitives.WriteUInt16LittleEndian(eocd[8..], 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(eocd[10..], 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(eocd[12..], uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(eocd[16..], (uint)dirB);
+        ms.Write(eocd);
+        return ms.ToArray();
+
+        static void WriteLocalStored(
+            Stream s,
+            byte[] name,
+            byte[] data,
+            uint crc)
+        {
+            Span<byte> header = stackalloc byte[30];
+            BinaryPrimitives.WriteUInt32LittleEndian(header, 0x04034B50);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[14..], crc);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[18..], (uint)data.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[22..], (uint)data.Length);
+            BinaryPrimitives.WriteUInt16LittleEndian(header[26..], (ushort)name.Length);
+            s.Write(header);
+            s.Write(name);
+            s.Write(data);
+        }
+
+        static void WriteCentralStored(
+            Stream s,
+            byte[] name,
+            int size,
+            uint crc,
+            uint localOffset)
+        {
+            Span<byte> header = stackalloc byte[46];
+            BinaryPrimitives.WriteUInt32LittleEndian(header, 0x02014B50);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[16..], crc);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[20..], (uint)size);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[24..], (uint)size);
+            BinaryPrimitives.WriteUInt16LittleEndian(header[28..], (ushort)name.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[42..], localOffset);
+            s.Write(header);
+            s.Write(name);
+        }
+
+        static uint Crc32(byte[] data)
+        {
+            uint crc = 0xFFFFFFFF;
+            foreach (byte b in data)
+            {
+                crc ^= b;
+                for (int i = 0; i < 8; i++)
+                    crc = (crc >> 1) ^ (0xEDB88320u & (uint)(-(int)(crc & 1)));
+            }
+
+            return crc ^ 0xFFFFFFFF;
+        }
+    }
+
     static byte[] WithDualCentralDirectoryDecoy(
         byte[] ordinary,
         byte[] decoyContent,

@@ -499,11 +499,15 @@ static class ZipDirectoryPreflight
         uint directorySize = ReadUInt32(record, 12);
         uint directoryOffset = ReadUInt32(record, 16);
 
+        // Match ZipArchive's ZIP64 trigger set. The runtime consults disk,
+        // entry-count, and central-directory offset fields; it does not treat a
+        // saturated SizeOfCentralDirectory alone as ZIP64. Following that field
+        // would let a payload point the preflight at a ZIP64 directory while
+        // the decoder still opens the classic one.
         bool saturated = thisDisk == ushort.MaxValue
             || directoryDisk == ushort.MaxValue
             || totalEntries == ushort.MaxValue
             || entriesOnDisk == ushort.MaxValue
-            || directorySize == uint.MaxValue
             || directoryOffset == uint.MaxValue;
         if (!saturated)
         {
@@ -522,12 +526,27 @@ static class ZipDirectoryPreflight
                 out directory);
         }
 
-        return ReadZip64(archive, end, out directory);
+        return ReadZip64(
+            archive,
+            end,
+            thisDisk,
+            directoryDisk,
+            entriesOnDisk,
+            totalEntries,
+            directorySize,
+            directoryOffset,
+            out directory);
     }
 
     static string? ReadZip64(
         ReadOnlySpan<byte> archive,
         int end,
+        ushort classicThisDisk,
+        ushort classicDirectoryDisk,
+        ushort classicEntriesOnDisk,
+        ushort classicTotalEntries,
+        uint classicDirectorySize,
+        uint classicDirectoryOffset,
         out ZipDirectoryRecord directory)
     {
         directory = default;
@@ -570,6 +589,45 @@ static class ZipDirectoryPreflight
 
         if (totalEntries > long.MaxValue)
             return "the archive directory declares an unreadable entry count";
+
+        // Non-saturated classic fields are values the decoder still trusts. A
+        // ZIP64 record that disagrees with them is a second directory, not an
+        // extension of the classic one.
+        if (classicThisDisk != ushort.MaxValue
+            && classicThisDisk != zip64ThisDisk)
+        {
+            return "the archive ZIP64 directory disagrees with the classic record";
+        }
+
+        if (classicDirectoryDisk != ushort.MaxValue
+            && classicDirectoryDisk != zip64DirectoryDisk)
+        {
+            return "the archive ZIP64 directory disagrees with the classic record";
+        }
+
+        if (classicEntriesOnDisk != ushort.MaxValue
+            && classicEntriesOnDisk != entriesOnDisk)
+        {
+            return "the archive ZIP64 directory disagrees with the classic record";
+        }
+
+        if (classicTotalEntries != ushort.MaxValue
+            && classicTotalEntries != totalEntries)
+        {
+            return "the archive ZIP64 directory disagrees with the classic record";
+        }
+
+        if (classicDirectorySize != uint.MaxValue
+            && classicDirectorySize != directorySize)
+        {
+            return "the archive ZIP64 directory disagrees with the classic record";
+        }
+
+        if (classicDirectoryOffset != uint.MaxValue
+            && classicDirectoryOffset != directoryOffset)
+        {
+            return "the archive ZIP64 directory disagrees with the classic record";
+        }
 
         return CreateDirectoryRecord(
             archive,
@@ -951,6 +1009,22 @@ static class ZipEntryDescriptorReader
         if (values.IsEmpty)
             return "an archive entry is missing its ZIP64 field";
 
+        // APPNOTE lists the ZIP64 values in a fixed order and includes only the
+        // fields whose classic counterparts are saturated. Accept exactly that
+        // layout: a longer field would let one reader skip unsaturation slots
+        // while another consumes them, so sizes and offsets would diverge.
+        int expectedLength = 0;
+        if (uncompressed32 == uint.MaxValue)
+            expectedLength += 8;
+        if (compressed32 == uint.MaxValue)
+            expectedLength += 8;
+        if (localOffset32 == uint.MaxValue)
+            expectedLength += 8;
+        if (diskStart16 == ushort.MaxValue)
+            expectedLength += 4;
+        if (values.Length != expectedLength)
+            return "an archive entry has a noncanonical ZIP64 field";
+
         int valueOffset = 0;
         if (uncompressed32 == uint.MaxValue
             && !TryReadUInt64(
@@ -981,9 +1055,6 @@ static class ZipEntryDescriptorReader
 
         if (diskStart16 == ushort.MaxValue)
         {
-            if (values.Length - valueOffset < 4)
-                return "an archive entry has a truncated ZIP64 field";
-
             diskStart = BinaryPrimitives.ReadUInt32LittleEndian(
                 values.Slice(valueOffset, 4));
         }
