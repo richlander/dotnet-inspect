@@ -178,6 +178,40 @@ public class MemberSignatureShapeTests
     }
 
     [Fact]
+    public void SourceShape_RefusesTypeBeyondTransportDepthLimit()
+    {
+        string type = string.Concat(
+                Enumerable.Repeat(
+                    "global::Container<",
+                    MemberSignatureShapeCodec.MaxDepth + 1))
+            + "int"
+            + new string('>', MemberSignatureShapeCodec.MaxDepth + 1);
+
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            $"void M({type} value);",
+            SourceMemberSignatureKind.Method);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("depth limit", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void SourceShape_RefusesMemberBeyondTransportNodeLimit()
+    {
+        string parameters = string.Join(
+            ",",
+            Enumerable.Range(0, 1_024).Select(
+                index => $"global::A<global::B<global::C<global::D<int>>>> p{index}"));
+
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            $"void M({parameters});",
+            SourceMemberSignatureKind.Method);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("safety limit", result.UnavailableReason);
+    }
+
+    [Fact]
     public void Matcher_DottedGlobalTypeBoundaryCannotProduceFalseUnique()
     {
         MemberSignatureShapeResult source = SourceMemberSignatureShape.Create(
@@ -343,6 +377,19 @@ public class MemberSignatureShapeTests
         MemberSignatureShapeResult result = MemberSignatureShapeCodec.Decode(text);
 
         Assert.False(result.IsAvailable);
+    }
+
+    [Fact]
+    public void Codec_RejectsLegacySuffixDepthWithoutAllocationAmplification()
+    {
+        string text = "`0(A" + new string('*', 60_000) + ")";
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        MemberSignatureShapeResult result = MemberSignatureShapeCodec.Decode(text);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.False(result.IsAvailable);
+        Assert.True(allocated < 1024 * 1024, $"Decode allocated {allocated:N0} bytes.");
     }
 
     [Fact]

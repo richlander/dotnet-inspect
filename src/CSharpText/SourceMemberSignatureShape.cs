@@ -131,8 +131,12 @@ public static class SourceMemberSignatureShape
             }
         }
 
-        return MemberSignatureShapeResult.Available(
-            new MemberSignatureShape(genericArity, new(parameters), conversionReturnType));
+        var shape = new MemberSignatureShape(
+            genericArity,
+            new(parameters),
+            conversionReturnType);
+        _ = MemberSignatureShapeCodec.Encode(shape);
+        return MemberSignatureShapeResult.Available(shape);
     }
 
     static bool TryFindParenthesizedParameters(
@@ -536,6 +540,7 @@ static class SourceTypeShapeParser
         readonly IReadOnlySet<string> _typeValueParameters;
         readonly IReadOnlySet<string> _methodValueParameters;
         int _position;
+        int _depth;
 
         internal Parser(
             SourceMemberSignatureShape.SourceToken[] tokens,
@@ -552,6 +557,25 @@ static class SourceTypeShapeParser
         }
 
         internal TypeSignatureShape ParseType()
+        {
+            if (++_depth > MemberSignatureShapeCodec.MaxDepth)
+            {
+                _depth--;
+                throw new InvalidOperationException(
+                    "The source type exceeds the signature-shape depth limit.");
+            }
+
+            try
+            {
+                return ParseTypeCore();
+            }
+            finally
+            {
+                _depth--;
+            }
+        }
+
+        TypeSignatureShape ParseTypeCore()
         {
             TypeSignatureShape type = ParsePrimary();
             while (_position < _tokens.Length)
@@ -948,34 +972,50 @@ static class LegacyMemberSignatureShape
             text = text[4..];
 
         var suffixes = new Stack<(char Kind, int Rank, bool Sz)>();
-        while (text.Length > 0)
+        int coreEnd = text.Length;
+        while (coreEnd > 0)
         {
-            if (text.EndsWith('?'))
+            if (suffixes.Count >= MemberSignatureShapeCodec.MaxDepth)
+            {
+                type = null;
+                return false;
+            }
+            if (text[coreEnd - 1] == '?')
             {
                 suffixes.Push(('?', 0, false));
-                text = text[..^1];
+                coreEnd--;
                 continue;
             }
-            if (text.EndsWith('*'))
+            if (text[coreEnd - 1] == '*')
             {
                 suffixes.Push(('*', 0, false));
-                text = text[..^1];
+                coreEnd--;
                 continue;
             }
-            if (text.EndsWith(']'))
+            if (text[coreEnd - 1] == ']')
             {
-                int open = text.LastIndexOf('[');
+                int open = text.LastIndexOf('[', coreEnd - 1, coreEnd);
                 if (open < 0)
                     break;
-                string rankText = text[(open + 1)..^1];
-                if (rankText.Any(character => character != ','))
+                int commaCount = coreEnd - open - 2;
+                bool validRank = true;
+                for (int i = open + 1; i < coreEnd - 1; i++)
+                {
+                    if (text[i] != ',')
+                    {
+                        validRank = false;
+                        break;
+                    }
+                }
+                if (!validRank)
                     break;
-                suffixes.Push(('a', rankText.Length + 1, rankText.Length == 0));
-                text = text[..open];
+                suffixes.Push(('a', commaCount + 1, commaCount == 0));
+                coreEnd = open;
                 continue;
             }
             break;
         }
+        text = text[..coreEnd];
 
         int wrapperCount = suffixes.Count + (byReference ? 1 : 0);
         if (depth > MemberSignatureShapeCodec.MaxDepth - wrapperCount
