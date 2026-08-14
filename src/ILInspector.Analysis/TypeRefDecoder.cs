@@ -95,11 +95,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : "";
             string ns = reader.GetString(root.Namespace);
-            string name = TypeDefinitionName(reader, chain);
+            ImmutableArray<string> segments =
+                TypeDefinitionNameSegments(reader, chain);
+            string name = string.Join("+", segments);
             return Definition(
                 assembly,
                 ns,
                 name,
+                segments,
                 new TypeReferenceOrigin.CurrentAssembly(),
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
@@ -134,7 +137,9 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             var chain = handles[..consumedNodes];
             var root = reader.GetTypeReference(chain[0]);
             string ns = reader.GetString(root.Namespace);
-            string name = TypeReferenceName(reader, chain);
+            ImmutableArray<string> segments =
+                TypeReferenceNameSegments(reader, chain);
+            string name = string.Join("+", segments);
 
             if (terminal.Kind == HandleKind.AssemblyReference)
             {
@@ -145,6 +150,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                     assembly.Name,
                     ns,
                     name,
+                    segments,
                     new TypeReferenceOrigin.AssemblyReference(assembly),
                     FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyHandle),
                     FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, assemblyHandle));
@@ -174,6 +180,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
                 ns,
                 name,
+                segments,
                 origin,
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
@@ -186,36 +193,26 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         }
     }
 
-    static string TypeDefinitionName(
+    static ImmutableArray<string> TypeDefinitionNameSegments(
         MetadataReader reader,
         ReadOnlySpan<TypeDefinitionHandle> handles)
     {
-        string name = reader.GetString(
-            reader.GetTypeDefinition(handles[0]).Name);
-        for (int i = 1; i < handles.Length; i++)
-        {
-            name = string.Concat(
-                name,
-                "+",
-                reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
-        }
-        return name;
+        ImmutableArray<string>.Builder segments =
+            ImmutableArray.CreateBuilder<string>(handles.Length);
+        foreach (TypeDefinitionHandle handle in handles)
+            segments.Add(reader.GetString(reader.GetTypeDefinition(handle).Name));
+        return segments.MoveToImmutable();
     }
 
-    static string TypeReferenceName(
+    static ImmutableArray<string> TypeReferenceNameSegments(
         MetadataReader reader,
         ReadOnlySpan<TypeReferenceHandle> handles)
     {
-        string name = reader.GetString(
-            reader.GetTypeReference(handles[0]).Name);
-        for (int i = 1; i < handles.Length; i++)
-        {
-            name = string.Concat(
-                name,
-                "+",
-                reader.GetString(reader.GetTypeReference(handles[i]).Name));
-        }
-        return name;
+        ImmutableArray<string>.Builder segments =
+            ImmutableArray.CreateBuilder<string>(handles.Length);
+        foreach (TypeReferenceHandle handle in handles)
+            segments.Add(reader.GetString(reader.GetTypeReference(handle).Name));
+        return segments.MoveToImmutable();
     }
 
     static TypeRef Definition(
@@ -225,11 +222,28 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         TypeReferenceOrigin origin,
         bool trustedFrameworkAssembly = true,
         bool trustedProtobufAssembly = true)
+        => Definition(
+            assembly,
+            ns,
+            name,
+            [name],
+            origin,
+            trustedFrameworkAssembly,
+            trustedProtobufAssembly);
+
+    static TypeRef Definition(
+        string assembly,
+        string ns,
+        string name,
+        ImmutableArray<string> metadataNameSegments,
+        TypeReferenceOrigin origin,
+        bool trustedFrameworkAssembly = true,
+        bool trustedProtobufAssembly = true)
     {
         MetadataTypeDefinitionNameResult result =
             MetadataTypeDefinitionName.Create(
                 ns,
-                [.. name.Split('+')]);
+                metadataNameSegments);
         if (result is not MetadataTypeDefinitionNameResult.Valid valid)
         {
             return TypeRef.Unsupported(
@@ -276,7 +290,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     }
 
     public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
-    public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape) => TypeRef.MdArray(elementType, shape.Rank);
+    public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape)
+        => TypeRef.MdArray(elementType, shape);
     public TypeRef GetByReferenceType(TypeRef elementType) => TypeRef.ByRef(elementType);
     public TypeRef GetPointerType(TypeRef elementType) => TypeRef.Pointer(elementType);
     public TypeRef GetPinnedType(TypeRef elementType) => TypeRef.Pinned(elementType);

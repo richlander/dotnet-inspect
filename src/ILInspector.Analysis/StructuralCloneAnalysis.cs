@@ -493,10 +493,33 @@ public static class StructuralCloneAnalysis
         StructuralCloneSide side,
         StructuralCloneComparisonLimits limits)
     {
+        BodyMeasurements measurements = default;
         try
         {
             MethodDefinition definition =
                 reader.GetMethodDefinition(method.Handle);
+            MethodImplAttributes implementation =
+                definition.ImplAttributes;
+            MethodAttributes attributes = definition.Attributes;
+            if ((implementation & MethodImplAttributes.CodeTypeMask)
+                    != MethodImplAttributes.IL
+                || (implementation & MethodImplAttributes.ManagedMask)
+                    != MethodImplAttributes.Managed
+                || (implementation
+                    & (MethodImplAttributes.ForwardRef
+                        | MethodImplAttributes.InternalCall)) != 0
+                || (attributes
+                    & (MethodAttributes.Abstract
+                        | MethodAttributes.PinvokeImpl)) != 0)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.UnsupportedMethodImplementation,
+                        side,
+                        $"Method attributes {attributes} and implementation flags "
+                        + $"{implementation} do not describe a managed IL body."));
+            }
             if (definition.RelativeVirtualAddress == 0)
             {
                 return BodyProduction.NotCompleted(
@@ -505,20 +528,6 @@ public static class StructuralCloneAnalysis
                         StructuralCloneBlockerKind.NoMethodBody,
                         side,
                         "The method definition has no IL body."));
-            }
-            MethodImplAttributes implementation =
-                definition.ImplAttributes;
-            if ((implementation & MethodImplAttributes.CodeTypeMask)
-                    != MethodImplAttributes.IL
-                || (implementation & MethodImplAttributes.ManagedMask)
-                    != MethodImplAttributes.Managed)
-            {
-                return BodyProduction.NotCompleted(
-                    StructuralCloneDisposition.Unsupported,
-                    new StructuralCloneBlocker(
-                        StructuralCloneBlockerKind.UnsupportedMethodImplementation,
-                        side,
-                        $"Method implementation flags {implementation} do not describe managed IL."));
             }
             if (!SignatureBlobGuard.IsSafeToDecode(
                     reader,
@@ -579,6 +588,11 @@ public static class StructuralCloneAnalysis
                         "Exception-handling bodies are outside the first-slice contract."));
             }
             int bodyBytes = body.GetILReader().Length;
+            measurements = new BodyMeasurements(
+                bodyBytes,
+                InstructionCount: 0,
+                BlockCount: 0,
+                LocalCount: 0);
             if (bodyBytes > limits.MaximumBodyBytes)
             {
                 return BodyProduction.NotCompleted(
@@ -588,11 +602,7 @@ public static class StructuralCloneAnalysis
                         side,
                         $"IL body size {bodyBytes} bytes exceeds "
                         + $"{limits.MaximumBodyBytes}."),
-                    new BodyMeasurements(
-                        bodyBytes,
-                        InstructionCount: 0,
-                        BlockCount: 0,
-                        LocalCount: 0));
+                    measurements);
             }
 
             ImmutableArray<TypeRef> locals = [];
@@ -603,6 +613,10 @@ public static class StructuralCloneAnalysis
                 int localCount = ReadLocalCount(
                     reader,
                     localSignature.Signature);
+                measurements = measurements with
+                {
+                    LocalCount = localCount,
+                };
                 if (localCount > limits.MaximumLocals)
                 {
                     return BodyProduction.NotCompleted(
@@ -612,11 +626,7 @@ public static class StructuralCloneAnalysis
                             side,
                             $"Local count {localCount} exceeds "
                             + $"{limits.MaximumLocals}."),
-                        new BodyMeasurements(
-                            bodyBytes,
-                            InstructionCount: 0,
-                            BlockCount: 0,
-                            localCount));
+                        measurements);
                 }
                 if (!SignatureBlobGuard.IsSafeToDecode(
                         reader,
@@ -628,7 +638,8 @@ public static class StructuralCloneAnalysis
                         new StructuralCloneBlocker(
                             StructuralCloneBlockerKind.UnsupportedLocalSignature,
                             side,
-                            "The local signature exceeds the guarded decode policy."));
+                            "The local signature exceeds the guarded decode policy."),
+                        measurements);
                 }
                 locals = localSignature.DecodeLocalSignature(
                     TypeRefDecoder.Instance,
@@ -636,7 +647,7 @@ public static class StructuralCloneAnalysis
             }
 
             MethodInstructions instructions = MethodInstructions.Decode(body);
-            BodyMeasurements measurements = BodyMeasurements.From(
+            measurements = BodyMeasurements.From(
                 instructions,
                 locals.Length,
                 bodyBytes);
@@ -672,7 +683,8 @@ public static class StructuralCloneAnalysis
                 new StructuralCloneBlocker(
                     StructuralCloneBlockerKind.MetadataReadFailure,
                     side,
-                    $"{ex.GetType().Name}: {ex.Message}"));
+                    $"{ex.GetType().Name}: {ex.Message}"),
+                measurements);
         }
     }
 
@@ -968,8 +980,23 @@ public static class StructuralCloneAnalysis
             return false;
         }
 
-        BlobReader blob = reader.GetBlobReader(signature.Signature);
-        return blob.ReadSignatureHeader().Kind == SignatureKind.Method;
+        try
+        {
+            MethodSignature<TypeRef> decoded =
+                signature.DecodeMethodSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty);
+            return SupportedType(decoded.ReturnType)
+                && decoded.ParameterTypes.All(SupportedType);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or OverflowException)
+        {
+            return false;
+        }
     }
 
     static int ReadLocalCount(
@@ -2112,6 +2139,8 @@ internal sealed class StructuralCloneTypeIdentity
         StructuralCloneTypeIdentity? elementType,
         ImmutableArray<StructuralCloneTypeIdentity> typeArguments,
         int rank,
+        ImmutableArray<int> arraySizes,
+        ImmutableArray<int> arrayLowerBounds,
         int genericParameterIndex)
     {
         Kind = kind;
@@ -2122,6 +2151,8 @@ internal sealed class StructuralCloneTypeIdentity
         ElementType = elementType;
         TypeArguments = typeArguments;
         Rank = rank;
+        ArraySizes = arraySizes;
+        ArrayLowerBounds = arrayLowerBounds;
         GenericParameterIndex = genericParameterIndex;
     }
 
@@ -2133,6 +2164,8 @@ internal sealed class StructuralCloneTypeIdentity
     public StructuralCloneTypeIdentity? ElementType { get; }
     public ImmutableArray<StructuralCloneTypeIdentity> TypeArguments { get; }
     public int Rank { get; }
+    public ImmutableArray<int> ArraySizes { get; }
+    public ImmutableArray<int> ArrayLowerBounds { get; }
     public int GenericParameterIndex { get; }
 
     public static StructuralCloneTypeIdentity Create(TypeRef type)
@@ -2147,6 +2180,8 @@ internal sealed class StructuralCloneTypeIdentity
             type.ElementType is { } element ? Create(element) : null,
             [.. type.TypeArguments.Select(Create)],
             type.Rank,
+            type.ArraySizes,
+            type.ArrayLowerBounds,
             type.GenericParameterIndex);
     }
 
@@ -2163,6 +2198,9 @@ internal sealed class StructuralCloneTypeIdentity
             || !Equals(Resolution, other.Resolution)
             || !Equals(ElementType, other.ElementType)
             || Rank != other.Rank
+            || !ArraySizes.AsSpan().SequenceEqual(other.ArraySizes.AsSpan())
+            || !ArrayLowerBounds.AsSpan().SequenceEqual(
+                other.ArrayLowerBounds.AsSpan())
             || GenericParameterIndex != other.GenericParameterIndex
             || TypeArguments.Length != other.TypeArguments.Length)
         {
@@ -2190,6 +2228,10 @@ internal sealed class StructuralCloneTypeIdentity
         hash.Add(Resolution);
         hash.Add(ElementType);
         hash.Add(Rank);
+        foreach (int size in ArraySizes)
+            hash.Add(size);
+        foreach (int lowerBound in ArrayLowerBounds)
+            hash.Add(lowerBound);
         hash.Add(GenericParameterIndex);
         foreach (StructuralCloneTypeIdentity argument in TypeArguments)
             hash.Add(argument);

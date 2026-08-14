@@ -41,8 +41,9 @@ It preserves as exact discriminators:
 
 - normalized operation order, constants, and metadata operands;
 - argument positions;
-- local types, including complete recursive metadata resolution scope, and
-  `InitLocals` when locals exist;
+- local types, including complete recursive metadata resolution scope,
+  multidimensional array sizes and lower bounds, and `InitLocals` when locals
+  exist;
 - branch roles, switch target order, and duplicate switch targets;
 - method calling convention, instance/static shape, generic arity, argument
   count, and void/value return shape;
@@ -57,8 +58,9 @@ Exception-handling bodies, region-leaving or external control flow, unsupported
 local type shapes, non-IL implementations, and methods without IL are
 unsupported. Malformed or incomplete bodies fail visibly, including invalid
 local/argument slots, invalid metadata or user-string operands, non-method
-`calli` signatures, and terminal fallthrough. Body-byte, instruction, block,
-local, and witness-search limits produce `LimitReached`, not `Different`.
+or incomplete `calli` signatures, and terminal fallthrough. Body-byte,
+instruction, block, local, and witness-search limits produce `LimitReached`,
+not `Different`.
 The body-byte bound applies before instruction/CFG materialization; receipts
 retain every count measured before a comparison stops.
 

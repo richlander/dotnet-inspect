@@ -106,6 +106,8 @@ string? referenceFile = null;
 string? precisionAssembly = null;
 string? cloneCorpusAssembly = null;
 string? relationshipLedger = null;
+bool cloneCorpusSpecified = false;
+bool relationshipLedgerSpecified = false;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
@@ -148,9 +150,11 @@ for (int i = 0; i < args.Length; i++)
             precisionAssembly = NextValue(args, ref i);
             break;
         case "--clone-corpus":
+            cloneCorpusSpecified = true;
             cloneCorpusAssembly = NextPathValue(args, ref i);
             break;
         case "--relationship-ledger":
+            relationshipLedgerSpecified = true;
             relationshipLedger = NextPathValue(args, ref i);
             break;
         case "--allocation-readout":
@@ -221,6 +225,23 @@ for (int i = 0; i < args.Length; i++)
             Console.Error.WriteLine(Usage);
             return 2;
     }
+}
+
+if (cloneCorpusSpecified && cloneCorpusAssembly is null)
+{
+    Console.Error.WriteLine("--clone-corpus requires an assembly path.");
+    return 2;
+}
+if (relationshipLedgerSpecified && relationshipLedger is null)
+{
+    Console.Error.WriteLine("--relationship-ledger requires a file path.");
+    return 2;
+}
+if (relationshipLedgerSpecified && !cloneCorpusSpecified)
+{
+    Console.Error.WriteLine(
+        "--relationship-ledger requires --clone-corpus.");
+    return 2;
 }
 
 // --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.

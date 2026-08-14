@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 
 using ILInspector.Analysis.StructuralCloneFixtures;
 using ILInspector.AnalysisHarness;
@@ -71,6 +73,104 @@ public class StructuralCloneCorpusTests
 
         Assert.Throws<InvalidDataException>(
             () => StructuralCloneCorpus.Load(Invalid));
+    }
+
+    [Theory]
+    [MemberData(nameof(MalformedLedgers))]
+    public void Load_RejectsIncompleteOrPermissiveJson(string json)
+        => Assert.Throws<JsonException>(
+            () => StructuralCloneCorpus.Load(json));
+
+    public static TheoryData<string> MalformedLedgers =>
+        new()
+        {
+            {
+                """
+                {
+                  "schemaVersion": 1,
+                  "cases": [{
+                    "id": "missing-disposition",
+                    "left": { "type": "T", "method": "A" },
+                    "right": { "type": "T", "method": "B" },
+                    "expectedRelation": "Exact",
+                    "difficulty": "banal",
+                    "intent": "authored-duplicate",
+                    "actionability": "actionable",
+                    "tags": []
+                  }]
+                }
+                """
+            },
+            {
+                """
+                {
+                  "schemaVersion": 1,
+                  "unknown": true,
+                  "cases": [{
+                    "id": "unknown-property",
+                    "left": { "type": "T", "method": "A" },
+                    "right": { "type": "T", "method": "B" },
+                    "expectedDisposition": "Completed",
+                    "expectedRelation": "Exact",
+                    "difficulty": "banal",
+                    "intent": "authored-duplicate",
+                    "actionability": "actionable",
+                    "tags": []
+                  }]
+                }
+                """
+            },
+            {
+                """
+                {
+                  "schemaVersion": 1,
+                  "cases": [{
+                    "id": "integer-enum",
+                    "left": { "type": "T", "method": "A" },
+                    "right": { "type": "T", "method": "B" },
+                    "expectedDisposition": 0,
+                    "expectedRelation": "Exact",
+                    "difficulty": "banal",
+                    "intent": "authored-duplicate",
+                    "actionability": "actionable",
+                    "tags": []
+                  }]
+                }
+                """
+            },
+        };
+
+    [Fact]
+    public async Task Command_RejectsMissingRelationshipLedgerValue()
+    {
+        var start = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(
+            typeof(StructuralCloneCorpus).Assembly.Location);
+        start.ArgumentList.Add("--clone-corpus");
+        start.ArgumentList.Add(
+            typeof(StructuralCloneFixture).Assembly.Location);
+        start.ArgumentList.Add("--relationship-ledger");
+        start.ArgumentList.Add("--json");
+
+        using Process process = Process.Start(start)!;
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task<string> standardError =
+            process.StandardError.ReadToEndAsync(cancellationToken);
+        Task<string> standardOutput =
+            process.StandardOutput.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        Assert.Equal(2, process.ExitCode);
+        Assert.Contains(
+            "--relationship-ledger requires a file path.",
+            await standardError);
+        Assert.Equal("", await standardOutput);
     }
 
     static StructuralCloneCorpusDocument LoadCorpus()

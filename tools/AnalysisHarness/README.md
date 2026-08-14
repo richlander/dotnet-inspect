@@ -40,11 +40,13 @@ declared type and method names to SRM handles, then grades only
 `StructuralCloneAnalysis.Compare`; it owns no clone normalization,
 correspondence, or verification logic.
 
-The ledger is strict: schema versions, duplicate IDs, unknown axis values,
-incomplete identities, and relation/disposition contradictions fail instead of
-silently shrinking coverage. `StructuralCloneCorpusTests` also requires every
-public method in the dedicated fixture type to appear in the ledger, preventing
-fixture or relationship inventory drift.
+The ledger is strict: missing or unknown fields, integer enum values, schema
+versions, duplicate IDs, unknown axis values, incomplete identities, and
+relation/disposition contradictions fail instead of silently shrinking
+coverage. An explicitly supplied `--relationship-ledger` must name a file;
+it never falls back to the committed corpus. `StructuralCloneCorpusTests` also
+requires every public method in the dedicated fixture type to appear in the
+ledger, preventing fixture or relationship inventory drift.
 
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the

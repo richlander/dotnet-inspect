@@ -10,23 +10,23 @@ using ILInspector.Analysis;
 namespace ILInspector.AnalysisHarness;
 
 public sealed record StructuralCloneCorpusDocument(
-    int SchemaVersion,
-    ImmutableArray<StructuralCloneCorpusCase> Cases);
+    [property: JsonRequired] int SchemaVersion,
+    [property: JsonRequired] ImmutableArray<StructuralCloneCorpusCase> Cases);
 
 public sealed record StructuralCloneCorpusCase(
-    string Id,
-    StructuralCloneCorpusMethod Left,
-    StructuralCloneCorpusMethod Right,
-    StructuralCloneDisposition ExpectedDisposition,
-    StructuralCloneRelation? ExpectedRelation,
-    string Difficulty,
-    string Intent,
-    string Actionability,
-    ImmutableArray<string> Tags);
+    [property: JsonRequired] string Id,
+    [property: JsonRequired] StructuralCloneCorpusMethod Left,
+    [property: JsonRequired] StructuralCloneCorpusMethod Right,
+    [property: JsonRequired] StructuralCloneDisposition ExpectedDisposition,
+    [property: JsonRequired] StructuralCloneRelation? ExpectedRelation,
+    [property: JsonRequired] string Difficulty,
+    [property: JsonRequired] string Intent,
+    [property: JsonRequired] string Actionability,
+    [property: JsonRequired] ImmutableArray<string> Tags);
 
 public sealed record StructuralCloneCorpusMethod(
-    string Type,
-    string Method);
+    [property: JsonRequired] string Type,
+    [property: JsonRequired] string Method);
 
 public sealed record StructuralCloneCorpusCaseResult(
     string Id,
@@ -56,8 +56,14 @@ public static class StructuralCloneCorpus
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
+        Converters =
+        {
+            new JsonStringEnumConverter(
+                namingPolicy: null,
+                allowIntegerValues: false),
+        },
     };
 
     static readonly ImmutableHashSet<string> s_difficulties =

@@ -23,14 +23,19 @@ public class TypeReferenceOriginTests
                             ImmutableArray.Create<byte>(1, 2, 3, 4)),
                         AssemblyFlags.PublicKey,
                         hashValue: default);
-                return metadata.AddTypeReference(
+                TypeReferenceHandle outer =
+                    metadata.AddTypeReference(
                     assembly,
                     metadata.GetOrAddString("N"),
-                    metadata.GetOrAddString("Outer`1+Inner"));
+                    metadata.GetOrAddString("Outer`1"));
+                return metadata.AddTypeReference(
+                    outer,
+                    @namespace: default,
+                    metadata.GetOrAddString("Inner"));
             });
         MetadataReader reader = provider.GetMetadataReader();
         TypeReferenceHandle handle =
-            MetadataTokens.TypeReferenceHandle(1);
+            MetadataTokens.TypeReferenceHandle(2);
 
         TypeRef decoded = TypeRefDecoder.Instance.GetTypeFromReference(
             reader,
@@ -49,6 +54,54 @@ public class TypeReferenceOriginTests
         Assert.Equal(
             ["Outer`1", "Inner"],
             decoded.Resolution.Type.Segments);
+    }
+
+    [Fact]
+    public void LiteralPlusName_RemainsDistinctFromNestedType()
+    {
+        using MetadataReaderProvider provider = BuildMetadata(
+            metadata =>
+            {
+                AssemblyReferenceHandle assembly =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("Target"),
+                        new Version(1, 0, 0, 0),
+                        culture: default,
+                        publicKeyOrToken: default,
+                        flags: default,
+                        hashValue: default);
+                TypeReferenceHandle outer =
+                    metadata.AddTypeReference(
+                        assembly,
+                        metadata.GetOrAddString("N"),
+                        metadata.GetOrAddString("Outer"));
+                metadata.AddTypeReference(
+                    outer,
+                    @namespace: default,
+                    metadata.GetOrAddString("Inner"));
+                return metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Outer+Inner"));
+            });
+        MetadataReader reader = provider.GetMetadataReader();
+        TypeRef nested = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(2),
+            0);
+        TypeRef literalPlus =
+            TypeRefDecoder.Instance.GetTypeFromReference(
+                reader,
+                MetadataTokens.TypeReferenceHandle(3),
+                0);
+
+        Assert.Equal(
+            ["Outer", "Inner"],
+            nested.Resolution!.Type.Segments);
+        Assert.Equal(
+            ["Outer+Inner"],
+            literalPlus.Resolution!.Type.Segments);
+        Assert.NotEqual(nested.Resolution, literalPlus.Resolution);
     }
 
     [Fact]
