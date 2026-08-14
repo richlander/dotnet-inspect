@@ -1060,15 +1060,29 @@ public sealed class AssemblyDependencyResolver :
             if (asset.Value.ValueKind == JsonValueKind.Object &&
                 asset.Value.TryGetProperty("localPath", out var localPathElement) &&
                 localPathElement.ValueKind == JsonValueKind.String &&
-                localPathElement.GetString() is { Length: > 0 } localPath)
-                addReference(Path.Combine(targetDirectory, NativePath(localPath)));
+                localPathElement.GetString() is { Length: > 0 } localPath &&
+                StorePath.TryResolveUnderRoot(
+                    targetDirectory,
+                    localPath,
+                    out string? resolvedLocalPath))
+            {
+                addReference(resolvedLocalPath);
+            }
 
-            if (libraryPaths.TryGetValue(library.Name, out var packagePath))
-                addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
+            if (libraryPaths.TryGetValue(library.Name, out var packagePath)
+                && StorePath.TryResolveUnderRoot(
+                    GlobalPackagesRoot(),
+                    packagePath,
+                    out string? packageDirectory)
+                && StorePath.TryResolveUnderRoot(
+                    packageDirectory,
+                    asset.Name,
+                    out string? resolvedAssetPath))
+            {
+                addReference(resolvedAssetPath);
+            }
         }
     }
-
-    static string NativePath(string path) => path.Replace('/', Path.DirectorySeparatorChar);
 
     static string GlobalPackagesRoot()
     {
