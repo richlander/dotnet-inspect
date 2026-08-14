@@ -187,6 +187,17 @@ public static class ProjectAssetsParser
                 var packagePath = pathElem.GetString();
                 if (string.IsNullOrEmpty(packagePath))
                     continue;
+                if (!StorePath.TryResolveUnderRoot(
+                    nugetCache,
+                    packagePath,
+                    out string? packageDirectory))
+                {
+                    LogRejectedPath(
+                        log,
+                        "libraries[].path",
+                        "the global packages root");
+                    continue;
+                }
 
                 if (dep.Value.TryGetProperty("compile", out var compile))
                 {
@@ -198,7 +209,18 @@ public static class ProjectAssetsParser
                         if (asm.Name.Contains("_._"))
                             continue;
 
-                        var fullPath = Path.Combine(nugetCache, packagePath, asm.Name.Replace('/', Path.DirectorySeparatorChar));
+                        if (!StorePath.TryResolveUnderRoot(
+                            packageDirectory,
+                            asm.Name,
+                            out string? fullPath))
+                        {
+                            LogRejectedPath(
+                                log,
+                                "targets[].compile",
+                                "its package root");
+                            continue;
+                        }
+
                         if (File.Exists(fullPath))
                         {
                             results.Add((fullPath, packageName, version));
@@ -253,8 +275,16 @@ public static class ProjectAssetsParser
 
             foreach (var packageName in directPackages)
             {
-                if (TryResolvePackage(packageName, targetDependencies, libraries, selectedTfm, out var packageReference))
+                if (TryResolvePackage(
+                    packageName,
+                    targetDependencies,
+                    libraries,
+                    selectedTfm,
+                    log,
+                    out var packageReference))
+                {
                     results.Add(packageReference);
+                }
             }
         }
         catch (Exception ex)
@@ -316,6 +346,7 @@ public static class ProjectAssetsParser
                     targetDependencies,
                     libraries,
                     selectedTfm,
+                    log,
                     out var packageReference))
                 {
                     continue;
@@ -334,8 +365,23 @@ public static class ProjectAssetsParser
                     if (file.ValueKind != JsonValueKind.String)
                         continue;
 
-                    var path = NormalizeAssetPath(file.GetString());
-                    if (path.Length == 0 || !MatchesAny(path, normalizedPatterns))
+                    string? path = file.GetString();
+                    if (string.IsNullOrEmpty(path))
+                        continue;
+                    if (packageReference.PackagePath is not { } packagePath)
+                        continue;
+                    if (!StorePath.TryResolveUnderRoot(
+                            packagePath,
+                            path,
+                            out string? fullPath))
+                    {
+                        LogRejectedPath(
+                            log,
+                            "libraries[].files[]",
+                            "its package root");
+                        continue;
+                    }
+                    if (!MatchesAny(path, normalizedPatterns))
                         continue;
 
                     results.Add(new ProjectPackageFileEntry(
@@ -343,7 +389,7 @@ public static class ProjectAssetsParser
                         packageReference.Version,
                         path,
                         packageReference.PackagePath,
-                        ResolvePackageFilePath(packageReference.PackagePath, path),
+                        fullPath,
                         packageReference.TargetFramework));
                 }
             }
@@ -411,6 +457,7 @@ public static class ProjectAssetsParser
         JsonElement targetDependencies,
         JsonElement libraries,
         string targetFramework,
+        Action<string>? log,
         out ProjectPackageReference packageReference)
     {
         packageReference = null!;
@@ -432,7 +479,7 @@ public static class ProjectAssetsParser
             packageReference = new ProjectPackageReference(
                 resolvedName,
                 version,
-                ResolvePackagePath(library),
+                ResolvePackagePath(library, log),
                 targetFramework);
             return true;
         }
@@ -449,7 +496,7 @@ public static class ProjectAssetsParser
             packageReference = new ProjectPackageReference(
                 resolvedName,
                 version,
-                ResolvePackagePath(libraryEntry.Value),
+                ResolvePackagePath(libraryEntry.Value, log),
                 targetFramework);
             return true;
         }
@@ -471,7 +518,9 @@ public static class ProjectAssetsParser
            && library.TryGetProperty("type", out var type)
            && type.GetString()?.Equals("project", StringComparison.OrdinalIgnoreCase) == true;
 
-    private static string? ResolvePackagePath(JsonElement library)
+    private static string? ResolvePackagePath(
+        JsonElement library,
+        Action<string>? log)
     {
         if (library.ValueKind != JsonValueKind.Object
             || !library.TryGetProperty("path", out var pathElement))
@@ -483,20 +532,19 @@ public static class ProjectAssetsParser
         if (string.IsNullOrWhiteSpace(packagePath))
             return null;
 
-        var normalized = packagePath.Replace('/', Path.DirectorySeparatorChar);
-        return Path.IsPathRooted(normalized)
-            ? Path.GetFullPath(normalized)
-            : Path.GetFullPath(Path.Combine(NuGetCache.GetNuGetCachePath(), normalized));
-    }
-
-    private static string? ResolvePackageFilePath(string? packagePath, string packageRelativePath)
-    {
-        if (string.IsNullOrWhiteSpace(packagePath))
-            return null;
-
-        return Path.GetFullPath(Path.Combine(
+        if (StorePath.TryResolveUnderRoot(
+            NuGetCache.GetNuGetCachePath(),
             packagePath,
-            packageRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+            out string? resolved))
+        {
+            return resolved;
+        }
+
+        LogRejectedPath(
+            log,
+            "libraries[].path",
+            "the global packages root");
+        return null;
     }
 
     private static string NormalizeAssetPath(string? path)
@@ -506,6 +554,13 @@ public static class ProjectAssetsParser
 
     private static bool MatchesAny(string path, IEnumerable<string> patterns)
         => patterns.Any(pattern => FileSystemName.MatchesSimpleExpression(pattern, path, ignoreCase: true));
+
+    private static void LogRejectedPath(
+        Action<string>? log,
+        string location,
+        string root)
+        => log?.Invoke(
+            $"Rejected project.assets.json {location} because it is not contained by {root}.");
 
     private static bool TryGetPropertyCaseInsensitive(JsonElement element, string propertyName, out JsonElement value)
     {
