@@ -320,6 +320,8 @@ public class ApiCommand
         if (!options.HasCallerScope
             || options.Tree
             || IsStandaloneMermaid(options)
+            || options.JsonOutput
+            && options.IncludeSections is not { Count: > 0 }
             || !options.CallerScopeSectionImplicitlySelected
             && options.IncludeSections is not null
             && UsesSingleSectionOutput(options)
