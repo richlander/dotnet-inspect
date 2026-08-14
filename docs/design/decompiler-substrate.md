@@ -118,7 +118,9 @@ edges, a union reaching-definition proof may split one top-level store only
 when every load it reaches is reached by that definition alone, no reachable
 load is use-before-definition, and at least one proven load is in another
 block. References nested in control flow, nested raw branches, and EH or
-external CFG edges decline.
+external CFG edges decline. A raw control transfer also declines when it is not
+the block's final statement, because the shared CFG models only block
+terminators.
 When structured EH is present, the stronger admission proof
 requires every reference to that slot to belong to a top-level statement in one
 direct try-body block whose owning try is itself a top-level function-body

@@ -74,7 +74,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
             return false;
 
         var blocks = function.Body.Blocks;
-        if (HasNestedUnmodeledBranch(blocks))
+        if (HasUnmodeledControlTransfer(blocks))
             return false;
 
         var edges = Cfg.Build(blocks);
@@ -221,11 +221,14 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return true;
     }
 
-    static bool HasNestedUnmodeledBranch(IReadOnlyList<Block> blocks)
-        => blocks.SelectMany(block => block.Children)
-            .SelectMany(CoercionSinks.ScopeNodes)
-            .Any(node => node is Branch or ConditionalBranch or SwitchBranch
-                or Leave or EndFinally or EndFilter);
+    static bool HasUnmodeledControlTransfer(IReadOnlyList<Block> blocks)
+        => blocks.Any(block =>
+            block.Children.SkipLast(1).Any(IsControlTransfer)
+            || block.Children.SelectMany(CoercionSinks.ScopeNodes).Any(IsControlTransfer));
+
+    static bool IsControlTransfer(IrNode node)
+        => node is Branch or ConditionalBranch or SwitchBranch
+            or Leave or EndFinally or EndFilter;
 
     static IrNode? EnclosingStatement(IrNode node)
     {

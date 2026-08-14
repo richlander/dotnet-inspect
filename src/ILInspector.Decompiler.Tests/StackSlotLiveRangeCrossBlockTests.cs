@@ -340,6 +340,35 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void NonFinalConditionalBranch_DroppedEdge_StaysUnsplit()
+    {
+        var define = BlockOf(0, Store(1), new Branch(10));
+        var redefine = BlockOf(10, Store("x"), new Branch(20));
+        var use = BlockOf(
+            20,
+            Load(String),
+            new ConditionalBranch(new LoadArgument(0, "condition", Boolean), 30),
+            new Return(null));
+        var laterUse = BlockOf(30, Load(String), new Return(null));
+
+        Assert.False(Split(Run(define, redefine, use, laterUse)));
+    }
+
+    [Fact]
+    public void NonFinalConditionalBranch_HiddenDiamondJoin_StaysUnsplit()
+    {
+        var entry = BlockOf(
+            0,
+            Store(1),
+            new ConditionalBranch(new LoadArgument(0, "condition", Boolean), 20),
+            new Branch(10));
+        var redefined = BlockOf(10, Store("x"), new Branch(20));
+        var join = BlockOf(20, Load(Object), new Return(null));
+
+        Assert.False(Split(Run(entry, redefined, join)));
+    }
+
+    [Fact]
     public void LoopRedefinitionWithUniquePostStoreLoad_Splits()
     {
         var entry = BlockOf(0, Store(1), Load(Int32), new Branch(10));
