@@ -16,6 +16,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Findings;
 using Markout;
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 
@@ -179,6 +180,12 @@ public class PackageCommand
                 var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
                 if (requiredVerbosity > options.Verbosity)
                     options = options with { Verbosity = requiredVerbosity };
+            }
+
+            if (packageArgs.Length > 1
+                && !ValidateMultiPackageMode(options))
+            {
+                return 1;
             }
 
             if (!ValidatePackageProjection(
@@ -901,9 +908,6 @@ public class PackageCommand
         SectionPipeline<InspectionResult> pipeline,
         InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
     {
-        if (!ValidateMultiPackageMode(options))
-            return 1;
-
         if (options.ShowContent)
             return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
 
@@ -1114,8 +1118,7 @@ public class PackageCommand
 
         DocumentSchema schema = PackageDiscoverySchema();
         if (packageCount > 1
-            && options.Count
-            && !HasPathFilter(options))
+            && options.Count)
         {
             IReadOnlyCollection<string> countSections =
                 options.FixedOverview
@@ -1129,23 +1132,28 @@ public class PackageCommand
                 options);
         }
 
-        bool multiPackageInfoShape =
+        bool multiPackageRowShape =
             packageCount > 1
             && options.Tabular
-            && !HasPathFilter(options)
             && !SelectResolver.IsActiveAllSelector(
                 options.Select,
                 options.IncludeSections)
             && (options.FixedOverview
                 || options.IncludeSections is not { Count: > 0 }
                 || (options.IncludeSections.Count == 1
-                    && options.IncludeSections.Contains(
-                        PackageSections.PackageInfo)));
-        if (multiPackageInfoShape)
+                    && (options.IncludeSections.Contains(
+                            PackageSections.PackageInfo)
+                        || IsPackageFileSection(
+                            options.IncludeSections.Single()))));
+        if (multiPackageRowShape)
         {
+            string section =
+                options.IncludeSections is { Count: 1 } includeSections
+                    ? includeSections.Single()
+                    : PackageSections.PackageInfo;
             return ValidateMultiPackageCountProjection(
                 schema,
-                [PackageSections.PackageInfo],
+                [section],
                 options);
         }
 
@@ -1177,7 +1185,7 @@ public class PackageCommand
         if (options.Fields is { Length: > 0 })
         {
             valid &= ProjectionDiagnostics.ValidateProjection(
-                ProjectionSchemaForKind(schema, "field"),
+                schema,
                 sections,
                 options.Fields,
                 columns: null);
@@ -1193,34 +1201,6 @@ public class PackageCommand
         }
 
         return valid;
-    }
-
-    private static DocumentSchema ProjectionSchemaForKind(
-        DocumentSchema schema,
-        string itemKind)
-    {
-        var result = new DocumentSchema();
-        foreach (string name in schema.SectionNames)
-        {
-            var section = schema.GetSection(name);
-            if (section is { Items.Length: > 0 }
-                && string.Equals(
-                    section.ItemKind,
-                    itemKind,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                result.Add(
-                    name,
-                    section.ItemKind,
-                    section.Items.Select(item => item.Name).ToArray());
-            }
-            else
-            {
-                result.AddSection(name);
-            }
-        }
-
-        return result;
     }
 
     private static DocumentSchema MultiPackageCountColumnSchema(
@@ -2706,7 +2686,13 @@ public class PackageCommand
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
-            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
+                options.Columns,
+                options.Fields);
+            OutputFormatter.ConfigureTableWriterOptions(
+                writerOptions,
+                options.Tsv,
+                options.Jsonl);
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(
                 ["Package", "Version", "Path", "Size"],
@@ -2731,6 +2717,9 @@ public class PackageCommand
 
     private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
+        string[] selectedColumns = ResolveMultiPackageFileColumns(
+            section,
+            options.Columns);
         var rows = new List<PackageFileMultiJsonRow>();
         foreach (var result in results)
         {
@@ -2762,12 +2751,56 @@ public class PackageCommand
 
         foreach (var row in RowWindow.Apply(options.Rows, rows))
         {
-            Console.WriteLine(
-                JsonSerializer.Serialize(
-                    row,
-                    PackageFileMultiJsonRowContext.Default
-                        .PackageFileMultiJsonRow));
+            WriteMultiPackageFileJsonRow(row, selectedColumns);
         }
+    }
+
+    private static string[] ResolveMultiPackageFileColumns(
+        string section,
+        string[]? columns)
+    {
+        if (columns is not { Length: > 0 })
+            return MultiPackageFileColumnNames;
+
+        return new DocumentSchema()
+            .Add(section, "column", MultiPackageFileColumnNames)
+            .ValidateProjection(section, columns)
+            .Resolved;
+    }
+
+    private static void WriteMultiPackageFileJsonRow(
+        PackageFileMultiJsonRow row,
+        IReadOnlyList<string> columns)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (string column in columns)
+            {
+                switch (column)
+                {
+                    case "Package":
+                        writer.WriteString("package", row.Package);
+                        break;
+                    case "Version":
+                        writer.WriteString("version", row.Version);
+                        break;
+                    case "Path":
+                        writer.WriteString("path", row.Path);
+                        break;
+                    case "Size":
+                        if (row.Size is { } size)
+                            writer.WriteNumber("size", size);
+                        else
+                            writer.WriteNull("size");
+                        break;
+                }
+            }
+            writer.WriteEndObject();
+        }
+
+        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     private static int PrintPackageBareSelection(

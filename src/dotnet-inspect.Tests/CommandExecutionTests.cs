@@ -18215,19 +18215,155 @@ public partial class CommandExecutionTests
                 "--jsonl",
                 "--rows",
                 "1");
+            var projected = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--jsonl",
+                "--columns",
+                "Path");
 
             Assert.Equal(0, exit);
+            Assert.Equal(0, projected.Exit);
             Assert.Empty(error);
+            Assert.Empty(projected.Error);
             string row = Assert.Single(
                 output.Split(
                     '\n',
                     StringSplitOptions.RemoveEmptyEntries));
             using var _ = JsonDocument.Parse(row);
+            foreach (string projectedRow in projected.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                using var document = JsonDocument.Parse(projectedRow);
+                JsonProperty property = Assert.Single(
+                    document.RootElement.EnumerateObject());
+                Assert.Equal("path", property.Name);
+            }
         }
         finally
         {
             Directory.Delete(firstDir, recursive: true);
             Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FileProjectionAgreesAcrossCountAndRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.FileProjection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.FileProjection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--count",
+                "--columns",
+                "Package");
+            var rows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--tsv",
+                "--columns",
+                "Package");
+            var pathCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--count",
+                "--columns",
+                "Package");
+            var fieldCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package files",
+                "--count",
+                "--fields",
+                "Path");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, rows.Exit);
+            Assert.Equal(0, pathCount.Exit);
+            Assert.Equal(0, fieldCount.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(rows.Error);
+            Assert.Empty(pathCount.Error);
+            Assert.Empty(fieldCount.Error);
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Equal("2", pathCount.Output.Trim());
+            Assert.True(
+                int.Parse(
+                    fieldCount.Output,
+                    CultureInfo.InvariantCulture) > 2);
+            Assert.Equal(
+                [
+                    "package",
+                    "Test.FileProjection.One",
+                    "Test.FileProjection.Two",
+                ],
+                rows.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_DiscoverRefusalPrecedesCountProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiDiscoverProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-D",
+                "--count",
+                "--fields",
+                "Name");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with -D/--discover.",
+                error);
+            Assert.DoesNotContain(
+                "No fields matched projection",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
