@@ -89,14 +89,18 @@ root="$(git rev-parse --show-toplevel)"
 packages_dir="$root/artifacts/iltools/packages"
 
 # On Git Bash, `git rev-parse --show-toplevel` reports a Windows path
-# (C:/src/repo). Emitting that verbatim would break the documented
-# newline-to-colon PATH assembly, because the drive colon reads as a PATH
-# separator and splits every directory into "C" and "/src/repo/...". Emit MSYS
-# form (/c/src/repo) where cygpath exists; elsewhere this is a no-op.
+# (C:/src/repo). Interactive activation needs MSYS form (/c/src/repo), because
+# the drive colon would split a shell PATH. GitHub Actions is the opposite:
+# $GITHUB_PATH is consumed by later native processes, so it needs Windows form.
+# cygpath owns both conversions; elsewhere the path is already host-native.
 emit_path() {
     local emitted
     if [ -n "$cygpath" ]; then
-        emitted="$("$cygpath" -u "$1")"
+        if [ -n "${GITHUB_PATH:-}" ]; then
+            emitted="$("$cygpath" -w "$1")"
+        else
+            emitted="$("$cygpath" -u "$1")"
+        fi
     else
         emitted="$1"
     fi
@@ -113,22 +117,6 @@ emit_path() {
 }
 
 cygpath="$(command -v cygpath 2> /dev/null || true)"
-
-# The MSYS form above is right for a shell and wrong for a GitHub Actions lane.
-# $GITHUB_PATH feeds PATH for *every* later step, including pwsh steps and the
-# .NET processes they spawn, and Win32 CreateProcess cannot resolve /c/... -- so
-# the tools would be unfindable and every oracle test would skip, green. No
-# Windows lane exists today (the test matrix is linux-x64 only), so rather than
-# ship an unexercised native-path mode, refuse loudly: whoever adds that lane
-# gets this message instead of a silently uncompared run.
-if [ -n "$cygpath" ] && [ -n "${GITHUB_PATH:-}" ]; then
-    echo "error: refusing to write MSYS-style paths to \$GITHUB_PATH." >&2
-    echo "  This script emits /c/... form on Git Bash, which .NET cannot resolve" >&2
-    echo "  when a later pwsh step spawns a process. Adding a Windows CI lane" >&2
-    echo "  requires emitting native paths here first; see the emit_path comment" >&2
-    echo "  above for why the MSYS form exists (drive colons split a PATH)." >&2
-    exit 1
-fi
 
 # The package payload's extension follows the RID being restored, not the host:
 # restoring win-x64 from Linux still yields ilasm.exe.

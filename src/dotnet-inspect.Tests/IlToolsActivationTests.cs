@@ -36,8 +36,10 @@ public class IlToolsActivationTests
     static readonly string ActivateScript = Path.Combine(RepoRoot, "eng", "activate-iltools.sh");
     static readonly string RestoreScript = Path.Combine(RepoRoot, "eng", "restore-iltools.sh");
 
-    static readonly bool HasBash = CanRunBash();
-    static readonly bool HasDash = CanRun("dash");
+    static readonly string? BashExecutable = FindShell("bash");
+    static readonly string? DashExecutable = FindShell("dash");
+    static readonly bool HasBash = BashExecutable is not null;
+    static readonly bool HasDash = DashExecutable is not null;
 
     const string SkipReason = "bash is not available on this machine";
 
@@ -283,7 +285,9 @@ public class IlToolsActivationTests
         var result = RunBash($"{ReportPathOnExit}\nsource \"{scratch.ActivatePath}\"", initialPath: "/orig1");
 
         Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains(Path.Combine(scratch.Path, "restore-iltools.sh"), result.Stderr);
+        Assert.Contains(
+            $"{Path.GetFileName(scratch.Path)}/restore-iltools.sh",
+            result.Stderr.Replace('\\', '/'));
         Assert.Equal(["/orig1"], result.PathEntries);
     }
 
@@ -395,7 +399,7 @@ public class IlToolsActivationTests
         ScratchDirectory.MakeExecutablePublic(stub);
 
         var script = string.Join('\n', [
-            $"export CDPATH=\"{scratch.Path}\"",
+            $"export CDPATH=\"{ToShellPath(scratch.Path)}\"",
             ReportPathOnExit,
             "source eng/activate-iltools.sh",
         ]);
@@ -407,47 +411,83 @@ public class IlToolsActivationTests
     }
 
     /// <summary>
-    /// The producer emits MSYS-form paths on Git Bash so drive colons cannot
-    /// split a PATH. That form is unusable in $GITHUB_PATH, where a later pwsh
-    /// step's .NET processes resolve it through Win32 -- the tools would go
-    /// unfound and every oracle test would skip, green, which is the exact
-    /// failure these scripts exist to prevent. No Windows lane exists today, so
-    /// the producer must refuse rather than emit something silently inert.
+    /// Interactive Git Bash activation needs MSYS-form paths so drive colons do
+    /// not split PATH. $GITHUB_PATH is consumed by native processes instead, so
+    /// the producer must ask cygpath for Windows form in that mode.
     /// </summary>
     [Fact]
-    public void Restore_WhenEmittingMsysPathsIntoGithubPath_RefusesInsteadOfSkippingQuietly()
+    public void Restore_WhenWritingGithubPath_EmitsNativeWindowsPaths()
     {
         Assert.SkipUnless(HasBash, SkipReason);
 
         using var stubs = new ScratchDirectory(producer: null);
+        string version = Assert.Single(
+            File.ReadLines(RestoreScript),
+            line => line.StartsWith("ILTOOLS_VERSION=", StringComparison.Ordinal))
+            ["ILTOOLS_VERSION=".Length..];
+        string root = Directory.CreateDirectory(Path.Combine(stubs.Path, "repo")).FullName;
+        string packages = Path.Combine(root, "artifacts", "iltools", "packages");
 
-        // Stand in for Git Bash: the producer keys the MSYS rewrite on cygpath
-        // being present, so a stub on PATH reaches the guard on any host.
-        var cygpath = Path.Combine(stubs.Path, "cygpath");
-        File.WriteAllText(cygpath, "#!/bin/sh\nshift; echo \"$1\"\n");
-        ScratchDirectory.MakeExecutablePublic(cygpath);
+        foreach ((string package, string tool, string marker) in new[]
+        {
+            ("runtime.win-x64.microsoft.netcore.ilasm", "ilasm.exe", "Usage: ilasm"),
+            ("runtime.win-x64.microsoft.netcore.ildasm", "ildasm.exe", "Usage: ildasm"),
+        })
+        {
+            string directory = Directory.CreateDirectory(
+                Path.Combine(packages, package, version, "runtimes", "win-x64", "native")).FullName;
+            string toolPath = Path.Combine(directory, tool);
+            File.WriteAllText(toolPath, $"#!/bin/sh\nprintf '%s\\n' '{marker}'\n");
+            ScratchDirectory.MakeExecutablePublic(toolPath);
+        }
 
-        var info = new ProcessStartInfo("bash")
+        var info = new ProcessStartInfo(BashExecutable!)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             WorkingDirectory = RepoRoot,
         };
-        info.ArgumentList.Add(RestoreScript);
-        info.ArgumentList.Add("--rid");
-        info.ArgumentList.Add("linux-x64");
-        info.Environment["PATH"] = stubs.Path + ":" + Environment.GetEnvironmentVariable("PATH");
+        info.ArgumentList.Add("-c");
+        info.ArgumentList.Add(
+            $$"""
+            git() {
+                [ "$1 $2" = "rev-parse --show-toplevel" ] || return 2
+                printf '%s\n' "$ILTOOLS_TEST_ROOT"
+            }
+            dotnet() {
+                [ "$1" = "restore" ] || return 2
+                return 0
+            }
+            cygpath() {
+                case "$1" in
+                    -w) printf 'C:/native%s\n' "$2" ;;
+                    -u) printf '/msys%s\n' "$2" ;;
+                    *) return 2 ;;
+                esac
+            }
+            source "{{ToShellPath(RestoreScript)}}" --rid win-x64
+            """);
         info.Environment["GITHUB_PATH"] = Path.Combine(stubs.Path, "github_path");
+        info.Environment["ILTOOLS_TEST_ROOT"] = ToShellPath(root);
 
         using var process = Process.Start(info)!;
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
-        Assert.NotEqual(0, process.ExitCode);
-        Assert.Contains("GITHUB_PATH", stderr);
-        Assert.Equal("", stdout.Trim());
+        Assert.True(
+            process.ExitCode == 0,
+            $"restore-iltools.sh exited {process.ExitCode}.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        Assert.DoesNotContain("/msys", stdout);
+        string[] paths = stdout.Split(
+            ['\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.True(paths.Length == 2, $"Expected two emitted paths.\nstdout:\n{stdout}");
+        Assert.All(paths, path => Assert.StartsWith("C:/native", path));
+        Assert.Contains(paths, path => path.Contains("ilasm", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path => path.Contains("ildasm", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("error:", stderr, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -500,13 +540,10 @@ public class IlToolsActivationTests
     [Fact]
     public void Activate_SourcedFromAPosixShell_ExplainsItselfInsteadOfCrashing()
     {
-        Assert.SkipWhen(
-            OperatingSystem.IsWindows(),
-            "Git for Windows can provide dash, but a POSIX shell cannot source the Windows path to this script.");
         Assert.SkipUnless(HasDash, "dash is not available on this machine");
 
         using var scratch = new ScratchDirectory(TwoDirectoryProducer);
-        var result = Run("dash", $". \"{scratch.ActivatePath}\"", initialPath: null);
+        var result = Run(DashExecutable!, $". \"{scratch.ActivatePath}\"", initialPath: null);
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("needs bash", result.Stderr);
@@ -687,6 +724,57 @@ public class IlToolsActivationTests
     }
 
     [Fact]
+    public void WindowsWorkflow_RestoresOraclesAndExposesGitBashBeforeCliTests()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "ci.yml"));
+        int jobStart = workflow.IndexOf(
+            "\n  test-windows:\n",
+            StringComparison.Ordinal);
+        int nextJob = workflow.IndexOf(
+            "\n  build-net10:",
+            jobStart,
+            StringComparison.Ordinal);
+        Assert.True(jobStart >= 0);
+        Assert.True(jobStart < nextJob);
+        string job = workflow[jobStart..nextJob];
+
+        int install = job.IndexOf(
+            "- name: Install ilasm/ildasm",
+            StringComparison.Ordinal);
+        int cliTests = job.IndexOf(
+            "- name: Run CLI tests (all)",
+            StringComparison.Ordinal);
+        int terminalCheck = job.IndexOf(
+            "- name: Check ilasm/ildasm result",
+            StringComparison.Ordinal);
+        Assert.True(install >= 0);
+        Assert.True(install < cliTests);
+        Assert.True(cliTests < terminalCheck);
+
+        int nextInstallStep = job.IndexOf(
+            "\n      - ",
+            install + 1,
+            StringComparison.Ordinal);
+        string installStep = job[install..nextInstallStep];
+        Assert.Contains("id: iltools", installStep);
+        Assert.Contains("continue-on-error: true", installStep);
+        Assert.Contains("shell: bash", installStep);
+        Assert.Contains("ILTOOLS_BASH=", installStep);
+        Assert.Contains(
+            "eng/restore-iltools.sh --rid win-x64 >> \"$GITHUB_PATH\"",
+            installStep);
+
+        string checkStep = job[terminalCheck..];
+        Assert.Contains(
+            "if: ${{ !cancelled() && steps.iltools.outcome == 'failure' }}",
+            checkStep);
+        Assert.Contains("exit 1", checkStep);
+        Assert.DoesNotContain("continue-on-error:", checkStep);
+        Assert.DoesNotContain("\n      - ", checkStep);
+    }
+
+    [Fact]
     public void ReleaseWorkflow_BuildsFixtureGraphBeforeCliTests()
     {
         string workflow = File.ReadAllText(
@@ -802,9 +890,10 @@ public class IlToolsActivationTests
         public ScratchDirectory(string? producer)
         {
             Path = Directory.CreateTempSubdirectory("iltools-activate-").FullName;
-            ActivatePath = System.IO.Path.Combine(Path, "activate-iltools.sh");
-            File.Copy(ActivateScript, ActivatePath);
-            MakeExecutable(ActivatePath);
+            string nativeActivatePath = System.IO.Path.Combine(Path, "activate-iltools.sh");
+            ActivatePath = ToShellPath(nativeActivatePath);
+            File.Copy(ActivateScript, nativeActivatePath);
+            MakeExecutable(nativeActivatePath);
 
             if (producer is not null)
             {
@@ -886,10 +975,13 @@ public class IlToolsActivationTests
     }
 
     static ActivationResult RunBash(string script, string? initialPath, string? workingDirectory = null) =>
-        Run("bash", script, initialPath, workingDirectory);
+        Run(BashExecutable!, script, initialPath, workingDirectory);
 
     static ActivationResult Run(string shell, string script, string? initialPath, string? workingDirectory = null)
     {
+        if (initialPath is not null)
+            script = $"export PATH={ShellQuote(initialPath)}\n{script}";
+
         var info = new ProcessStartInfo(shell)
         {
             RedirectStandardOutput = true,
@@ -902,9 +994,6 @@ public class IlToolsActivationTests
         info.ArgumentList.Add("-c");
         info.ArgumentList.Add(script);
 
-        if (initialPath is not null)
-            info.Environment["PATH"] = initialPath;
-
         using var process = Process.Start(info)!;
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
@@ -913,7 +1002,52 @@ public class IlToolsActivationTests
         return new ActivationResult(process.ExitCode, stdout, stderr);
     }
 
-    static bool CanRunBash() => CanRun("bash");
+    static string ToShellPath(string path) =>
+        OperatingSystem.IsWindows() ? path.Replace('\\', '/') : path;
+
+    static string ShellQuote(string value) =>
+        $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
+
+    static string? FindShell(string name)
+    {
+        foreach (string candidate in ShellCandidates(name).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (CanRun(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    static IEnumerable<string> ShellCandidates(string name)
+    {
+        if (name == "bash" &&
+            Environment.GetEnvironmentVariable("ILTOOLS_BASH") is string configured &&
+            configured.Length > 0)
+        {
+            yield return configured;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (string root in new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Programs"),
+            }.Where(root => root.Length > 0))
+            {
+                if (name == "bash")
+                    yield return Path.Combine(root, "Git", "bin", "bash.exe");
+
+                yield return Path.Combine(root, "Git", "usr", "bin", $"{name}.exe");
+            }
+        }
+
+        yield return name;
+    }
 
     static bool CanRun(string shell)
     {
