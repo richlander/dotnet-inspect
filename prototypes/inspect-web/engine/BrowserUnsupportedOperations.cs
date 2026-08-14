@@ -82,23 +82,6 @@ public static partial class BrowserInspectionEngine
         string styleOptionsJson) =>
         throw Unavailable("Type member source", NoBrowserSourceCapabilities);
 
-    /// <summary>
-    /// Declared NuGet dependency groups plus the active assembly's direct references.
-    /// <c>AssemblyReferencesQuery</c> exists but binds to a host-opened
-    /// <c>AssemblyInspectionSession</c> rather than to an <c>AssemblyContextGroup</c>, and the
-    /// .nuspec dependency-group projection has no query at all.
-    /// </summary>
-    [JSExport]
-    public static Task<string> QueryPackageDependencies(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyId) =>
-        throw Unavailable(
-            "Package dependencies",
-            "AssemblyReferencesQuery binds to a host-opened session, not to an assembly context "
-            + "group, and no query projects declared dependency groups");
-
     [JSExport]
     public static Task<string> QueryPlatformIntegrations(
         string targetFramework,

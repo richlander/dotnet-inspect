@@ -10,7 +10,8 @@ The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
-metadata-image, direct-reference, extension-method, custom-attribute,
+metadata-image, direct-reference, assembly-context reference,
+package dependency-group, extension-method, custom-attribute,
 manifest-resource, type-forwarder, union-type, switch, SourceLink, Integrations,
 implementation relationships, type/member search, extension reachability,
 API-comparison, Analysis body-signal comparison, and Implementation comparison
@@ -28,12 +29,13 @@ substrates, and inspection producers that will extend that space.
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
-  and content-shaped metadata, reference, extension-method, custom-attribute,
-  manifest-resource, type-forwarder, union-type, SourceLink,
-  implementation-relationship, type/member search, extension-reachability,
-  API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content. The
-  project has no Markout, console, or filesystem-path dependency.
+  and content-shaped metadata, reference, package dependency-group,
+  extension-method, custom-attribute, manifest-resource, type-forwarder,
+  union-type, SourceLink, implementation-relationship, type/member search,
+  extension-reachability, API-comparison, progressive call-graph, and
+  group-scoped source queries. The source query owns a Decompiler fallback over
+  retained assembly content. The project has no Markout, console, or
+  filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
