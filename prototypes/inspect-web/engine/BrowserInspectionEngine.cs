@@ -766,38 +766,18 @@ public static partial class BrowserInspectionEngine
         BrowserJsonContext.Default.BrowserStyleTierArray);
 
     [JSExport]
-    public static string ListStyleOptions()
-    {
-        var options = new List<BrowserStyleOption>();
-        foreach (Pipeline.StyleOptionDescriptor descriptor in Pipeline.StyleOptionCatalog.Options)
-        {
-            // A knob is an axis of values; the default value is not selectable taste. Boolean
-            // knobs expose one non-default value and keep the descriptor id so stored selections
-            // stay stable; multi-value axes expose one option per value and share a conflict group
-            // so the client single-selects within the axis.
-            Pipeline.StyleOptionValue[] choices =
-            [
-                .. descriptor.Values.Where(value =>
-                    !string.Equals(value.Token, descriptor.DefaultValue, StringComparison.Ordinal)),
-            ];
-            bool multiValue = choices.Length > 1;
-            foreach (Pipeline.StyleOptionValue value in choices)
-            {
-                options.Add(new BrowserStyleOption(
-                    multiValue ? $"{descriptor.Id}:{value.Token}" : descriptor.Id,
-                    multiValue ? $"{descriptor.Title} · {value.Title ?? value.Token}" : descriptor.Title,
-                    descriptor.Summary,
-                    descriptor.Tier.ToString(),
-                    descriptor.ByteDivergent,
-                    value.OracleEndorsed,
-                    multiValue ? descriptor.Id : null));
-            }
-        }
-
-        return JsonSerializer.Serialize(
-            options.ToArray(),
-            BrowserJsonContext.Default.BrowserStyleOptionArray);
-    }
+    public static string ListStyleOptions() => JsonSerializer.Serialize(
+        Pipeline.StyleOptionCatalog.Choices
+            .Select(choice => new BrowserStyleOption(
+                choice.Id,
+                choice.Title,
+                choice.Summary,
+                choice.Tier.ToString(),
+                choice.ByteDivergent,
+                choice.OracleEndorsed,
+                choice.ConflictGroup))
+            .ToArray(),
+        BrowserJsonContext.Default.BrowserStyleOptionArray);
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
