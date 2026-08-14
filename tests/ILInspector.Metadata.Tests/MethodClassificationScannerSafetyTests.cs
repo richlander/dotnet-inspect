@@ -70,6 +70,54 @@ public sealed class MethodClassificationScannerSafetyTests
     }
 
     [Fact]
+    public void Scan_PlainHostileMultiMethodPointerProbeStaysBounded()
+    {
+        // Without PinvokeImpl the scan used to fall through to string MethodText
+        // for every public method. Wide discarded modopts decode successfully and
+        // multiplied to ~570 MiB/method. PointerDetector must keep this bounded
+        // without requiring a thrown identity failure.
+        const int methodCount = 64;
+        const int parameterCount = 2_000;
+        const int genericArity = 2_030;
+        byte[] image = BuildHostileIdentityImage(
+            methodCount,
+            parameterCount,
+            genericArity,
+            pinvoke: false,
+            runtimeAsync: false);
+        using var pe = new PEReader(new MemoryStream(image));
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException? thrown = null;
+        List<ClassifiedMethodInfo>? results = null;
+        try
+        {
+            results = MethodClassificationScanner.Scan(pe);
+        }
+        catch (BadImageFormatException ex)
+        {
+            thrown = ex;
+        }
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        if (thrown is not null)
+        {
+            Assert.Contains("classification scan work budget", thrown.Message);
+        }
+        else
+        {
+            Assert.NotNull(results);
+            Assert.Empty(results!);
+        }
+
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Plain multi-method hostile pointer probe allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Scan_RealTestAssemblyStillClassifies()
     {
         using var stream = File.OpenRead(
@@ -88,16 +136,29 @@ public sealed class MethodClassificationScannerSafetyTests
         int methodCount,
         int parameterCount,
         int genericArity)
+        => BuildHostileIdentityImage(
+            methodCount,
+            parameterCount,
+            genericArity,
+            pinvoke: true,
+            runtimeAsync: false);
+
+    static byte[] BuildHostileIdentityImage(
+        int methodCount,
+        int parameterCount,
+        int genericArity,
+        bool pinvoke,
+        bool runtimeAsync)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
-            metadata.GetOrAddString("HostilePInvoke.dll"),
+            metadata.GetOrAddString("HostileIdentity.dll"),
             metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("HostilePInvoke"),
+            metadata.GetOrAddString("HostileIdentity"),
             new Version(1, 0, 0, 0),
             default,
             default,
@@ -165,22 +226,32 @@ public sealed class MethodClassificationScannerSafetyTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
+        MethodAttributes attrs = MethodAttributes.Public | MethodAttributes.Static;
+        if (pinvoke)
+            attrs |= MethodAttributes.PinvokeImpl;
+        MethodImplAttributes impl = pinvoke
+            ? MethodImplAttributes.PreserveSig
+            : MethodImplAttributes.IL;
+        if (runtimeAsync)
+            impl |= (MethodImplAttributes)0x2000;
+
         for (int i = 0; i < methodCount; i++)
         {
             MethodDefinitionHandle method = metadata.AddMethodDefinition(
-                MethodAttributes.Public
-                    | MethodAttributes.Static
-                    | MethodAttributes.PinvokeImpl,
-                MethodImplAttributes.PreserveSig,
+                attrs,
+                impl,
                 metadata.GetOrAddString($"M{i}"),
                 signatureBlob,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
-            metadata.AddMethodImport(
-                method,
-                MethodImportAttributes.CallingConventionWinApi,
-                metadata.GetOrAddString($"M{i}"),
-                moduleRef);
+            if (pinvoke)
+            {
+                metadata.AddMethodImport(
+                    method,
+                    MethodImportAttributes.CallingConventionWinApi,
+                    metadata.GetOrAddString($"M{i}"),
+                    moduleRef);
+            }
         }
 
         var pe = new ManagedPEBuilder(

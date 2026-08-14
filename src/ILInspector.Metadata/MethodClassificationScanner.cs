@@ -175,16 +175,37 @@ public static class MethodClassificationScanner
                     });
                 }
 
-                // Check unsafe (pointer types in signature)
+                // Check unsafe (pointer types in signature). Use a budgeted pointer
+                // detector — string MethodText materializes discarded modopt trees
+                // (~570 MiB/method). Even the allocation-light PointerDetector still
+                // expands wide GENERICINST TypeSpecs; charge structural visits
+                // against the shared scan work budget (R1 Opus plain-hostile).
                 try
                 {
-                    var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var sig = GuardedSignatureText.MethodText(reader, method, context)
-                        .GetValueOrThrow();
-                    if (HasPointerType(sig))
+                    if (scanWorkRemaining <= 0)
                     {
-                        var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
+                        throw new BadImageFormatException(
+                            "The assembly exceeds the classification scan work budget.");
+                    }
+
+                    var pointerProbe = new BudgetedPointerDetector(scanWorkRemaining);
+                    try
+                    {
+                        var decoded = GuardedProviderDecode.MethodResult(
+                            reader,
+                            method,
+                            pointerProbe,
+                            (object?)null,
+                            PointerDetection.Degraded);
+                        var detection = PointerDetection.Combine(
+                            decoded.Value.ReturnType,
+                            decoded.Value.ParameterTypes);
+                        if (!detection.HasPointer)
+                            continue;
+
                         MethodAnchorInfo? identity = GetMethodIdentity();
+                        string signature = FormatSignatureOrFallback(
+                            reader, typeDef, method, methodName, identity);
                         results.Add(new ClassifiedMethodInfo(
                             methodName, fullTypeName, ns, signature,
                             MethodClassification.Unsafe)
@@ -193,12 +214,23 @@ public static class MethodClassificationScanner
                             ReturnType = identity?.ReturnType,
                         });
                     }
+                    finally
+                    {
+                        scanWorkRemaining = pointerProbe.Remaining;
+                    }
                 }
                 catch (BadImageFormatException ex)
                 {
-                    // Pointer-shape probes share the scan failure budget so a
-                    // multi-method hostile image cannot decode forever here
-                    // either.
+                    // Pointer-shape probes share the scan failure / work budgets so a
+                    // multi-method hostile image cannot decode forever here either.
+                    if (scanWorkRemaining <= 0
+                        || ex.Message.Contains(
+                            "classification scan work budget",
+                            StringComparison.Ordinal))
+                    {
+                        throw;
+                    }
+
                     NoteDecodeFailure(ref identityDecodeFailures, ex);
                 }
                 catch
@@ -209,6 +241,125 @@ public static class MethodClassificationScanner
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Pointer detection that draws from the classification-scan work budget on
+    /// composite / TypeSpec visits so wide successful shapes cannot multiply
+    /// across MethodDefs without charging.
+    /// </summary>
+    sealed class BudgetedPointerDetector : ISignatureTypeProvider<PointerDetection, object?>
+    {
+        int _remaining;
+
+        public BudgetedPointerDetector(int remaining) => _remaining = remaining;
+
+        public int Remaining => _remaining;
+
+        void Charge(int units)
+        {
+            if (units < 0)
+                units = 0;
+            if (units > _remaining)
+            {
+                _remaining = 0;
+                throw new BadImageFormatException(
+                    "The assembly exceeds the classification scan work budget.");
+            }
+
+            _remaining -= units;
+        }
+
+        public PointerDetection GetPrimitiveType(PrimitiveTypeCode typeCode)
+        {
+            Charge(1);
+            return default;
+        }
+
+        public PointerDetection GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+        {
+            // Match anchor leaf floor so wide TypeSpec arg lists draw down the
+            // shared scan budget before ImmutableArrays accumulate.
+            Charge(64);
+            return default;
+        }
+
+        public PointerDetection GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+        {
+            Charge(64);
+            return default;
+        }
+
+        public PointerDetection GetTypeFromSpecification(
+            MetadataReader reader,
+            object? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+        {
+            Charge(64);
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return PointerDetection.Degraded;
+            using (scope)
+            {
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            }
+        }
+
+        public PointerDetection GetSZArrayType(PointerDetection elementType) => elementType;
+
+        public PointerDetection GetArrayType(PointerDetection elementType, ArrayShape shape)
+            => elementType;
+
+        public PointerDetection GetByReferenceType(PointerDetection elementType) => elementType;
+
+        public PointerDetection GetPointerType(PointerDetection elementType)
+        {
+            Charge(64);
+            return new(HasPointer: true, elementType.IsDegraded);
+        }
+
+        public PointerDetection GetGenericInstantiation(
+            PointerDetection genericType,
+            System.Collections.Immutable.ImmutableArray<PointerDetection> typeArguments)
+        {
+            Charge(64);
+            return PointerDetection.Combine(genericType, typeArguments);
+        }
+
+        public PointerDetection GetGenericMethodParameter(object? context, int index)
+            => default;
+
+        public PointerDetection GetGenericTypeParameter(object? context, int index)
+            => default;
+
+        public PointerDetection GetFunctionPointerType(
+            MethodSignature<PointerDetection> signature)
+        {
+            Charge(64);
+            return new(
+                HasPointer: true,
+                signature.ReturnType.IsDegraded
+                    || signature.ParameterTypes.Any(static type => type.IsDegraded));
+        }
+
+        public PointerDetection GetModifiedType(
+            PointerDetection modifier,
+            PointerDetection unmodifiedType,
+            bool isRequired)
+        {
+            Charge(64);
+            return new(
+                modifier.HasPointer || unmodifiedType.HasPointer,
+                modifier.IsDegraded || unmodifiedType.IsDegraded);
+        }
+
+        public PointerDetection GetPinnedType(PointerDetection elementType) => elementType;
     }
 
     /// <summary>
@@ -229,20 +380,6 @@ public static class MethodClassificationScanner
             return MethodClassification.StateMachineAsync;
 
         return null;
-    }
-
-    private static bool HasPointerType(MethodSignature<string> signature)
-    {
-        if (signature.ReturnType.Contains('*'))
-            return true;
-
-        foreach (var paramType in signature.ParameterTypes)
-        {
-            if (paramType.Contains('*'))
-                return true;
-        }
-
-        return false;
     }
 
     private static string? GetPInvokeModuleName(MetadataReader reader, MethodDefinitionHandle methodHandle)
