@@ -9,7 +9,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.CommandLine;
 
@@ -296,17 +296,13 @@ public static class RouterCommandDefinition
                 sourceOptions,
                 allowPlatformPrefixFallback,
                 message => platformLookupFailure ??= message);
+            bool hasNonExactPlatformProbe = false;
             if (typeProbe != null)
             {
-                bool isNonExactPlatformProbe =
+                hasNonExactPlatformProbe =
                     typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
                     && !await IsExactPlatformTypeAsync(typeProbe, context);
-                if (isNonExactPlatformProbe && platformLookupFailure is null)
-                {
-                    return ["type", target, .. tail];
-                }
-
-                if (!isNonExactPlatformProbe)
+                if (!hasNonExactPlatformProbe)
                 {
                     RequestTelemetry.Breadcrumb(
                         "qualified-type",
@@ -336,6 +332,9 @@ public static class RouterCommandDefinition
                 CommandError.Write(platformLookupFailure);
                 return tokens;
             }
+
+            if (hasNonExactPlatformProbe)
+                return ["type", target, .. tail];
 
             if (PlatformResolver.IsPlatformCandidate(target))
             {

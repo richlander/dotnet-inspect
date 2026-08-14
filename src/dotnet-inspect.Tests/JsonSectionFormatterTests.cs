@@ -1,0 +1,444 @@
+using System.Text.Json;
+using DotnetInspector.Output;
+using DotnetInspector.Views;
+using Markout;
+
+namespace DotnetInspector.Tests;
+
+/// <summary>
+/// Covers the lowered JSON view (#3494): JSON rendered through the Markout formatter seam rather
+/// than from a separate typed graph, so that Shape and Section decisions reach it.
+/// </summary>
+public class JsonSectionFormatterTests
+{
+    private static FindResultView BuildView() => new()
+    {
+        Title = "Find: Cache",
+        Results =
+        [
+            new FindRow("Cache", "MemoryCache", "System.Runtime.Caching", "class", "System.Runtime.Caching", "runtime", "Exact", "1.00"),
+            new FindRow("Cache", "HybridCache", "Microsoft.Extensions.Caching.Hybrid", "class", "Microsoft.Extensions.Caching.Abstractions", "nuget", "Partial", "0.80"),
+        ],
+    };
+
+    private static string Render(MarkoutWriterOptions options)
+    {
+        // Mirror the production configuration: OutputFormatter.RenderProjectedJson asks Markout for
+        // its JSONL vocabulary so the formatter is handed machine key names, not display headings.
+        OutputFormatter.ConfigureTableWriterOptions(options, tsv: false, jsonl: true);
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(options);
+        MarkoutSerializer.Serialize(BuildView(), TextWriter.Null, formatter, SearchViewContext.Default, options);
+        return formatter.Finish();
+    }
+
+    [Fact]
+    public void TableSection_RendersAsArrayOfRowObjects()
+    {
+        var json = Render(new MarkoutWriterOptions());
+
+        using var document = JsonDocument.Parse(json);
+        var rows = document.RootElement.GetProperty("results");
+
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.Equal(2, rows.GetArrayLength());
+        Assert.Equal("MemoryCache", rows[0].GetProperty("type").GetString());
+        Assert.Equal("HybridCache", rows[1].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public void Projection_ChangesTheJson()
+    {
+        // The Format-invariance gate from #3494: toggle a Shape option and diff the JSON. If the
+        // JSON is unchanged, the option is being honored by one format and dropped by JSON, which
+        // is the mislayering this view exists to remove.
+        var unprojected = Render(new MarkoutWriterOptions());
+        var projected = Render(new MarkoutWriterOptions
+        {
+            Projection = new MarkoutProjection { IncludeColumns = ["Type", "Library"] },
+        });
+
+        Assert.NotEqual(unprojected, projected);
+
+        using var document = JsonDocument.Parse(projected);
+        foreach (var row in document.RootElement.GetProperty("results").EnumerateArray())
+            Assert.Equal(["type", "library"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
+    public void SectionSelection_ChangesTheJson()
+    {
+        var all = Render(new MarkoutWriterOptions());
+        var none = Render(new MarkoutWriterOptions { IncludeSections = new HashSet<string>(["Nothing Matches"]) });
+
+        Assert.Contains("results", all, StringComparison.Ordinal);
+        Assert.NotEqual(all, none);
+        Assert.DoesNotContain("MemoryCache", none);
+    }
+
+    [Fact]
+    public void UnmatchedColumn_Throws()
+    {
+        // A bad column name must not yield a success-shaped empty document. Markout owns the
+        // projection, so the lowered JSON path inherits the same failure the table formats raise.
+        var exception = Assert.Throws<InvalidOperationException>(() => Render(new MarkoutWriterOptions
+        {
+            Projection = new MarkoutProjection { IncludeColumns = ["NotAColumn"] },
+        }));
+
+        Assert.Contains("No columns matched projection", exception.Message);
+    }
+
+    [Fact]
+    public void RenderProjectedJson_HonorsColumns()
+    {
+        var json = OutputFormatter.RenderProjectedJson(
+            columns: ["Type"],
+            fields: null,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(BuildView(), writer, formatter, SearchViewContext.Default, writerOptions));
+
+        using var document = JsonDocument.Parse(json);
+        foreach (var row in document.RootElement.GetProperty("results").EnumerateArray())
+            Assert.Equal(["type"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
+    public void MixedContentInOneSection_FailsRatherThanDroppingIt()
+    {
+        // A section serializes as exactly one JSON value, so a section that receives two kinds of
+        // content cannot keep both. The gate for "this projection never silently loses data": if
+        // this throw is ever removed or downgraded, the fields written here vanish from the
+        // document and nothing else in the suite notices. Reported by adversarial review of #3494.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Package", "Contoso")], false);
+
+        // A subheading does not open a new section, so this table lands in "Overview".
+        formatter.FormatHeading(TextWriter.Null, 3, "Detail", null);
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(TextWriter.Null, ["Header"], [["Value"]], 0, new MarkoutWriterOptions()));
+
+        Assert.Contains("Overview", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EmptyTableThenFields_FailsRatherThanReplacingTheTable()
+    {
+        // An empty table still establishes the section's shape. Counting buffered rows would let
+        // the fields replace that shape and silently discard its headers.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatTable(TextWriter.Null, ["Type"], [], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatFields(TextWriter.Null, [new MarkoutField("Package", "Contoso")], false));
+
+        Assert.Contains("Overview", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SameKindContentInOneSection_Accumulates()
+    {
+        // The negative case that keeps the guard honest: appending content of the kind a section
+        // already holds is lossless, so it must NOT throw. A guard that rejected this would be
+        // rejecting normal multi-call field emission.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Package", "Contoso")], false);
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Version", "1.0.0")], false);
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var overview = document.RootElement.GetProperty("overview");
+
+        Assert.Equal("Contoso", overview.GetProperty("package").GetString());
+        Assert.Equal("1.0.0", overview.GetProperty("version").GetString());
+    }
+
+    [Fact]
+    public void SecondTableWithDifferentColumns_FailsRatherThanRelabellingRows()
+    {
+        // Rows append but headers replace, so a second table in one section would re-label the
+        // first table's already-buffered rows with the second table's column names.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["Type"], [["MemoryCache"]], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(TextWriter.Null, ["Member"], [["Dispose"]], 0, new MarkoutWriterOptions()));
+
+        Assert.Contains("Results", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SecondEmptyTableWithDifferentColumns_FailsRatherThanReplacingHeaders()
+    {
+        // Header ownership is independent of row count: two empty tables with different schemas
+        // are still two incompatible shapes.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["Type"], [], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(TextWriter.Null, ["Member"], [], 0, new MarkoutWriterOptions()));
+
+        Assert.Contains("Results", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StreamingRowWithoutActiveTable_FailsRatherThanDroppingTheRow()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.WriteRow(TextWriter.Null, ["lost"]));
+
+        Assert.Contains("active streaming table", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EndingInactiveStreamingTable_Fails()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.EndTable(TextWriter.Null, 0));
+
+        Assert.Contains("active streaming table", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedStreamingTable_Fails()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.BeginTable(TextWriter.Null, ["Member"], new MarkoutWriterOptions()));
+
+        Assert.Contains("another streaming table", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FinishingWithAnOpenStreamingTable_Fails()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() => formatter.Finish());
+
+        Assert.Contains("streaming table is active", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BatchTableDuringStreamingTable_FailsRatherThanMergingTheTables()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.FormatTable(
+                TextWriter.Null,
+                ["Type"],
+                [["batch"]],
+                0,
+                new MarkoutWriterOptions()));
+
+        Assert.Contains("streaming table is active", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HeadingDuringStreamingTable_FailsRatherThanChangingTheCurrentSection()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.FormatHeading(TextWriter.Null, 2, "Other", null));
+
+        Assert.Contains("streaming table is active", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SingleFieldThroughWriter_FailsRatherThanDroppingItsValue()
+    {
+        var error = Assert.Throws<NotSupportedException>(() =>
+            OutputFormatter.RenderProjectedJson(
+                columns: null,
+                fields: null,
+                (output, formatter, options) =>
+                {
+                    var writer = new MarkoutWriter(output, formatter, options);
+                    writer.WriteField("Name", "Value");
+                    writer.Flush();
+                }));
+
+        Assert.Contains("without its value", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StreamingTreeNodeThroughWriter_FailsRatherThanSerializingItsPrefixAsData()
+    {
+        var error = Assert.Throws<NotSupportedException>(() =>
+            OutputFormatter.RenderProjectedJson(
+                columns: null,
+                fields: null,
+                (output, formatter, options) =>
+                {
+                    var writer = new MarkoutWriter(output, formatter, options);
+                    writer.WriteTreeNode("child", "|- ");
+                    writer.Flush();
+                }));
+
+        Assert.Contains("rendered hierarchy prefix", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverwideBatchRow_FailsRatherThanDroppingCells()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(
+                TextWriter.Null,
+                ["Type"],
+                [["MemoryCache", "lost"]],
+                0,
+                new MarkoutWriterOptions()));
+
+        Assert.Contains("2 cells", error.Message, StringComparison.Ordinal);
+        Assert.Contains("1 columns", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverwideStreamingRow_FailsRatherThanDroppingCells()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.WriteRow(TextWriter.Null, ["MemoryCache", "lost"]));
+
+        Assert.Contains("2 cells", error.Message, StringComparison.Ordinal);
+        Assert.Contains("1 columns", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RowWindow_IsAppliedToDataRatherThanRenderedLines()
+    {
+        // --rows must survive the change of Format. Applying it to the buffered rows (rather than
+        // with the line-oriented limiter the table formats use) is also what keeps the document
+        // parsable: a line limiter would cut a pretty-printed document mid-object.
+        var options = new MarkoutWriterOptions();
+        OutputFormatter.ConfigureTableWriterOptions(options, tsv: false, jsonl: true);
+
+        var json = OutputFormatter.RenderProjectedJson(
+            columns: ["Type"],
+            fields: null,
+            serialize: (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(BuildView(), writer, formatter, SearchViewContext.Default, writerOptions),
+            indented: true,
+            maxRows: RowWindow.Head(1));
+
+        using var document = JsonDocument.Parse(json);
+        var rows = document.RootElement.GetProperty("results");
+
+        Assert.Equal(1, rows.GetArrayLength());
+        Assert.Equal("MemoryCache", rows[0].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public void TwoSectionsSharingAMachineKey_FailRatherThanEmittingDuplicateKeys()
+    {
+        // Normalizing display headings to machine keys made collisions possible that verbatim names
+        // could not produce: "Call Graph" and "CallGraph" are distinct sections but one JSON key.
+        // Utf8JsonWriter happily writes the key twice and a parser keeps whichever it saw last, so
+        // nothing downstream reports the loss. Reported by adversarial review of #3494.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Call Graph", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["a"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "CallGraph", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["b"], false);
+
+        var error = Assert.Throws<NotSupportedException>(() => formatter.Finish());
+
+        Assert.Contains("call_graph", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RootFieldCollidingWithASection_FailsRatherThanEmittingDuplicateKeys()
+    {
+        // Fields emitted before any heading become the document's own top-level keys, so they share
+        // a namespace with the section keys and can collide with them.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Results", "1")], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["type"], [["MemoryCache"]], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() => formatter.Finish());
+
+        Assert.Contains("results", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DistinctMachineKeys_AreEmittedSideBySide()
+    {
+        // The negative case that keeps the collision guard honest: sections whose machine keys
+        // differ must still serialize together. A guard that rejected these would be rejecting
+        // every ordinary multi-section document.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Package", "Contoso")], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Call Graph", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["a"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["type"], [["MemoryCache"]], 0, new MarkoutWriterOptions());
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+
+        Assert.Equal("Contoso", document.RootElement.GetProperty("package").GetString());
+        Assert.Equal("a", document.RootElement.GetProperty("call_graph")[0].GetString());
+        Assert.Equal("MemoryCache", document.RootElement.GetProperty("results")[0].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public void TableWithARepeatedHeader_FailsRatherThanEmittingDuplicateKeys()
+    {
+        // Row objects are keyed by the header set, so a repeated header repeats a JSON property.
+        // BuildProjection rejects the --columns spelling of this, but the formatter is shared
+        // infrastructure and must not depend on its only caller for the guarantee.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(TextWriter.Null, ["type", "type"], [["a", "a"]], 0, new MarkoutWriterOptions()));
+
+        Assert.Contains("two columns named 'type'", error.Message, StringComparison.Ordinal);
+    }
+}

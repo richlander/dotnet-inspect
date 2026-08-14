@@ -121,7 +121,8 @@ The workflow then:
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
 5. Publishes Native AOT packages, then the managed fallback, then the pointer.
-6. Creates a GitHub release from the package version and attaches all packages.
+6. Creates a GitHub release from the package version at the resolved CI commit
+   and attaches all packages.
 
 The pointer is deliberately published last because it references the
 runtime-specific packages.
@@ -138,6 +139,9 @@ runtime-specific packages.
   package job. Restore the pinned tools successfully before retrying.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
+- **The release tag targets another commit:** move it to the resolved CI commit
+  and fix the workflow before the next release. The
+  `ReleaseWorkflow_TagsResolvedCiCommit` test gates this wiring.
 - **A package version already exists:** advance `VersionPrefix`; published
   package versions are immutable.
 - **A partially published release is retried:** the workflow uses

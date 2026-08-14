@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using CSharpText;
-using ILInspector.Text;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
