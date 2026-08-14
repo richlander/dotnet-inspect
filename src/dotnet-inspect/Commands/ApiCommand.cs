@@ -1348,7 +1348,8 @@ public class ApiCommand
         if (type.Kind == "enum")
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
-        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
+        bool fullSerializer = options.Verbosity != Verbosity.Quiet
+            || options.IncludeSections is { Count: > 0 };
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
@@ -2595,6 +2596,7 @@ public class ApiCommand
         => options.JsonOutput
            && !options.Count
            && !IsProjectionRequested(options)
+           && !IsColumnProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
            && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);

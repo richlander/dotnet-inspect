@@ -6247,6 +6247,37 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SingleType_QuietExplicitSectionUnderProjectedJsonUsesSectionTable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-v:q", "-S", "Type Info", "--fields", "Kind",
+            "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal("Kind", row.GetProperty("field").GetString());
+        Assert.Equal("class", row.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task Member_QuietExplicitSectionUnderProjectedJsonUsesSectionTable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-v:q", "-S", "Methods", "--columns", "Name",
+            "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("methods").EnumerateArray());
+        Assert.Equal(["name"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
     public async Task SingleType_ProjectedJsonReportsFieldWithNoData()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6436,6 +6467,21 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Section 'Call Graph' emitted a graph", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnnotatedSourceDocument_ProjectedJsonFailsBeforeTypedPayload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CommandCaretGestureFixture.Pump) + ":1",
+            "-S", "Annotated Source Document", "--columns", "Bogus",
+            "--json", "--compact");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("column 'Bogus' not found", error, StringComparison.Ordinal);
+        Assert.Contains("No columns matched projection: Bogus", error, StringComparison.Ordinal);
     }
 
     [Fact]

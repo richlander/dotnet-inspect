@@ -449,7 +449,10 @@ public static class ApiOutputFormatter
             typeParamsSummary = string.Join(", ", paramDescriptions);
         }
 
-        string? typeParamsInline = options.Verbosity == Verbosity.Quiet ? typeParamsSummary : null;
+        var explicitSections = options.IncludeSections is { Count: > 0 };
+        string? typeParamsInline = options.Verbosity == Verbosity.Quiet && !explicitSections
+            ? typeParamsSummary
+            : null;
 
 
         // Description (from docs) — suppressed at quiet
@@ -487,7 +490,7 @@ public static class ApiOutputFormatter
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
 
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet
+        bool topFieldsOnly = (options.Verbosity == Verbosity.Quiet && !explicitSections)
             || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail);
         var title = memberDetail
             ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
