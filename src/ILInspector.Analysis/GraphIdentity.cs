@@ -119,6 +119,15 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
 
     public GraphNodeIdentityKind Kind { get; }
 
+    /// <summary>
+    /// Whether this identity contains no catalog generation or live acquisition
+    /// registration.
+    /// </summary>
+    public bool IsPortable =>
+        Kind is GraphNodeIdentityKind.Structural
+            or GraphNodeIdentityKind.ArtifactMember
+            or GraphNodeIdentityKind.DetachedCatalog;
+
     internal static GraphNodeIdentity FromStorage(
         GraphNodeStorageKey storage) =>
         new(GraphNodeIdentityKind.Storage, storage);
@@ -145,13 +154,21 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
                 definition.MethodToken));
     }
 
-    internal static GraphNodeIdentity CreateDetachedCatalog() =>
+    /// <summary>
+    /// Creates a document-local identity for evidence that cannot safely join
+    /// another occurrence.
+    /// </summary>
+    public static GraphNodeIdentity CreateDocumentLocal() =>
         new(GraphNodeIdentityKind.DetachedCatalog, new object());
 
-    internal static GraphNodeIdentity FromMember(MemberRef member) =>
-        new(
+    /// <summary>Creates a structural identity for an unbound member value.</summary>
+    public static GraphNodeIdentity FromMember(MemberRef member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return new(
             GraphNodeIdentityKind.Structural,
             GraphStructuralMemberKey.Create(member));
+    }
 
     public bool Equals(GraphNodeIdentity? other) =>
         other is not null
