@@ -123,6 +123,62 @@ public static class ApiMemberIdentity
             => builder.Append(text);
     }
 
+    /// <summary>
+    /// TypeRef leaf that charges work from UTF-8 storage length and defers
+    /// UTF-16 materialization until the name is actually rendered into an
+    /// anchor. Discarded modopt trees therefore cannot force large string
+    /// allocations on cache miss.
+    /// </summary>
+    sealed class LazyTypeReferenceAnchorSignatureType : AnchorSignatureType
+    {
+        readonly MetadataReader _reader;
+        readonly TypeReferenceHandle _handle;
+        readonly Func<MetadataReader, TypeReferenceHandle, string> _format;
+        string? _text;
+
+        internal LazyTypeReferenceAnchorSignatureType(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            int estimatedLength,
+            Func<MetadataReader, TypeReferenceHandle, string> format)
+            : base(estimatedLength)
+        {
+            _reader = reader;
+            _handle = handle;
+            _format = format;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+            => builder.Append(_text ??= _format(_reader, _handle));
+    }
+
+    /// <summary>
+    /// TypeDef leaf counterpart of
+    /// <see cref="LazyTypeReferenceAnchorSignatureType"/>.
+    /// </summary>
+    sealed class LazyTypeDefinitionAnchorSignatureType : AnchorSignatureType
+    {
+        readonly MetadataReader _reader;
+        readonly TypeDefinitionHandle _handle;
+        readonly Func<MetadataReader, TypeDefinitionHandle, string> _format;
+        string? _text;
+
+        internal LazyTypeDefinitionAnchorSignatureType(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            int estimatedLength,
+            Func<MetadataReader, TypeDefinitionHandle, string> format)
+            : base(estimatedLength)
+        {
+            _reader = reader;
+            _handle = handle;
+            _format = format;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+            => builder.Append(_text ??= _format(_reader, _handle));
+    }
+
     sealed class WrappedAnchorSignatureType
         : AnchorSignatureType
     {
@@ -282,15 +338,30 @@ public static class ApiMemberIdentity
     /// <summary>
     /// Cumulative work budget for one member-anchor signature construction.
     /// Mirrors <c>StructuralSignatureWorkBudget</c>: charge every materialized
-    /// type-name occurrence so repeated long names cannot amplify past
+    /// type-name occurrence and every composite type node so repeated long
+    /// names and nested compositions cannot amplify past
     /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/> before
     /// rejection. Gated by
-    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
+    /// and
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>.
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
-        int _remaining = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+        int _remaining;
         bool _exhausted;
+
+        internal AnchorSignatureWorkBudget()
+            : this(MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
+        {
+        }
+
+        internal AnchorSignatureWorkBudget(int remaining)
+        {
+            _remaining = remaining;
+        }
+
+        internal int Remaining => _exhausted ? 0 : _remaining;
 
         internal void Charge(int characters)
         {
@@ -349,14 +420,23 @@ public static class ApiMemberIdentity
             _definitionCache ??= [];
             if (_definitionCache.TryGetValue(handle, out AnchorSignatureType? cached))
             {
-                // Reuse the composed name, but still charge this occurrence so
-                // repeated references cannot bypass the cumulative work budget.
-                _workBudget.Charge(cached.Length);
+                // Reuse the composed name, but charge the same leaf floor as
+                // Encoded so wide GENERICINST/FNPTR trees of short TypeDef
+                // names cannot bypass the budget on cache hits.
+                ChargeLeaf(cached.Length);
                 return cached;
             }
 
-            AnchorSignatureType encoded =
-                Encoded(FormatDefinitionTypeName(reader, handle));
+            // Charge from UTF-8 storage before any UTF-16 materialization so
+            // discarded modopt TypeDefs cannot allocate full names on miss.
+            // Gated by CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation.
+            int estimatedLength = EstimateDefinitionNameLength(reader, handle);
+            ChargeLeaf(estimatedLength);
+            AnchorSignatureType encoded = new LazyTypeDefinitionAnchorSignatureType(
+                reader,
+                handle,
+                estimatedLength,
+                FormatDefinitionTypeName);
             _definitionCache.Add(handle, encoded);
             return encoded;
         }
@@ -369,12 +449,17 @@ public static class ApiMemberIdentity
             _referenceCache ??= [];
             if (_referenceCache.TryGetValue(handle, out AnchorSignatureType? cached))
             {
-                _workBudget.Charge(cached.Length);
+                ChargeLeaf(cached.Length);
                 return cached;
             }
 
-            AnchorSignatureType encoded =
-                Encoded(FormatReferenceTypeName(reader, handle));
+            int estimatedLength = EstimateReferenceNameLength(reader, handle);
+            ChargeLeaf(estimatedLength);
+            AnchorSignatureType encoded = new LazyTypeReferenceAnchorSignatureType(
+                reader,
+                handle,
+                estimatedLength,
+                FormatReferenceTypeName);
             _referenceCache.Add(handle, encoded);
             return encoded;
         }
@@ -395,31 +480,37 @@ public static class ApiMemberIdentity
 
         public AnchorSignatureType GetSZArrayType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("", elementType, "[]");
+            => Composite(
+                new WrappedAnchorSignatureType("", elementType, "[]"));
 
         public AnchorSignatureType GetArrayType(
             AnchorSignatureType elementType,
             ArrayShape shape)
-            => new ArrayAnchorSignatureType(
-                elementType,
-                shape.Rank);
+            => Composite(
+                new ArrayAnchorSignatureType(
+                    elementType,
+                    shape.Rank));
 
         public AnchorSignatureType GetByReferenceType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("", elementType, "&");
+            => Composite(
+                new WrappedAnchorSignatureType("", elementType, "&"));
 
         public AnchorSignatureType GetPointerType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("", elementType, "*");
+            => Composite(
+                new WrappedAnchorSignatureType("", elementType, "*"));
 
         public AnchorSignatureType GetPinnedType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("pinned ", elementType, "");
+            => Composite(
+                new WrappedAnchorSignatureType("pinned ", elementType, ""));
 
         public AnchorSignatureType GetGenericInstantiation(
             AnchorSignatureType genericType,
             ImmutableArray<AnchorSignatureType> typeArguments)
-            => new GenericAnchorSignatureType(genericType, typeArguments);
+            => Composite(
+                new GenericAnchorSignatureType(genericType, typeArguments));
 
         public AnchorSignatureType GetGenericTypeParameter(
             GenericContext? context,
@@ -443,17 +534,136 @@ public static class ApiMemberIdentity
 
         public AnchorSignatureType GetFunctionPointerType(
             MethodSignature<AnchorSignatureType> signature)
-            => new JoinedAnchorSignatureType(
-                "delegate*<",
-                signature.ParameterTypes.Add(signature.ReturnType),
-                ",",
-                ">");
+            => Composite(
+                new JoinedAnchorSignatureType(
+                    "delegate*<",
+                    signature.ParameterTypes.Add(signature.ReturnType),
+                    ",",
+                    ">"));
 
         public AnchorSignatureType GetModifiedType(
             AnchorSignatureType modifier,
             AnchorSignatureType unmodifiedType,
             bool isRequired)
-            => unmodifiedType;
+        {
+            // Custom modifiers are dropped from the rendered anchor, but the
+            // modifier subtree was already charged when it was constructed.
+            // Charge a unit of work for the discarded edge so a tree of only
+            // modifiers cannot be free.
+            _ = modifier;
+            _ = isRequired;
+            _workBudget.Charge(1);
+            return unmodifiedType;
+        }
+
+        int EstimateDefinitionNameLength(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0
+                || !terminal.IsNil)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid declaring-type chain.");
+            }
+
+            // UTF-8 storage length upper-bounds UTF-16 length for valid text, so
+            // charging it before GetString keeps the work budget honest without
+            // materializing discarded modifier names.
+            var outer = reader.GetTypeDefinition(chain[0]);
+            int length = StructuralUtf8Length(reader, outer.Namespace);
+            for (int i = 0; i < consumed; i++)
+            {
+                if (length > 0)
+                    length = CheckedNameLength(length, 1);
+                length = CheckedNameLength(
+                    length,
+                    StructuralUtf8Length(
+                        reader,
+                        reader.GetTypeDefinition(chain[i]).Name));
+            }
+            return length;
+        }
+
+        int EstimateReferenceNameLength(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out _,
+                    out var rejection)
+                || consumed == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid resolution-scope chain.");
+            }
+
+            var outer = reader.GetTypeReference(chain[0]);
+            int length = StructuralUtf8Length(reader, outer.Namespace);
+            for (int i = 0; i < consumed; i++)
+            {
+                if (length > 0)
+                    length = CheckedNameLength(length, 1);
+                length = CheckedNameLength(
+                    length,
+                    StructuralUtf8Length(
+                        reader,
+                        reader.GetTypeReference(chain[i]).Name));
+            }
+            return length;
+        }
+
+        static int StructuralUtf8Length(
+            MetadataReader reader,
+            StringHandle handle)
+        {
+            int length = reader.GetBlobReader(handle).Length;
+            if (length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+            {
+                throw new BadImageFormatException(
+                    "The metadata string exceeds the structural-signature budget.");
+            }
+            return length;
+        }
+
+        static int CheckedNameLength(int left, int right)
+        {
+            try
+            {
+                int length = checked(left + right);
+                if (length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+                {
+                    throw new BadImageFormatException(
+                        "The member anchor type exceeds the encoded-character budget.");
+                }
+                return length;
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor type exceeds the encoded-character budget.",
+                    ex);
+            }
+        }
 
         string FormatDefinitionTypeName(
             MetadataReader reader,
@@ -554,12 +764,45 @@ public static class ApiMemberIdentity
 
         AnchorSignatureType Encoded(string text)
         {
-            // Charge every occurrence, including repeated references to the same
-            // long name, so the cumulative work budget gates amplification during
-            // tree construction rather than after EnsureAnchorSignatureBudget.
-            _workBudget.Charge(text.Length);
+            // Charge every occurrence, including the short-leaf floor. Gated by
+            // CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation and
+            // CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation.
+            ChargeLeaf(text.Length);
             return new EncodedAnchorSignatureType(text);
         }
+
+        void ChargeLeaf(int length)
+        {
+            // Short leaves (e.g. "!0", "N.T") still pay a floor so wide
+            // GENERICINST/FNPTR modifier trees cannot mint tens of thousands of
+            // near-free nodes under the name-length budget. Cache hits must use
+            // the same floor as first-time Encoded; charging cached.Length alone
+            // reopened the width axis on repeated TypeRef/TypeDef leaves.
+            _workBudget.Charge(
+                length > LeafNodeWorkUnits
+                    ? length
+                    : LeafNodeWorkUnits);
+        }
+
+        AnchorSignatureType Composite(AnchorSignatureType type)
+        {
+            // Charge a fixed per-node cost rather than type.Length. Charging the
+            // full composed length at every nesting level is quadratic in depth
+            // and rejects legitimate deep signatures (see
+            // Resolve_DeepAcceptedSignatureDoesNotExpandAnchorQuadratically).
+            // A constant still bounds O(params × depth) discarded modopt trees
+            // because each composite allocates a node. Gated by
+            // CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation.
+            _workBudget.Charge(CompositeNodeWorkUnits);
+            return type;
+        }
+
+        // Work units charged per composite anchor node (array/pointer/generic/
+        // fnptr) and as a floor for short leaf names. Sized so depth≈512 legal
+        // signatures stay far under the 4 MiB budget while discarded modopt
+        // trees that are deep or wide exhaust it before large allocation.
+        const int CompositeNodeWorkUnits = 64;
+        const int LeafNodeWorkUnits = 64;
     }
 
     public static string GetMemberDigest(string canonicalSignature)
@@ -707,6 +950,53 @@ public static class ApiMemberIdentity
         return new MethodAnchorInfo(shape.Anchor, shape.ReturnType);
     }
 
+    /// <summary>
+    /// Creates a method anchor while drawing from a caller-owned cumulative
+    /// work remaining counter (classification scans). Each call is still capped
+    /// by <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/>, and
+    /// spent units are subtracted from <paramref name="scanWorkRemaining"/>.
+    /// </summary>
+    public static MethodAnchorInfo CreateMethodAnchorInfo(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method,
+        ref int scanWorkRemaining,
+        bool isExtensionMethod = false)
+    {
+        if (scanWorkRemaining <= 0)
+        {
+            throw new BadImageFormatException(
+                "The assembly exceeds the classification scan work budget.");
+        }
+
+        int anchorAllowance = scanWorkRemaining;
+        if (anchorAllowance > MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
+            anchorAllowance = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+
+        var workBudget = new AnchorSignatureWorkBudget(anchorAllowance);
+        try
+        {
+            var shape = CreateMethodAnchorShape(
+                reader,
+                typeHandle,
+                method,
+                isExtensionMethod,
+                workBudget);
+            int spent = anchorAllowance - workBudget.Remaining;
+            scanWorkRemaining -= spent;
+            if (scanWorkRemaining < 0)
+                scanWorkRemaining = 0;
+            return new MethodAnchorInfo(shape.Anchor, shape.ReturnType);
+        }
+        catch (BadImageFormatException)
+        {
+            // Budget may be exhausted mid-decode; do not allow retry with the
+            // pre-call remaining on a later method.
+            scanWorkRemaining = workBudget.Remaining;
+            throw;
+        }
+    }
+
     public static ExtensionMemberAnchorInfo CreateExtensionMethodAnchorInfo(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -792,7 +1082,8 @@ public static class ApiMemberIdentity
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinition method,
-        bool isExtensionMethod)
+        bool isExtensionMethod,
+        AnchorSignatureWorkBudget? workBudget = null)
     {
         var type = reader.GetTypeDefinition(typeHandle);
         string methodName =
@@ -801,7 +1092,7 @@ public static class ApiMemberIdentity
                 method.Name);
         GenericContext context =
             GenericContext.ForMethod(reader, type, method);
-        var workBudget = new AnchorSignatureWorkBudget();
+        workBudget ??= new AnchorSignatureWorkBudget();
         var provider = new AnchorSignatureTypeProvider(workBudget);
         var decoded = GuardedProviderDecode.MethodResult(
             reader,

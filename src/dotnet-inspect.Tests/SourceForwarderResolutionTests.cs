@@ -117,7 +117,7 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
-    public void ApiServices_DoesNotOpenTraversalTarget()
+    public void ApiServices_SummaryDoesNotOpenTraversalTarget()
     {
         string parent = CreateDirectory();
         string directory = Path.Combine(parent, "input");
@@ -142,7 +142,8 @@ public class SourceForwarderResolutionTests
                 api,
                 facadePath,
                 new VerboseLogger(enabled: false),
-                includeAll: false);
+                includeAll: false,
+                summaryOnly: true);
 
             Assert.Empty(api.Types);
         }

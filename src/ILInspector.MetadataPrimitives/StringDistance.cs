@@ -1,4 +1,4 @@
-namespace ILInspector.Text;
+namespace ILInspector.MetadataPrimitives;
 
 /// <summary>
 /// Computes edit distance and normalized similarity for text matching.

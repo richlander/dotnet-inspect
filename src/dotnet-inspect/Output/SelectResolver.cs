@@ -1,7 +1,7 @@
 namespace DotnetInspector.Output;
 
 using ILInspector.Metadata;
-using ILInspector.Text;
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Sections;
 
 /// <summary>

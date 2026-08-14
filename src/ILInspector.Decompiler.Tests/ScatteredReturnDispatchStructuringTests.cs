@@ -104,7 +104,7 @@ public class ScatteredReturnDispatchStructuringTests
         string output = Print(typeof(MemberBodyProducer), "DecompileBody");
 
         Assert.Equal(2, output.Split("return DecompileMethod(", StringSplitOptions.None).Length - 1);
-        Assert.EndsWith("printerOptions);", output);
+        Assert.EndsWith("printerOptions, failOnDiagnostic);", output);
         Assert.DoesNotContain("goto", output);
     }
 
