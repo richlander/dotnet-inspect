@@ -46,8 +46,13 @@ concurrency:
 
 jobs:
   # Detect what changed to determine which jobs to run
+  #
+  # This entry job uses the GA image deliberately. Every workflow run waits on
+  # it before path-gated jobs can be selected, so preview-image capacity must
+  # not serialize the entire PR queue. Specialized jobs below retain
+  # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
@@ -603,6 +608,10 @@ jobs:
   # most expensive leg) and to reduce queued-job contention when many agents
   # have PRs in flight at once. Release packages are built by release.yml at
   # publish time, not here.
+  #
+  # Keep the primary Linux lane on the GA image so ordinary code PRs do not
+  # compete for preview-image capacity. Path-gated specialist jobs, Deep
+  # Inspect, and release publishing continue to exercise ubuntu-26.04.
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
@@ -610,7 +619,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-26.04
+          - os: ubuntu-24.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
     env:
@@ -1425,6 +1434,10 @@ jobs:
   # skipped, so a check that looked only at the gated jobs would see nothing but
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
   # `failure` or `skipped` is what closes that path.
+  #
+  # Like `changes`, this always-run terminal gate uses the GA image so preview
+  # capacity cannot leave an otherwise-complete PR waiting for its required
+  # status. Path-gated jobs retain ubuntu-26.04 coverage.
   ci-required:
     needs:
       - changes
@@ -1441,7 +1454,7 @@ jobs:
       - il-diff-smoke
       - pack
     if: always()
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       # Defined once and consumed by both the self-test and the real check, so
