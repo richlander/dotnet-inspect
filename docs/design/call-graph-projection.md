@@ -6,6 +6,9 @@ can render without re-deriving graph semantics (issues #3120, #3291, #3280).
 
 Related docs:
 
+- [Inspection graph document](inspection-graph-document.md) — the typed
+  multi-subject envelope that composes call topology with package, integration,
+  Finding, and other relationship evidence
 - [Graph signal annotations](graph-signal-annotations.md) — the per-node
   perf/kind-of-work cues the CLI projects onto the same call trees
 - [Output shapes](output-shapes.md) — the projection/shape model the CLI uses
