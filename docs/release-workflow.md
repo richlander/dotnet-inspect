@@ -27,8 +27,8 @@ same package versions and bytes from the same resolved commit. Azure
 publication completes first; only then does the workflow publish to NuGet.org
 and create the GitHub release.
 
-The private, organization-scoped `dotnet-inspect` feed has no public registry
-upstream. Its enterprise-visible `@Local` view, consumer instructions, and
+The private, project-scoped `dotnet-inspect` feed has no public registry
+upstream. Its organization-member `@Local` view, consumer instructions, and
 credential ownership are documented in
 [Azure Artifacts release feed](azure-artifacts-feed.md).
 

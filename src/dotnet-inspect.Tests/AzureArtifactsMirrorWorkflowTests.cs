@@ -38,7 +38,7 @@ public sealed class AzureArtifactsMirrorWorkflowTests
         string azureJob = Job("publish-azure");
 
         Assert.Contains(
-            "https://pkgs.dev.azure.com/richlander/_packaging/dotnet-inspect/nuget/v3/index.json",
+            "https://pkgs.dev.azure.com/richlander/dotnet-inspect/_packaging/dotnet-inspect/nuget/v3/index.json",
             azureJob);
         Assert.Contains(
             "AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}",

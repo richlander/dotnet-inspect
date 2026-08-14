@@ -15,9 +15,9 @@ Run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Authenticated enterprise members can install each official release from the
-[Azure Artifacts feed](docs/azure-artifacts-feed.md) immediately, without
-waiting for a corporate NuGet.org proxy to ingest it.
+Authenticated Azure DevOps organization members can install each official
+release from the [Azure Artifacts feed](docs/azure-artifacts-feed.md)
+immediately, without waiting for a corporate NuGet.org proxy to ingest it.
 
 ## Repository development SDK
 

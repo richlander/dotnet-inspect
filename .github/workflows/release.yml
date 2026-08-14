@@ -217,7 +217,7 @@ jobs:
     if: github.event.inputs.confirm == 'publish'
     environment: azure-artifacts
     env:
-      AZURE_ARTIFACTS_FEED_URL: https://pkgs.dev.azure.com/richlander/_packaging/dotnet-inspect/nuget/v3/index.json
+      AZURE_ARTIFACTS_FEED_URL: https://pkgs.dev.azure.com/richlander/dotnet-inspect/_packaging/dotnet-inspect/nuget/v3/index.json
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:

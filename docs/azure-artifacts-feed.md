@@ -4,7 +4,7 @@ Official `dotnet-inspect` releases are published to Azure Artifacts as well as
 NuGet.org:
 
 ```text
-https://pkgs.dev.azure.com/richlander/_packaging/dotnet-inspect@Local/nuget/v3/index.json
+https://pkgs.dev.azure.com/richlander/dotnet-inspect/_packaging/dotnet-inspect@Local/nuget/v3/index.json
 ```
 
 The two destinations receive the same package files from the same release
@@ -25,7 +25,7 @@ Install a release immediately after it is published:
 ```bash
 dotnet tool install -g dotnet-inspect \
   --version <version> \
-  --add-source https://pkgs.dev.azure.com/richlander/_packaging/dotnet-inspect@Local/nuget/v3/index.json \
+  --add-source https://pkgs.dev.azure.com/richlander/dotnet-inspect/_packaging/dotnet-inspect@Local/nuget/v3/index.json \
   --interactive
 ```
 
@@ -33,7 +33,7 @@ Update an existing installation to the newest available release:
 
 ```bash
 dotnet tool update -g dotnet-inspect \
-  --add-source https://pkgs.dev.azure.com/richlander/_packaging/dotnet-inspect@Local/nuget/v3/index.json \
+  --add-source https://pkgs.dev.azure.com/richlander/dotnet-inspect/_packaging/dotnet-inspect@Local/nuget/v3/index.json \
   --interactive
 ```
 
@@ -43,9 +43,10 @@ rather than a replacement for the configured proxy.
 
 ## Feed design
 
-The `dotnet-inspect` feed is organization-scoped and has no NuGet.org upstream.
-Its `@Local` view is visible to authenticated members of the Azure DevOps
-enterprise. The feed contains only packages published by this repository.
+The `dotnet-inspect` feed is scoped to the private `dotnet-inspect` project and
+has no NuGet.org upstream. Its `@Local` view is visible to authenticated
+organization members. The feed contains only packages published by this
+repository.
 
 The package set matches NuGet.org and the GitHub release:
 
