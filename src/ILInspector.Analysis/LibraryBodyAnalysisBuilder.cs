@@ -1171,6 +1171,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     ownerDefinition,
                     ownerMethod,
                     liftedHandle,
+                    liftedMethod.Signature,
                     liftedIdentity))
             {
                 if (!ownerHandle.IsNil)
@@ -1184,7 +1185,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         var definition = _reader.GetMethodDefinition(ownerHandle);
         sourceGenerated =
             HasGeneratedCodeAttribute(definition.GetCustomAttributes())
-            || HasCompilerGeneratedAttribute(definition.GetCustomAttributes());
+            || HasCompilerGeneratedAttribute(definition.GetCustomAttributes())
+            || IsCompilerGeneratedSourceTypeOrEnclosing(ownerType);
         sourceOwner = CreateMethodIdentity(
             ownerType,
             ownerHandle,
@@ -1197,6 +1199,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         TypeDefinition ownerType,
         MethodDefinition ownerMethod,
         MethodDefinitionHandle liftedHandle,
+        BlobHandle liftedSignature,
         MethodIdentity liftedIdentity)
     {
         if (ownerMethod.RelativeVirtualAddress == 0)
@@ -1228,7 +1231,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 _reader,
                 MetadataTokens.EntityHandle(operandToken),
                 CreateScope(ownerType, ownerMethod));
-            if (MethodReferenceMatchesIdentity(target, liftedIdentity))
+            if (MethodReferenceMatchesIdentity(
+                    operandToken,
+                    target,
+                    liftedSignature,
+                    liftedIdentity))
             {
                 return true;
             }
@@ -1236,20 +1243,56 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return false;
     }
 
-    static bool MethodReferenceMatchesIdentity(
+    bool MethodReferenceMatchesIdentity(
+        int operandToken,
         MemberRef target,
+        BlobHandle liftedSignature,
         MethodIdentity identity)
     {
+        EntityHandle handle = MetadataTokens.EntityHandle(operandToken);
+        if (handle.Kind == HandleKind.MethodSpecification)
+            handle = _reader.GetMethodSpecification(
+                (MethodSpecificationHandle)handle).Method;
+        if (handle.Kind != HandleKind.MemberReference)
+            return false;
+
         TypeRef targetDefinition =
             target.DeclaringType.Kind == TypeRefKind.GenericInstance
                 ? target.DeclaringType.ElementType!
                 : target.DeclaringType;
         return target.Name == identity.Name
             && targetDefinition.Equals(identity.DeclaringType)
-            && target.GenericArity == identity.GenericArity
-            && target.HasThis == !identity.IsStatic
-            && target.OpenSignatureReturn.Equals(identity.ReturnType)
-            && target.OpenSignatureParameters.SequenceEqual(identity.ParameterTypes);
+            && _reader.GetBlobBytes(
+                    _reader.GetMemberReference(
+                        (MemberReferenceHandle)handle).Signature)
+                .AsSpan()
+                .SequenceEqual(_reader.GetBlobBytes(liftedSignature));
+    }
+
+    bool IsCompilerGeneratedSourceTypeOrEnclosing(
+        TypeDefinitionHandle handle)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                handle,
+                chain,
+                out int count,
+                out _,
+                out _))
+        {
+            return true;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (HasCompilerGeneratedAttribute(
+                    _reader.GetTypeDefinition(chain[i]).GetCustomAttributes()))
+                return true;
+        }
+        return false;
     }
 
     // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]

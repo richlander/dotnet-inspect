@@ -4416,6 +4416,9 @@ public class LibraryBodyIndexTests
                     StringComparison.Ordinal)
                 || opportunity.Method.Name.Contains(
                     nameof(OptimizationOpportunityFixtures.CompilerGeneratedOwner),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(CompilerGeneratedOwnerContainer.CompilerGeneratedTypeOwner),
                     StringComparison.Ordinal)));
 
         Assert.Contains(index.OptimizationOpportunities, opportunity =>
@@ -4450,6 +4453,47 @@ public class LibraryBodyIndexTests
                     opportunity.Shape == "generic-parameter-object-box"
                     && opportunity.Method.DeclaringType.Name.Contains(
                         nameof(MemberRefLiftedOverloadFixture<object>),
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(2, rows.Length);
+            Assert.Equal(
+                2,
+                rows.Select(row => row.SourceOwner?.MetadataToken)
+                    .Distinct()
+                    .Count());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MemberRefFunctionPointers_MatchRawSignature()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-lifted-function-pointers-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LiftedFunctionPointers.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                typeof(MemberRefFunctionPointerFixture<>).Assembly.Location);
+            ReplaceUniqueAscii(
+                image,
+                "<Owner>g__Core|1_0",
+                "<Owner>g__Core|0_0");
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+            var rows = index.OptimizationOpportunities
+                .Where(opportunity =>
+                    opportunity.Shape == "generic-parameter-object-box"
+                    && opportunity.Method.DeclaringType.Name.Contains(
+                        nameof(MemberRefFunctionPointerFixture<object>),
                         StringComparison.Ordinal))
                 .ToArray();
 
@@ -6346,6 +6390,46 @@ public static class MemberRefLiftedOverloadFixture<TOuter>
         return Core(left, right, marker.Length);
 
         static bool Core(T x, T y, int ignored) => x!.Equals(y);
+    }
+}
+
+[System.Runtime.CompilerServices.CompilerGenerated]
+public class CompilerGeneratedOwnerContainer
+{
+    public static bool CompilerGeneratedTypeOwner<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+}
+
+public static unsafe class MemberRefFunctionPointerFixture<TOuter>
+{
+    public static bool Owner<T>(
+        T left,
+        T right,
+        delegate*<int, void> marker)
+    {
+        return Core(left, right, marker);
+
+        static bool Core(
+            T x,
+            T y,
+            delegate*<int, void> ignored) => x!.Equals(y);
+    }
+
+    public static bool Owner<T>(
+        T left,
+        T right,
+        delegate*<string, void> marker)
+    {
+        return Core(left, right, marker);
+
+        static bool Core(
+            T x,
+            T y,
+            delegate*<string, void> ignored) => x!.Equals(y);
     }
 }
 
