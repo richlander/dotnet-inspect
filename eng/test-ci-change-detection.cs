@@ -1270,6 +1270,8 @@ static void ValidateConsumerStepGuards(
             "${{ !cancelled() && steps.build.outcome == 'success' }}",
         ["test-windows/Run services tests"] =
             "${{ !cancelled() && steps.build.outcome == 'success' }}",
+        ["test-windows/Check ilasm/ildasm result"] =
+            "${{ !cancelled() && steps.iltools.outcome == 'failure' }}",
         ["decompiler-gates/Upload gate report"] = "always()",
         ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
         ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
@@ -1278,12 +1280,15 @@ static void ValidateConsumerStepGuards(
     {
         "test/Run PR decompiler corpus sensor",
         "test/Install ilasm/ildasm/mdv",
+        "test-windows/Install ilasm/ildasm",
         "decompiler-gates/Run decompiler gates",
     };
     var allowedShell = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["test/Run PR decompiler corpus sensor"] = "bash",
         ["test/Install ilasm/ildasm/mdv"] = "bash",
+        ["test-windows/Install ilasm/ildasm"] = "bash",
+        ["test-windows/Check ilasm/ildasm result"] = "bash",
         ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
         ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
         ["skill-gate/Run embedded skill tests"] = "bash",
@@ -1293,6 +1298,7 @@ static void ValidateConsumerStepGuards(
         ["test/Run PR decompiler corpus sensor"] = "decompiler_pr_corpus",
         ["test/Install ilasm/ildasm/mdv"] = "iltools",
         ["test-windows/Build"] = "build",
+        ["test-windows/Install ilasm/ildasm"] = "iltools",
         ["decompiler-gates/Run decompiler gates"] = "gates",
     };
     var seenIf = new HashSet<string>(StringComparer.Ordinal);

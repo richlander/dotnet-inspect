@@ -874,7 +874,6 @@ jobs:
       # red after every suite has had a chance to report.
       - name: Install ilasm/ildasm
         id: iltools
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         run: |
