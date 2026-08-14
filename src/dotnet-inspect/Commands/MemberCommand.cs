@@ -311,16 +311,18 @@ public static class MemberCommand
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
-                    sourceAccessor?.Name ?? effectiveOptions.MemberFilter.First(),
+                    sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken, sourceMember?.IsFinalizer ?? false);
+                    sourceMetadataToken);
 
                 effectiveOptions = effectiveOptions with
                 {
                     MethodSource = resolved.Source,
                     MemberHasNoBody = resolved.MemberHasNoBody,
                     MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
+                    MemberSourceTooComplex = resolved.MemberSourceTooComplex,
+                    MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
                     PdbPath = resolved.PdbPath
                 };
             }

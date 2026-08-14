@@ -6,6 +6,13 @@ can render without re-deriving graph semantics (issues #3120, #3291, #3280).
 
 Related docs:
 
+- [Inspection graph document](inspection-graph-document.md) — the typed
+  multi-subject envelope that composes call topology with package, integration,
+  Finding, and other relationship evidence
+- [Call-graph characteristics](call-graph-characteristics.md) — the
+  call-specific adapter from current nodes, edges, occurrences, and signals
+- [Inspection-graph modes](inspection-graph-modes.md) — member, type, assembly,
+  and package seeds plus peer-seed and induced-set requests
 - [Graph signal annotations](graph-signal-annotations.md) — the per-node
   perf/kind-of-work cues the CLI projects onto the same call trees
 - [Output shapes](output-shapes.md) — the projection/shape model the CLI uses
@@ -333,6 +340,49 @@ logical node was expanded elsewhere in the same direction.
 `CycleFindingSurvivesAnExplicitBodyAnalysisFailure`, and
 `AnnotatedMemberDocument_HonorsACalleeNodeBudget` gate the positive and empty
 bounded cases.
+
+An opt-in `OwnershipFlow` body producer adds `ArrayPool<T>` ownership paths to
+that same overlay without changing graph acquisition. Analysis computes compact
+per-method summaries while each selected body is already decoded: rent origins,
+array-parameter effects, physical forwarding calls, pool returns, field stores,
+and array returns to the caller. It reuses the body's existing
+`MethodInstructions` for reaching definitions and retains no IL, blocks, or
+dataflow state. A calls/signature discriminator skips reaching definitions for
+bodies with neither a rent nor an array parameter.
+`MemberCallGraphView.OwnershipEvidence` carries those summaries from the same
+indexes that produced the current graph tier; Research joins forwarding calls
+to stable edge rows and performs no body, graph, or source acquisition.
+
+The first body-scoped tier can therefore expose a rent and its forwarding edge
+before the callee body is available. A later full tier supersedes the scoped
+index and completes the path from already-retained summaries. Terminal
+`Finding<ArrayPoolOwnershipPathWitness>` payloads distinguish `ReturnedToPool`,
+`Stored`, and `ReturnedToCaller`, and retain every physical forwarding
+coordinate even when repeated call sites collapse onto one logical edge row.
+Finding identity uses those physical coordinates plus the typed sink identity,
+not labels or row numbers alone.
+
+Ownership completeness remains separate from positive Findings:
+`NotRequested`, `TraversalBoundary`, `IncompleteCorrespondence`,
+`BodyUnavailable`, `AnalysisFailure`, `WitnessBudget`, and `PathBudget` are
+independent flags. Address-taken, local-alias, unsupported-stack, unresolved,
+or failed body evidence is incomplete rather than a safe outcome. A catalog
+node without a matching physical definition never borrows a structurally
+similar body from another image. The feature is not in
+`MemberCallGraphOptions`' default producer set, so callers pay the reaching-
+definitions and retained-summary cost only when they request ownership flow.
+
+`AnnotatedOwnershipProgressesWithoutReacquiringGraphWork` gates scoped-to-full
+progression and unchanged build/source-open counts.
+`AnnotatedOwnershipComposesTypedTerminalPaths` gates multi-hop, instance, and
+constructor forwarding; `OwnershipWitnessBudgetPreservesPhysicalCallIdentity`
+and `OwnershipPathBudgetLeavesForwardedPathIncomplete` gate the two budgets.
+`AddressTakenRentIsRetainedAsIncomplete` and
+`OwnershipForwardedToABodilessCalleeIsIncomplete` gate the close negative
+cases. `IndirectCallShapesAreRetainedAsIncomplete` and
+`OwnershipIndirectCallShapesDoNotProduceSafeFindings` gate that `ldftn`,
+`ldvirtftn`, and `calli` remain unsupported/incomplete rather than entering the
+direct-call stack model.
 
 The query declares no graph or Analysis acquisition.
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test

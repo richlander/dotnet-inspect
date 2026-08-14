@@ -1011,19 +1011,27 @@ public class ApiCommand
     /// there is nothing to show rather than because resolution failed (issue #3299).
     /// </param>
     /// <param name="MemberHasNoAuthoredDeclaration">
-    /// True when the member has a body but no authored declaration of its own, so its source
-    /// range is the declaring type's header and there is nothing to isolate.
+    /// True when the member has a body but its source range does not identify one vouched
+    /// authored declaration to isolate.
+    /// </param>
+    /// <param name="MemberSourceTooComplex">
+    /// True when verified source exceeded the bounded lexical-complexity limit.
+    /// </param>
+    /// <param name="MemberSourceCoordinatesInvalid">
+    /// True when portable-PDB sequence-point coordinates cannot address the verified source.
     /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
         bool MemberHasNoBody = false,
-        bool MemberHasNoAuthoredDeclaration = false);
+        bool MemberHasNoAuthoredDeclaration = false,
+        bool MemberSourceTooComplex = false,
+        bool MemberSourceCoordinatesInvalid = false);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int metadataToken = 0, bool isDestructor = false)
+        bool publicOnly = true, int metadataToken = 0)
     {
         try
         {
@@ -1070,8 +1078,8 @@ public class ApiCommand
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes)
-                    .Replace("\r\n", "\n").Replace("\r", "\n");
+                content = NormalizeAuthoredSourceLineEndings(
+                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -1081,8 +1089,8 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes)
-                    .Replace("\r\n", "\n").Replace("\r", "\n");
+                content = NormalizeAuthoredSourceLineEndings(
+                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
@@ -1092,7 +1100,9 @@ public class ApiCommand
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum);
-                content = fetch.Text?.ReplaceLineEndings("\n");
+                content = fetch.Text is null
+                    ? null
+                    : NormalizeAuthoredSourceLineEndings(fetch.Text);
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
@@ -1100,23 +1110,69 @@ public class ApiCommand
             if (content == null)
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
-            var sourceCode = BodySlicer.ExtractMethodBody(
-                content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
-                isDestructor ? typeName : null);
-
-            // No authored declaration of its own (positional record accessor, primary
-            // constructor, field-initializer constructor): report no source rather than the
-            // enclosing type's header.
-            if (sourceCode is null)
-                return new ResolvedMethodSource(null, pdbPath, MemberHasNoAuthoredDeclaration: true);
-
-            return new ResolvedMethodSource(
-                new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);
+            return SliceResolvedMethodSource(
+                content,
+                methodInfo.StartLine,
+                methodInfo.EndLine,
+                methodName,
+                methodInfo.SourceUrl ?? methodInfo.FilePath,
+                pdbPath,
+                methodInfo.SequencePointStartLines);
         }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return new ResolvedMethodSource(null, null);
+        }
+    }
+
+    internal static string NormalizeAuthoredSourceLineEndings(string content)
+        // Normalize only CR/LF forms. Other characters recognized by string.ReplaceLineEndings,
+        // including form feed, are not C# physical line breaks and must not shift PDB coordinates.
+        => content.Replace("\r\n", "\n").Replace('\r', '\n');
+
+    internal static ResolvedMethodSource SliceResolvedMethodSource(
+        string content,
+        int startLine,
+        int endLine,
+        string methodName,
+        string sourceLocation,
+        string? pdbPath,
+        IReadOnlyList<int>? visibleSequencePointStartLines = null)
+    {
+        try
+        {
+            string? sourceCode = BodySlicer.ExtractMethodBody(
+                content,
+                startLine,
+                endLine,
+                methodName,
+                visibleSequencePointStartLines);
+
+            // The range does not identify one authored declaration: report no source rather than
+            // a type header, initializer, or structurally unknown span.
+            return sourceCode is null
+                ? new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    MemberHasNoAuthoredDeclaration: true)
+                : new ResolvedMethodSource(
+                    new MethodSourceContext(sourceCode, sourceLocation),
+                    pdbPath);
+        }
+        catch (CSharpTextComplexityException)
+        {
+            return new ResolvedMethodSource(
+                null,
+                pdbPath,
+                MemberSourceTooComplex: true);
+        }
+        catch (InvalidSequencePointCoordinatesException)
+        {
+            return new ResolvedMethodSource(
+                null,
+                pdbPath,
+                MemberSourceCoordinatesInvalid: true);
         }
     }
 
@@ -1185,6 +1241,42 @@ public class ApiCommand
         }
 
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        bool barePayloadRenderer =
+            options.Bare && !options.Count && !options.JsonOutput;
+        if (options is MemberOptions memberOptions
+            && (memberOptions.MemberSourceTooComplex
+                || memberOptions.MemberSourceCoordinatesInvalid)
+            && !IsProjectionRequested(options)
+            && !barePayloadRenderer
+            && (options.Count
+                || options.Tabular
+                || options.JsonOutput)
+            && GetRequestedMemberSections(type, options)
+                .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+        {
+            string format = options.Count
+                ? "--count"
+                : options.Jsonl
+                    ? "--jsonl"
+                    : options.Tsv
+                        ? "--tsv"
+                        : options.Tabular
+                            ? "--table"
+                            : "Document --json";
+            string guidance = options.Count
+                ? "Remove --count to render the section failure."
+                : "Use Markdown/plaintext output, or add --print to project the section payload.";
+            string failure = memberOptions.MemberSourceTooComplex
+                ? "Authored source extraction stopped because the source exceeds the lexical "
+                    + "complexity limit."
+                : "Authored source extraction stopped because the portable-PDB sequence-point "
+                    + "coordinates cannot address the verified source.";
+            CommandError.Write(
+                failure + $" {format} cannot represent this code-section "
+                + "failure. " + guidance);
+            return 1;
+        }
+
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
@@ -1345,21 +1437,19 @@ public class ApiCommand
                     view.MemberCode ??= new MemberCodeView();
                     view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                 }
-                else if (mo5.MemberHasNoBody)
+                else if (OriginalSourceUnavailableNote(mo5) is { } note)
                 {
                     view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
-                    view.MemberCode.OriginalSourceUnavailable = true;
-                }
-                else if (mo5.MemberHasNoAuthoredDeclaration)
-                {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
                     view.MemberCode.OriginalSourceUnavailable = true;
                 }
             }
 
-            PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
+            PopulateSourceDiff(
+                view,
+                GetRequestedMemberSections(type, options),
+                options is MemberOptions { MemberSourceTooComplex: true },
+                options is MemberOptions { MemberSourceCoordinatesInvalid: true });
 
         }
 
@@ -2145,20 +2235,18 @@ public class ApiCommand
                         view.MemberCode ??= new MemberCodeView();
                         view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                     }
-                    else if (memberOptions.MemberHasNoBody)
+                    else if (OriginalSourceUnavailableNote(memberOptions) is { } note)
                     {
                         view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
-                        view.MemberCode.OriginalSourceUnavailable = true;
-                    }
-                    else if (memberOptions.MemberHasNoAuthoredDeclaration)
-                    {
-                        view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
                         view.MemberCode.OriginalSourceUnavailable = true;
                     }
                 }
-                PopulateSourceDiff(view, requestedSections);
+                PopulateSourceDiff(
+                    view,
+                    requestedSections,
+                    memberOptions.MemberSourceTooComplex,
+                    memberOptions.MemberSourceCoordinatesInvalid);
             }
 
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
@@ -2257,22 +2345,61 @@ public class ApiCommand
         "// This member has no IL body, so it has no authored source to show.";
 
     /// <summary>
-    /// Stands in for Original Source when the selected member has an IL body but no authored
-    /// declaration of its own — a positional record's property accessor, a primary constructor,
-    /// or a constructor synthesized from field initializers. Its sequence points map to the
-    /// declaring type's header, which is not this member's source, so saying so beats rendering
-    /// a truncated type declaration (issue #3299's principle, applied to a second cause).
+    /// Stands in for Original Source when the selected member has an IL body but its source range
+    /// does not identify one authored declaration that can be shown. Generated members may map to
+    /// a type header or initializer, and structurally unknown ranges are deliberately not guessed;
+    /// saying so beats rendering unrelated or truncated source (issue #3299's principle, applied
+    /// to a second cause).
     /// </summary>
     internal const string NoAuthoredDeclarationNote =
-        "// This member is declared by its type's header (positional record, primary constructor,\n"
-        + "// or field initializers), so it has no authored declaration of its own to show.";
+        "// This member's source range does not identify one authored declaration that can be shown.\n"
+        + "// Generated members and ambiguous or structurally unknown source ranges can have this shape.";
 
-    private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
+    internal const string SourceTooComplexNote =
+        "// Authored source extraction stopped because the source exceeds the lexical complexity limit.";
+
+    internal const string SourceCoordinatesInvalidNote =
+        "// Authored source extraction stopped because the portable-PDB sequence-point coordinates "
+        + "cannot address the verified source.";
+
+    internal static string? OriginalSourceUnavailableNote(MemberOptions options) =>
+        options.MemberHasNoBody
+            ? BodylessMemberNote
+            : options.MemberSourceTooComplex
+                ? SourceTooComplexNote
+                : options.MemberSourceCoordinatesInvalid
+                    ? SourceCoordinatesInvalidNote
+                    : options.MemberHasNoAuthoredDeclaration
+                        ? NoAuthoredDeclarationNote
+                        : null;
+
+    private static void PopulateSourceDiff(
+        TypeView view,
+        IReadOnlySet<string> requestedSections,
+        bool sourceTooComplex,
+        bool sourceCoordinatesInvalid)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
 
         view.MemberCode ??= new MemberCodeView();
+        if (sourceTooComplex)
+        {
+            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
+                "diff",
+                "# Original Source unavailable because authored source extraction exceeded "
+                + "the lexical complexity limit.");
+            return;
+        }
+        if (sourceCoordinatesInvalid)
+        {
+            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
+                "diff",
+                "# Original Source unavailable because portable-PDB sequence-point coordinates "
+                + "cannot address the verified source.");
+            return;
+        }
+
         view.MemberCode.SourceDiffCode = new Markout.CodeSection(
             "diff",
             SourceTextDiffRenderer.CreateUnifiedDiff(

@@ -976,13 +976,18 @@ public class ApiOutputFormatterTests
     /// The gate for memoization. Following `where T : U` without reusing answers
     /// reclassifies the whole remaining chain from every parameter, which is quadratic:
     /// a 4,000-parameter chain measured over twenty seconds before answers were cached.
-    /// The bound is loose enough that only the missing cache can trip it -- the cached
-    /// walk finishes in milliseconds.
     /// </summary>
+    /// <remarks>
+    /// Current-thread allocation makes the answer-cache gate independent of scheduler
+    /// contention. Three KiB per parameter leaves more than twice the graph resolver's
+    /// calibrated 5,265,312-byte allocation; clearing its answers after each parameter
+    /// allocated 4,521,985,296 bytes by re-resolving every remaining tail.
+    /// </remarks>
     [Fact]
     public void ConstraintRestatement_ClassifiesALongConstraintChainWithoutRewalkingIt()
     {
         const int Length = 4000;
+        const int AllocationBudgetPerParameter = 3 * 1024;
         string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
         string dllPath = EmitConstraintChainSample(
             static parameters =>
@@ -994,9 +999,9 @@ public class ApiOutputFormatterTests
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             var type = Assert.Single(surface.Types, candidate => candidate.Name == "ChainSample");
             var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
@@ -1005,9 +1010,11 @@ public class ApiOutputFormatterTests
                 member.SignatureModel.TypeParameters,
                 typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
 
+            long allocationBudget = (long)Length * AllocationBudgetPerParameter;
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Classifying a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+                allocated <= allocationBudget,
+                $"Classifying a {Length}-parameter constraint chain allocated {allocated:N0} bytes; "
+                    + $"the linear-work budget is {allocationBudget:N0} bytes.");
         }
         finally
         {
@@ -1067,10 +1074,17 @@ public class ApiOutputFormatterTests
     /// invites re-deriving the same parameters once per parameter, which is quadratic and
     /// reachable from malformed metadata.
     /// </summary>
+    /// <remarks>
+    /// Current-thread allocation makes this a scheduler-independent gate. Calibration
+    /// measured 5,018,352 bytes for graph resolution and 21,230,096 bytes for the
+    /// historical budgeted walk. Three KiB per parameter leaves more than twice the
+    /// current allocation while rejecting that predecessor.
+    /// </remarks>
     [Fact]
     public void ConstraintRestatement_ResolvesALongCyclicConstraintChain()
     {
         const int Length = 4000;
+        const int AllocationBudgetPerParameter = 3 * 1024;
         string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
         string dllPath = EmitConstraintChainSample(
             static parameters =>
@@ -1084,9 +1098,9 @@ public class ApiOutputFormatterTests
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
             Assert.Equal(Length, type.TypeParameters.Count);
@@ -1096,9 +1110,11 @@ public class ApiOutputFormatterTests
                 type.TypeParameters,
                 typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind));
 
+            long allocationBudget = (long)Length * AllocationBudgetPerParameter;
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Classifying a {Length}-parameter cyclic chain took {stopwatch.Elapsed}.");
+                allocated <= allocationBudget,
+                $"Classifying a {Length}-parameter cyclic chain allocated {allocated:N0} bytes; "
+                    + $"the linear-work budget is {allocationBudget:N0} bytes.");
         }
         finally
         {
@@ -1112,10 +1128,17 @@ public class ApiOutputFormatterTests
     /// own proof that it shares one chain state across a parameter list rather than
     /// allocating one per parameter, which rewalks the chain's whole tail.
     /// </summary>
+    /// <remarks>
+    /// Current-thread allocation makes the shared-state requirement independent of
+    /// scheduler contention. Three KiB per parameter leaves more than twice the
+    /// graph resolver's calibrated 4,623,560-byte allocation; a fresh state per
+    /// parameter allocated 4,936,034,080 bytes through repeated graph construction.
+    /// </remarks>
     [Fact]
     public void ConstraintRestatement_ClassifiesALongChainWithoutRewalkingItInDeclarationQuery()
     {
         const int Length = 4000;
+        const int AllocationBudgetPerParameter = 3 * 1024;
         string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
         string dllPath = EmitConstraintChainSample(
             static parameters =>
@@ -1133,18 +1156,20 @@ public class ApiOutputFormatterTests
                 .Select(reader.GetTypeDefinition)
                 .Single(candidate => reader.GetString(candidate.Name) == "ChainSample");
 
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var typeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDefinition);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             Assert.Equal(Length, typeParameters.Count);
             Assert.All(
                 typeParameters,
                 typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
 
+            long allocationBudget = (long)Length * AllocationBudgetPerParameter;
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Reading a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+                allocated <= allocationBudget,
+                $"Reading a {Length}-parameter constraint chain allocated {allocated:N0} bytes; "
+                    + $"the linear-work budget is {allocationBudget:N0} bytes.");
         }
         finally
         {
@@ -1256,12 +1281,19 @@ public class ApiOutputFormatterTests
     /// distrust everything computed around it answers <c>T0</c> as <c>Undetermined</c>
     /// and drops its required clause; one that re-derives the fan for every path through
     /// it does not finish. Both were real behaviors of the walk this replaced, which is
-    /// why the assertions below pin the answer and the time together.
+    /// why the assertions below pin the answer and the work bound together.
+    /// </remarks>
+    /// <remarks>
+    /// Current-thread allocation makes that bound independent of scheduler contention.
+    /// Eight KiB per parameter leaves more than three times the graph resolver's calibrated
+    /// 91,312-byte allocation; discarding its answers after each parameter allocated
+    /// 564,168 bytes by repeatedly resolving the fan.
     /// </remarks>
     [Fact]
     public void ConstraintRestatement_ProvesAReferenceTypeReachedPastACycle()
     {
         const int Depth = 30;
+        const int AllocationBudgetPerParameter = 8 * 1024;
 
         // T0 .. T31, then TCycle, then TClass.
         string[] names =
@@ -1289,9 +1321,9 @@ public class ApiOutputFormatterTests
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
             var byName = type.TypeParameters.ToDictionary(typeParameter => typeParameter.Name);
@@ -1303,9 +1335,11 @@ public class ApiOutputFormatterTests
             // The cycle itself remains unanswerable, and says nothing about anything else.
             Assert.Equal(TypeParameterTypeKind.Undetermined, byName["TCycle"].TypeKind);
 
+            long allocationBudget = (long)names.Length * AllocationBudgetPerParameter;
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Classifying a {names.Length}-parameter graph around a cycle took {stopwatch.Elapsed}.");
+                allocated <= allocationBudget,
+                $"Classifying a {names.Length}-parameter graph around a cycle allocated {allocated:N0} bytes; "
+                    + $"the linear-work budget is {allocationBudget:N0} bytes.");
         }
         finally
         {
@@ -1319,18 +1353,27 @@ public class ApiOutputFormatterTests
     /// cost stays proportional to that declaration rather than to a fixed allowance that
     /// each list is free to spend in full.
     /// </summary>
+    /// <remarks>
+    /// The gate uses current-thread allocation rather than elapsed time so scheduler
+    /// contention cannot spend the budget. Calibration on this input measured 221,415,280
+    /// bytes for the graph resolver and 9,140,435,984 bytes for the per-list walk it
+    /// replaced. Four KiB per parameter leaves nearly three times the current allocation
+    /// while the regressed implementation exceeds the resulting budget by over an order
+    /// of magnitude.
+    /// </remarks>
     [Fact]
     public void ConstraintRestatement_ResolvesManyCyclicListsWithoutPerListWaste()
     {
         const int Lists = 512;
         const int Length = 317;
+        const int AllocationBudgetPerParameter = 4 * 1024;
         string dllPath = EmitManyCyclicListsSample(Lists, Length);
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var surface = ApiSurfaceExtractor.Extract(pe);
-            stopwatch.Stop();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             var types = surface.Types
                 .Where(candidate => candidate.Name.StartsWith("Many", StringComparison.Ordinal))
@@ -1342,9 +1385,11 @@ public class ApiOutputFormatterTests
                     type.TypeParameters,
                     typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind)));
 
+            long allocationBudget = (long)Lists * Length * AllocationBudgetPerParameter;
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
-                $"Classifying {Lists} cyclic lists of {Length} parameters took {stopwatch.Elapsed}.");
+                allocated <= allocationBudget,
+                $"Classifying {Lists} cyclic lists of {Length} parameters allocated {allocated:N0} bytes; "
+                    + $"the linear-work budget is {allocationBudget:N0} bytes.");
         }
         finally
         {

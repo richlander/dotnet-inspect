@@ -271,28 +271,19 @@ public static class AuthoredSourceAcquisition
         try
         {
             string sourceText = DecodeSourceText(content);
-            // A C# destructor's source line is "~Type()", which carries no
-            // accessibility keyword and whose metadata name ("Finalize") does not
-            // appear in the text; without an explicit signal the backward signature
-            // scan would walk past it into the preceding member. Use the mapping's
-            // authoritative object.Finalize-override identity (computed from metadata
-            // by the source-mapping producer), NOT a "Finalize" name match, so an
-            // ordinary parameterized method named "Finalize" is never truncated.
-            bool isDestructor = mapping.IsFinalizer;
             string? memberText = BodySlicer.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
                 methodName,
-                isDestructor,
-                isDestructor ? mapping.Anchor.TypeFullName : null);
+                mapping.SequencePointStartLines);
             if (memberText is null)
             {
-                // The member's sequence points map to its type's header, not to a declaration
-                // of its own. Absent is the honest answer; the header is not this member's
-                // source.
+                // The source range does not identify a vouched declaration for this member.
+                // Absent is the honest answer; a type header, initializer, or guessed span is
+                // not a substitute.
                 return Absent(
-                    "The selected member has no authored declaration of its own; its source range is the declaring type's header.",
+                    "The selected member's source range does not identify one authored declaration that can be shown.",
                     mapping,
                     document,
                     verification);

@@ -712,6 +712,83 @@ Checksums from portable PDB documents authenticate source content when the
 workflow claims authored-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
 
+### Authored-source lexing is complexity-bounded
+
+The source byte limit is not by itself a memory bound. A punctuation-dense file
+can produce nearly one retained lexical token per byte, and each token costs
+more memory than its source spelling. A newline-dense file can likewise
+materialize one retained line entry per byte before tokenization begins.
+`CSharpLexer` therefore stops emission at 500,000 tokens, and
+`DeclarationIndex` refuses more than 500,000 physical lines before splitting
+the source. CR, LF, CRLF, NEL, line separator, and paragraph separator each
+follow the same physical-line accounting.
+`DeclarationIndex` carries the declaration's starting column so
+`BodySlicer` consumes that bounded token stream once rather than tokenizing the
+same untrusted file again.
+
+Conditional branch projection remains within those bounds. Metadata partitions
+visible sequence-point start lines by PDB document and sorts and deduplicates
+each set. `BodySlicer` accepts only a positive, ordered PDB range within the
+verified source and positive, strictly increasing point lines within that
+range's physical file, uses binary range queries rather than a group-by-point
+cross product, and refuses PDB correlation when a recognized `#line` directive
+can remap the coordinates. CSharpText applies only caller-selected branch
+objects produced by the same index; it blanks unselected half-open ranges with
+one difference array and rebuilds over the line-preserving projection. Before
+slicing the checksum-verified original text, the slicer refuses a selected
+group that crosses exactly one boundary of the projected declaration. A group
+wholly inside the declaration is removed from a second, boundary-only
+projection; CSharpText must still vouch for the same declaration and slice
+boundaries. Otherwise projected-away braces, terminators, or declarations
+could expose unmatched directives or an unrelated dead-branch member. These
+boundaries are gated by
+`DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
+`DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
+`ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
+`ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
+`ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
+`ExtractMethodBodyTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
+`ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
+and
+`AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.
+The binary-search complexity itself is unverified by a dedicated performance
+gate.
+
+Uncertain transparent scopes record row ranges during the lexical pass and
+apply all overlapping ranges in one linear finalization pass. They do not
+rescan and rewrite the declaration suffix once per scope.
+`DeclarationIndexTests.ManyUnclosedExtensionScopes_ApplyTrustInOneFinalPass`
+compares elapsed time with an equivalent row baseline and applies an allocation
+budget to an accepted input near the token limit.
+File-scoped namespace ends likewise reuse one suffix summary rather than
+rescanning every later row;
+`DeclarationIndexTests.ManyFileScopedNamespaces_ReuseOneSuffixSummary` gates
+that work and allocation bound. Conditional initializer tails inspect each
+pending token once. Conditional terminators revoke each direct sibling at most
+once and memoize each completed outward ancestor walk across the scan; a later
+child is still visited before its parent's completed walk stops the traversal.
+Those bounds are gated respectively by
+`DeclarationIndexTests.ConditionalInitializerTail_ExaminesEachPendingTokenOnce`,
+`DeclarationIndexTests.ConditionalSiblingFanOut_RefusesEachSiblingOnce`, and
+`DeclarationIndexTests.ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce`.
+Carried interpolation state maintains the number of
+line-bound frames as frames change rather than walking every frame after every
+physical line;
+`ScanTokenTests.DeepMultilineInterpolation_DoesNotMultiplyFrameDepthByPhysicalLines`
+gates that depth-by-lines bound.
+
+Limit exhaustion is a visible extraction failure, not an absent declaration.
+`ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
+token emission boundary, while
+`DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
+pre-allocation line boundary, and
+`AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+gates the Findings-facing result, while
+`CommandExecutionTests.OriginalSource_TokenDenseInputCarriesAVisibleFailureState`
+gates the member-command result.
+`DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
+one-pass ownership boundary.
+
 ## Resource extraction contract
 
 Manifest resource names are attacker-controlled metadata. They are not safe

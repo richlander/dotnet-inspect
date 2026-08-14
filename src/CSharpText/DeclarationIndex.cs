@@ -73,6 +73,97 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 }
 
 /// <summary>
+/// An extension block's inclusive source range and the line carrying its opening brace.
+/// </summary>
+public readonly record struct TransparentScopeSpan(
+    int StartLine,
+    int BodyStartLine,
+    int EndLine)
+{
+    /// <summary>Whether <paramref name="line"/> lies inside the scope's complete source range.</summary>
+    public bool Contains(int line) => line >= StartLine && line <= EndLine;
+
+    public override string ToString() => StartLine == EndLine ? $"{StartLine}" : $"{StartLine}-{EndLine}";
+}
+
+/// <summary>
+/// One branch of a lexically trustworthy conditional group.
+/// </summary>
+public sealed class ConditionalBranchSpan
+{
+    internal ConditionalBranchSpan(
+        int id,
+        int groupId,
+        int directiveLine,
+        int contentStartLine,
+        int contentEndLineExclusive)
+    {
+        Id = id;
+        GroupId = groupId;
+        DirectiveLine = directiveLine;
+        ContentStartLine = contentStartLine;
+        ContentEndLineExclusive = contentEndLineExclusive;
+    }
+
+    /// <summary>A source-ordered identity stable within one <see cref="DeclarationIndex"/>.</summary>
+    public int Id { get; }
+
+    /// <summary>The identity of the group that owns this branch.</summary>
+    public int GroupId { get; }
+
+    /// <summary>The 1-based physical line carrying this branch's directive.</summary>
+    public int DirectiveLine { get; }
+
+    /// <summary>The first 1-based physical source line after the directive.</summary>
+    public int ContentStartLine { get; }
+
+    /// <summary>
+    /// The first 1-based physical line not in this branch, which is the next branch or
+    /// <c>#endif</c> directive line. Equal to <see cref="ContentStartLine"/> for an empty branch.
+    /// </summary>
+    public int ContentEndLineExclusive { get; }
+
+    /// <summary>Whether a 1-based physical line lies in this branch's content.</summary>
+    public bool Contains(int line) =>
+        line >= ContentStartLine && line < ContentEndLineExclusive;
+}
+
+/// <summary>
+/// One complete conditional group whose directive nesting the lexer can vouch for.
+/// </summary>
+public sealed class ConditionalGroupSpan
+{
+    internal ConditionalGroupSpan(
+        int id,
+        int parentGroupId,
+        int ifDirectiveLine,
+        int endIfDirectiveLine,
+        ImmutableArray<ConditionalBranchSpan> branches)
+    {
+        Id = id;
+        ParentGroupId = parentGroupId;
+        IfDirectiveLine = ifDirectiveLine;
+        EndIfDirectiveLine = endIfDirectiveLine;
+        Branches = branches;
+    }
+
+    /// <summary>A source-ordered identity stable within one <see cref="DeclarationIndex"/>.</summary>
+    public int Id { get; }
+
+    /// <summary>The enclosing group's identity, or -1 for a top-level group.</summary>
+    public int ParentGroupId { get; }
+
+    /// <summary>The 1-based physical line carrying the opening <c>#if</c>.</summary>
+    public int IfDirectiveLine { get; }
+
+    /// <summary>The 1-based physical line carrying the closing <c>#endif</c>.</summary>
+    public int EndIfDirectiveLine { get; }
+
+    /// <summary>The group's branches in source order.</summary>
+    public ImmutableArray<ConditionalBranchSpan> Branches { get; }
+}
+
+/// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
 /// All line numbers are <b>1-based physical lines of the file that was indexed</b>, so a caller
@@ -113,6 +204,12 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// caller slices from to include a member's documentation.
 /// </param>
 /// <param name="SignatureStartLine">The first line of the declaration itself.</param>
+/// <param name="SignatureStartColumn">The zero-based column of the declaration's first token.</param>
+/// <param name="FirstCodeColumn">
+/// The zero-based column of the first non-comment, non-directive token on
+/// <paramref name="SignatureStartLine"/>. This may precede
+/// <paramref name="SignatureStartColumn"/> when an attribute list shares that line.
+/// </param>
 /// <param name="SignatureEndLine">
 /// The last line of the signature: the line carrying the <c>{</c>, <c>=&gt;</c>, or <c>;</c> that
 /// ends it. A signature may span lines, so this is not always <see cref="SignatureStartLine"/>.
@@ -121,6 +218,11 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// The line the body opens on — the <c>{</c>, or the <c>=&gt;</c> of an expression-bodied member —
 /// or <c>-1</c> for a declaration with no body at all (abstract, interface, <c>extern</c>,
 /// <c>partial</c> without implementation, field, enum member, positional record).
+/// </param>
+/// <param name="BodyEndLine">
+/// The line carrying the closing brace of a brace-bodied declaration, or <c>-1</c> when the
+/// declaration has no closing brace. This remains the brace line when an optional trailing
+/// semicolon extends <see cref="EndLine"/>.
 /// </param>
 /// <param name="EndLine">The last line of the declaration, inclusive.</param>
 /// <param name="Depth">
@@ -212,8 +314,11 @@ public sealed record DeclarationSpan(
     string Name,
     int TriviaStartLine,
     int SignatureStartLine,
+    int SignatureStartColumn,
+    int FirstCodeColumn,
     int SignatureEndLine,
     int BodyStartLine,
+    int BodyEndLine,
     int EndLine,
     int Depth,
     int ParentIndex,
@@ -238,6 +343,15 @@ public sealed record DeclarationSpan(
     /// </summary>
     public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
 
+    /// <summary>True when the declaration carries a top-level <c>static</c> modifier.</summary>
+    public bool IsStatic { get; init; }
+
+    /// <summary>
+    /// True when this declared name has an initializer introduced by <c>=</c>. Rows for
+    /// comma-separated field or event declarators share a span but carry this fact independently.
+    /// </summary>
+    public bool HasInitializer { get; init; }
+
     /// <summary>True when this declaration can itself contain member declarations.</summary>
     public bool IsType => Kind is DeclarationKind.Class or DeclarationKind.Struct
         or DeclarationKind.Interface or DeclarationKind.Record or DeclarationKind.Enum;
@@ -249,12 +363,13 @@ public sealed record DeclarationSpan(
     public bool Contains(int line) => line >= SignatureStartLine && line <= EndLine;
 
     /// <summary>True when <paramref name="line"/> lies within the declaration's body.</summary>
-    public bool BodyContains(int line) => HasBody && line >= BodyStartLine && line <= EndLine;
+    public bool BodyContains(int line) =>
+        HasBody && line >= BodyStartLine && line <= (BodyEndLine >= 0 ? BodyEndLine : EndLine);
 }
 
 /// <summary>
-/// The declarations of one C# source file, recovered in a single forward pass over
-/// <see cref="CSharpLexer"/>'s token stream.
+/// The declarations of one C# source file, recovered in a forward lexical pass over
+/// <see cref="CSharpLexer"/>'s token stream followed by linear trust finalization.
 /// <para>
 /// This exists because locating a member's authored text is two questions, and only one of them
 /// has an exact answer. A portable PDB says exactly which lines a member's <i>body</i> occupies,
@@ -289,16 +404,31 @@ public sealed record DeclarationSpan(
 /// <para>
 /// Whole-file correctness is gated by
 /// <c>DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex</c>,
-/// which compares kind, name, first line, and last line against Roslyn over the real source of
-/// every PDB-bearing assembly beside the test binary; leading trivia is gated separately by
-/// <c>ADeclarationsTriviaStart_MatchesRoslynsLeadingTrivia</c>, and the nesting the containment
-/// lookup depends on by <c>RowsNestWithinTheirParentAndNeverOverlapASibling</c>. Roslyn is a
-/// test-only oracle; this library stays Roslyn-free.
+/// which compares kind, name, first line and column, and last line against Roslyn over the real
+/// source of every PDB-bearing assembly beside the test binary; leading trivia is gated separately
+/// by <c>ADeclarationsTriviaStart_MatchesRoslynsLeadingTrivia</c>, and the nesting the containment
+/// lookup depends on by <c>RowsNestWithinTheirParentAndNeverOverlapASibling</c>. Roslyn is a test-only
+/// oracle; this library stays Roslyn-free.
 /// </para>
 /// </summary>
 public sealed class DeclarationIndex
 {
-    private DeclarationIndex(ImmutableArray<DeclarationSpan> declarations) => Declarations = declarations;
+    private const int MaxLineCount = 500_000;
+    private readonly ImmutableArray<string> sourceLines;
+
+    private DeclarationIndex(
+        ImmutableArray<string> sourceLines,
+        ImmutableArray<DeclarationSpan> declarations,
+        ImmutableArray<TransparentScopeSpan> transparentScopes,
+        ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        bool hasLineDirectives)
+    {
+        this.sourceLines = sourceLines;
+        Declarations = declarations;
+        TransparentScopes = transparentScopes;
+        ConditionalGroups = conditionalGroups;
+        HasLineDirectives = hasLineDirectives;
+    }
 
     /// <summary>
     /// Every declaration in the file, in source order of the point each was recognized. A
@@ -306,30 +436,166 @@ public sealed class DeclarationIndex
     /// </summary>
     public ImmutableArray<DeclarationSpan> Declarations { get; }
 
-    /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
-    public static DeclarationIndex Build(string sourceText) =>
-        Build(sourceText.Split('\n'));
-
-    /// <summary>Builds the index for a file already split into lines.</summary>
-    public static DeclarationIndex Build(IReadOnlyList<string> lines) =>
-        new(DeclarationIndexBuilder.Build(lines));
+    /// <summary>
+    /// Structural scope spans that do not own declaration rows.
+    /// </summary>
+    /// <remarks>
+    /// C# extension blocks are transparent for declaration parentage, but their opening and
+    /// closing lines remain structural boundaries for source slicing. Gated by
+    /// <c>DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne</c>.
+    /// </remarks>
+    public ImmutableArray<TransparentScopeSpan> TransparentScopes { get; }
 
     /// <summary>
-    /// The innermost declaration whose <i>body</i> contains <paramref name="line"/>, which is how
-    /// a PDB sequence-point line selects the member it belongs to.
+    /// Complete conditional groups whose directive nesting the lexer can vouch for, in source
+    /// order. Groups at or after ambiguous conditional topology are withheld rather than guessed.
+    /// </summary>
+    public ImmutableArray<ConditionalGroupSpan> ConditionalGroups { get; }
+
+    /// <summary>
+    /// Whether the indexed file contains a lexically recognized <c>#line</c> directive.
+    /// Physical source lines cannot safely be correlated with portable-PDB lines when this is true.
+    /// </summary>
+    public bool HasLineDirectives { get; }
+
+    /// <summary>The number of physical source lines indexed.</summary>
+    public int LineCount => sourceLines.Length;
+
+    /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
+    public static DeclarationIndex Build(string sourceText) =>
+        Build(CSharpSourceText.SplitLines(sourceText, MaxLineCount));
+
+    /// <summary>Builds the index for a file already split into lines.</summary>
+    public static DeclarationIndex Build(IReadOnlyList<string> lines)
+    {
+        if (lines.Count > MaxLineCount)
+            throw new CSharpTextComplexityException(MaxLineCount, "lines");
+
+        ImmutableArray<string> sourceLines = [.. lines];
+        ImmutableArray<DeclarationSpan> declarations =
+            DeclarationIndexBuilder.Build(
+                sourceLines,
+                out ImmutableArray<TransparentScopeSpan> transparentScopes,
+                out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+                out bool hasLineDirectives);
+        return new DeclarationIndex(
+            sourceLines,
+            declarations,
+            transparentScopes,
+            conditionalGroups,
+            hasLineDirectives);
+    }
+
+    /// <summary>
+    /// Rebuilds the index after removing the unselected content of each caller-selected
+    /// conditional group. Directive and removed-content lines become empty strings, preserving
+    /// every 1-based physical line coordinate.
     /// <para>
-    /// Innermost is by <see cref="DeclarationSpan.Depth"/>, so a local function or lambda does not
-    /// hide the member that encloses it: only declarations are indexed, and a lambda is not one.
-    /// A row whose span is not known is never returned, because a guessed span that happens to
-    /// contain the line is indistinguishable from a real match.
+    /// A branch object is valid only for the index that produced it. Passing a branch from another
+    /// index is rejected even when its integer IDs happen to match.
     /// </para>
     /// </summary>
-    public DeclarationSpan? FindByBodyLine(int line)
+    public DeclarationIndex WithSelectedConditionalBranches(
+        IReadOnlyCollection<ConditionalBranchSpan> selectedBranches)
+    {
+        ArgumentNullException.ThrowIfNull(selectedBranches);
+        if (selectedBranches.Count == 0)
+            return this;
+        if (selectedBranches.Count > ConditionalGroups.Length)
+            throw new ArgumentException("At most one branch may be selected per group.", nameof(selectedBranches));
+
+        var owners = new Dictionary<ConditionalBranchSpan, ConditionalGroupSpan>(
+            ReferenceEqualityComparer.Instance);
+        foreach (var group in ConditionalGroups)
+        {
+            foreach (var branch in group.Branches)
+                owners.Add(branch, group);
+        }
+
+        var selectedByGroup = new Dictionary<int, ConditionalBranchSpan>();
+        foreach (var branch in selectedBranches)
+        {
+            if (branch is null || !owners.TryGetValue(branch, out var group))
+            {
+                throw new ArgumentException(
+                    "Every selected branch must belong to this declaration index.",
+                    nameof(selectedBranches));
+            }
+
+            if (!selectedByGroup.TryAdd(group.Id, branch))
+            {
+                throw new ArgumentException(
+                    "At most one branch may be selected per group.",
+                    nameof(selectedBranches));
+            }
+        }
+
+        int[] blankingDelta = new int[sourceLines.Length + 1];
+        foreach (var (groupId, selected) in selectedByGroup)
+        {
+            var group = owners[selected];
+            MarkLine(group.EndIfDirectiveLine);
+            foreach (var branch in group.Branches)
+            {
+                MarkLine(branch.DirectiveLine);
+                if (!ReferenceEquals(branch, selected))
+                    MarkRange(branch.ContentStartLine, branch.ContentEndLineExclusive);
+            }
+        }
+
+        string[] projected = [.. sourceLines];
+        int blankingDepth = 0;
+        for (int i = 0; i < projected.Length; i++)
+        {
+            blankingDepth += blankingDelta[i];
+            if (blankingDepth > 0)
+                projected[i] = string.Empty;
+        }
+
+        return Build(projected);
+
+        void MarkLine(int line) => MarkRange(line, line + 1);
+
+        void MarkRange(int startLine, int endLineExclusive)
+        {
+            int start = startLine - 1;
+            int end = endLineExclusive - 1;
+            blankingDelta[start]++;
+            blankingDelta[end]--;
+        }
+    }
+
+    /// <summary>
+    /// The innermost declaration containing <paramref name="line"/> — its signature or its body —
+    /// which is how a PDB sequence-point line selects the member it belongs to.
+    /// <para>
+    /// Containment starts at the signature, not the body, because a sequence point is not always
+    /// inside one. A constructor's first point can land on its <i>signature</i> line, so body-only
+    /// containment falls through to the enclosing type and reports the type header as the
+    /// constructor's source. Gated by
+    /// <c>DeclarationIndexTests.AConstructorsSignatureLine_SelectsTheConstructorNotTheType</c>.
+    /// </para>
+    /// <para>
+    /// Innermost is by <see cref="DeclarationSpan.Depth"/>, so a local function or lambda does not
+    /// hide the member that encloses it: only declarations are indexed, and a lambda is not one. A
+    /// compiler-generated member therefore selects the authored member it was lifted out of, which
+    /// is the declaration a reader can actually be shown.
+    /// </para>
+    /// <para>
+    /// A row whose span is not known is never returned, because a guessed span that happens to
+    /// contain the line is indistinguishable from a real match. A caller that gets a
+    /// <see cref="DeclarationKind"/> naming a type rather than a member has landed on a type
+    /// header, which is what a positional record's accessor, a primary constructor, and a
+    /// constructor synthesized from field initializers all do; there is no authored member
+    /// declaration to show, and the caller must report absence rather than the header.
+    /// </para>
+    /// </summary>
+    public DeclarationSpan? FindByLine(int line)
     {
         DeclarationSpan? best = null;
         foreach (var d in Declarations)
         {
-            if (!d.SpanKnown || !d.BodyContains(line))
+            if (!d.SpanKnown || !d.Contains(line))
                 continue;
             if (best is null || d.Depth > best.Depth)
                 best = d;
