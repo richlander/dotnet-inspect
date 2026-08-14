@@ -51,6 +51,38 @@ public class AuthoredSourceAcquisitionTests
     }
 
     [Fact]
+    public void FromContent_UsesSequencePointEvidenceToSelectAConditionalMember()
+    {
+        const string source = """
+            class Sample
+            {
+            #if FIRST
+                public int Dead() => 1;
+            #else
+                public int Live() => 2;
+            #endif
+            }
+            """;
+        byte[] content = Encoding.UTF8.GetBytes(source);
+        var mapping = Mapping() with
+        {
+            StartLine = 6,
+            EndLine = 6,
+            SequencePointStartLines = [6],
+        };
+
+        var result = AuthoredSourceAcquisition.FromContent(
+            mapping,
+            Document(content),
+            content,
+            "Live",
+            Subject);
+
+        Assert.Equal("public int Live() => 2;", result.Text);
+        Assert.IsType<FindingInspection<string>.Complete>(result.Lines.Value);
+    }
+
+    [Fact]
     public void FromContent_MismatchedChecksumProducesFailedInspection()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);

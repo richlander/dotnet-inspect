@@ -11,7 +11,7 @@ namespace ILInspector.Analysis.Tests;
 /// properties over hand-written IL, so the test says what the analysis claims
 /// rather than how it is wired.
 /// </summary>
-public sealed class MethodAllocationAnalysisTests
+public sealed class MethodAllocationFactsTests
 {
     const int ConstructorToken = 0x06000002;
     const int TypeToken = 0x01000004;
@@ -57,20 +57,40 @@ public sealed class MethodAllocationAnalysisTests
     }
 
     [Fact]
-    public void OneScanFeedsBothDiscoveredAndClassifiedOccurrences()
+    public void FactsBundlesBindContextOccurrencesAndQueries()
     {
-        // newobj Widget::.ctor; ret
-        byte[] il = [0x73, 0x02, 0x00, 0x00, 0x06, 0x2A];
-        var result = Collect(il);
+        // newobj Widget::.ctor; pop; ldarg.0; brtrue.s IL_0000; ret
+        byte[] il =
+        [
+            0x73, 0x02, 0x00, 0x00, 0x06,
+            0x26,
+            0x02,
+            0x2D, 0xF7,
+            0x2A,
+        ];
+        var loopContext = Context(il, [(0, 7)]);
+        var straightContext = Context(il);
+        var loopFacts = MethodAllocationFacts.Create(loopContext);
+        loopFacts.Collect(new Resolver(il));
+        var straightFacts = MethodAllocationFacts.Create(straightContext);
+        straightFacts.Collect(new Resolver(il));
 
-        var discovered = Assert.Single(result.DiscoveredOccurrences);
-        var classified = Assert.Single(result.ClassifiedOccurrences);
-        Assert.Equal(discovered.ILOffset, classified.ILOffset);
-        Assert.Equal(discovered.Kind, classified.Kind);
+        var discovered = Assert.Single(loopFacts.DiscoveredOccurrences);
+        var classified = Assert.Single(loopFacts.ClassifiedOccurrences);
+        Assert.Same(loopContext, loopFacts.Context);
+        Assert.Same(straightContext, straightFacts.Context);
+        Assert.Equal(AllocationKind.Object, discovered.Kind);
+        Assert.Equal(AllocationKind.Object, classified.Kind);
         // The shared scan leaves escape unclassified; only the published
         // occurrences carry the refined verdict.
         Assert.Equal(AllocationEscape.Unknown, discovered.Escape);
-        Assert.Equal(AllocationEscape.Escapes, classified.Escape);
+        Assert.Equal(AllocationEscape.LocalOnly, classified.Escape);
+        Assert.Equal(
+            AllocationMultiplicity.Loop,
+            loopFacts.MultiplicityAt(0));
+        Assert.NotEqual(
+            AllocationMultiplicity.Loop,
+            straightFacts.MultiplicityAt(0));
     }
 
     [Fact]
@@ -101,8 +121,8 @@ public sealed class MethodAllocationAnalysisTests
             0x2A,
         ];
         var context = Context(il);
-        var analysis = new MethodAllocationAnalysis(context);
-        var result = analysis.Collect(new Resolver(il));
+        var result = MethodAllocationFacts.Create(context);
+        result.Collect(new Resolver(il));
 
         var occurrence = Assert.Single(result.ClassifiedOccurrences);
         Assert.Equal(3, occurrence.ILOffset);
@@ -117,7 +137,7 @@ public sealed class MethodAllocationAnalysisTests
         // same interpretation for offsets that are not allocations.
         Assert.Equal(
             AllocationMultiplicity.Conditional,
-            analysis.MultiplicityAt(3));
+            result.MultiplicityAt(3));
     }
 
     [Fact]
@@ -275,7 +295,8 @@ public sealed class MethodAllocationAnalysisTests
             0x2A,
         ];
         var context = Context(il);
-        var result = new MethodAllocationAnalysis(context).Collect(
+        var result = MethodAllocationFacts.Create(context);
+        result.Collect(
             new Resolver(il) { ThrowOnMemberResolution = true });
 
         var raw = Assert.Single(result.DiscoveredOccurrences);
@@ -284,20 +305,20 @@ public sealed class MethodAllocationAnalysisTests
         Assert.Equal(raw.ILOffset, classified.ILOffset);
     }
 
-    static MethodAllocationResult Collect(
+    static MethodAllocationFacts Collect(
         byte[] il,
         IReadOnlyList<(int Start, int End)>? loopRegions = null,
         (TypeRef? DeclaringType, string? Name) fieldOwner = default,
         bool nonHeapConstruction = false)
     {
         var context = Context(il, loopRegions);
-        var analysis = new MethodAllocationAnalysis(context);
-        return analysis.Collect(
-            new Resolver(il)
+        var result = MethodAllocationFacts.Create(context);
+        result.Collect(new Resolver(il)
             {
                 FieldOwner = fieldOwner,
                 NonHeapConstruction = nonHeapConstruction,
             });
+        return result;
     }
 
     static MethodBodyAnalysisContext Context(
