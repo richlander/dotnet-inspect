@@ -504,7 +504,7 @@ public sealed class StructuringPass : IIrPass
 
         for (int source = candidate.Start; source < candidate.Merge; source++)
         {
-            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(ctx.Blocks[source]))
+            foreach (var node in ctx.Blocks[source].DescendantsOutsideNestedFunctions)
             {
                 if (node is TryCatch or TryFinally or Leave or EndFinally or EndFilter)
                     return "retained-eh-unsupported";
@@ -575,7 +575,7 @@ public sealed class StructuringPass : IIrPass
 
     static IEnumerable<int> TransferTargets(Block block)
     {
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(block))
+        foreach (var node in block.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
