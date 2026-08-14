@@ -19397,7 +19397,7 @@ public partial class CommandExecutionTests
                 "Package README file",
                 "--jsonl",
                 "--columns",
-                "p*;SIZE;p*");
+                "p*;SIZE;path");
 
             Assert.Equal(0, exit);
             Assert.Equal(0, projected.Exit);
