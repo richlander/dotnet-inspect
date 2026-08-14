@@ -91,6 +91,21 @@ export function dependencyGraphRenderSignature(graph) {
   ]);
 }
 
+export function createDependencyGraphRenderSequence() {
+  let current = 0;
+  return {
+    begin() {
+      return ++current;
+    },
+    invalidate() {
+      current++;
+    },
+    isCurrent(candidate) {
+      return candidate === current;
+    }
+  };
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {

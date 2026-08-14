@@ -2,6 +2,7 @@ import {
   assemblyDescriptorForType,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  createDependencyGraphRenderSequence,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
   dependencyGraphExternalKey,
@@ -546,7 +547,7 @@ const initialDeepLink = {
 const app = document.querySelector("#app");
 let mermaidModule;
 let markdownModule;
-let depGraphRenderSeq = 0;
+const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
 document.documentElement.dataset.theme = state.theme;
 
@@ -6411,9 +6412,13 @@ async function renderDependencyGraph() {
   const container = document.querySelector("#dependency-graph-diagram");
   if (!container) return;
   const groups = state.packageDependencies?.dependencyGroups || [];
-  if (!groups.length) return;
+  if (!groups.length) {
+    depGraphRenderSequence.invalidate();
+    return;
+  }
   const built = buildDependencyGraphMermaid();
   if (!built) {
+    depGraphRenderSequence.invalidate();
     container.dataset.graphDef = "";
     delete container.dataset.graphPending;
     container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
@@ -6428,11 +6433,11 @@ async function renderDependencyGraph() {
   // two concurrent mermaid.render calls race and one's catch can clobber the other's graph.)
   if (container.dataset.graphPending === signature) return;
   container.dataset.graphPending = signature;
-  const seq = ++depGraphRenderSeq;
+  const seq = depGraphRenderSequence.begin();
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
-    if (seq !== depGraphRenderSeq) return;
+    if (!depGraphRenderSequence.isCurrent(seq)) return;
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
@@ -6448,7 +6453,7 @@ async function renderDependencyGraph() {
     );
     const { svg } = await mermaid.render(id, resolved);
     // A newer render superseded this one, or the container was swapped out — bail without touching the DOM.
-    if (seq !== depGraphRenderSeq) return;
+    if (!depGraphRenderSequence.isCurrent(seq)) return;
     if (document.querySelector("#dependency-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="graph-viewport"></div>'
@@ -6478,7 +6483,7 @@ async function renderDependencyGraph() {
     });
   } catch (error) {
     // Only surface the error if this is still the latest render and nothing else has drawn a graph.
-    if (seq === depGraphRenderSeq
+    if (depGraphRenderSequence.isCurrent(seq)
       && document.querySelector("#dependency-graph-diagram") === container
       && !container.querySelector(".graph-viewport")) {
       container.dataset.graphDef = "";

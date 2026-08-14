@@ -7,6 +7,7 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  createDependencyGraphRenderSequence,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
   dependencyGraphExternalKey,
@@ -130,6 +131,18 @@ test("dependency graph render identity includes truncation and navigation", () =
         }
       ]])
     }));
+});
+
+test("empty dependency graph invalidates an in-flight render", () => {
+  const sequence = createDependencyGraphRenderSequence();
+  const stale = sequence.begin();
+
+  sequence.invalidate();
+
+  assert.equal(sequence.isCurrent(stale), false);
+  assert.match(
+    appSource,
+    /if \(!built\) \{\s*depGraphRenderSequence\.invalidate\(\);/);
 });
 
 test("dependency graph binds navigation to generated node identities", () => {
