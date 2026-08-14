@@ -49,7 +49,8 @@ public sealed record CSharpShellParameter(
 public sealed record CSharpShellTypeParameter(
     string Name,
     IReadOnlyList<string> Constraints,
-    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null);
+    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null,
+    TypeParameterTypeKind TypeKind = TypeParameterTypeKind.Undetermined);
 
 public sealed record CSharpMemberShellSpec(
     string Name,
@@ -290,6 +291,7 @@ public static class CSharpMemberShellProducer
                         Name = parameter.Name,
                         Constraints = parameter.Constraints.ToList(),
                         StructuredConstraints = parameter.StructuredConstraints,
+                        TypeKind = parameter.TypeKind,
                     })
                     .ToList(),
                 Parameters = spec.Parameters.Select(BuildParameter).ToList(),

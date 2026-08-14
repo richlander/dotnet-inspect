@@ -2951,8 +2951,7 @@ public class ReturnToSenderPrototypeTests
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method
-        // type parameters in the reconstructed `IBox.Wrap<T>(...)` header (constraints are
-        // inherited from the interface and must be omitted).
+        // type parameters in the reconstructed `IBox.Wrap<T>(...)` header.
         var assemblyPath = CompileFixture("""
             public sealed class ExplicitGenericFixture : IBox
             {
@@ -2982,6 +2981,50 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains("IBox.Wrap<T>(T value)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("IBox_Wrap", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsNullableGenericExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            #nullable enable
+
+            public sealed class ExplicitNullableGenericFixture : INullableBox
+            {
+                T? INullableBox.Wrap<T>(T? value) where T : class
+                {
+                    return value;
+                }
+            }
+
+            public interface INullableBox
+            {
+                T? Wrap<T>(T? value) where T : class;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitNullableGenericFixture",
+                    "INullableBox.Wrap",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "Wrap<T>(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains("where T : class", result.Source, StringComparison.Ordinal);
         }
         finally
         {

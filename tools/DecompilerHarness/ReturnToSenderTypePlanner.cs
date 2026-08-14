@@ -325,7 +325,8 @@ public sealed record CompileBackTypeParameter(
     string Name,
     IReadOnlyList<string> Constraints,
     string? Variance = null,
-    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null);
+    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null,
+    TypeParameterTypeKind TypeKind = TypeParameterTypeKind.Undetermined);
 
 public enum CompileBackStubBodyKind
 {
@@ -3091,7 +3092,8 @@ public static class CompileBackSourceComposer
                 .Select(parameter => new CSharpShellTypeParameter(
                     parameter.Name,
                     parameter.Constraints,
-                    parameter.StructuredConstraints))
+                    parameter.StructuredConstraints,
+                    parameter.TypeKind))
                 .ToArray(),
             BodyKind: requirement.StubBody switch
             {
@@ -3170,7 +3172,8 @@ public static class CompileBackSourceComposer
                 parameter.Name,
                 parameter.Constraints,
                 parameter.Variance,
-                parameter.StructuredConstraints))
+                parameter.StructuredConstraints,
+                parameter.TypeKind))
             .ToArray();
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(

@@ -232,15 +232,22 @@ public sealed class TypeShellProducerTests
             Kind: CSharpShellMemberKind.Method,
             IsStatic: false,
             Parameters: [new CSharpShellParameter("value", "ref int")],
-            ReturnType: "int",
-            TypeParameters: [new CSharpShellTypeParameter("T", ["class"])],
+            ReturnType: "T?",
+            TypeParameters:
+            [
+                new CSharpShellTypeParameter(
+                    "T",
+                    ["class"],
+                    [new TypeParameterConstraint("class", IsTypeName: false)],
+                    TypeParameterTypeKind.ReferenceType)
+            ],
             BodyKind: CSharpShellBodyKind.TargetBody,
-            Body: "return value;",
+            Body: "return default;",
             ExplicitInterfaceMemberName: "Samples.IRunner.Run",
             DeclarationSignature: "this harness text must not be used"));
 
         Assert.Equal(
-            "int Samples.IRunner.Run<T>(ref int value)",
+            "T? Samples.IRunner.Run<T>(ref int value)",
             policy.Member.Signature);
 
         var type = new ApiType
@@ -256,7 +263,11 @@ public sealed class TypeShellProducerTests
             memberPolicyOverrides: [policy]));
 
         Assert.Contains(
-            "int Samples.IRunner.Run<T>(ref int value)",
+            "T? Samples.IRunner.Run<T>(ref int value)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "where T : class",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
     }
