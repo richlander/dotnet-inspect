@@ -474,8 +474,19 @@ public sealed class AssemblyDependencyResolver :
 
     ResolvedAssemblyReference? Descriptor(
         string path,
-        AssemblyResolutionProvenance provenance) =>
-        DescriptorResult(path, provenance).Assembly;
+        AssemblyResolutionProvenance provenance)
+    {
+        AssemblyDescriptorResolution result =
+            DescriptorResult(path, provenance);
+        if (result.FailureKind
+            is CandidateOpenFailureKind.ResourceBudget)
+        {
+            throw new AssemblyDependencySnapshotBudgetExceededException(
+                _options.MaxSnapshotImageBytes);
+        }
+
+        return result.Assembly;
+    }
 
     AssemblyDescriptorResolution DescriptorResult(
         string path,
