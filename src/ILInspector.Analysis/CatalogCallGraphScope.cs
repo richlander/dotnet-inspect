@@ -1092,7 +1092,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 else
                 {
                     identity =
-                        GraphNodeIdentity.CreateDetachedCatalog();
+                        GraphNodeIdentity.CreateDocumentLocal();
                 }
 
                 detached.Add(evidence.Identity, identity);
