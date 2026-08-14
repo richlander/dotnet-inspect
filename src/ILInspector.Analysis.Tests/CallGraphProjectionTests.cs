@@ -43,7 +43,18 @@ public class CallGraphProjectionTests
         => Node(member, status, [], inLoop, loopHint);
 
     static (int From, int To, string? Loop)[] EdgeTuples(CallGraphProjection projection)
-        => [.. projection.Edges.Select(e => (e.From, e.To, e.LoopLabel))];
+        => [.. projection.Edges.Select(e =>
+            (
+                e.From,
+                e.To,
+                e.AnyCallInLoop
+                    ? e.CallSiteIds.IsEmpty
+                        && !string.IsNullOrEmpty(e.LegacyLoopHint)
+                            ? e.LegacyLoopHint
+                            : e.Origin == CallGraphEdgeOrigin.Callers
+                                ? "loop call"
+                                : "loop"
+                    : null))];
 
     static GraphNodeEvidence Evidence(int token)
     {
@@ -62,6 +73,30 @@ public class CallGraphProjectionTests
             GraphNodeIdentity.FromStorage(storage),
             correspondence: null);
     }
+
+    static DirectCall Call(
+        MemberRef caller,
+        MemberRef callee,
+        int offset) =>
+        new(
+            new MethodIdentity(
+                caller.DeclaringType.Assembly,
+                new Guid(
+                    "22222222-2222-2222-2222-222222222222"),
+                caller.DeclaringType,
+                caller.Name,
+                caller.ParameterTypes,
+                caller.ReturnType,
+                0x06000001,
+                IsStatic: true),
+            callee,
+            offset,
+            0x06000002,
+            0x06000002,
+            CallKind.Call)
+        {
+            ExactTarget = true,
+        };
 
     [Fact]
     public void FocusIsAlwaysNodeZero()
@@ -182,6 +217,57 @@ public class CallGraphProjectionTests
         Assert.Equal(2, projection.RowCount);
         Assert.Equal([1, 2], projection.Rows.Select(row => row.Number));
         Assert.Equal(projection.Edges, projection.Rows.Select(row => row.Edge));
+    }
+
+    [Fact]
+    public void CallerAndCalleeWalksDeduplicateTheSamePhysicalCallSite()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        MemberRef peer = Member("Peer", "Invoke");
+        DirectCall focusCallsPeer = Call(focus, peer, 4);
+        DirectCall peerCallsFocus = Call(peer, focus, 8);
+        CallTreeNode callerPeer =
+            Leaf(peer) with
+            {
+                ParentEdgeCallSites = [peerCallsFocus],
+            };
+        CallTreeNode calleeFocus =
+            Leaf(
+                focus,
+                CallTreeStatus.AlreadyShown) with
+            {
+                ParentEdgeCallSites = [peerCallsFocus],
+            };
+        CallTreeNode calleePeer =
+            Node(
+                peer,
+                CallTreeStatus.Expanded,
+                [calleeFocus]) with
+            {
+                ParentEdgeCallSites = [focusCallsPeer],
+            };
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [callerPeer]),
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [calleePeer]));
+
+        Assert.Equal(2, projection.CallSites.Length);
+        CallGraphEdge peerToFocus = Assert.Single(
+            projection.Edges,
+            edge => projection.Nodes[edge.From].Member == peer
+                && projection.Nodes[edge.To].Member == focus);
+        int callSiteId = Assert.Single(
+            peerToFocus.CallSiteIds);
+        Assert.Same(
+            peerCallsFocus,
+            projection.CallSites[callSiteId].Call);
     }
 
     [Fact]

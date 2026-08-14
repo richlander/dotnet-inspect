@@ -53,6 +53,14 @@ public sealed record CallTreeNode(
     public GraphNodeEvidence? GraphEvidence { get; init; }
 
     /// <summary>
+    /// Physical calls supporting the edge between this node and its parent.
+    /// Each call retains its semantic caller-to-callee direction regardless of
+    /// whether this node belongs to a caller or callee tree. The root has no
+    /// parent-edge call sites.
+    /// </summary>
+    public ImmutableArray<DirectCall> ParentEdgeCallSites { get; init; } = [];
+
+    /// <summary>
     /// The recoverable body-analysis failure that made this node incomplete, if any.
     /// </summary>
     public AnalysisDiagnostic? Diagnostic { get; init; }

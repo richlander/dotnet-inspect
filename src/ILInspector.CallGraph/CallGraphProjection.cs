@@ -65,17 +65,60 @@ public sealed record CallGraphNode(
     CallTreePerf? Perf = null,
     ImmutableArray<GraphNodeEvidence> GraphEvidence = default);
 
+/// <summary>The traversal half that first contributed one logical edge.</summary>
+public enum CallGraphEdgeOrigin
+{
+    Callers,
+    Callees,
+}
+
+/// <summary>Descriptive dispatch modality derived from one physical call.</summary>
+public enum CallGraphDispatchKind
+{
+    Direct,
+    Virtual,
+    FunctionPointer,
+    VirtualFunctionPointer,
+    Indirect,
+}
+
 /// <summary>
 /// One directed call edge. The direction is always "caller calls callee", so an inbound
 /// (reverse) tree is inverted during projection rather than left for the host to interpret.
 /// </summary>
 /// <param name="From">Id of the calling member.</param>
 /// <param name="To">Id of the called member.</param>
-/// <param name="LoopLabel">
-/// Non-null when the call occurs inside a loop at any collapsed call site: either the
-/// analysis loop hint or <c>"loop"</c>.
+/// <param name="AnyCallInLoop">
+/// Whether any retained physical call site supporting this edge occurs in a
+/// loop. Evidence-free trees fall back to their typed loop flag.
 /// </param>
-public readonly record struct CallGraphEdge(int From, int To, string? LoopLabel);
+/// <param name="Origin">
+/// The traversal half that first contributed the edge. Hosts may use this to
+/// preserve caller-side versus callee-side presentation without storing label
+/// text in the projection.
+/// </param>
+/// <param name="CallSiteIds">
+/// Dense ids into <see cref="CallGraphProjection.CallSites"/> for every retained
+/// physical call supporting this edge.
+/// </param>
+/// <param name="LegacyLoopHint">
+/// The analysis hint retained only for an evidence-free tree edge. Physical
+/// call edges derive loop presentation from typed occurrence evidence.
+/// </param>
+public readonly record struct CallGraphEdge(
+    int From,
+    int To,
+    bool AnyCallInLoop,
+    CallGraphEdgeOrigin Origin,
+    ImmutableArray<int> CallSiteIds,
+    string? LegacyLoopHint);
+
+/// <summary>One physical call site retained behind a logical edge.</summary>
+public sealed record CallGraphCallSite(
+    int Id,
+    int EdgeId,
+    DirectCall Call,
+    CallGraphDispatchKind DispatchKind);
 
 /// <summary>
 /// One stable row of a <see cref="CallGraphProjection"/>.
@@ -136,11 +179,13 @@ public sealed partial class CallGraphProjection
     private CallGraphProjection(
         ImmutableArray<CallGraphNode> nodes,
         ImmutableArray<CallGraphEdge> edges,
+        ImmutableArray<CallGraphCallSite> callSites,
         bool hasUnexploredTraversalBoundary,
         bool hasAnalysisFailureBoundary)
     {
         Nodes = nodes;
         Edges = edges;
+        CallSites = callSites;
         HasUnexploredTraversalBoundary =
             hasUnexploredTraversalBoundary;
         HasAnalysisFailureBoundary =
@@ -157,6 +202,12 @@ public sealed partial class CallGraphProjection
 
     /// <summary>Edges in deterministic first-seen order, always oriented caller → callee.</summary>
     public ImmutableArray<CallGraphEdge> Edges { get; }
+
+    /// <summary>
+    /// Physical call sites in deterministic first-seen order. Repeated
+    /// observations from the caller and callee walks appear once.
+    /// </summary>
+    public ImmutableArray<CallGraphCallSite> CallSites { get; }
 
     /// <summary>
     /// Rows in deterministic order, one per <see cref="Edges"/> entry. Row numbers are
@@ -356,10 +407,32 @@ public sealed partial class CallGraphProjection
 
     private sealed class Builder(bool useGraphEvidence)
     {
+        private sealed class MutableEdge(
+            int from,
+            int to,
+            CallGraphEdgeOrigin origin)
+        {
+            public int From { get; } = from;
+            public int To { get; } = to;
+            public CallGraphEdgeOrigin Origin { get; } = origin;
+            public bool AnyCallInLoop { get; set; }
+            public string? LegacyLoopHint { get; set; }
+            public List<int> CallSiteIds { get; } = [];
+        }
+
+        private readonly record struct CallSiteIdentity(
+            GraphNodeIdentity Caller,
+            Guid ModuleVersionId,
+            int MethodToken,
+            int ILOffset,
+            int OperandToken);
+
         private readonly Dictionary<GraphNodeIdentity, int> _ids = [];
         private readonly List<MutableNode> _nodes = [];
         private readonly Dictionary<(int From, int To), int> _edgeIndex = [];
-        private readonly List<CallGraphEdge> _edges = [];
+        private readonly List<MutableEdge> _edges = [];
+        private readonly Dictionary<CallSiteIdentity, int> _callSiteIds = [];
+        private readonly List<CallGraphCallSite> _callSites = [];
 
         public int RegisterFocus(
             MemberRef member,
@@ -391,7 +464,13 @@ public sealed partial class CallGraphProjection
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence);
-                AddEdge(childId, nodeId, LoopLabel(child.Perf));
+                AddEdge(
+                    childId,
+                    nodeId,
+                    child.ParentEdgeCallSites,
+                    child.Perf is { InLoop: true },
+                    child.Perf?.LoopHint,
+                    CallGraphEdgeOrigin.Callers);
                 WalkCallers(child, childId);
             }
         }
@@ -407,7 +486,13 @@ public sealed partial class CallGraphProjection
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence);
-                AddEdge(nodeId, childId, LoopLabel(child.Perf));
+                AddEdge(
+                    nodeId,
+                    childId,
+                    child.ParentEdgeCallSites,
+                    child.Perf is { InLoop: true },
+                    child.Perf?.LoopHint,
+                    CallGraphEdgeOrigin.Callees);
                 WalkCallees(child, childId);
             }
         }
@@ -429,9 +514,23 @@ public sealed partial class CallGraphProjection
                         node.Perf,
                         [.. node.GraphEvidence]));
             }
+            var edges = ImmutableArray.CreateBuilder<CallGraphEdge>(
+                _edges.Count);
+            foreach (MutableEdge edge in _edges)
+            {
+                edges.Add(
+                    new CallGraphEdge(
+                        edge.From,
+                        edge.To,
+                        edge.AnyCallInLoop,
+                        edge.Origin,
+                        [.. edge.CallSiteIds],
+                        edge.LegacyLoopHint));
+            }
             return new CallGraphProjection(
                 nodes.MoveToImmutable(),
-                [.. _edges],
+                edges.MoveToImmutable(),
+                [.. _callSites],
                 hasUnexploredTraversalBoundary,
                 hasAnalysisFailureBoundary);
         }
@@ -486,18 +585,68 @@ public sealed partial class CallGraphProjection
             node.GraphEvidence.Add(evidence);
         }
 
-        private void AddEdge(int from, int to, string? loopLabel)
+        private void AddEdge(
+            int from,
+            int to,
+            ImmutableArray<DirectCall> callSites,
+            bool fallbackInLoop,
+            string? fallbackLoopHint,
+            CallGraphEdgeOrigin origin)
         {
-            if (_edgeIndex.TryGetValue((from, to), out var index))
+            if (!_edgeIndex.TryGetValue((from, to), out int index))
             {
-                // A shared edge that is a loop call from any site keeps its loop annotation.
-                if (loopLabel is not null && _edges[index].LoopLabel is null)
-                    _edges[index] = _edges[index] with { LoopLabel = loopLabel };
+                index = _edges.Count;
+                _edgeIndex.Add((from, to), index);
+                _edges.Add(new MutableEdge(from, to, origin));
+            }
+
+            MutableEdge edge = _edges[index];
+            edge.AnyCallInLoop |= fallbackInLoop;
+            if (callSites.IsDefaultOrEmpty)
+            {
+                if (fallbackInLoop
+                    && edge.LegacyLoopHint is null)
+                {
+                    edge.LegacyLoopHint = fallbackLoopHint;
+                }
                 return;
             }
 
-            _edgeIndex[(from, to)] = _edges.Count;
-            _edges.Add(new CallGraphEdge(from, to, loopLabel));
+            foreach (DirectCall call in callSites)
+            {
+                ArgumentNullException.ThrowIfNull(call);
+                edge.AnyCallInLoop |= call.InLoop;
+                var identity = new CallSiteIdentity(
+                    _nodes[from].Identity,
+                    call.Caller.ModuleVersionId,
+                    call.Caller.MetadataToken,
+                    call.ILOffset,
+                    call.OperandToken);
+                if (_callSiteIds.TryGetValue(
+                        identity,
+                        out int existingId))
+                {
+                    CallGraphCallSite existing =
+                        _callSites[existingId];
+                    if (existing.EdgeId != index
+                        || existing.Call != call)
+                    {
+                        throw new InvalidOperationException(
+                            "One physical call site cannot support different logical call edges.");
+                    }
+                    continue;
+                }
+
+                int id = _callSites.Count;
+                _callSiteIds.Add(identity, id);
+                _callSites.Add(
+                    new CallGraphCallSite(
+                        id,
+                        index,
+                        call,
+                        DispatchKind(call)));
+                edge.CallSiteIds.Add(id);
+            }
         }
     }
 
@@ -588,13 +737,25 @@ public sealed partial class CallGraphProjection
             && (node.HasUnresolvedDispatch
                 || node.Children.Any(HasUnresolvedDispatch));
 
-    // The loop flag lives on the deeper (child) node and describes the parent↔child
-    // call edge: for a callee tree the parent calls the child in a loop; for a caller
-    // tree the child (caller) calls the parent in a loop.
-    private static string? LoopLabel(CallTreePerf? perf)
-        => perf is { InLoop: true } p
-            ? string.IsNullOrEmpty(p.LoopHint) ? "loop" : p.LoopHint
-            : null;
+    private static CallGraphDispatchKind DispatchKind(
+        DirectCall call) =>
+        call.Kind switch
+        {
+            CallKind.Call or CallKind.NewObject =>
+                CallGraphDispatchKind.Direct,
+            CallKind.CallVirtual when call.ExactTarget =>
+                CallGraphDispatchKind.Direct,
+            CallKind.CallVirtual =>
+                CallGraphDispatchKind.Virtual,
+            CallKind.LoadFunction =>
+                CallGraphDispatchKind.FunctionPointer,
+            CallKind.LoadVirtualFunction =>
+                CallGraphDispatchKind.VirtualFunctionPointer,
+            CallKind.CallIndirect =>
+                CallGraphDispatchKind.Indirect,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(call)),
+        };
 
     /// <summary>
     /// Combines two observations of the same member, one per walk direction.

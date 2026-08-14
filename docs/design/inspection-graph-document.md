@@ -286,15 +286,17 @@ relationship whose producer and derivation are part of the edge contract. It
 must not look like observed call or metadata evidence. The first implementation
 should require at least one occurrence for every non-synthetic edge.
 
-The initial call adapter registers the observed `call` relationship with exact
-member-to-member endpoint projection. The current `CallGraphProjection` does
-not retain every physical call site, so each logical row initially contributes
-a typed `call.logical-edge` projection receipt and each edge carries a
-`call.physical-occurrences-unavailable` limit. This preserves positive topology
-without inventing call sites or making occurrence absence look complete. The
-call-occurrence slice replaces those transitional receipts with physical
-receipts. `CallGraphInspectionGraphAdapter` owns this current mapping, gated by
-`CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`.
+The call adapter registers the observed `call` relationship with exact
+member-to-member endpoint projection. Product-built call trees retain every
+physical call site supporting each projected edge, so
+`CallGraphInspectionGraphAdapter` emits physical `call.site` receipts plus
+typed occurrence and edge characteristics. Evidence-free trees constructed by
+external or synthetic callers retain the earlier `call.logical-edge` receipt
+and edge-scoped `call.physical-occurrences-unavailable` limit rather than
+fabricating a call site. `CallAdapter_RetainsPhysicalSitesAndTypedAggregates`
+and
+`AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite`
+gate the physical and compiler-produced paths.
 
 ## Subject identity
 
@@ -489,12 +491,13 @@ subjects and explicit `DerivedFromOccurrenceIds` receipts for the native
 evidence. It must not directly attach a call, metadata-reference, or extension
 occurrence to an `integration.composed` edge.
 
-`AnnotatedCallGraphOccurrence` is the current focus-member seam: retained focus
-call sites can share one stable edge row while preserving IL offsets, operand
-tokens, call kinds, loop flags, and source facts. It does not retain
-occurrences for every projected edge and does not carry dispatch kind. The
-`AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` gate
-pins the current focus-call-site behavior.
+`CallGraphProjection.CallSites` is the document-wide seam: every product-built
+tree edge retains its physical `DirectCall` receipts, and projection
+deduplicates the same call site when caller and callee walks both observe it.
+Each receipt retains IL offset, operand token, call kind, loop state, and a
+descriptive dispatch classification. `AnnotatedCallGraphOccurrence` remains
+the source-overlay seam for focus-member facts; it maps those same physical
+coordinates to stable edge rows and source facts.
 
 ## Characteristics
 
@@ -577,34 +580,35 @@ cannot appear on an aggregate type or package node.
 
 ### Calls as the first occurrence-backed catalog
 
-The first edge-characteristic slice should use call evidence. The current
-projection and focus overlay expose part of the required distinction:
+The first edge-characteristic slice uses call evidence. The current projection
+and focus overlay expose the required distinction:
 
 - logical edge: caller member -> callee member;
-- current focus occurrences: retained focus call sites with call kind, IL
-  offset, operand token, and loop state;
-- current edge aggregate: `LoopLabel`, without retained document-wide call-site
-  receipts.
+- physical occurrence: one retained call site with call kind, IL offset,
+  operand token, loop state, and derived dispatch kind;
+- edge aggregates: call-site multiplicity, any-in-loop, distinct call kinds,
+  and distinct dispatch kinds; and
+- focus source occurrence: the existing source-fact overlay over those physical
+  coordinates.
 
-The target catalog adds:
-
-- physical occurrences for every retained call site behind every projected
-  edge;
-- direct occurrence values for call kind, IL offset, loop state, and derived
-  dispatch kind; and
-- edge aggregates for call-site multiplicity, any-in-loop, distinct call kinds,
-  and distinct dispatch kinds.
-
-Loop is currently merged directly into `CallGraphEdge.LoopLabel`. Moving it
-into the characteristic plane must preserve behavior while eliminating the
-label as storage. The edge's primary `call` relationship remains structured
-and non-optional.
+Loop is stored as typed occurrence evidence and an edge aggregate, not as
+`CallGraphEdge` label text. The CLI derives its existing `loop`/`loop call`
+label from the typed edge state. Evidence-free compatibility trees may retain
+their legacy analysis hint, but product-built physical edges do not depend on
+it. The edge's primary `call` relationship remains structured and
+non-optional.
 
 Descriptive dispatch kind and correctness-bearing dispatch completeness are
 separate. A selected characteristic may distinguish direct, virtual, interface,
 delegate, or indirect modality. An unresolved runtime target remains an
 always-present occurrence disposition and traversal limit whether or not that
 characteristic is selected.
+
+The current descriptive classifier distinguishes direct, virtual, function
+pointer, virtual function pointer, and indirect sites from retained
+`DirectCall` evidence. Interface and delegate refinements remain deferred until
+their owning Analysis producer supplies typed evidence; display-name heuristics
+are not substituted.
 
 ## Correctness and completeness
 
@@ -940,7 +944,9 @@ subject lenses it advances.
    Adapt the existing member call graph without changing default output.
 2. **Call occurrences and edge characteristics.** Retain every call site behind
    logical call edges; move loop out of label storage; add call kind, dispatch,
-   and multiplicity with structured table/JSON projection.
+   and multiplicity to the structured L1 projection. L2 selector and
+   occurrence-table/JSON bindings remain a separately gated presentation step;
+   they must not encode these values back into edge labels.
 3. **Typed groups and package boundary.** Project assembly/package ownership
    from workspace provenance and realized coordinates; render the same package
    as a group or node without string-derived identity.

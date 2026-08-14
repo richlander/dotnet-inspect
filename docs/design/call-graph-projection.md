@@ -104,7 +104,12 @@ The projection owns everything a host must not re-invent in JavaScript:
   collapse to one node in either domain.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
-  The catalog scope retains the complete physical store independently. A
+  Every product-built tree child also retains all `DirectCall` receipts for its
+  parent edge. `CallGraphProjection.CallSites` deduplicates those receipts by
+  caller identity, MVID, caller token, IL offset, and operand token when caller
+  and callee walks observe the same physical site, while each logical edge
+  retains the resulting dense call-site ids. The catalog scope retains the
+  complete physical store independently. A
   call-site storage key identifies one physical operand occurrence (source
   registration, MVID, caller token, IL offset, and operand token); it is
   evidence, never a logical node count or a cycle key.
@@ -186,8 +191,11 @@ The projection owns everything a host must not re-invent in JavaScript:
   `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gate the
   Analysis-to-tree wiring for both assembly-local and catalog traversals,
   including the diagnostic-plus-budget precedence.
-- **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
-  outbound, `loop call` inbound), read from the child node's loop flag.
+- **Loop-call annotations.** A call made inside a loop sets typed
+  `AnyCallInLoop` edge state, aggregated from retained call sites. The host
+  derives `loop` outbound or `loop call` inbound from that state and the edge's
+  first traversal origin. Evidence-free compatibility trees fall back to the
+  child node's loop flag and legacy hint.
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source
   assembly, and the `MethodSignals` cost/exception cues) travels on the node, so a
   host can project any subset without re-walking the tree. Perf is analysis data,
@@ -268,8 +276,9 @@ package boundary. The seam yields presentation-free `CallTreeNode` roots as a
 `MemberCallGraphView` (`Tier`, focus MVID/token, `CalleeRoot`, `CallerRoot`,
 `FocusCallSites`, `Diagnostics`). `FocusCallSites` retains every physical
 outbound operand occurrence from the same scoped or full index that produced
-the roots; it is not reconstructed from logical graph edges. A host renders the
-roots directly or projects them with
+the roots; the tree now carries the same physical receipts on every retained
+edge, not only the focus edge. A host renders the roots directly or projects
+them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 `Diagnostics` is a stable count summary of incomplete correspondence and exact
 bindings to a different identity of the primary assembly, distilled before any
