@@ -755,6 +755,17 @@ public static class ApiSurfaceExtractor
                     method.Name,
                     observeDecodeWork);
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+                if (!MetadataAccessibility.TryGet(methodAccess, out string? methodAccessibility))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        "method accessibility",
+                        methodHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            methodHandle,
+                            $"The method has an unknown accessibility value 0x{(int)methodAccess:X}."));
+                    continue;
+                }
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
                 var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                     && (methodName.Contains('.', StringComparison.Ordinal)
@@ -879,7 +890,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             method.GetCustomAttributes(),
                             observeDecodeWork),
-                    Accessibility = GetAccessibility(methodAccess),
+                    Accessibility = methodAccessibility,
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     Attributes = RenderMemberAttributes(
@@ -959,7 +970,19 @@ public static class ApiSurfaceExtractor
                     isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
                 }
 
-                bool isPublicProp = bestAccess == MethodAttributes.Public;
+                if (!MetadataAccessibility.TryGet(bestAccess, out string? propertyAccessibility))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        "property accessibility",
+                        propHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            propHandle,
+                            $"The property has an unknown accessibility value 0x{(int)bestAccess:X}."));
+                    continue;
+                }
+
+                bool isPublicProp = propertyAccessibility is null;
                 if (!isPublicProp && !includeAll)
                     continue;
 
@@ -1030,7 +1053,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             prop.GetCustomAttributes(),
                             observeDecodeWork),
-                    Accessibility = GetAccessibility(bestAccess),
+                    Accessibility = propertyAccessibility,
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     IsCompilerGenerated = AttributeReader.HasAttribute(
@@ -1091,6 +1114,17 @@ public static class ApiSurfaceExtractor
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
+                if (!MetadataAccessibility.TryGet(fieldAccess, out string? fieldAccessibility))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        "field accessibility",
+                        fieldHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            fieldHandle,
+                            $"The field has an unknown accessibility value 0x{(int)fieldAccess:X}."));
+                    continue;
+                }
                 if (fieldAccess != FieldAttributes.Public && !includeAll)
                     continue;
 
@@ -1181,7 +1215,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             field.GetCustomAttributes(),
                             observeDecodeWork),
-                    Accessibility = GetFieldAccessibility(fieldAccess),
+                    Accessibility = fieldAccessibility,
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     Attributes = RenderMemberAttributes(
@@ -1237,25 +1271,50 @@ public static class ApiSurfaceExtractor
             {
                 var evt = reader.GetEventDefinition(eventHandle);
                 var accessors = evt.GetAccessors();
-
                 if (accessors.Adder.IsNil && accessors.Remover.IsNil)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        "event accessors",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            eventHandle,
+                            "The event has no adder or remover."));
                     continue;
+                }
 
                 var primaryAccessorHandle = !accessors.Adder.IsNil
                     ? accessors.Adder
                     : accessors.Remover;
                 var primaryAccessor = reader.GetMethodDefinition(primaryAccessorHandle);
-                var bestAccess = primaryAccessor.Attributes & MethodAttributes.MemberAccessMask;
-                _ = GetAccessibility(bestAccess);
-                if (!accessors.Remover.IsNil)
+                MethodAttributes bestAccess = 0;
+                bool malformedAccessibility = false;
+                foreach (var accessorHandle in new[] { accessors.Adder, accessors.Remover })
                 {
-                    var remover = reader.GetMethodDefinition(accessors.Remover);
-                    var removerAccess = remover.Attributes & MethodAttributes.MemberAccessMask;
-                    _ = GetAccessibility(removerAccess);
-                    if (removerAccess > bestAccess)
-                        bestAccess = removerAccess;
+                    if (accessorHandle.IsNil)
+                        continue;
+                    var access = reader.GetMethodDefinition(accessorHandle).Attributes
+                        & MethodAttributes.MemberAccessMask;
+                    if (!MetadataAccessibility.TryGet(access, out _))
+                    {
+                        AddInspectionFailure(
+                            surface,
+                            "event accessibility",
+                            eventHandle,
+                            MetadataTypeNameFailure.Malformed(
+                                eventHandle,
+                                $"The event has an unknown accessibility value 0x{(int)access:X}."));
+                        malformedAccessibility = true;
+                        break;
+                    }
+                    if (access > bestAccess)
+                        bestAccess = access;
                 }
-                if (bestAccess != MethodAttributes.Public && !includeAll)
+                if (malformedAccessibility)
+                    continue;
+
+                string? eventAccessibility = MetadataAccessibility.Get(bestAccess);
+                if (eventAccessibility is not null && !includeAll)
                     continue;
 
                 // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
@@ -1357,8 +1416,8 @@ public static class ApiSurfaceExtractor
                             observeAttributeMaterialize),
                         HasMethodBody = remover.RelativeVirtualAddress != 0,
                         IsAbstract = (remover.Attributes & MethodAttributes.Abstract) != 0
-                    });
-                }
+                    }
+                };
                 var accessorFacts = AccessorFacts(
                     reader,
                     observeText,
@@ -1425,7 +1484,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             evt.GetCustomAttributes(),
                             observeDecodeWork),
-                    Accessibility = GetAccessibility(bestAccess),
+                    Accessibility = eventAccessibility,
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     AdderToken = accessors.Adder.IsNil
@@ -4985,36 +5044,14 @@ public static class ApiSurfaceExtractor
     /// <summary>
     /// Maps MethodAttributes access level to C# keyword. Returns null for public.
     /// </summary>
-    private static string? GetAccessibility(MethodAttributes access) => access switch
-    {
-        MethodAttributes.PrivateScope => "private",
-        MethodAttributes.Private => "private",
-        MethodAttributes.FamANDAssem => "private protected",
-        MethodAttributes.Assembly => "internal",
-        MethodAttributes.Family => "protected",
-        MethodAttributes.FamORAssem => "protected internal",
-        MethodAttributes.Public => null,
-        _ => throw new BadImageFormatException(
-            $"Invalid method accessibility value 0x{(int)access:X}.")
-    };
+    private static string? GetAccessibility(MethodAttributes access)
+        => MetadataAccessibility.Get(access);
 
     /// <summary>
     /// Maps FieldAttributes access level to C# keyword. Returns null for public.
     /// </summary>
-    private static string? GetFieldAccessibility(FieldAttributes access) => access switch
-    {
-        FieldAttributes.PrivateScope => "private",
-        FieldAttributes.Private => "private",
-        FieldAttributes.FamANDAssem => "private protected",
-        FieldAttributes.Assembly => "internal",
-        FieldAttributes.Family => "protected",
-        FieldAttributes.FamORAssem => "protected internal",
-        FieldAttributes.Public => null,
-        _ => throw new ArgumentOutOfRangeException(
-            nameof(access),
-            access,
-            "Unknown field accessibility.")
-    };
+    private static string? GetFieldAccessibility(FieldAttributes access)
+        => MetadataAccessibility.Get(access);
 
     sealed class TypeParameterConstraintResolution
     {

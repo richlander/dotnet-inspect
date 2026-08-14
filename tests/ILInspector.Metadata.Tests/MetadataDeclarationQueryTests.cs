@@ -593,7 +593,7 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
-    public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
+    public void AccessibilityMapping_HandlesPrivateScopeAndRejectsReservedValues()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
             "AccessibilityKeyword",
@@ -606,6 +606,14 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.Equal("private", methodAccessibility!.Invoke(null, [MethodAttributes.PrivateScope]));
         Assert.Equal("private", fieldAccessibility!.Invoke(null, [FieldAttributes.PrivateScope]));
+        Assert.IsType<BadImageFormatException>(
+            Assert.Throws<TargetInvocationException>(
+                () => methodAccessibility.Invoke(null, [(MethodAttributes)0x0007]))
+                .InnerException);
+        Assert.IsType<BadImageFormatException>(
+            Assert.Throws<TargetInvocationException>(
+                () => fieldAccessibility.Invoke(null, [(FieldAttributes)0x0007]))
+                .InnerException);
     }
 
     [Fact]

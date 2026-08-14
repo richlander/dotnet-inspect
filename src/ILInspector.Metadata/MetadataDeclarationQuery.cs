@@ -599,6 +599,9 @@ public static class MetadataDeclarationQuery
         MethodSignature<string> signature)
     {
         var accessors = property.GetAccessors();
+        if (accessors.Getter.IsNil && accessors.Setter.IsNil)
+            throw new BadImageFormatException("The property has no getter or setter.");
+
         var getter = accessors.Getter.IsNil ? default : reader.GetMethodDefinition(accessors.Getter);
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
@@ -1152,38 +1155,16 @@ public static class MetadataDeclarationQuery
         => access == bestAccess ? null : NonPublicAccessibility(access);
 
     static string AccessibilityKeyword(MethodAttributes access)
-        => access == MethodAttributes.Public
-            ? "public"
-            : NonPublicAccessibility(access)
-                ?? throw new BadImageFormatException(
-                    $"Invalid method accessibility value 0x{(int)access:X}.");
+        => MetadataAccessibility.Keyword(access);
 
     static string AccessibilityKeyword(FieldAttributes access)
-        => NonPublicAccessibility(access) ?? "public";
+        => MetadataAccessibility.Keyword(access);
 
-    static string? NonPublicAccessibility(MethodAttributes access) => access switch
-    {
-        MethodAttributes.PrivateScope => "private",
-        MethodAttributes.Private => "private",
-        MethodAttributes.FamANDAssem => "private protected",
-        MethodAttributes.Assembly => "internal",
-        MethodAttributes.Family => "protected",
-        MethodAttributes.FamORAssem => "protected internal",
-        MethodAttributes.Public => null,
-        _ => throw new BadImageFormatException(
-            $"Invalid method accessibility value 0x{(int)access:X}."),
-    };
+    static string? NonPublicAccessibility(MethodAttributes access)
+        => MetadataAccessibility.Get(access);
 
-    static string? NonPublicAccessibility(FieldAttributes access) => access switch
-    {
-        FieldAttributes.PrivateScope => "private",
-        FieldAttributes.Private => "private",
-        FieldAttributes.FamANDAssem => "private protected",
-        FieldAttributes.Assembly => "internal",
-        FieldAttributes.Family => "protected",
-        FieldAttributes.FamORAssem => "protected internal",
-        _ => null,
-    };
+    static string? NonPublicAccessibility(FieldAttributes access)
+        => MetadataAccessibility.Get(access);
 
     static string? NonPublicAccessibility(string accessibility)
         => accessibility == "public" ? null : accessibility;

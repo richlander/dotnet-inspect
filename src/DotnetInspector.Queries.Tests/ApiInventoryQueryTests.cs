@@ -450,6 +450,79 @@ public class ApiInventoryQueryTests
         ApiSurfaceInspectionFailure failure = Assert.Single(surface.InspectionFailures);
         Assert.Equal("property accessors", failure.Operation);
         Assert.Contains("no getter or setter", failure.Detail, StringComparison.Ordinal);
+
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "AccessorlessHost");
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true));
+    }
+
+    [Fact]
+    public void Extract_ReservedAccessibilitySkipsOnlyMalformedMembers()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildReservedAccessibilityImage()));
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "ReservedAccessibilityHost");
+        Assert.Contains(type.Members, member => member.Name == "GoodMethod");
+        Assert.Contains(type.Members, member => member.Name == "GoodField");
+        Assert.DoesNotContain(type.Members, member => member.Name == "BadMethod");
+        Assert.DoesNotContain(type.Members, member => member.Name == "BadField");
+
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "ReservedAccessibilityHost");
+        MethodDefinitionHandle badMethod = reader.GetTypeDefinition(typeHandle).GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name) == "BadMethod");
+        FieldDefinitionHandle badField = reader.GetTypeDefinition(typeHandle).GetFields().Single(handle =>
+            reader.GetString(reader.GetFieldDefinition(handle).Name) == "BadField");
+        Assert.Equal(
+            new Dictionary<string, int>
+            {
+                ["method accessibility"] = MetadataTokens.GetToken(badMethod),
+                ["field accessibility"] = MetadataTokens.GetToken(badField)
+            },
+            surface.InspectionFailures.ToDictionary(
+                failure => failure.Operation,
+                failure => failure.SubjectToken));
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true));
+    }
+
+    [Fact]
+    public void Extract_EventAccessibilityUsesBothAccessorsAndRejectsMissingPairs()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildEventAccessibilityImage()));
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "EventAccessibilityHost");
+        ApiMember changed = Assert.Single(type.Members, member => member.Name == "Changed");
+        Assert.Null(changed.Accessibility);
+        Assert.NotNull(changed.AdderToken);
+        Assert.NotNull(changed.RemoverToken);
+        Assert.DoesNotContain(type.Members, member => member.Name == "Broken");
+        ApiSurfaceInspectionFailure failure = Assert.Single(surface.InspectionFailures);
+        Assert.Equal("event accessors", failure.Operation);
+        MetadataReader reader = peReader.GetMetadataReader();
+        EventDefinitionHandle broken = reader.GetTypeDefinition(
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(reader.GetTypeDefinition(handle).Name) == "EventAccessibilityHost"))
+            .GetEvents()
+            .Single(handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "Broken");
+        Assert.Equal(MetadataTokens.GetToken(broken), failure.SubjectToken);
     }
 
     [Fact]
@@ -618,6 +691,175 @@ public class ApiInventoryQueryTests
             metadata.GetOrAddString("Value"),
             metadata.GetOrAddBlob(propertySignature));
         metadata.AddPropertyMap(type, property);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildReservedAccessibilityImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("ReservedAccessibility.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ReservedAccessibility"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("ReservedAccessibilityHost"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // FIELD
+        fieldSignature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        BlobHandle fieldSignatureHandle = metadata.GetOrAddBlob(fieldSignature);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.Static,
+            metadata.GetOrAddString("GoodField"),
+            fieldSignatureHandle);
+        metadata.AddFieldDefinition(
+            (FieldAttributes)0x0007 | FieldAttributes.Static,
+            metadata.GetOrAddString("BadField"),
+            fieldSignatureHandle);
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00); // DEFAULT
+        methodSignature.WriteByte(0x00); // parameter count
+        methodSignature.WriteByte(0x01); // ELEMENT_TYPE_VOID
+        BlobHandle methodSignatureHandle = metadata.GetOrAddBlob(methodSignature);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("GoodMethod"),
+            methodSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            (MethodAttributes)0x0007 | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("BadMethod"),
+            methodSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildEventAccessibilityImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("EventAccessibility.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("EventAccessibility"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("EventAccessibilityHost"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00); // DEFAULT
+        methodSignature.WriteByte(0x00); // parameter count
+        methodSignature.WriteByte(0x01); // ELEMENT_TYPE_VOID
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("GoodMethod"),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var accessorSignature = new BlobBuilder();
+        accessorSignature.WriteByte(0x20); // HASTHIS
+        accessorSignature.WriteByte(0x01); // parameter count
+        accessorSignature.WriteByte(0x01); // ELEMENT_TYPE_VOID
+        accessorSignature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        accessorSignature.WriteByte(0x08); // TypeDef row 2
+        BlobHandle accessorSignatureHandle = metadata.GetOrAddBlob(accessorSignature);
+        MethodDefinitionHandle adder = metadata.AddMethodDefinition(
+            MethodAttributes.Private | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("add_Changed"),
+            accessorSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle remover = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("remove_Changed"),
+            accessorSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle brokenRemover = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("remove_Broken"),
+            accessorSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        EventDefinitionHandle changed = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("Changed"),
+            type);
+        EventDefinitionHandle broken = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("Broken"),
+            type);
+        metadata.AddEventMap(type, changed);
+        metadata.AddMethodSemantics(changed, MethodSemanticsAttributes.Adder, adder);
+        metadata.AddMethodSemantics(changed, MethodSemanticsAttributes.Remover, remover);
+        metadata.AddMethodSemantics(broken, MethodSemanticsAttributes.Remover, brokenRemover);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
