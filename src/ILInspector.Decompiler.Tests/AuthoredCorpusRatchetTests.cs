@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -877,6 +878,27 @@ public class AuthoredCorpusRatchetTests
 
         Assert.Equal(1, shortened.RootElement.GetProperty("malformedRows").GetInt32());
         Assert.False(shortened.RootElement.GetProperty("inputsComplete").GetBoolean());
+    }
+
+    [Fact]
+    public void CorrelatedCorpusRow_RejectsMismatchedMemberIdentity()
+    {
+        string assembly =
+            typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
+        var row = JsonNode.Parse(
+                AuthoredCorpusTestData.CorrelatedRow(assembly))!
+            .AsObject();
+        row["signature"] = "`0(NotTheFixtureSignature)";
+
+        InvalidDataException failure = Assert.Throws<InvalidDataException>(
+            () => AuthoredCorpusTestData.CorrelateRow(
+                row.ToJsonString(),
+                assembly));
+
+        Assert.Contains(
+            "does not match the copied assembly",
+            failure.Message,
+            StringComparison.Ordinal);
     }
 
     /// <summary>

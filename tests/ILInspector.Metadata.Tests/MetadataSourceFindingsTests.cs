@@ -1018,10 +1018,15 @@ public sealed class MetadataSourceFindingsTests
         using var stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream);
         var metadata = pe.GetMetadataReader();
-        var codeView = pe.ReadDebugDirectory()
-            .Where(static entry => entry.Type == DebugDirectoryEntryType.CodeView)
-            .Select(pe.ReadCodeViewDebugDirectoryData)
+        DebugDirectoryEntry codeViewEntry =
+            pe.ReadDebugDirectory()
+            .Where(static entry =>
+                entry.Type == DebugDirectoryEntryType.CodeView
+                && entry.MinorVersion == 0x504d)
             .First();
+        CodeViewDebugDirectoryData codeView =
+            pe.ReadCodeViewDebugDirectoryData(
+                codeViewEntry);
 
         int[] rowCounts = new int[64];
         foreach (var table in Enum.GetValues<TableIndex>())
@@ -1037,7 +1042,9 @@ public sealed class MetadataSourceFindingsTests
             pdbMetadata,
             ImmutableArray.Create(rowCounts),
             default,
-            _ => new BlobContentId(codeView.Guid, stamp: 0));
+            _ => new BlobContentId(
+                codeView.Guid,
+                codeViewEntry.Stamp));
         var image = new BlobBuilder();
         builder.Serialize(image);
         byte[] bytes = image.ToArray();

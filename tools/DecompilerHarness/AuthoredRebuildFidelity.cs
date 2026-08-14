@@ -817,7 +817,8 @@ static class AuthoredRebuildFidelity
             pdb.Age,
             pdb.PdbFileName,
             pdb.IsPortable,
-            source.Context.AssemblyPath);
+            source.Context.AssemblyPath,
+            portablePdbStamp: pdb.Stamp);
         if (result.PdbFilePath is not null)
             source.LoadPdb(result.PdbFilePath, "Symbol Package", result.SymbolServer);
     }
