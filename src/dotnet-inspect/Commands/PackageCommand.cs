@@ -1164,20 +1164,11 @@ public class PackageCommand
 
         if (options.FixedOverview)
         {
-            if (options.Count)
-            {
-                return ValidatePackageCountProjection(
-                    schema,
-                    pipeline.BareSelectSectionNames,
-                    options,
-                    combinedRows: false);
-            }
-
-            return ProjectionDiagnostics.ValidateProjection(
+            return ValidatePackageCountProjection(
                 schema,
                 pipeline.BareSelectSectionNames,
-                options.Fields,
-                options.Columns);
+                options,
+                combinedRows: false);
         }
 
         if (options.IncludeSections is not { Count: > 0 })
@@ -2980,7 +2971,9 @@ public class PackageCommand
             });
         ProjectionDiagnostics.DiagnoseRendered(
             options.Fields,
-            rendered);
+            string.Join(
+                '\n',
+                rows.Select(row => row[1])));
         Console.Out.Write(
             OutputFormatter.LimitRenderedTableRows(
                 rendered,
