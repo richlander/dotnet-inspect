@@ -15,6 +15,7 @@ internal sealed record ApiSourceResult(
     string? ResolvedPackagePath,
     string? ApiSource,
     string? ApiVersion,
+    string? PlatformFramework,
     string? SelectedTfm,
     string? ProjectAssetsPath,
     string? TempDir,
@@ -36,6 +37,7 @@ internal static class ApiSourceResolver
         string? packageVersion = null;
         string? apiSource = null;
         string? apiVersion = null;
+        string? platformFramework = null;
         string? projectAssetsPath = null;
         NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
         var typeName = options.TypeName;
@@ -316,6 +318,8 @@ internal static class ApiSourceResolver
                     logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
                 }
             }
+
+            platformFramework = framework;
         }
         else
         {
@@ -360,6 +364,6 @@ internal static class ApiSourceResolver
         }
 
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
-            apiSource, apiVersion, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
+            apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
     }
 }
