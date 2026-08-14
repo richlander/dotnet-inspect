@@ -118,7 +118,10 @@ internal static partial class OptimizationOpportunityAnalysis
                         // array provably stays local AND its element type is stackalloc-
                         // eligible (an unmanaged primitive); otherwise keep the
                         // non-committal shape.
-                        bool local = ArrayProvablyStaysLocal(context, GetReachingDefinitions(), instruction.NextOffset)
+                        bool local = ArrayEscapeAnalysis.ArrayProvablyStaysLocal(
+                                context,
+                                GetReachingDefinitions(),
+                                instruction.NextOffset)
                             && IsStackallocEligibleElement(resolver.ResolveType(elementToken));
                         opportunities.Add(local
                             ? new OptimizationOpportunity(
@@ -182,7 +185,10 @@ internal static partial class OptimizationOpportunityAnalysis
                         {
                             var inLoop = context.IsInLoopRegion(offset);
                             bool iteratesInLoop = allocationAnalysis.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
-                            bool stackGuardFallback = IsStackGuardFallbackAllocation(context, offset, resolver);
+                            bool stackGuardFallback = StackGuardFallbackAnalysis.IsFallbackAllocation(
+                                context,
+                                offset,
+                                resolver);
                             pendingDelegateOpportunityIndex = opportunities.Count;
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -261,7 +267,10 @@ internal static partial class OptimizationOpportunityAnalysis
                     }
                     else if (IsSpanToArrayCopy(callee, out var copyReceiver))
                     {
-                        if (!SpanToArrayResultEscapes(context, GetReachingDefinitions(), instruction.NextOffset))
+                        if (!ArrayEscapeAnalysis.SpanToArrayResultEscapes(
+                                context,
+                                GetReachingDefinitions(),
+                                instruction.NextOffset))
                         {
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -275,8 +284,12 @@ internal static partial class OptimizationOpportunityAnalysis
                         }
                     }
                     else if (RepeatedScanAnalysis.IsLinqMaterializer(callee, out var materializeOp)
-                        && TryGetContainingLoop(offset, context.LoopRegions, out var materializeLoop)
-                        && LinqMaterializerSourceIsLoopInvariant(context, GetReachingDefinitions(), offset, materializeLoop, out var sourceEvidence))
+                        && context.IsInLoopRegion(offset)
+                        && LoopInvariantMaterializerAnalysis.TryGetLoopInvariantSource(
+                            context,
+                            GetReachingDefinitions(),
+                            offset,
+                            out var sourceEvidence))
                     {
                         opportunities.Add(new OptimizationOpportunity(
                             caller,
@@ -305,7 +318,12 @@ internal static partial class OptimizationOpportunityAnalysis
                             "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
                     }
                     else if (RepeatedScanAnalysis.IsStringConcat(callee) && context.IsInLoopRegion(offset)
-                        && ConcatAccumulatesIntoSource(context, offset, instruction.NextOffset, callee.ParameterTypes.Length, resolver))
+                        && StringConcatAccumulationAnalysis.AccumulatesIntoSource(
+                            context,
+                            offset,
+                            instruction.NextOffset,
+                            callee.ParameterTypes.Length,
+                            resolver))
                     {
                         // `s += …` inside a loop lowers to String.Concat(s, …) stored back to
                         // the same local/parameter. Each iteration copies the whole growing
@@ -525,108 +543,6 @@ internal static partial class OptimizationOpportunityAnalysis
         => target.Kind != MemberKind.Unsupported
            && CompilerGeneratedNames.IsDisplayClass(target.DeclaringType);
 
-    static bool IsStackGuardFallbackAllocation(MethodBodyAnalysisContext context, int allocationOffset, IOptimizationOpportunityResolver resolver)
-    {
-        const int NoStackGuardCondition = 0;
-        const int DirectResult = 1;
-        const int DirectStored = 2;
-        const int DirectLoaded = 3;
-        const int ZeroAfterDirect = 4;
-        const int InvertedResult = 5;
-        const int InvertedStored = 6;
-        const int InvertedLoaded = 7;
-
-        try
-        {
-            int conditionState = NoStackGuardCondition;
-            int conditionSlot = -1;
-            foreach (var instruction in context.Instructions.Instructions)
-            {
-                if (instruction.Offset >= allocationOffset)
-                    break;
-                int offset = instruction.Offset;
-                var opcode = instruction.OpCode;
-                if (opcode is ILOpCode.Call or ILOpCode.Callvirt)
-                {
-                    int token = MethodInstructionFacts.OperandInt32(instruction);
-                    var call = resolver.ResolveMember(token);
-                    conditionState = call.Name == "TryEnterOnCurrentStack"
-                        ? DirectResult
-                        : NoStackGuardCondition;
-                    conditionSlot = -1;
-                    continue;
-                }
-                if (opcode == ILOpCode.Ldc_i4_0 && conditionState == DirectResult)
-                {
-                    conditionState = ZeroAfterDirect;
-                    continue;
-                }
-                if (opcode == ILOpCode.Ceq && conditionState == ZeroAfterDirect)
-                {
-                    conditionState = InvertedResult;
-                    continue;
-                }
-                if (MethodInstructionFacts.TryReadLocalSlot(
-                        instruction,
-                        out var access))
-                {
-                    if (!access.IsArgument && access.IsStore && conditionState is DirectResult or DirectLoaded or InvertedResult or InvertedLoaded)
-                    {
-                        conditionSlot = access.Slot;
-                        conditionState = conditionState is DirectResult or DirectLoaded ? DirectStored : InvertedStored;
-                        continue;
-                    }
-                    if (!access.IsArgument && !access.IsStore && access.Slot == conditionSlot)
-                    {
-                        if (conditionState == DirectStored)
-                        {
-                            conditionState = DirectLoaded;
-                            continue;
-                        }
-                        if (conditionState == InvertedStored)
-                        {
-                            conditionState = InvertedLoaded;
-                            continue;
-                        }
-                    }
-                    conditionState = NoStackGuardCondition;
-                    conditionSlot = -1;
-                    continue;
-                }
-                if (opcode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
-                {
-                    if (MethodInstructionFacts.TrySingleBranchTarget(instruction, out int branchTarget)
-                        && branchTarget > allocationOffset
-                        && BranchSkipsStackGuardFallback(opcode, conditionState))
-                    {
-                        return true;
-                    }
-                    conditionState = NoStackGuardCondition;
-                    conditionSlot = -1;
-                    continue;
-                }
-                if (opcode == ILOpCode.Nop)
-                    continue;
-
-                conditionState = NoStackGuardCondition;
-                conditionSlot = -1;
-            }
-            return false;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return false;
-        }
-
-        static bool BranchSkipsStackGuardFallback(ILOpCode opcode, int conditionState)
-            => opcode switch
-            {
-                ILOpCode.Brtrue or ILOpCode.Brtrue_s => conditionState is DirectResult or DirectLoaded,
-                ILOpCode.Brfalse or ILOpCode.Brfalse_s => conditionState is InvertedResult or InvertedLoaded,
-                _ => false,
-            };
-    }
-
     // Opcodes that consume a boxed value in a way that makes it escape (so the box is a
     // real heap allocation): stored into a reference array, passed to a call/ctor, written
     // to a field, or returned. Local round-trips (unbox/unbox.any/isinst/castclass/pop) are
@@ -646,248 +562,6 @@ internal static partial class OptimizationOpportunityAnalysis
                or "Int64" or "UInt64" or "Single" or "Double"
                or "IntPtr" or "UIntPtr";
 
-    // Conservative, sound local-escape check for a freshly created array. Returns true
-    // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
-    // load is an in-place element access / length read — never returned, stored to a
-    // field, address-taken, or passed to a call. Any shape we cannot prove local returns
-    // false (keep the non-committal `small-array`), so a false positive is impossible.
-    static bool ArrayProvablyStaysLocal(MethodBodyAnalysisContext context, ReachingDefinitionsResult reachingDefinitions, int positionAfterNewarr)
-    {
-        try
-        {
-            if (!TryReadStoreLocalDefinition(context, positionAfterNewarr, out int slot, out int storeOffset))
-                return false;
-            if (!reachingDefinitions.IsComplete)
-                return false;
-            var definition = reachingDefinitions.Definitions.FirstOrDefault(d =>
-                !d.IsArgument && d.Slot == slot && d.Offset == storeOffset);
-            if (definition is null)
-                return false;
-
-            foreach (var use in reachingDefinitions.UsesOf(definition))
-            {
-                if (use.Address)
-                    return false;
-                if (!TryPositionAfterLoadLocal(context, use.Offset, slot, out int positionAfterLoad)
-                    || ArrayLoadEscapes(context, positionAfterLoad))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    // If the next instruction stores to a local, returns its slot and IL offset.
-    static bool TryReadStoreLocalDefinition(MethodBodyAnalysisContext context, int position, out int slot, out int storeOffset)
-    {
-        slot = -1;
-        storeOffset = position;
-        if (context.InstructionAt(position) is not { } instruction
-            || !MethodInstructionFacts.TryReadLocalSlot(
-                instruction,
-                out var access)
-            || !access.IsStore
-            || access.IsArgument)
-        {
-            return false;
-        }
-        slot = access.Slot;
-        storeOffset = instruction.Offset;
-        return true;
-    }
-
-    static bool TryPositionAfterLoadLocal(MethodBodyAnalysisContext context, int offset, int slot, out int positionAfterLoad)
-    {
-        positionAfterLoad = offset;
-        if (context.InstructionAt(offset) is not { } instruction
-            || !MethodInstructionFacts.TryReadLocalSlot(
-                instruction,
-                out var access)
-            || access.IsStore
-            || access.IsArgument
-            || access.Slot != slot)
-        {
-            return false;
-        }
-        positionAfterLoad = instruction.NextOffset;
-        return true;
-    }
-
-    static bool SpanToArrayResultEscapes(MethodBodyAnalysisContext context, ReachingDefinitionsResult reachingDefinitions, int positionAfterCall)
-    {
-        try
-        {
-            if (!reachingDefinitions.IsComplete)
-                return true;
-
-            int firstUseIndex = context.NextNonNopIndexAtOrAfter(positionAfterCall);
-            positionAfterCall = firstUseIndex < context.Instructions.Instructions.Length
-                ? context.Instructions.Instructions[firstUseIndex].Offset
-                : positionAfterCall;
-            if (TryReadStoreLocalDefinition(context, positionAfterCall, out int slot, out int storeOffset))
-            {
-                var definition = reachingDefinitions.Definitions.FirstOrDefault(d =>
-                    !d.IsArgument && d.Slot == slot && d.Offset == storeOffset);
-                if (definition is null)
-                    return true;
-
-                foreach (var use in reachingDefinitions.UsesOf(definition))
-                {
-                    if (use.Address)
-                        return true;
-                    if (!TryPositionAfterLoadLocal(context, use.Offset, slot, out int positionAfterLoad)
-                        || ArrayLoadEscapes(context, positionAfterLoad))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-
-            return ArrayLoadEscapes(context, positionAfterCall);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return true;
-        }
-    }
-
-    static bool TryGetContainingLoop(int offset, IReadOnlyList<(int Start, int End)> loopRegions, out (int Start, int End) loop)
-    {
-        loop = default;
-        var found = false;
-        foreach (var region in loopRegions)
-        {
-            if (offset < region.Start || offset > region.End)
-                continue;
-            if (!found || region.End - region.Start < loop.End - loop.Start)
-                loop = region;
-            found = true;
-        }
-        return found;
-    }
-
-    static bool LinqMaterializerSourceIsLoopInvariant(
-        MethodBodyAnalysisContext context,
-        ReachingDefinitionsResult reachingDefinitions,
-        int callOffset,
-        (int Start, int End) loop,
-        out string evidence)
-    {
-        evidence = "";
-        if (!reachingDefinitions.IsComplete)
-            return false;
-        if (!TryFindPreviousInstruction(context, callOffset, out var loadInstruction))
-            return false;
-        if (!MethodInstructionFacts.TryReadLocalSlot(
-                loadInstruction,
-                out var access)
-            || access.IsStore)
-        {
-            return false;
-        }
-
-        var use = reachingDefinitions.Uses.FirstOrDefault(candidate =>
-            candidate.Offset == loadInstruction.Offset
-            && candidate.IsArgument == access.IsArgument
-            && candidate.Slot == access.Slot);
-        if (use is null || use.Address || use.ReachingDefinitions.Length == 0)
-            return false;
-        if (reachingDefinitions.Uses.Any(candidate =>
-            candidate.Address
-            && candidate.IsArgument == access.IsArgument
-            && candidate.Slot == access.Slot
-            && candidate.Offset >= loop.Start
-            && candidate.Offset <= loop.End))
-        {
-            return false;
-        }
-        foreach (var definition in use.ReachingDefinitions)
-        {
-            if (definition.Offset >= loop.Start && definition.Offset <= loop.End)
-                return false;
-        }
-
-        evidence = access.IsArgument ? $"arg{access.Slot}" : $"V_{access.Slot}";
-        return true;
-    }
-
-    static bool TryFindPreviousInstruction(MethodBodyAnalysisContext context, int targetOffset, out DecodedInstruction previousInstruction)
-    {
-        previousInstruction = default!;
-        foreach (var instruction in context.Instructions.Instructions)
-        {
-            if (instruction.Offset >= targetOffset)
-                break;
-            if (instruction.OpCode == ILOpCode.Nop)
-                continue;
-            previousInstruction = instruction;
-        }
-        return previousInstruction is not null;
-    }
-
-    // Given the array reference freshly loaded onto the stack, decide whether this use
-    // keeps it local. Walks forward tracking how many extra slots sit above the array;
-    // an element access / length read that consumes the array at the right depth is local,
-    // anything else (return, store, call argument, ambiguous stack shape) is an escape.
-    static bool ArrayLoadEscapes(MethodBodyAnalysisContext context, int position)
-    {
-        int extra = 0; // stack slots pushed above the array reference
-        for (int index = context.IndexAtOrAfter(position); index < context.Instructions.Instructions.Length; index++)
-        {
-            var opcode = context.Instructions.Instructions[index].OpCode;
-            switch (opcode)
-            {
-                // Simple single pushes (indices, values) layered above the array.
-                case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-                    or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-                    or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull:
-                    extra++;
-                    break;
-                case ILOpCode.Ldc_i4_s:
-                    extra++;
-                    break;
-                case ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4:
-                    extra++;
-                    break;
-                case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
-                    extra++;
-                    break;
-                case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-                    or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
-                    extra++;
-                    break;
-                case ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Ldarg_s or ILOpCode.Ldarga_s:
-                    extra++;
-                    break;
-                // Length read: pops the array. Local only when the array is on top.
-                case ILOpCode.Ldlen:
-                    return extra != 0;
-                // Element read: pops index + array. Local when exactly the index is above.
-                case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
-                    or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
-                    or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
-                    return extra != 1;
-                // Element store: pops value + index + array. Local when index+value are above.
-                case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
-                    or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
-                    or ILOpCode.Stelem_ref:
-                    return extra != 2;
-                default:
-                    // Anything else consuming the array (ret, stfld, call, box, element
-                    // address, dup-aliasing, branch) is treated as an escape.
-                    return true;
-            }
-        }
-        return true;
-    }
     static bool IsBitConverterGetBytes(MemberRef member)
         => member.Kind != MemberKind.Unsupported
             && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "BitConverter")
@@ -930,163 +604,5 @@ internal static partial class OptimizationOpportunityAnalysis
         int tick = name.IndexOf('`');
         return tick < 0 ? name : name[..tick];
     }
-
-    // True when the String.Concat at `concatOffset` — whose result is stored by the
-    // instruction at `storeOffset` — accumulates into one of its own arguments, i.e.
-    // `s = String.Concat(s, …)` (the `s += …` lowering). Each iteration copies the whole
-    // growing accumulator: the canonical O(n^2) StringBuilder anti-pattern.
-    static bool ConcatAccumulatesIntoSource(MethodBodyAnalysisContext context, int concatOffset, int storeOffset, int concatArgCount, IOptimizationOpportunityResolver resolver)
-    {
-        const int ArgSlotBias = 1 << 20;
-        try
-        {
-            if (concatOffset < 0 || concatArgCount <= 0)
-                return false;
-            if (context.InstructionAt(storeOffset) is not { } storeInstruction
-                || !MethodInstructionFacts.TryReadLocalSlot(
-                    storeInstruction,
-                    out var storeAccess)
-                || !storeAccess.IsStore)
-            {
-                return false;
-            }
-            int storeKey = (storeAccess.IsArgument ? ArgSlotBias : 0) | storeAccess.Slot;
-
-            int blockStart = 0;
-            foreach (var instruction in context.Instructions.Instructions)
-            {
-                if (instruction.Offset >= concatOffset)
-                    break;
-                bool isLocal =
-                    MethodInstructionFacts.TryReadLocalSlot(
-                        instruction,
-                        out var access);
-                if (instruction.NextOffset <= concatOffset
-                    && ((isLocal && access.IsStore) || EndsConcatArgumentBlock(instruction.OpCode)))
-                {
-                    blockStart = instruction.NextOffset;
-                }
-            }
-
-            var stack = new List<bool>();
-            for (int i = context.IndexAtOrAfter(blockStart); i < context.Instructions.Instructions.Length; i++)
-            {
-                var instruction = context.Instructions.Instructions[i];
-                if (instruction.Offset >= concatOffset)
-                    break;
-                if (MethodInstructionFacts.TryReadLocalSlot(
-                        instruction,
-                        out var access))
-                {
-                    if (access.IsStore)
-                        return false; // a store starts a new block; model desync -> bail
-                    int key = (access.IsArgument ? ArgSlotBias : 0) | access.Slot;
-                    stack.Add(key == storeKey);
-                    continue;
-                }
-                if (!ApplyConcatBlockStackEffect(instruction, stack, resolver))
-                    return false; // unmodeled opcode or stack underflow -> conservative bail
-            }
-
-            if (stack.Count < concatArgCount)
-                return false;
-            for (int i = stack.Count - concatArgCount; i < stack.Count; i++)
-                if (stack[i])
-                    return true;
-            return false;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    static bool ApplyConcatBlockStackEffect(DecodedInstruction instruction, List<bool> stack, IOptimizationOpportunityResolver resolver)
-    {
-        switch (instruction.OpCode)
-        {
-            case ILOpCode.Nop:
-                return true;
-            case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-                or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-                or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull
-                or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4 or ILOpCode.Ldstr
-                or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Ldtoken or ILOpCode.Ldftn
-                or ILOpCode.Sizeof or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8
-                or ILOpCode.Ldloca_s or ILOpCode.Ldarga_s or ILOpCode.Ldloca or ILOpCode.Ldarga:
-                stack.Add(false);
-                return true;
-            case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
-                or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
-                or ILOpCode.Conv_u2 or ILOpCode.Conv_u1 or ILOpCode.Conv_i or ILOpCode.Conv_u
-                or ILOpCode.Conv_r_un or ILOpCode.Neg or ILOpCode.Not or ILOpCode.Ldlen
-                or ILOpCode.Ldind_i1 or ILOpCode.Ldind_u1 or ILOpCode.Ldind_i2 or ILOpCode.Ldind_u2
-                or ILOpCode.Ldind_i4 or ILOpCode.Ldind_u4 or ILOpCode.Ldind_i8 or ILOpCode.Ldind_i
-                or ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref
-                or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Ldobj or ILOpCode.Castclass
-                or ILOpCode.Isinst or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Box:
-                return Pop(stack, 1) && Push(stack);
-            case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Div_un
-                or ILOpCode.Rem or ILOpCode.Rem_un or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
-                or ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un or ILOpCode.Ceq or ILOpCode.Cgt
-                or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un or ILOpCode.Ldelem_i1
-                or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_i4
-                or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_i or ILOpCode.Ldelem_r4
-                or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref or ILOpCode.Ldelem or ILOpCode.Ldelema:
-                return Pop(stack, 2) && Push(stack);
-            case ILOpCode.Dup:
-                if (stack.Count == 0)
-                    return false;
-                stack.Add(stack[^1]);
-                return true;
-            case ILOpCode.Pop:
-                return Pop(stack, 1);
-            case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
-            {
-                int token = MethodInstructionFacts.OperandInt32(instruction);
-                var callee = resolver.ResolveMember(token);
-                if (callee.Kind == MemberKind.Unsupported)
-                    return false;
-                int pops = callee.ParameterTypes.Length + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis ? 1 : 0);
-                if (!Pop(stack, pops))
-                    return false;
-                if (instruction.OpCode == ILOpCode.Newobj || callee.ReturnType.Name != "Void")
-                    stack.Add(false);
-                return true;
-            }
-            default:
-                return false; // unmodeled opcode -> bail (no false positive)
-        }
-    }
-
-    static bool Pop(List<bool> stack, int count)
-    {
-        if (stack.Count < count)
-            return false;
-        stack.RemoveRange(stack.Count - count, count);
-        return true;
-    }
-
-    static bool Push(List<bool> stack)
-    {
-        stack.Add(false);
-        return true;
-    }
-
-    static bool EndsConcatArgumentBlock(ILOpCode opcode)
-        => opcode is ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Stobj
-            or ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
-            or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
-            or ILOpCode.Stelem_ref or ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2
-            or ILOpCode.Stind_i4 or ILOpCode.Stind_i8 or ILOpCode.Stind_r4 or ILOpCode.Stind_r8
-            or ILOpCode.Stind_ref
-            or ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow or ILOpCode.Leave or ILOpCode.Leave_s
-            or ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
-            or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Beq or ILOpCode.Beq_s
-            or ILOpCode.Bne_un or ILOpCode.Bne_un_s or ILOpCode.Bge or ILOpCode.Bge_s
-            or ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Ble or ILOpCode.Ble_s
-            or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s
-            or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
-            or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Switch;
 
 }

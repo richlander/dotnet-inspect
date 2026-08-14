@@ -5135,10 +5135,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_PropertyAccessorOrdinals_ResolveGetterAndSetterSeparately()
+    public async Task Member_OriginalSource_PropertyAccessorOrdinals_BothRenderTheWholeProperty()
     {
         // Ordinal 1 addresses the getter and 2 the setter, matching the accessor addressing the
-        // body sections use, so each renders its own authored accessor source (#3278).
+        // body sections use (#3278), and both resolve. Each renders the *whole property* rather
+        // than its own accessor: a property split at an accessor boundary is not a C# declaration
+        // and never parses, so the accessor-scoped slice was a fragment by construction. Authored
+        // source is now located by declaration, and the declaration containing either accessor is
+        // the property.
         var (getterExit, getterOutput, getterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
             "MaxDepth:1", "-S", "Original Source", "--tips", "q");
@@ -5147,7 +5151,7 @@ public partial class CommandExecutionTests
         Assert.Empty(getterError);
         Assert.Contains("## Original Source", getterOutput);
         Assert.Contains("get => _maxDepth;", getterOutput);
-        Assert.DoesNotContain("_maxDepth = value;", getterOutput);
+        Assert.Contains("_maxDepth = value;", getterOutput);
 
         var (setterExit, setterOutput, setterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
@@ -5157,6 +5161,358 @@ public partial class CommandExecutionTests
         Assert.Empty(setterError);
         Assert.Contains("## Original Source", setterOutput);
         Assert.Contains("_maxDepth = value;", setterOutput);
+        Assert.Contains("get => _maxDepth;", setterOutput);
+
+        // Addressing either accessor of one property is addressing one declaration, so the two
+        // answers agree. That is the claim; asserting only that each contains its own accessor
+        // would pass just as well if one of them silently returned something else.
+        Assert.Equal(getterOutput, setterOutput);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
+    {
+        var canonical = await RunAppAsync(
+            "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
+            ".ctor:1", "-S", "Original Source", "--tips", "q");
+        var caseVariant = await RunAppAsync(
+            "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
+            ".Ctor:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, canonical.Exit);
+        Assert.Empty(canonical.Error);
+        Assert.Contains("public ConstructorSourceCaseFixture()", canonical.Output);
+        Assert.DoesNotContain("readonly object _gate", canonical.Output);
+
+        Assert.Equal(canonical, caseVariant);
+    }
+
+    [Fact]
+    public void OriginalSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
+    {
+        const string source =
+            "class C\n{\n"
+            + "    string S = @\"a\fb\";\n"
+            + "    void A() { }\n"
+            + "    void B() { }\n"
+            + "}";
+
+        string normalized = ApiCommand.NormalizeAuthoredSourceLineEndings(source);
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            normalized,
+            startLine: 4,
+            endLine: 4,
+            methodName: "A",
+            sourceLocation: "fixture.cs",
+            pdbPath: null);
+
+        Assert.Contains('\f', normalized);
+        Assert.Equal("void A() { }", resolved.Source?.SourceCode);
+    }
+
+    [Fact]
+    public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
+    {
+        string source = "class C { void M() { "
+            + new string(';', 500_001)
+            + " } }";
+
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            source,
+            startLine: 1,
+            endLine: 1,
+            methodName: "M",
+            sourceLocation: "fixture.cs",
+            pdbPath: null);
+
+        Assert.True(resolved.MemberSourceTooComplex);
+        Assert.Null(resolved.Source);
+        Assert.Contains(
+            "lexical complexity limit",
+            ApiCommand.OriginalSourceUnavailableNote(
+                new MemberOptions { MemberSourceTooComplex = true }),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ComplexSourceReportsTheLimit()
+    {
+        using var stream = File.OpenRead(TestAssemblyPath);
+        using var peReader = new PEReader(stream);
+        var api = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            api.Types,
+            candidate => candidate.FullName == typeof(CommandExecutionSourceDiffFixture).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(CommandExecutionSourceDiffFixture.AddOne));
+        type.Members = [member];
+
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            DllPath = TestAssemblyPath,
+            TypeName = type.FullName,
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { nameof(CommandExecutionSourceDiffFixture.AddOne) },
+            OverloadIndex = member.DeclaringOverloadIndex ?? 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.SourceDiff },
+            MemberSourceTooComplex = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: "dotnet-inspect.Tests",
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("lexical complexity limit", output);
+        Assert.DoesNotContain("source diff requires both", output);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_ComplexSourceUnderDocumentJsonFailsVisibly()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            MemberSourceTooComplex = true,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.OriginalSource },
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("lexical complexity limit", error);
+        Assert.Contains("add --print", error);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.OriginalSource)]
+    [InlineData(SectionNames.SourceDiff)]
+    public async Task Member_ComplexSourceInNonCodeFormatsFailsVisibly(string section)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberSourceTooComplex = true,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains("cannot represent this code-section failure", error);
+        }
+    }
+
+    [Theory]
+    [InlineData(SectionNames.OriginalSource)]
+    [InlineData(SectionNames.SourceDiff)]
+    public async Task Member_ComplexSourceUnderBareWithEarlierRendererFailsVisibly(string section)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Bare = true, JsonOutput = true },
+            new MemberOptions { Bare = true, Count = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberSourceTooComplex = true,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains("cannot represent this code-section failure", error);
+        }
+    }
+
+    [Theory]
+    [InlineData(SectionNames.OriginalSource)]
+    [InlineData(SectionNames.SourceDiff)]
+    public async Task Member_ComplexSourceUnderEffectiveBareRendererRemainsRepresentable(string section)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Bare = true },
+            new MemberOptions { Bare = true, Tabular = true },
+            new MemberOptions { Bare = true, Tabular = true, Tsv = true },
+            new MemberOptions { Bare = true, Tabular = true, Jsonl = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberSourceTooComplex = true,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("lexical complexity limit", output);
+        }
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_ComplexSourceUnderPrintJsonRemainsRepresentable()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            Print = true,
+            MemberSourceTooComplex = true,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.OriginalSource },
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("lexical complexity limit", output);
+        using var _ = JsonDocument.Parse(output);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_ComplexSourceUnderBareRemainsRepresentable()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            Bare = true,
+            MemberSourceTooComplex = true,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.OriginalSource },
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(ApiCommand.SourceTooComplexNote + "\n", output);
     }
 
     [Fact]
@@ -18102,6 +18458,17 @@ public sealed class CommandExecutionSourceDiffFixture
     public int AddOne(int value)
     {
         return value + 1;
+    }
+
+}
+
+public sealed class ConstructorSourceCaseFixture
+{
+    readonly object _gate = new();
+
+    public ConstructorSourceCaseFixture()
+    {
+        GC.KeepAlive(_gate);
     }
 }
 
