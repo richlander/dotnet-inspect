@@ -17606,12 +17606,12 @@ public partial class CommandExecutionTests
 
         try
         {
-            var canonical = await RunAppAsync(
-                "project", projectPath,
+            var canonical = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Agent Guidance",
                 "--print", "--body");
-            var alias = await RunAppAsync(
-                "project", projectPath,
+            var alias = await RunProjectFixtureAsync(
+                projectPath,
                 "--agents-index",
                 "--print", "--body");
 
@@ -17649,16 +17649,16 @@ public partial class CommandExecutionTests
 
         try
         {
-            var ambiguous = await RunAppAsync(
-                "project", projectPath,
+            var ambiguous = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Agent Guidance",
                 "--print");
-            var missing = await RunAppAsync(
-                "project", projectPath,
+            var missing = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Agent Guidance",
                 "--print", "--row", "1");
-            var selected = await RunAppAsync(
-                "project", projectPath,
+            var selected = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Agent Guidance",
                 "--print", "--row", "2");
 
@@ -17685,6 +17685,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_AgentGuidancePrint_ReadsOnlySelectedRow()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.Selected",
+                "1.0.0",
+                "README.md",
+                "readme",
+                "selected guidance"),
+            new ProjectDocPackage(
+                "Z.Project.Locked",
+                "1.0.0",
+                "README.md",
+                "readme",
+                "unselected guidance"));
+        string lockedPath = Path.Combine(
+            tempDir,
+            "packages",
+            "z.project.locked",
+            "1.0.0",
+            "AGENTS.md");
+
+        try
+        {
+            using var locked = new FileStream(
+                lockedPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Agent Guidance",
+                "--print", "--row", "1");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("selected guidance", output.Trim());
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_FocusedPackageDocsCount_ReportsZeroWhenDocumentIsAbsent()
     {
         const string id = "Test.Project.Readme.Empty";
@@ -17698,14 +17743,54 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "--package", id,
                 "-S", "Package Docs",
                 "--count");
 
             Assert.Equal(0, exit);
             Assert.Equal("0", output.Trim());
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_PackageDocsCount_DoesNotReadDocumentContent()
+    {
+        const string id = "Test.Project.Readme.Locked";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "locked"));
+        string lockedPath = Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0",
+            "README.md");
+
+        try
+        {
+            using var locked = new FileStream(
+                lockedPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "--package", id,
+                "-S", "Package Docs",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("1\n", output);
             Assert.Empty(error);
         }
         finally
@@ -17736,8 +17821,8 @@ public partial class CommandExecutionTests
             var pathsOutput = Path.Combine(tempDir, "paths.txt");
             var discoveryOutput = Path.Combine(tempDir, "discovery.json");
             var discoveryTreeOutput = Path.Combine(tempDir, "discovery.md");
-            var paths = await RunAppAsync(
-                "project", projectPath,
+            var paths = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Agent Guidance",
                 "--paths",
                 "--out", pathsOutput);
@@ -17777,6 +17862,55 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_OutputPath_HonorsRenderedLineWindows()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.OutputWindow",
+                "1.0.0",
+                "README.md",
+                "readme",
+                "first\nsecond\nthird"),
+            new ProjectDocPackage(
+                "B.Project.OutputWindow",
+                "1.0.0",
+                "README.md",
+                "readme",
+                "other"));
+
+        try
+        {
+            string pathsOutput = Path.Combine(tempDir, "paths.txt");
+            string printOutput = Path.Combine(tempDir, "print.txt");
+            var paths = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Agent Guidance",
+                "--paths",
+                "-n", "1",
+                "--out", pathsOutput);
+            var print = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Agent Guidance",
+                "--print", "--row", "1",
+                "-n", "1",
+                "--out", printOutput);
+
+            Assert.Equal(0, paths.Exit);
+            Assert.Empty(paths.Output);
+            Assert.Empty(paths.Error);
+            Assert.Equal("AGENTS.md\n", File.ReadAllText(pathsOutput));
+            Assert.Equal(0, print.Exit);
+            Assert.Empty(print.Output);
+            Assert.Empty(print.Error);
+            Assert.Equal("first\n", File.ReadAllText(printOutput));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_QuietWithoutSelection_IsRejectedBeforeResolution()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -17796,6 +17930,26 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "NoSuchField",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Project_Urls_IsRejectedBeforeResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-S", "Package Docs",
+            "--urls");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--urls is not supported by project sections",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "project.assets.json",
             error,
             StringComparison.Ordinal);
     }
@@ -17855,13 +18009,46 @@ public partial class CommandExecutionTests
 
         try
         {
-            var canonical = await RunAppAsync(
-                "project", projectPath, "-S", "Agent Guidance", "--jsonl");
-            var alias = await RunAppAsync(
-                "project", projectPath, "--agents-index", "--jsonl");
+            var canonical = await RunProjectFixtureAsync(
+                projectPath, "-S", "Agent Guidance", "--jsonl");
+            var alias = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "--jsonl");
 
             Assert.Equal(0, canonical.Exit);
             Assert.Equal(canonical, alias);
+            using JsonDocument document = JsonDocument.Parse(canonical.Output);
+            Assert.Equal(
+                "AGENTS.md",
+                document.RootElement.GetProperty("path").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_AgentsIndex_CanRepeatCanonicalSelection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Agent.RepeatedAlias",
+                "1.0.0",
+                "README.md",
+                "readme",
+                "guidance"));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "--agents-index",
+                "-S", "Agent Guidance",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("1\n", output);
+            Assert.Empty(error);
         }
         finally
         {
@@ -17961,10 +18148,10 @@ public partial class CommandExecutionTests
 
         try
         {
-            var implicitSelection = await RunAppAsync(
-                "project", projectPath, "--jsonl");
-            var explicitSelection = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--jsonl");
+            var implicitSelection = await RunProjectFixtureAsync(
+                projectPath, "--jsonl");
+            var explicitSelection = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
 
             Assert.Equal(0, implicitSelection.Exit);
             Assert.Equal(explicitSelection, implicitSelection);
@@ -17993,8 +18180,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--jsonl");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -18072,8 +18259,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--fields", "Bogus,Version",
                 "--value");
@@ -18445,8 +18632,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var paths = await RunAppAsync(
-                "project", projectPath,
+            var paths = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--paths",
                 "--bare");
@@ -18457,8 +18644,8 @@ public partial class CommandExecutionTests
                 paths.Output.ReplaceLineEndings("\n")
                     .Split('\n', StringSplitOptions.RemoveEmptyEntries));
 
-            var count = await RunAppAsync(
-                "project", projectPath,
+            var count = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--count",
                 "--bare");
@@ -18481,8 +18668,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Package Docs",
                 "--package", id,
                 "--bare",
@@ -18521,8 +18708,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "-S", "Agent Guidance",
                 "--bare",
@@ -18588,8 +18775,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Agent Guidance", "--bare");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Agent Guidance", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -18643,8 +18830,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--fields", "Name",
                 "--jsonl");
@@ -18700,8 +18887,6 @@ public partial class CommandExecutionTests
         {
             var arguments = new List<string>
             {
-                "project",
-                projectPath,
                 "-S",
                 "Agent Guidance",
                 "--json",
@@ -18709,7 +18894,7 @@ public partial class CommandExecutionTests
             arguments.AddRange(rowArguments);
 
             var (exit, output, error) =
-                await RunAppAsync([.. arguments]);
+                await RunProjectFixtureAsync(projectPath, [.. arguments]);
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -18745,16 +18930,16 @@ public partial class CommandExecutionTests
 
         try
         {
-            var partial = await RunAppAsync(
-                "project", projectPath,
+            var partial = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--columns", "Package,Bogus");
             Assert.Equal(0, partial.Exit);
             Assert.Contains("Test.Project.Columns.Invalid", partial.Output);
             Assert.Contains("column 'Bogus' not found", partial.Error);
 
-            var unmatched = await RunAppAsync(
-                "project", projectPath,
+            var unmatched = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--columns", "Bogus");
             Assert.Equal(1, unmatched.Exit);
@@ -18781,8 +18966,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Agent Guidance",
                 "--fields", "Package,Version",
                 "--value");
@@ -18864,8 +19049,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath,
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
                 "-S", "Skills",
                 "--rows", "1",
                 "--count");
@@ -19511,13 +19696,17 @@ public partial class CommandExecutionTests
         try
         {
             string[] canonicalArguments = format is null
-                ? ["project", projectPath, "--package", id, "-S", "Package Docs", "--print"]
-                : ["project", projectPath, "--package", id, "-S", "Package Docs", "--print", format];
+                ? ["--package", id, "-S", "Package Docs", "--print"]
+                : ["--package", id, "-S", "Package Docs", "--print", format];
             string[] aliasArguments = format is null
-                ? ["project", projectPath, "--readme", id]
-                : ["project", projectPath, "--readme", id, format];
-            var canonical = await RunAppAsync(canonicalArguments);
-            var alias = await RunAppAsync(aliasArguments);
+                ? ["--readme", id]
+                : ["--readme", id, format];
+            var canonical = await RunProjectFixtureAsync(
+                projectPath,
+                canonicalArguments);
+            var alias = await RunProjectFixtureAsync(
+                projectPath,
+                aliasArguments);
 
             Assert.Equal(0, canonical.Exit);
             Assert.Equal(canonical, alias);

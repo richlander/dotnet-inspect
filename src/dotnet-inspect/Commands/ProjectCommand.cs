@@ -133,6 +133,7 @@ public class ProjectCommand
         }
 
         var commandContext = new CommandContext(options.Verbose);
+        using var contentStore = new ProjectDocumentContentStore(commandContext);
         if (!ProjectAssetsParser.TryFindAssets(
                 options.ProjectPath,
                 out string? assetsPath,
@@ -158,13 +159,27 @@ public class ProjectCommand
         if (!TryFilterDependencies(dependencies, options.PackageFilter, out var focusedDependencies))
             return 1;
 
+        bool deferDocumentContent =
+            options.Count
+            || options.Paths
+            || options.Print
+            || ShouldPrintBareDocument(options);
         ProjectQueryContext queryContext = new(
-            () => ReadSkills(assetsPath, options.Tfm),
-            () => ReadAgentGuidance(dependencies),
+            () => ReadSkills(
+                assetsPath,
+                options.Tfm,
+                deferDocumentContent,
+                contentStore),
+            () => ReadAgentGuidance(
+                dependencies,
+                deferDocumentContent,
+                contentStore),
             token => ReadPackageDocumentsAsync(
                 focusedDependencies,
                 options,
                 commandContext,
+                deferDocumentContent,
+                contentStore,
                 token));
         InspectionQueryResults queryResults = await catalog.QueryRegistry.RunAsync(
             requestedQueries,
@@ -227,7 +242,11 @@ public class ProjectCommand
         }
         else if (options.Print || ShouldPrintBareDocument(options))
         {
-            outputExitCode = PrintDocument(inspection, options, renderedSections);
+            outputExitCode = PrintDocument(
+                inspection,
+                options,
+                renderedSections,
+                contentStore);
         }
         else
         {
@@ -235,7 +254,10 @@ public class ProjectCommand
                 inspection,
                 options,
                 renderedSections);
-            WriteOutput(output, options.OutputPath);
+            WriteOutput(
+                output,
+                options.OutputPath,
+                applyLineWindow: options.Rows is null);
             outputExitCode = 0;
         }
 
@@ -250,15 +272,6 @@ public class ProjectCommand
         if (input.AgentsIndex && input.ReadmePackageId is not null)
         {
             CommandError.Write("--agents-index cannot be combined with --readme.");
-            return false;
-        }
-
-        bool hasExplicitSelection = input.Select is not null || input.SelectDefault;
-        if ((input.AgentsIndex || input.ReadmePackageId is not null)
-            && hasExplicitSelection)
-        {
-            CommandError.Write(
-                "-S/--select cannot be combined with --agents-index or --readme.");
             return false;
         }
 
@@ -277,7 +290,11 @@ public class ProjectCommand
             normalized = input with
             {
                 AgentsIndex = false,
-                Select = [ProjectSectionNames.AgentGuidance],
+                Select =
+                [
+                    .. input.Select ?? [],
+                    ProjectSectionNames.AgentGuidance,
+                ],
             };
         }
         else if (input.ReadmePackageId is not null)
@@ -285,7 +302,11 @@ public class ProjectCommand
             normalized = input with
             {
                 ReadmePackageId = null,
-                Select = [ProjectSectionNames.PackageDocs],
+                Select =
+                [
+                    .. input.Select ?? [],
+                    ProjectSectionNames.PackageDocs,
+                ],
                 PackageFilter = input.ReadmePackageId,
                 Print = true,
             };
@@ -296,6 +317,13 @@ public class ProjectCommand
 
     static bool ValidateOptions(ProjectOptions options)
     {
+        if (options.Urls)
+        {
+            CommandError.Write(
+                "--urls is not supported by project sections; use --paths.");
+            return false;
+        }
+
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             CommandError.Write(
@@ -561,7 +589,8 @@ public class ProjectCommand
             columns: options.Columns,
             fields: options.Fields,
             rows: options.Rows,
-            outputPath: options.OutputPath);
+            outputPath: options.OutputPath,
+            applyLineWindow: options.Rows is null);
     }
 
     static bool TryResolveValueField(
@@ -636,7 +665,11 @@ public class ProjectCommand
         }
     }
 
-    static ProjectSkillsResult ReadSkills(string assetsPath, string? tfm)
+    static ProjectSkillsResult ReadSkills(
+        string assetsPath,
+        string? tfm,
+        bool deferContent,
+        ProjectDocumentContentStore contentStore)
     {
         var skills = new List<ProjectSkillData>();
         var failures = new List<ProjectContentFailure>();
@@ -659,6 +692,25 @@ public class ProjectCommand
 
             try
             {
+                long size = new FileInfo(file.FullPath).Length;
+                if (deferContent)
+                {
+                    contentStore.Add(
+                        ProjectSectionNames.Skills,
+                        file.PackageName,
+                        file.Path,
+                        file.FullPath);
+                    skills.Add(new ProjectSkillData(
+                        file.PackageName,
+                        file.Version,
+                        file.Path,
+                        size,
+                        "",
+                        "",
+                        ""));
+                    continue;
+                }
+
                 string content = File.ReadAllText(file.FullPath);
                 IReadOnlyDictionary<string, string> frontmatter =
                     MarkdownContent.ParseYamlFrontmatter(content);
@@ -668,7 +720,7 @@ public class ProjectCommand
                     file.PackageName,
                     file.Version,
                     file.Path,
-                    new FileInfo(file.FullPath).Length,
+                    size,
                     skillName ?? "",
                     description ?? "",
                     content));
@@ -686,7 +738,9 @@ public class ProjectCommand
     }
 
     static ProjectAgentGuidanceResult ReadAgentGuidance(
-        IReadOnlyList<ProjectPackageReference> dependencies)
+        IReadOnlyList<ProjectPackageReference> dependencies,
+        bool deferContent,
+        ProjectDocumentContentStore contentStore)
     {
         var guidance = new List<ProjectAgentGuidanceData>();
         var failures = new List<ProjectContentFailure>();
@@ -710,6 +764,23 @@ public class ProjectCommand
 
             try
             {
+                if (deferContent)
+                {
+                    contentStore.Add(
+                        ProjectSectionNames.AgentGuidance,
+                        dependency.PackageName,
+                        relativePath,
+                        fullPath);
+                    guidance.Add(new ProjectAgentGuidanceData(
+                        dependency.PackageName,
+                        dependency.Version,
+                        relativePath,
+                        "",
+                        "",
+                        ""));
+                    continue;
+                }
+
                 string content = File.ReadAllText(fullPath);
                 IReadOnlyDictionary<string, string> frontmatter =
                     MarkdownContent.ParseYamlFrontmatter(content);
@@ -746,6 +817,8 @@ public class ProjectCommand
         IReadOnlyList<ProjectPackageReference> dependencies,
         ProjectOptions options,
         CommandContext context,
+        bool deferContent,
+        ProjectDocumentContentStore contentStore,
         CancellationToken cancellationToken)
     {
         var documents = new List<ProjectPackageDocumentData>();
@@ -756,7 +829,9 @@ public class ProjectCommand
             var acquired = await ReadBestPackageDocumentAsync(
                 dependency,
                 options.SourceOptions,
-                context);
+                context,
+                deferContent,
+                contentStore);
             if (acquired.Document is not null)
                 documents.Add(acquired.Document);
             if (acquired.Failure is not null)
@@ -771,14 +846,21 @@ public class ProjectCommand
         ProjectContentFailure? Failure)> ReadBestPackageDocumentAsync(
         ProjectPackageReference dependency,
         NuGetSourceOptions? sourceOptions,
-        CommandContext context)
+        CommandContext context,
+        bool deferContent,
+        ProjectDocumentContentStore contentStore)
     {
         if (!string.IsNullOrWhiteSpace(dependency.PackagePath)
             && Directory.Exists(dependency.PackagePath))
         {
             try
             {
-                return (ReadBestPackageDocumentFromDirectory(dependency), null);
+                return (
+                    ReadBestPackageDocumentFromDirectory(
+                        dependency,
+                        deferContent,
+                        contentStore),
+                    null);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -792,6 +874,7 @@ public class ProjectCommand
         }
 
         PackageExtractionResult? resolution = null;
+        bool retainTemporaryDirectory = false;
         try
         {
             PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
@@ -816,7 +899,24 @@ public class ProjectCommand
                 Version = resolution.Version ?? dependency.Version,
                 PackagePath = resolution.ExtractPath,
             };
-            return (ReadBestPackageDocumentFromDirectory(resolved), null);
+            string? cleanupDirectory = resolution is
+            {
+                FromCache: false,
+                TempDir: not null,
+            }
+                ? resolution.TempDir
+                : null;
+            ProjectPackageDocumentData? document =
+                ReadBestPackageDocumentFromDirectory(
+                    resolved,
+                    deferContent,
+                    contentStore,
+                    cleanupDirectory);
+            retainTemporaryDirectory =
+                deferContent
+                && document is not null
+                && cleanupDirectory is not null;
+            return (document, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -829,7 +929,8 @@ public class ProjectCommand
         }
         finally
         {
-            if (resolution is { FromCache: false, TempDir: not null }
+            if (!retainTemporaryDirectory
+                && resolution is { FromCache: false, TempDir: not null }
                 && Directory.Exists(resolution.TempDir))
             {
                 try
@@ -847,7 +948,10 @@ public class ProjectCommand
     }
 
     static ProjectPackageDocumentData? ReadBestPackageDocumentFromDirectory(
-        ProjectPackageReference dependency)
+        ProjectPackageReference dependency,
+        bool deferContent,
+        ProjectDocumentContentStore contentStore,
+        string? cleanupDirectory = null)
     {
         if (string.IsNullOrWhiteSpace(dependency.PackagePath)
             || !Directory.Exists(dependency.PackagePath))
@@ -865,12 +969,23 @@ public class ProjectCommand
         if (!File.Exists(fullPath))
             return null;
 
+        long size = new FileInfo(fullPath).Length;
+        if (deferContent)
+        {
+            contentStore.Add(
+                ProjectSectionNames.PackageDocs,
+                dependency.PackageName,
+                readme,
+                fullPath,
+                cleanupDirectory);
+        }
+
         return new ProjectPackageDocumentData(
             dependency.PackageName,
             dependency.Version,
             readme,
-            new FileInfo(fullPath).Length,
-            File.ReadAllText(fullPath));
+            size,
+            deferContent ? "" : File.ReadAllText(fullPath));
     }
 
     static string? ResolveProjectReadme(string packagePath)
@@ -897,7 +1012,8 @@ public class ProjectCommand
     static int PrintDocument(
         ProjectInspection inspection,
         ProjectOptions options,
-        HashSet<string> renderedSections)
+        HashSet<string> renderedSections,
+        ProjectDocumentContentStore contentStore)
     {
         string section = renderedSections.Single();
         var printOptions = new PrintProjectionOptions(
@@ -916,11 +1032,17 @@ public class ProjectCommand
                 inspection.AgentGuidance?.Guidance ?? [];
             bool firstAvailable = options.Bare && !options.Print;
             var rows = new List<PrintableRow>(guidance.Count);
-            var contentByRow = new Dictionary<int, string?>();
+            var contentByRow = new Dictionary<int, Func<string?>>();
             for (int index = 0; index < guidance.Count; index++)
             {
                 ProjectAgentGuidanceData item = guidance[index];
-                if (firstAvailable && item.Content is null)
+                bool hasDeferredContent = contentStore.Contains(
+                    section,
+                    item.Package,
+                    item.Path);
+                if (firstAvailable
+                    && !hasDeferredContent
+                    && item.Content is null)
                     continue;
 
                 int rowNumber = index + 1;
@@ -931,49 +1053,114 @@ public class ProjectCommand
                         $"{item.Package} {item.Path}"),
                     CSharpIdentifier.ContainRenderedText(item.Path),
                     null));
-                contentByRow[rowNumber] = item.Content is null
-                    ? null
-                    : Printable(
-                        rowNumber,
-                        section,
-                        $"{item.Package} {item.Path}",
-                        item.Path,
-                        item.Content,
-                        options.ContentScope).Content;
+                contentByRow[rowNumber] = () =>
+                {
+                    string? content = hasDeferredContent
+                        ? contentStore.Read(
+                            section,
+                            item.Package,
+                            item.Path)
+                        : item.Content;
+                    return content is null
+                        ? null
+                        : Printable(
+                            rowNumber,
+                            section,
+                            $"{item.Package} {item.Path}",
+                            item.Path,
+                            content,
+                            options.ContentScope).Content;
+                };
             }
 
             return PrintProjectionOutput.Write(
                 rows,
-                row => contentByRow[row.Row],
+                row => contentByRow[row.Row](),
                 printOptions);
         }
 
-        List<PrintableDocument> documents = section switch
+        var printableRows = new List<PrintableRow>();
+        var readers = new Dictionary<int, Func<string?>>();
+        if (section == ProjectSectionNames.Skills)
         {
-            ProjectSectionNames.Skills => inspection.Skills?.Skills
-                .Select((row, index) => Printable(
-                    index + 1,
+            IReadOnlyList<ProjectSkillData> skills =
+                inspection.Skills?.Skills ?? [];
+            for (int index = 0; index < skills.Count; index++)
+            {
+                ProjectSkillData item = skills[index];
+                int rowNumber = index + 1;
+                printableRows.Add(new PrintableRow(
+                    rowNumber,
                     section,
-                    $"{row.Package} {row.Path}",
-                    row.Path,
-                    row.Content,
-                    options.ContentScope))
-                .ToList() ?? [],
-            ProjectSectionNames.PackageDocs =>
-                inspection.PackageDocuments?.Documents
-                    .Select((row, index) => Printable(
-                        index + 1,
+                    CSharpIdentifier.ContainRenderedText(
+                        $"{item.Package} {item.Path}"),
+                    CSharpIdentifier.ContainRenderedText(item.Path),
+                    null));
+                readers[rowNumber] = () =>
+                {
+                    string? content = contentStore.Contains(
                         section,
-                        $"{row.Package} {row.Path}",
-                        row.Path,
-                        row.Content,
-                        options.ContentScope))
-                    .ToList() ?? [],
-            _ => [],
-        };
+                        item.Package,
+                        item.Path)
+                        ? contentStore.Read(
+                            section,
+                            item.Package,
+                            item.Path)
+                        : item.Content;
+                    return content is null
+                        ? null
+                        : Printable(
+                            rowNumber,
+                            section,
+                            $"{item.Package} {item.Path}",
+                            item.Path,
+                            content,
+                            options.ContentScope).Content;
+                };
+            }
+        }
+        else if (section == ProjectSectionNames.PackageDocs)
+        {
+            IReadOnlyList<ProjectPackageDocumentData> documents =
+                inspection.PackageDocuments?.Documents ?? [];
+            for (int index = 0; index < documents.Count; index++)
+            {
+                ProjectPackageDocumentData item = documents[index];
+                int rowNumber = index + 1;
+                printableRows.Add(new PrintableRow(
+                    rowNumber,
+                    section,
+                    CSharpIdentifier.ContainRenderedText(
+                        $"{item.Package} {item.Path}"),
+                    CSharpIdentifier.ContainRenderedText(item.Path),
+                    null));
+                readers[rowNumber] = () =>
+                {
+                    string? content = contentStore.Contains(
+                        section,
+                        item.Package,
+                        item.Path)
+                        ? contentStore.Read(
+                            section,
+                            item.Package,
+                            item.Path)
+                        : item.Content;
+                    return content is null
+                        ? null
+                        : Printable(
+                            rowNumber,
+                            section,
+                            $"{item.Package} {item.Path}",
+                            item.Path,
+                            content,
+                            options.ContentScope).Content;
+                };
+            }
+        }
 
         return PrintProjectionOutput.Write(
-            documents,
+            printableRows,
+            row => readers[row.Row](),
             printOptions);
     }
 
@@ -1197,19 +1384,99 @@ public class ProjectCommand
         }
 
         if (renderedSections.Count == 1)
-            CountOutput.WriteCount(counts[renderedSections.Single()], outputPath);
+            CountOutput.WriteCount(
+                counts[renderedSections.Single()],
+                outputPath,
+                applyLineWindow: rows is null);
         else
-            CountOutput.WriteCountMap(counts, renderedSections.ToArray(), outputPath);
+            CountOutput.WriteCountMap(
+                counts,
+                renderedSections.ToArray(),
+                outputPath,
+                applyLineWindow: rows is null);
     }
 
     static int CountRows<T>(IReadOnlyList<T>? source, RowWindow? rows) =>
         source is null ? 0 : RowWindow.Apply(rows, source).Count;
 
-    static void WriteOutput(string output, string? outputPath)
+    static void WriteOutput(
+        string output,
+        string? outputPath,
+        bool applyLineWindow = true)
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
+            OutputPathWriter.Write(outputPath, output, applyLineWindow);
         else
             Console.Write(output);
+    }
+
+    sealed class ProjectDocumentContentStore(CommandContext context) : IDisposable
+    {
+        readonly Dictionary<DocumentKey, string> _paths = [];
+        readonly HashSet<string> _cleanupDirectories =
+            new(StringComparer.Ordinal);
+
+        public void Add(
+            string section,
+            string package,
+            string path,
+            string fullPath,
+            string? cleanupDirectory = null)
+        {
+            _paths[new DocumentKey(section, package, path)] = fullPath;
+            if (cleanupDirectory is not null)
+                _cleanupDirectories.Add(cleanupDirectory);
+        }
+
+        public bool Contains(string section, string package, string path)
+            => _paths.ContainsKey(new DocumentKey(section, package, path));
+
+        public string? Read(string section, string package, string path)
+        {
+            if (!_paths.TryGetValue(
+                    new DocumentKey(section, package, path),
+                    out string? fullPath))
+            {
+                return null;
+            }
+
+            try
+            {
+                return File.ReadAllText(fullPath);
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException)
+            {
+                CommandError.WriteWarning(
+                    $"Could not read '{package}' file '{path}': {ex.Message}");
+                return null;
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach (string directory in _cleanupDirectories)
+            {
+                if (!Directory.Exists(directory))
+                    continue;
+
+                try
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException)
+                {
+                    context.Logger.LogWarning(
+                        $"Could not remove temporary package directory "
+                        + $"'{directory}': {ex.Message}");
+                }
+            }
+        }
+
+        readonly record struct DocumentKey(
+            string Section,
+            string Package,
+            string Path);
     }
 }

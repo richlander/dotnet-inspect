@@ -82,25 +82,34 @@ public static class CountOutput
     /// Writes a count to <paramref name="outputPath"/>, or to stdout when it is null. A count is
     /// still the command's payload, so --out has to apply to it as it does to a full render.
     /// </summary>
-    public static void WriteCount(int count, string? outputPath)
+    public static void WriteCount(
+        int count,
+        string? outputPath,
+        bool applyLineWindow = false)
     {
         // Invariant: a count is machine-readable output, so it must not pick up
         // culture-specific digits or grouping from the ambient locale.
-        WriteCountResult(count.ToString(CultureInfo.InvariantCulture), outputPath);
+        WriteCountResult(
+            count.ToString(CultureInfo.InvariantCulture),
+            outputPath,
+            applyLineWindow);
     }
 
     /// <summary>
     /// Writes an already-rendered scalar or per-section count to <paramref name="outputPath"/>,
     /// or to stdout when it is null.
     /// </summary>
-    public static void WriteCountResult(string result, string? outputPath)
+    public static void WriteCountResult(
+        string result,
+        string? outputPath,
+        bool applyLineWindow = false)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         var text = result.TrimEnd('\r', '\n') + '\n';
         if (string.IsNullOrEmpty(outputPath))
             Console.Write(text);
         else
-            File.WriteAllText(outputPath, text);
+            OutputPathWriter.Write(outputPath, text, applyLineWindow);
     }
 
     public static void WriteCountFromMarkdown(string markdown, string? outputPath = null)
@@ -211,8 +220,12 @@ public static class CountOutput
     public static void WriteCountMap(
         IReadOnlyDictionary<string, int> counts,
         IReadOnlyList<string> orderedSections,
-        string? outputPath = null)
+        string? outputPath = null,
+        bool applyLineWindow = false)
     {
-        WriteCountResult(RenderCountMap(counts, orderedSections), outputPath);
+        WriteCountResult(
+            RenderCountMap(counts, orderedSections),
+            outputPath,
+            applyLineWindow);
     }
 }

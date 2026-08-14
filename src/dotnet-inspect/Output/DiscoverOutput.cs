@@ -29,7 +29,8 @@ public static class DiscoverOutput
         string[]? columns = null,
         string[]? fields = null,
         RowWindow? rows = null,
-        string? outputPath = null)
+        string? outputPath = null,
+        bool applyLineWindow = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -84,7 +85,7 @@ public static class DiscoverOutput
                 catalogHiddenSections,
                 listedCategoryDoors);
             if (treeExitCode == 0)
-                WriteOutput(output.ToString(), outputPath);
+                WriteOutput(output.ToString(), outputPath, applyLineWindow);
             return treeExitCode;
         }
 
@@ -130,7 +131,7 @@ public static class DiscoverOutput
                     writerOptions));
         }
 
-        WriteOutput(output.ToString(), outputPath);
+        WriteOutput(output.ToString(), outputPath, applyLineWindow);
         return 0;
     }
 
@@ -148,7 +149,8 @@ public static class DiscoverOutput
         string[]? columns = null,
         string[]? fields = null,
         RowWindow? rows = null,
-        string? outputPath = null)
+        string? outputPath = null,
+        bool applyLineWindow = false)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -178,7 +180,7 @@ public static class DiscoverOutput
                         ? emptyProjectionExitCode
                         : 0;
                 }
-                WriteOutput(string.Empty, outputPath);
+                WriteOutput(string.Empty, outputPath, applyLineWindow);
                 return 0;
             }
             discover = remaining;
@@ -202,7 +204,8 @@ public static class DiscoverOutput
             columns,
             fields,
             rows,
-            outputPath);
+            outputPath,
+            applyLineWindow);
     }
 
     /// <summary>
@@ -825,10 +828,13 @@ public static class DiscoverOutput
         return 0;
     }
 
-    private static void WriteOutput(string output, string? outputPath)
+    private static void WriteOutput(
+        string output,
+        string? outputPath,
+        bool applyLineWindow)
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
+            OutputPathWriter.Write(outputPath, output, applyLineWindow);
         else
             Console.Write(output);
     }

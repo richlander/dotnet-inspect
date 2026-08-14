@@ -168,7 +168,7 @@ public static class ShapeProjectionOutput
     private static void WriteOutput(string output, string? outputPath)
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
+            OutputPathWriter.Write(outputPath, output);
         else
             Console.Write(output);
     }

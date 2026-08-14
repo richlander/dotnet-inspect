@@ -235,7 +235,8 @@ than the one in the package is not that document.
 
 `-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
-select rows:
+select rows, and `--out` changes only the destination rather than bypassing
+the window:
 
 ```text
 --print -n 1
