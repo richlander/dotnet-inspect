@@ -205,20 +205,17 @@ internal sealed class ProjectPackageDocumentsProvider
     readonly IReadOnlyList<ProjectPackageReference> _dependencies;
     readonly NuGetSourceOptions? _sourceOptions;
     readonly CommandContext _context;
-    readonly bool _deferContent;
     readonly ProjectDocumentContentStore _contentStore;
 
     public ProjectPackageDocumentsProvider(
         IReadOnlyList<ProjectPackageReference> dependencies,
         NuGetSourceOptions? sourceOptions,
         CommandContext context,
-        bool deferContent,
         ProjectDocumentContentStore contentStore)
     {
         _dependencies = dependencies;
         _sourceOptions = sourceOptions;
         _context = context;
-        _deferContent = deferContent;
         _contentStore = contentStore;
     }
 
@@ -230,7 +227,9 @@ internal sealed class ProjectPackageDocumentsProvider
         foreach (ProjectPackageReference dependency in _dependencies)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var acquired = await ReadBestDocumentAsync(dependency);
+            var acquired = await ReadBestDocumentAsync(
+                dependency,
+                cancellationToken);
             if (acquired.Document is not null)
                 documents.Add(acquired.Document);
             if (acquired.Failure is not null)
@@ -243,7 +242,8 @@ internal sealed class ProjectPackageDocumentsProvider
     async Task<(
         ProjectPackageDocumentData? Document,
         ProjectContentFailure? Failure)> ReadBestDocumentAsync(
-        ProjectPackageReference dependency)
+        ProjectPackageReference dependency,
+        CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(dependency.PackagePath)
             && Directory.Exists(dependency.PackagePath))
@@ -270,13 +270,17 @@ internal sealed class ProjectPackageDocumentsProvider
         bool retainTemporaryDirectory = false;
         try
         {
+            // Package acquisition is single-flight. Cancel this caller's wait
+            // without cancelling the shared acquisition for other callers.
             PackageExtractionOutcome outcome =
                 await PackageExtractor.ExtractPackageAsync(
-                    _context.HttpClient,
-                    dependency.PackageName,
-                    _context.Logger.Log,
-                    sourceOptions: _sourceOptions,
-                    version: dependency.Version);
+                        _context.HttpClient,
+                        dependency.PackageName,
+                        _context.Logger.Log,
+                        sourceOptions: _sourceOptions,
+                        version: dependency.Version)
+                    .WaitAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (!outcome.IsSuccess)
             {
                 return (
@@ -305,8 +309,7 @@ internal sealed class ProjectPackageDocumentsProvider
                     resolved,
                     cleanupDirectory);
             retainTemporaryDirectory =
-                _deferContent
-                && document is not null
+                document is not null
                 && cleanupDirectory is not null;
             return (document, null);
         }
@@ -362,22 +365,19 @@ internal sealed class ProjectPackageDocumentsProvider
             return null;
 
         long size = new FileInfo(fullPath).Length;
-        if (_deferContent)
-        {
-            _contentStore.Add(
-                ProjectSectionNames.PackageDocs,
-                dependency.PackageName,
-                documentPath,
-                fullPath,
-                cleanupDirectory);
-        }
+        _contentStore.Add(
+            ProjectSectionNames.PackageDocs,
+            dependency.PackageName,
+            documentPath,
+            fullPath,
+            cleanupDirectory);
 
         return new ProjectPackageDocumentData(
             dependency.PackageName,
             dependency.Version,
             documentPath,
             size,
-            _deferContent ? "" : File.ReadAllText(fullPath));
+            "");
     }
 
     static string? ResolveDocumentPath(string packagePath)

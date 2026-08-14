@@ -175,7 +175,6 @@ public class ProjectCommand
             focusedDependencies,
             options.SourceOptions,
             commandContext,
-            deferDocumentContent,
             contentStore);
         ProjectQueryContext queryContext = new(
             skillsProvider.Read,
