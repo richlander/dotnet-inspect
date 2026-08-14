@@ -6081,7 +6081,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.String", "--platform", "System.Runtime", "-S", "Type Info",
-            "--fields", "Version", "--json", "--compact");
+            "--fields", "Version", "--json", "--rows", "1", "--compact");
 
         Assert.Equal(0, exit);
         Assert.Equal("{}", output.Trim());
@@ -6098,6 +6098,65 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
         Assert.Contains("1 field has no data: Bogus", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SingleType_ProjectedJsonAcceptsSynthesizedValueColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Type Info",
+            "--fields", "Kind", "--columns", "Value", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal(["value"], row.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("class", row.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task Member_ProjectedJsonAcceptsSynthesizedValueColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime", "-S", "Type Info",
+            "--fields", "Kind", "--columns", "Value", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal(["value"], row.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("class", row.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task SingleType_ProjectedJsonWildcardUsesEmittedFieldIdentity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Type Info",
+            "--fields", "Ki*", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal("Kind", row.GetProperty("field").GetString());
+    }
+
+    [Fact]
+    public async Task Member_ProjectedJsonMultiWordColumnUsesMachineKeyEvidence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", nameof(ProjectionDiagnostics), "--library", typeof(ProjectionDiagnostics).Assembly.Location,
+            "-S", "Method Groups", "--columns", "Return Type", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.All(
+            document.RootElement.GetProperty("method_groups").EnumerateArray(),
+            row => Assert.True(row.TryGetProperty("return_type", out _)));
     }
 
     [Fact]

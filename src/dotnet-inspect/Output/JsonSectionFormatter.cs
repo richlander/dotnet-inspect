@@ -234,6 +234,44 @@ internal sealed class JsonSectionFormatter :
     /// </summary>
     internal IReadOnlyList<string> SectionNames => _sections.Select(section => section.Name).ToArray();
 
+    internal IReadOnlyList<string> EmittedColumns =>
+        [.. _sections
+            .Where(section => section.Kind == SectionKind.Table)
+            .SelectMany(section => section.Headers)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    internal IReadOnlyList<string> EmittedFields
+    {
+        get
+        {
+            var fields = new HashSet<string>(
+                _rootFields.Select(item => item.Key),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var section in _sections)
+            {
+                foreach (var item in section.Fields)
+                    fields.Add(item.Key);
+
+                if (section.Kind != SectionKind.Table)
+                    continue;
+
+                var fieldIndex = Array.FindIndex(
+                    section.Headers,
+                    header => string.Equals(header, "field", StringComparison.OrdinalIgnoreCase));
+                if (fieldIndex < 0)
+                    continue;
+
+                foreach (var row in section.Rows)
+                {
+                    if (fieldIndex < row.Length)
+                        fields.Add(row[fieldIndex]);
+                }
+            }
+
+            return [.. fields];
+        }
+    }
+
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
     {
         RequireNoActiveStreamingTable("format a heading");

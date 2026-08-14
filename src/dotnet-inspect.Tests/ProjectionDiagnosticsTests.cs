@@ -73,17 +73,17 @@ public class ProjectionDiagnosticsTests
     }
 
     [Fact]
-    public async Task DiagnoseRendered_RowWindowSuppressesSchemaKnownColumn()
+    public async Task DiagnoseProjectedJson_MachineColumnSatisfiesDisplayName()
     {
-        var schema = new DocumentSchema().Add("Methods", "column", "Name");
+        var schema = new DocumentSchema().Add("Methods", "column", "Return Type");
 
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            ProjectionDiagnostics.DiagnoseRendered(
+            ProjectionDiagnostics.DiagnoseProjectedJson(
                 fields: null,
-                columns: ["Name"],
-                """{"methods":[]}""",
-                RowWindow.Range(100000, null),
+                columns: ["Return Type"],
+                emittedFields: [],
+                emittedColumns: ["return_type"],
                 schema);
             return Task.FromResult(0);
         });
@@ -92,23 +92,42 @@ public class ProjectionDiagnosticsTests
     }
 
     [Fact]
-    public async Task DiagnoseRendered_RowWindowStillReportsUnknownNames()
+    public async Task DiagnoseProjectedJson_WildcardAndValueOnlyFieldUseEvidence()
+    {
+        var schema = new DocumentSchema().Add("Type Info", "field", "Kind", "Version");
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseProjectedJson(
+                fields: ["Ki*"],
+                columns: ["Value"],
+                emittedFields: ["Kind"],
+                emittedColumns: ["value"],
+                schema);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task DiagnoseProjectedJson_ReportsMissingFieldAndColumn()
     {
         var schema = new DocumentSchema().Add("API Info", "field", "Types");
 
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            ProjectionDiagnostics.DiagnoseRendered(
-                fields: ["Types"],
+            ProjectionDiagnostics.DiagnoseProjectedJson(
+                fields: ["Version"],
                 columns: ["Field", "Bogus"],
-                """{"api_info":[]}""",
-                RowWindow.Head(1),
+                emittedFields: [],
+                emittedColumns: ["field"],
                 schema);
             return Task.FromResult(0);
         });
 
+        Assert.Contains("1 field has no data: Version", error, StringComparison.Ordinal);
         Assert.Contains("1 column has no data: Bogus", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Types", error, StringComparison.Ordinal);
         Assert.DoesNotContain("Field", error, StringComparison.Ordinal);
     }
 }

@@ -21,6 +21,11 @@ public record RenderDiagnostic(string Formatter, string Condition, string[] Sect
 /// </summary>
 public static class OutputFormatter
 {
+    internal sealed record ProjectedJsonDocument(
+        string Json,
+        IReadOnlyList<string> EmittedFields,
+        IReadOnlyList<string> EmittedColumns);
+
     public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
         var sw = new StringWriter { NewLine = "\n" };
@@ -172,6 +177,16 @@ public static class OutputFormatter
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         bool indented = true,
         RowWindow? maxRows = null,
+        MarkoutWriterOptions? writerOptions = null) =>
+        RenderProjectedJsonDocument(
+            columns, fields, serialize, indented, maxRows, writerOptions).Json;
+
+    internal static ProjectedJsonDocument RenderProjectedJsonDocument(
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        bool indented = true,
+        RowWindow? maxRows = null,
         MarkoutWriterOptions? writerOptions = null)
     {
         writerOptions ??= new MarkoutWriterOptions();
@@ -186,7 +201,10 @@ public static class OutputFormatter
         var formatter = new JsonSectionFormatter();
         formatter.BeginDocument(writerOptions);
         serialize(formatter.ContentWriter, formatter, writerOptions);
-        return formatter.Finish(indented);
+        return new ProjectedJsonDocument(
+            formatter.Finish(indented),
+            formatter.EmittedFields,
+            formatter.EmittedColumns);
     }
 
     /// <summary>

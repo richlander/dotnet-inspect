@@ -381,7 +381,12 @@ public static class MemberCommand
                 var schema = ApiCommand.ToQueryableSchema(
                     ApiCommand.GetTypeDocumentSchema(effectiveOptions),
                     effectiveOptions);
-                if (!ProjectionDiagnostics.ValidateProjection(schema, projectionSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                if (!ProjectionDiagnostics.ValidateProjection(
+                    schema,
+                    projectionSections,
+                    effectiveOptions.Fields,
+                    effectiveOptions.Columns,
+                    ApiCommand.TypeFieldLayoutSections))
                     return 1;
             }
 

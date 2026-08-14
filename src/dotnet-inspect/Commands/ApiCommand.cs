@@ -836,21 +836,33 @@ public class ApiCommand
         if (projectedJson)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            var json = OutputFormatter.RenderProjectedJson(
-                options.Columns,
-                options.Fields,
+            Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
                 (writer, formatter, projectedOptions) =>
                     MarkoutSerializer.Serialize(
-                        view, writer, formatter, ApiViewContext.Default, projectedOptions),
+                        view, writer, formatter, ApiViewContext.Default, projectedOptions);
+            var document = OutputFormatter.RenderProjectedJsonDocument(
+                options.Columns,
+                options.Fields,
+                serialize,
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
                 writerOptions);
-            ProjectionDiagnostics.DiagnoseRendered(
+            var fieldEvidence = options.Fields is { Length: > 0 }
+                ? OutputFormatter.RenderProjectedJsonDocument(
+                    columns: null,
+                    options.Fields,
+                    serialize,
+                    indented: false,
+                    maxRows: null,
+                    ApiOutputFormatter.BuildWriterOptions(api, options)).EmittedFields
+                : [];
+            ProjectionDiagnostics.DiagnoseProjectedJson(
                 options.Fields,
                 options.Columns,
-                json,
-                options.Rows,
+                fieldEvidence,
+                document.EmittedColumns,
                 ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema());
+            var json = document.Json;
             if (!TryReportEmptyProjection(json == "{}" ? string.Empty : json, options))
                 return 1;
             Console.WriteLine(json);
@@ -1523,9 +1535,7 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             ConfigureTypeSectionOrder(type, options, writerOptions);
-            var json = OutputFormatter.RenderProjectedJson(
-                options.Columns,
-                options.Fields,
+            Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
                 (writer, formatter, projectedOptions) =>
                 {
                     var markoutWriter = new MarkoutWriter(writer, formatter, projectedOptions);
@@ -1533,17 +1543,34 @@ public class ApiCommand
                         view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                         explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                     markoutWriter.Flush();
-                },
+                };
+            var document = OutputFormatter.RenderProjectedJsonDocument(
+                options.Columns,
+                options.Fields,
+                serialize,
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
                 writerOptions);
-            ProjectionDiagnostics.DiagnoseRendered(
+            IReadOnlyList<string> fieldEvidence = [];
+            if (options.Fields is { Length: > 0 })
+            {
+                var fieldWriterOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+                ConfigureTypeSectionOrder(type, options, fieldWriterOptions);
+                fieldEvidence = OutputFormatter.RenderProjectedJsonDocument(
+                    columns: null,
+                    options.Fields,
+                    serialize,
+                    indented: false,
+                    maxRows: null,
+                    fieldWriterOptions).EmittedFields;
+            }
+            ProjectionDiagnostics.DiagnoseProjectedJson(
                 options.Fields,
                 options.Columns,
-                json,
-                options.Rows,
+                fieldEvidence,
+                document.EmittedColumns,
                 GetTypeDocumentSchema(options));
-            sink.WriteLine(json);
+            sink.WriteLine(document.Json);
             ApiOutputFormatter.WriteSignatureDecodeWarning(view);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
@@ -2038,7 +2065,7 @@ public class ApiCommand
     /// column per schema item. Effective discovery must match these on rendered field rows, not
     /// on table columns. Mirrors the equivalent set in <c>LibraryCommand</c>.
     /// </summary>
-    private static readonly HashSet<string> TypeFieldLayoutSections =
+    internal static readonly HashSet<string> TypeFieldLayoutSections =
         new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
 
     /// <summary>

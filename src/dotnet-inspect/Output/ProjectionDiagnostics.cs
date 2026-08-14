@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -42,7 +43,7 @@ public static class ProjectionDiagnostics
     /// only when a projection matches no selected section at all.
     /// </summary>
     public static bool ValidateProjection(DocumentSchema schema, IReadOnlyCollection<string>? sectionNames,
-        string[]? fields, string[]? columns)
+        string[]? fields, string[]? columns, IReadOnlySet<string>? fieldLayoutSections = null)
     {
         if ((fields is not { Length: > 0 } && columns is not { Length: > 0 })
             || sectionNames is not { Count: > 0 })
@@ -54,13 +55,17 @@ public static class ProjectionDiagnostics
         if (fields is { Length: > 0 })
             ok &= ValidateNamesAcrossSections(schema, sectionNames, fields, "field");
         if (columns is { Length: > 0 })
-            ok &= ValidateNamesAcrossSections(schema, sectionNames, columns, "column");
+            ok &= ValidateNamesAcrossSections(
+                schema, sectionNames, columns, "column", fieldLayoutSections);
 
         return ok;
     }
 
     private static bool ValidateNamesAcrossSections(DocumentSchema schema,
-        IReadOnlyCollection<string> sectionNames, string[] names, string kind)
+        IReadOnlyCollection<string> sectionNames,
+        string[] names,
+        string kind,
+        IReadOnlySet<string>? fieldLayoutSections = null)
     {
         // A name is an error only when it resolves in NO selected section. Names that
         // resolve in any section drop out, so a valid graph field is not reported against a
@@ -73,6 +78,13 @@ public static class ProjectionDiagnostics
             foreach (var name in names)
                 if (!unresolved.Contains(name))
                     resolvedSomewhere.Add(name);
+
+            if (string.Equals(kind, "column", StringComparison.Ordinal)
+                && fieldLayoutSections?.Contains(section) == true)
+            {
+                foreach (var name in MatchedRequests(names, ["Field", "Value"]))
+                    resolvedSomewhere.Add(name);
+            }
         }
 
         // Warn (with the per-section discovery hint) only for names missing everywhere.
@@ -107,34 +119,43 @@ public static class ProjectionDiagnostics
     public static void DiagnoseRendered(string[]? requestedNames, string renderedOutput)
         => DiagnoseRendered(requestedNames, renderedOutput, "field");
 
-    /// <summary>
-    /// Compares field and column projections independently against rendered output.
-    /// </summary>
-    public static void DiagnoseRendered(string[]? fields, string[]? columns, string renderedOutput)
-    {
-        DiagnoseRendered(fields, renderedOutput, "field");
-        DiagnoseRendered(columns, renderedOutput, "column");
-    }
-
-    /// <summary>
-    /// Compares projections against row-windowed output without reporting schema-known names whose
-    /// data may simply fall outside the requested window.
-    /// </summary>
-    public static void DiagnoseRendered(
+    internal static void DiagnoseProjectedJson(
         string[]? fields,
         string[]? columns,
-        string renderedOutput,
-        RowWindow? rowWindow,
+        IReadOnlyList<string> emittedFields,
+        IReadOnlyList<string> emittedColumns,
         DocumentSchema schema)
     {
-        if (rowWindow is null)
+        ReportMissing(UnmatchedRequests(fields, emittedFields), "field");
+
+        var emittedMachineColumns = new HashSet<string>(
+            emittedColumns,
+            StringComparer.OrdinalIgnoreCase);
+        var emittedDisplayColumns = new HashSet<string>(
+            emittedColumns,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var section in schema.SectionNames)
         {
-            DiagnoseRendered(fields, columns, renderedOutput);
-            return;
+            var definition = schema.GetSection(section);
+            if (definition is null
+                || !string.Equals(definition.ItemKind, "column", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var item in definition.Items)
+            {
+                if (emittedMachineColumns.Contains(JsonNamingPolicy.SnakeCaseLower.ConvertName(item.Name)))
+                    emittedDisplayColumns.Add(item.Name);
+            }
         }
 
-        DiagnoseWindowed(fields, renderedOutput, schema, "field");
-        DiagnoseWindowed(columns, renderedOutput, schema, "column");
+        if (emittedMachineColumns.Contains("field"))
+            emittedDisplayColumns.Add("Field");
+        if (emittedMachineColumns.Contains("value"))
+            emittedDisplayColumns.Add("Value");
+
+        ReportMissing(UnmatchedRequests(columns, emittedDisplayColumns), "column");
     }
 
     private static void DiagnoseRendered(string[]? requestedNames, string renderedOutput, string kind)
@@ -143,35 +164,31 @@ public static class ProjectionDiagnostics
         ReportMissing(missing, kind);
     }
 
-    private static void DiagnoseWindowed(
+    private static string[] UnmatchedRequests(
         string[]? requestedNames,
-        string renderedOutput,
-        DocumentSchema schema,
-        string kind)
+        IEnumerable<string> emittedNames)
     {
-        var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
-        if (missing.Length == 0)
-            return;
+        if (requestedNames is not { Length: > 0 })
+            return [];
 
-        var candidates = new List<string>();
-        foreach (var section in schema.SectionNames)
+        var matched = MatchedRequests(requestedNames, [.. emittedNames]);
+        return [.. requestedNames.Where(name => !matched.Contains(name))];
+    }
+
+    private static HashSet<string> MatchedRequests(string[] requestedNames, string[] candidates)
+    {
+        var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var requestedName in requestedNames)
         {
-            foreach (var item in schema.Discover(section) ?? [])
+            var projection = new MarkoutProjection { IncludeColumns = [requestedName] };
+            if (projection.TryResolveColumns(candidates, out var resolution)
+                && resolution.Kind == ColumnProjectionResolutionKind.Matched)
             {
-                if (string.Equals(item.Kind, kind, StringComparison.OrdinalIgnoreCase))
-                    candidates.Add(item.Name);
+                matched.Add(requestedName);
             }
         }
 
-        // Fact-table lowering synthesizes these columns from field sets; they are projectable even
-        // though the source schema describes fields rather than the lowered table.
-        if (string.Equals(kind, "column", StringComparison.Ordinal))
-            candidates.AddRange(["Field", "Value"]);
-
-        const string ProbeSection = "probe";
-        var probe = new DocumentSchema().Add(ProbeSection, kind, [.. candidates]);
-        var unresolved = probe.ValidateProjection(ProbeSection, missing).Unresolved;
-        ReportMissing(unresolved, kind);
+        return matched;
     }
 
     private static void ReportMissing(string[] missing, string kind)

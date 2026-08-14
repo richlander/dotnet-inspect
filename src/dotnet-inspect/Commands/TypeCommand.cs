@@ -271,7 +271,12 @@ public static class TypeCommand
                     if (renderedProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
                         var projSchema = ApiCommand.GetTypeDocumentSchema(effectiveOptions);
-                        if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                        if (!ProjectionDiagnostics.ValidateProjection(
+                            projSchema,
+                            effectiveOptions.IncludeSections,
+                            effectiveOptions.Fields,
+                            effectiveOptions.Columns,
+                            ApiCommand.TypeFieldLayoutSections))
                             return 1;
                     }
 
