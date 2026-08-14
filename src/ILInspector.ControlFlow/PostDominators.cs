@@ -63,6 +63,35 @@ public sealed class PostDominators
         return false;
     }
 
+    /// <summary>
+    /// Finds the closest real block that post-dominates every supplied block.
+    /// Returns <see cref="VirtualExit"/> when only the common exit qualifies, or
+    /// <see cref="None"/> when any supplied block cannot reach an exit.
+    /// </summary>
+    public int NearestCommonPostDominator(IReadOnlyList<int> blocks)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+        if (blocks.Count == 0)
+            throw new ArgumentException("At least one block is required.", nameof(blocks));
+
+        foreach (int block in blocks)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(block);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(block, Count);
+            if (_idom[block] == _undefined)
+                return None;
+        }
+
+        int candidate = blocks[0];
+        while (candidate >= 0)
+        {
+            if (blocks.All(block => PostDominates(candidate, block)))
+                return candidate;
+            candidate = ImmediatePostDominator(candidate);
+        }
+        return candidate;
+    }
+
     public static PostDominators Of(IReadOnlyList<BlockEdges> edges)
     {
         int n = edges.Count;

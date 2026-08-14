@@ -76,13 +76,12 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task CreateClient_CapturesOneOptionsSnapshot()
     {
         const string ClosedPort = "http://127.0.0.1:1/";
         var observeCreation = new AsyncLocal<bool>();
-        var decoratorEntered = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var decoratorEntered = new ManualResetEventSlim();
         using var continueCreation = new ManualResetEventSlim();
 
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
@@ -95,31 +94,30 @@ public class HttpClientFactoryTests : IDisposable
             if (!observeCreation.Value)
                 return handler;
 
-            decoratorEntered.SetResult();
-            if (!continueCreation.Wait(
-                TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken))
-                throw new TimeoutException("Timed out waiting to continue client creation.");
+            decoratorEntered.Set();
+            continueCreation.Wait(TestContext.Current.CancellationToken);
             return handler;
         });
 
         using HttpClient unrelated = await Task.Run(
             DotnetInspector.Core.HttpClientFactory.CreateClient,
             TestContext.Current.CancellationToken);
-        Assert.False(decoratorEntered.Task.IsCompleted);
+        Assert.False(decoratorEntered.IsSet);
 
-        Task<HttpClient> creation = Task.Run(
+        Task<HttpClient> creation = Task.Factory.StartNew(
             () =>
             {
                 observeCreation.Value = true;
                 return DotnetInspector.Core.HttpClientFactory.CreateClient();
             },
-            TestContext.Current.CancellationToken);
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
         try
         {
-            await decoratorEntered.Task.WaitAsync(
-                TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken);
+            // Keep the release path off the saturated thread pool: the fact timeout bounds a
+            // genuine deadlock, while this wait resumes directly when the dedicated creator enters.
+            decoratorEntered.Wait(TestContext.Current.CancellationToken);
 
             DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
             {
