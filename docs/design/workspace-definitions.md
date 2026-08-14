@@ -9,7 +9,10 @@ grammar for the contract that
 already fixes in prose; that document remains the owner of the bundle
 contract, lifetime rules, and authorization model.
 
-This is a design proposal. No product code implements it yet, and every
+This is a design proposal. Implementation has begun: the `package` and
+`embedded` member coordinates and one loader that realizes a selected context
+into exactly one `AssemblyContextGroup` now exist in product code, with the
+gates listed under [What exists today](#what-exists-today). Every other
 property asserted below is **unverified** until the gates named in
 [Status and gates](#status-and-gates) exist.
 
@@ -773,7 +776,8 @@ answer; each needs a decision before or during implementation.
 
 ## Status and gates
 
-Unverified, all of it. Implementation must add, at minimum:
+Unverified except where [What exists today](#what-exists-today) says otherwise.
+Implementation must add, at minimum:
 
 - a schema round-trip gate (serialize → deserialize → semantic equality) over
   every record kind, including rejection of duplicate and unknown properties
@@ -855,4 +859,160 @@ repository gate can reach — it is a claim about external tools, verified
 manually (bash and zsh by transcript; PowerShell and cmd analytically) and
 otherwise falling under this note's blanket unverified marking.
 
-Until those exist, nothing in this note is a behavior claim.
+### What exists today
+
+The coordinate-realization slice implements the `package` and `embedded` member
+coordinates (`DotnetInspector.Queries.WorkspaceMemberCoordinate`) and one
+loader (`WorkspaceContextLoader`) that realizes one already-selected context
+into exactly one `AssemblyContextGroup`, through the product's package
+resolution, acquisition, and asset-selection owners. It supplies:
+
+- the context-scoped half of the target-consistency gate —
+  `WorkspaceContextLoaderTests.ConflictingTargets_CreateNoGroup` and
+  `PackageMemberWithoutAFramework_ReportsAMissingTarget`, with
+  `PackageAssetSelectorTests` covering assets outside the effective target;
+- the package half of the exact-resolution gate —
+  `PackageCoordinateResolverTests.ExactCoordinate_PreservesUnlistedVersionWithoutDiscovery`
+  against its floating contrast
+  `FloatingCoordinate_SelectsLatestListedStableVersion`, plus the exact-pin
+  grammar cases; and
+- a one-context lowering gate —
+  `WorkspaceContextLoaderTests.PackageMember_RealizesEveryManagedAssemblyInOneGroup`
+  and `Group_BindsAnInContextReferenceToItsOwnDescriptor`, with the embedded
+  digest, declared-name, absence, and malformed-image cases proving a rejected
+  member creates no partial group;
+- a package-specific authorization gate —
+  `WorkspaceContextLoaderTests.PerPackageAuthorization_KeepsEachPackageOnItsOwnProducer`,
+  `PerPackageAuthorization_RefusesAProducerAuthorizedForAnotherPackage`, and
+  `PerPackageAuthorization_WithNoProducer_IsTypedUnavailable`, so a producer
+  authorized for one package id cannot serve another, from a feed or from the
+  content cache;
+- a producer-bound realized identity gate —
+  `WorkspaceContextLoaderTests.RealizedCoordinate_NamesTheProducerThatServedTheBytes`
+  and `RealizedCoordinate_IsCanonicalAndStructurallyEquatable`, so one id,
+  version, and target served as different bytes by two feeds realizes two
+  distinct coordinates, each naming a credential-free producer identity;
+- a front-door validation gate —
+  `PackageCoordinateResolverTests.Coordinate_RejectsAPackageIdOutsideTheGrammar`
+  with its `Coordinate_AcceptsRealPackageIds` close negative, plus
+  `WorkspaceContextLoaderTests.InvalidPackageId_IsRejectedBeforeAnyAcquisition`
+  and `InvalidTargetText_IsRejectedBeforeAnyAcquisition`, which prove the
+  rejection precedes every source, cache, and network step for both store
+  kinds; and
+- a bounded-publication gate —
+  `PackagePayloadAcquisitionTests.UnboundedChunkedPayload_IsRejectedWithoutContentLength`,
+  `ArchiveDeclaringTooManyEntries_IsRejected`,
+  `ArchiveDeclaringTooMuchExpandedContent_IsRejected`,
+  `CacheHit_IsRevalidatedAgainstCurrentPayloadLimits`,
+  `InadmissibleCacheEntry_DoesNotMaskAnotherProducer`,
+  `CommitThatLosesToInadmissibleCachedContent_IsNotServed`,
+  `PackageExtractorAdmissionTests`,
+  `InvalidArchiveFromOneSource_LetsTheNextSourceServe`, and
+  `Acquisition_ObservesCancellationDuringDownload`, so a payload is bounded and
+  validated before it enters a store or returns from one, an inadmissible
+  producer cannot mask another authorized cached producer, and an unusable
+  payload stays a typed single-source failure;
+- an archive-admission gate — `PackageArchiveValidatorTests`, which refuses a
+  traversing, rooted, backslash-bearing, control-bearing, or overlong entry
+  path under the same rules both stores apply, streams every entry — including
+  the directory-shaped ones, which no store reads and which therefore hid
+  content from every budget while they were skipped — so an undecodable
+  compression method or a lying declared size is caught before publication
+  rather than after it, independently of the runtime ZIP stream's declared-size
+  behavior, refuses duplicate portable destinations before store selection,
+  and refuses an oversized declared directory before the archive is opened,
+  with
+  `PackageArchiveValidatorTests.Validate_AcceptsACentralDirectoryDigitalSignature`,
+  `PackageArchiveValidatorTests.Validate_RejectsHiddenContentWhoseCrcIsZero`,
+  `Validate_RejectsDuplicatePortableDestinations`,
+  `Validate_RejectsCaseAliasedPortableDestinations`,
+  `Validate_RejectsAFileUsedAsADirectory`,
+  `PackagePayloadAcquisitionTests.TraversingArchiveFromOneSource_IsRejectedAndNotCached`,
+  `ArchiveHidingContentInADirectoryEntry_IsRejectedAndNotCached`, and
+  `ArchiveWithUnsupportedCompression_IsRejectedBeforePublication` proving
+  the same end to end;
+- a producer-pinned re-acquisition gate —
+  `WorkspaceContextLoaderTests.RealizedLoad_ReacquiresFromTheRecordedProducer`,
+  `RealizedLoad_WithAnUnauthorizedProducer_FailsTyped`,
+  `RealizedLoad_WhenTheProducerCannotDiscoverTheResource_FailsTyped`,
+  `RealizedLoad_IgnoresACachedEntryFromAnotherProducer`, and
+  `RealizedLoad_RoundTripsAWholeContext`, so a transported realized coordinate
+  re-acquires the producer's own bytes, the host's authorization still governs
+  which producers may answer, and a coordinate the host cannot honour is typed
+  rather than silently served by another producer;
+- a framework-reduction gate — `TfmResolverTests.IsFrameworkCompatible_IsVersionAndFamilyAware`
+  with `PackageAssetSelectorTests.Select_NetFrameworkTargetAcceptsASupportedNetStandardAsset`,
+  `Select_NetCoreApp1TargetRejectsANetStandard21Asset`, and
+  `Select_PrefersTheTargetsOwnLineageOverNetStandard`, plus
+  `Select_AcceptsAnExactValidUnmodeledFramework` against
+  `Select_RejectsANonExactUnmodeledFramework`, so .NET Standard applicability
+  follows the support matrix rather than a cross-family age comparison while
+  an exact valid legacy TFM does not require a modeled compatibility family;
+  and
+- a resource-URL gate — `PackageResourceUrlTests` with
+  `PackagePayloadAcquisitionTests.SignedFlatContainerBase_ComposesThePackagePath`,
+  `MalformedFlatContainerBase_IsATypedSourceFailure`, and
+  `PackageCoordinateResolverTests.FloatingCoordinate_WithASignedFlatContainerBase_Resolves`,
+  so every flat-container path — payload, manifest, and version index — is
+  composed from a parsed base rather than concatenated onto, a signed query
+  survives, and unusable resource metadata ends one source instead of the
+  acquisition;
+- a URL-diagnostic gate —
+  `PackagePayloadAcquisitionTests.SignedPackageUrl_NeverReachesALogLine`,
+  `SignedPackageUrl_NeverReachesARetryFailureLogLine`, and
+  `CrossOriginSignedUrl_IsNotNamedInTheCredentialScopeLog`, so a signature the
+  request must carry reaches the wire and no log line, with one redaction owner
+  (`InertText.UrlRedaction`) in front of the retry, credential-scope,
+  and package-acquisition diagnostics;
+- a coordinate-canonicalization gate —
+  `WorkspaceContextLoaderTests.PackageMember_WithAnUnderscoreId_RealizesAfterAcquisition`,
+  `FloatingMember_SelectingAHyphenRichPrerelease_Realizes`,
+  `RealizedCoordinate_AcceptsRealPackageIdentitiesAndVersions`,
+  `EquivalentFrameworkCasing_RealizesEqualCoordinates`,
+  `NonCanonicalRuntimeIdentifier_IsRejectedBeforeAnyAcquisition`, and
+  `EmbeddedCoordinateWithANonGraphicScalar_IsRejectedBeforeProviderAccess`, so a
+  realized coordinate is held to the grammar of the thing it names — NuGet's id
+  and version rules, a normalized framework, a canonical runtime identifier, and
+  a bundle reference free of scalars that can act on a sink — rather than to a
+  moniker grammar that rejects real packages after their bytes are committed;
+  and
+- a one-acquisition-per-subject gate —
+  `WorkspaceContextLoaderTests.RealizedLoad_RoundTripsAWholeContext`,
+  `DuplicateDeclaredMembers_RealizeOneGroup`,
+  `EquivalentDuplicateMembers_CollapseToOneAcquisition`,
+  `EquivalentFloatingDuplicates_CollapseToOneAcquisition`,
+  `DifferentAcquisitionsOfOneSubject_CreateNoGroup`,
+  `RealizedDuplicatesFromDifferentProducers_CreateNoGroup`, and
+  `EmbeddedDuplicatesWithDifferentDigests_CreateNoGroup`, so equivalence is
+  decided by a canonical acquisition key — normalized id and version, effective
+  target, producer — rather than by coordinate spelling, and a context that
+  names one subject twice either collapses to one acquisition or fails typed;
+- a one-identity-per-group gate —
+  `WorkspaceContextLoaderTests.DuplicateAssemblyIdentityInOnePackage_CreatesNoGroup`
+  and `DuplicateAssemblyIdentityAcrossProducers_CreatesNoGroup` against their
+  close positive `DistinctAssemblyVersions_LoadAndBindExactly`, so a context
+  whose members realize two images of one assembly identity fails typed with no
+  group created, while two versions of one library coexist and bind exactly;
+- a stable-only floating gate —
+  `PackageCoordinateResolverTests.FloatingCoordinate_WithOnlyPrereleases_IsUnavailable`,
+  `FloatingCoordinate_WithMixedVersions_HonoursThePrereleaseFlag`, and
+  `FloatingCoordinate_AppliesStablePreferenceAcrossSources`, against
+  `FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer` and
+  `ExactPrereleasePin_ResolvesWithoutTheFlag`, so a feed carrying no stable
+  release has no answer for a caller that did not ask for a prerelease, a higher
+  prerelease from one feed cannot hide a stable answer from another, and a
+  partial source set cannot be presented as the complete floating answer; and
+- a hostile-moniker gate — `TfmResolverTests.TryGetFrameworkIdentity_RejectsEverythingOutsideTheDigitGrammar`
+  under the invariant and `sv-SE` cultures, with
+  `PackageAssetSelectorTests.Select_RejectsASignBearingFrameworkFolder` and
+  `WorkspaceContextLoaderTests.PackageWithASignBearingFrameworkFolder_IsTypedUnavailable`,
+  so an archive folder whose framework text carries a sign is an ordinary
+  unusable folder rather than an exception escaping the loader after commit.
+
+Nothing else on the list above exists yet. There is no record schema or
+serializer, no group catalog or grammar, no packet projection, no `platform`,
+`project`, `local`, or `directory` coordinate, and no preset binding, so every
+property that depends on those remains unverified.
+
+Until those gates exist, nothing in this note beyond the slice above is a
+behavior claim.

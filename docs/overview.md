@@ -11,9 +11,10 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-manifest-resource, type-forwarder, SourceLink, Integrations, implementation
-relationships, type/member search, extension reachability, API-comparison,
-Analysis body-signal comparison, and Implementation comparison inspection. The
+manifest-resource, type-forwarder, union-type, SourceLink, Integrations,
+implementation relationships, type/member search, extension reachability,
+API-comparison, Analysis body-signal comparison, and Implementation comparison
+inspection. The
 `diff` Changes, Analysis Diff, and Implementation Diff sections consume
 producer-owned comparison results over host-resolved surfaces, body indexes,
 and retained assembly content.
@@ -28,9 +29,10 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, extension-method, custom-attribute,
-  manifest-resource, type-forwarder, SourceLink, implementation-relationship,
-  type/member search, extension-reachability, API-comparison, and progressive
-  call-graph queries. It has no Markout, console, or filesystem-path dependency.
+  manifest-resource, type-forwarder, union-type, SourceLink,
+  implementation-relationship, type/member search, extension-reachability,
+  API-comparison, and progressive call-graph queries. It has no Markout,
+  console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It compares already-acquired Analysis body indexes and
   retained implementation assembly content, returning Research-owned results
@@ -75,6 +77,15 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Inspection graph document](design/inspection-graph-document.md): typed
+  multi-subject graph projection for calls, metadata relationships,
+  integrations, Findings, characteristics, and package/type lenses.
+- [Inspection graph modes](design/inspection-graph-modes.md): single-seed,
+  peer-seed, and induced-set requests over member, type, assembly, and package
+  subjects.
+- [Call graph characteristics](design/call-graph-characteristics.md):
+  call-specific mapping from current topology, signals, loop state, and
+  physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
 - [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.

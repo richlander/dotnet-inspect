@@ -7,6 +7,7 @@ public sealed class OptimizationOpportunityAnalysisTests
     const int BitConverterToken = 0x0A000001;
     const int EnumeratorToken = 0x0A000002;
     const int SpanToArrayToken = 0x0A000003;
+    const int MaterializerToken = 0x0A000004;
 
     static readonly TypeRef s_int =
         TypeRef.CoreLib("System", "Int32");
@@ -80,6 +81,30 @@ public sealed class OptimizationOpportunityAnalysisTests
 
         Assert.Single(unrelated);
         Assert.Equal(0, unrelatedResolver.ReachingDefinitionsCalls);
+
+        byte[] outsideLoopMaterializerIl =
+        [
+            0x28, 0x04, 0x00, 0x00, 0x0A,
+            0x26,
+            0x2A,
+        ];
+        var outsideLoopMaterializerContext =
+            Context(outsideLoopMaterializerIl);
+        var outsideLoopMaterializerResolver =
+            new Resolver(outsideLoopMaterializerIl);
+
+        var outsideLoopMaterializer =
+            OptimizationOpportunityAnalysis.Collect(
+                outsideLoopMaterializerContext,
+                [],
+                new MethodAllocationAnalysis(
+                    outsideLoopMaterializerContext),
+                outsideLoopMaterializerResolver);
+
+        Assert.Empty(outsideLoopMaterializer);
+        Assert.Equal(
+            0,
+            outsideLoopMaterializerResolver.ReachingDefinitionsCalls);
 
         byte[] spanCopiesIl =
         [
@@ -220,6 +245,25 @@ public sealed class OptimizationOpportunityAnalysisTests
                     MemberKind.Method)
                 {
                     HasThis = true,
+                },
+                MaterializerToken => new MemberRef(
+                    TypeRef.Definition(
+                        "System.Linq",
+                        "System.Linq",
+                        "Enumerable"),
+                    "ToArray",
+                    [
+                        TypeRef.GenericInstance(
+                            TypeRef.CoreLib(
+                                "System.Collections.Generic",
+                                "IEnumerable`1"),
+                            [s_int]),
+                    ],
+                    TypeRef.SzArray(s_int),
+                    MemberKind.Method)
+                {
+                    GenericArity = 1,
+                    TypeArguments = [s_int],
                 },
                 _ => MemberRef.Unsupported(
                     "member token"),

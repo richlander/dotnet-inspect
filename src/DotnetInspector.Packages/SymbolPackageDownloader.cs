@@ -1,5 +1,6 @@
 using System.Net;
 using DotnetInspector.Core;
+using InertText;
 
 namespace DotnetInspector.Packages;
 
@@ -290,7 +291,8 @@ public class SymbolPackageDownloader
                     continue;
                 }
 
-                log?.Invoke($"Found symbol package at: {snupkgUrl}");
+                log?.Invoke(
+                    $"Found symbol package at: {UrlRedaction.ForDiagnostics(snupkgUrl)}");
                 var result = await ExtractPdbFromSymbolPackage(
                     response, cacheKey, assemblyPath, pdbGuid, windowsPdbDetected, log, cancellationToken).ConfigureAwait(false);
                 if (result.WindowsPdbDetected)
@@ -303,7 +305,9 @@ public class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
-                log?.Invoke($"Error downloading symbol package: {ex.Message}");
+                log?.Invoke(
+                    "Error downloading symbol package: "
+                    + UrlRedaction.DescribeRequestFailure(snupkgUrl, ex));
             }
         }
 

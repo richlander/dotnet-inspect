@@ -249,6 +249,35 @@ session boundary are copied or reduced to immutable tokens and shapes. This
 prevents use-after-dispose and avoids lending privileged readers to higher
 layers.
 
+Assembly-reference names remain metadata identity rather than filesystem path
+components. Reference-tree traversal resolves `AssemblyReferenceIdentity`
+through the shared resolver's enumerated candidate catalog. Its tree-specific
+policy preserves sibling-first, version-tolerant selection relative to each
+resolved parent before falling back to installed platform assets; supplied
+culture and public-key-token constraints still bind, while omitted constraints
+remain wildcards because typed identity travels through the inspection model
+rather than being reconstructed from display text. It excludes the inspecting
+process's own trusted platform assembly closure. Platform lookup matches
+requested names against enumerated file names. An unreadable name-matching
+candidate blocks fallback to lower-priority candidate tiers, while other
+case-distinct candidates in the same tier remain eligible. A readable
+same-name sibling that does not satisfy identity likewise owns the local tier
+and blocks installed-platform fallback. The decompiler's
+default sibling-only resolver follows the same boundary: it resolves the owner
+path before enumerating neighboring assemblies, then selects by metadata
+identity rather than deriving a path from the requested name. The
+`AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
+and the sibling/platform/culture/failure-state tests in that class,
+`AssemblyDependencyResolverTests.Select_UnreadableSiblingDoesNotFallThroughToTpa`,
+`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`,
+`AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`,
+`AssemblyReferenceTreeResolutionTests.MismatchingPlatformNamedSibling_ShadowsInstalledPlatformFallback`,
+`AssemblyReferenceResolverTests.SiblingResolver_BareOwnerPathUsesCurrentDirectory`,
+`AssemblyReferenceResolverTests.SiblingResolver_AssemblyReferenceNameCannotEscapeDirectory`,
+and
+`PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
+gate these seams.
+
 ### Package archives use traversal-aware extraction
 
 NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
@@ -682,6 +711,55 @@ replace it with the general shared client.
 Checksums from portable PDB documents authenticate source content when the
 workflow claims authored-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
+
+### Authored-source lexing is complexity-bounded
+
+The source byte limit is not by itself a memory bound. A punctuation-dense file
+can produce nearly one retained lexical token per byte, and each token costs
+more memory than its source spelling. A newline-dense file can likewise
+materialize one retained line entry per byte before tokenization begins.
+`CSharpLexer` therefore stops emission at 500,000 tokens, and
+`DeclarationIndex` refuses more than 500,000 physical lines before splitting
+the source. CR, LF, CRLF, NEL, line separator, and paragraph separator each
+follow the same physical-line accounting.
+`DeclarationIndex` carries the declaration's starting column so
+`BodySlicer` consumes that bounded token stream once rather than tokenizing the
+same untrusted file again.
+
+Uncertain transparent scopes record row ranges during the lexical pass and
+apply all overlapping ranges in one linear finalization pass. They do not
+rescan and rewrite the declaration suffix once per scope.
+`DeclarationIndexTests.ManyUnclosedExtensionScopes_ApplyTrustInOneFinalPass`
+compares elapsed time with an equivalent row baseline and applies an allocation
+budget to an accepted input near the token limit.
+File-scoped namespace ends likewise reuse one suffix summary rather than
+rescanning every later row;
+`DeclarationIndexTests.ManyFileScopedNamespaces_ReuseOneSuffixSummary` gates
+that work and allocation bound. Conditional initializer tails inspect each
+pending token once. Conditional terminators revoke each direct sibling at most
+once and memoize each completed outward ancestor walk across the scan; a later
+child is still visited before its parent's completed walk stops the traversal.
+Those bounds are gated respectively by
+`DeclarationIndexTests.ConditionalInitializerTail_ExaminesEachPendingTokenOnce`,
+`DeclarationIndexTests.ConditionalSiblingFanOut_RefusesEachSiblingOnce`, and
+`DeclarationIndexTests.ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce`.
+Carried interpolation state maintains the number of
+line-bound frames as frames change rather than walking every frame after every
+physical line;
+`ScanTokenTests.DeepMultilineInterpolation_DoesNotMultiplyFrameDepthByPhysicalLines`
+gates that depth-by-lines bound.
+
+Limit exhaustion is a visible extraction failure, not an absent declaration.
+`ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
+token emission boundary, while
+`DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
+pre-allocation line boundary, and
+`AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+gates the Findings-facing result, while
+`CommandExecutionTests.OriginalSource_TokenDenseInputCarriesAVisibleFailureState`
+gates the member-command result.
+`DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
+one-pass ownership boundary.
 
 ## Resource extraction contract
 

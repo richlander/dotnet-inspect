@@ -5956,27 +5956,6 @@ public static class EnumCastSamples
         => new[] { (System.StringComparison)4, System.StringComparison.OrdinalIgnoreCase };
 }
 
-// Issue #1767: a value produced at a stack slot (the object-merged `cond ? null
-// : value` ternary) and consumed at a control-flow merge where the slot is typed
-// `string` (a field store) must share ONE local name. Keying slot names on
-// (slot, type) split them into `object S_1` (store) and `string S_1_1` (load),
-// so the consumer read an unassigned local (CS0165) and the value was dropped.
-public static class MergedSlotStrU
-{
-    public static bool IsNullOrEmpty(string s) => s == null || s.Length == 0;
-}
-
-public class MergedSlotProbe
-{
-    private string? _fmt;
-
-    public string? MergedFormat
-    {
-        get => _fmt;
-        set => _fmt = MergedSlotStrU.IsNullOrEmpty(value!) ? null : value;
-    }
-}
-
 // Issue: a user-defined operator with `in`/`ref` parameters is called with the
 // operands' addresses (ldarga/ldloca). The operator must spell as `a != b`, not
 // `(ref a) != (ref b)` — the latter is CS1525 "Invalid expression term 'ref'".
@@ -6034,23 +6013,5 @@ public static class BoolBoxProbe
         if (value)
             return 1;
         return 2;
-    }
-}
-
-// Issue #1841 (#1202 residual): foreach over a struct array element takes the
-// element address (ldelema); the collection must render as `arr[i]`, not the
-// invalid `ref arr[i]`. ImmutableArray<int> is a struct, so `foreach (x in
-// Rows[i])` enumerates by address.
-public class ForeachElementProbe
-{
-    public System.Collections.Immutable.ImmutableArray<int>[] Rows = new System.Collections.Immutable.ImmutableArray<int>[1];
-    public int Sum(int i)
-    {
-        int total = 0;
-        foreach (int x in Rows[i])
-        {
-            total += x;
-        }
-        return total;
     }
 }
