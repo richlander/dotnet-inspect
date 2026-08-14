@@ -174,9 +174,13 @@ public class PackageCommand
             if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
+            IReadOnlyCollection<string>? tabularSections =
+                options.FixedOverview
+                    ? pipeline.BareSelectSectionNames
+                    : options.IncludeSections;
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(
                     options.TabularExplicitlySet,
-                    options.IncludeSections))
+                    tabularSections))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections

@@ -18355,7 +18355,6 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                "--tsv",
                 "--count");
 
             Assert.Equal(0, exit);
@@ -18371,7 +18370,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewRejectsUnknownFields()
+    public async Task Package_MultiplePackages_FixedOverviewCountRejectsUnknownFields()
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
@@ -18393,25 +18392,12 @@ public partial class CommandExecutionTests
                 "--count",
                 "--fields",
                 "Bogus");
-            var rows = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "--tsv",
-                "--fields",
-                "Bogus");
 
             Assert.Equal(1, count.Exit);
-            Assert.Equal(1, rows.Exit);
             Assert.Empty(count.Output);
-            Assert.Empty(rows.Output);
             Assert.Contains(
                 "No fields matched projection: Bogus",
                 count.Error);
-            Assert.Contains(
-                "No fields matched projection: Bogus",
-                rows.Error);
         }
         finally
         {
@@ -18800,17 +18786,29 @@ public partial class CommandExecutionTests
                 "@Files",
                 "--tsv",
                 "--count");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "--tsv",
+                "--count");
 
             Assert.Equal(1, single.Exit);
             Assert.Equal(1, multiple.Exit);
+            Assert.Equal(1, fixedOverview.Exit);
             Assert.Empty(single.Output);
             Assert.Empty(multiple.Output);
+            Assert.Empty(fixedOverview.Output);
             Assert.Contains(
                 "--table, --tsv, and --jsonl display one section at a time",
                 single.Error);
             Assert.Contains(
                 "--table, --tsv, and --jsonl display one section at a time",
                 multiple.Error);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                fixedOverview.Error);
         }
         finally
         {
