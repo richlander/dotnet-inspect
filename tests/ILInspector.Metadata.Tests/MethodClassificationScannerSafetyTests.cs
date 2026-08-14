@@ -29,10 +29,44 @@ public sealed class MethodClassificationScannerSafetyTests
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
-        Assert.Contains("method-identity decode failure budget", ex.Message);
+        Assert.True(
+            ex.Message.Contains("method-identity decode failure budget", StringComparison.Ordinal)
+                || ex.Message.Contains("cumulative work budget", StringComparison.Ordinal)
+                || ex.Message.Contains("classification scan work budget", StringComparison.Ordinal),
+            ex.Message);
         Assert.True(
             allocated < 24 * 1024 * 1024,
             $"Multi-method hostile identity scan allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation()
+    {
+        // Each method stays under the per-anchor work budget, so the failure
+        // counter never trips — but 64 near-limit successes still multiplied to
+        // ~800 MiB. The scan-level work budget must reject earlier.
+        const int methodCount = 64;
+        const int parameterCount = 30;
+        const int genericArity = 2_030;
+        byte[] image = BuildHostilePInvokeIdentityImage(
+            methodCount,
+            parameterCount,
+            genericArity);
+        using var pe = new PEReader(new MemoryStream(image));
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex = Assert.Throws<BadImageFormatException>(
+            () => MethodClassificationScanner.Scan(pe));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.True(
+            ex.Message.Contains("cumulative work budget", StringComparison.Ordinal)
+                || ex.Message.Contains("classification scan work budget", StringComparison.Ordinal),
+            ex.Message);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Near-limit multi-method identity scan allocated {allocated:N0} bytes.");
     }
 
     [Fact]

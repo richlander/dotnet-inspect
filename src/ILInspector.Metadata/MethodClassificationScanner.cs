@@ -93,6 +93,8 @@ public static class MethodClassificationScanner
 
         var reader = peReader.GetMetadataReader();
         int identityDecodeFailures = 0;
+        int scanWorkRemaining =
+            MetadataSafetyPolicy.MaxClassificationScanWorkChars;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -124,7 +126,8 @@ public static class MethodClassificationScanner
                             reader,
                             typeDefHandle,
                             method,
-                            ref identityDecodeFailures);
+                            ref identityDecodeFailures,
+                            ref scanWorkRemaining);
                         identityAttempted = true;
                     }
 
@@ -256,18 +259,34 @@ public static class MethodClassificationScanner
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinition method,
-        ref int identityDecodeFailures)
+        ref int identityDecodeFailures,
+        ref int scanWorkRemaining)
     {
         try
         {
-            return ApiMemberIdentity.CreateMethodAnchorInfo(reader, typeHandle, method);
+            return ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                typeHandle,
+                method,
+                ref scanWorkRemaining);
         }
         catch (BadImageFormatException ex)
         {
             // One malformed anchor is skippable (null identity on that row). Many
-            // hostile methods each paying the per-anchor reject cost is not —
-            // fail the scan after the policy cap. Gated by
-            // MaxClassificationIdentityDecodeFailures.
+            // hostile methods each paying the per-anchor reject cost — or many
+            // near-limit successes drawing down the scan work budget — are not.
+            // Gated by MaxClassificationIdentityDecodeFailures and
+            // MaxClassificationScanWorkChars.
+            // Exhausted scan-level work (including a single near-limit identity that
+            // consumed the shared budget) must fail the scan, not soft-skip.
+            if (scanWorkRemaining <= 0
+                || ex.Message.Contains(
+                    "classification scan work budget",
+                    StringComparison.Ordinal))
+            {
+                throw;
+            }
+
             NoteDecodeFailure(ref identityDecodeFailures, ex);
             return null;
         }
