@@ -135,6 +135,8 @@ public static class MetadataDeclarationQuery
                 Attributes = declaration.Attributes.ToList(),
                 GetterToken = declaration.Getter.IsNil ? null : MetadataTokens.GetToken(declaration.Getter),
                 SetterToken = declaration.Setter.IsNil ? null : MetadataTokens.GetToken(declaration.Setter),
+                HasMethodBody = HasMethodBody(reader, declaration.Getter)
+                    || HasMethodBody(reader, declaration.Setter),
             });
         }
 
@@ -165,6 +167,7 @@ public static class MetadataDeclarationQuery
                 IsVirtual = declaration.IsVirtual,
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
+                HasMethodBody = method.RelativeVirtualAddress != 0,
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
             });
@@ -200,6 +203,9 @@ public static class MetadataDeclarationQuery
 
         return type;
     }
+
+    static bool HasMethodBody(MetadataReader reader, MethodDefinitionHandle handle)
+        => !handle.IsNil && reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
 
     /// <summary>
     /// The C#-declaration type parameters for a type — its own parameters only,

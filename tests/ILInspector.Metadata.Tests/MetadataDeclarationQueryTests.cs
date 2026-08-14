@@ -122,6 +122,22 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_RecordsExecutableBodyPresence()
+    {
+        var concrete = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+        var abstractType = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.AbstractBase)),
+            includeNonPublicMembers: true);
+
+        Assert.True(Assert.Single(concrete.Members, member => member.Name == "Count").HasMethodBody);
+        Assert.True(Assert.Single(concrete.Members, member => member.Name == "while").HasMethodBody);
+        Assert.False(Assert.Single(abstractType.Members, member => member.Name == "Name").HasMethodBody);
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(

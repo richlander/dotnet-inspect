@@ -360,7 +360,10 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsBodyBacked);
+            => model.Members.Any(member =>
+                HasExecutableBody(member)
+                || member.IsUnsafe
+                || member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded);
     }
 
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>

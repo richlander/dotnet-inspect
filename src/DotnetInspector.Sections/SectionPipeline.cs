@@ -446,6 +446,7 @@ public sealed class SectionPipeline<TModel>
         bool includeInapplicable = false)
     {
         List<InspectionViewDescriptor> result = [];
+        IReadOnlySet<string> catalogHiddenSections = GetCatalogHiddenSections();
 
         for (int index = 0; index < _entries.Count; index++)
         {
@@ -476,7 +477,7 @@ public sealed class SectionPipeline<TModel>
                 IsHighValue: entry.Info,
                 IsExpensive: entry.IsExpensive,
                 IsExplicitOnly: entry.ExplicitOnly,
-                IsListed: entry.ListedInCatalog,
+                IsListed: !catalogHiddenSections.Contains(entry.Name),
                 SizeClass: entry.SizeClass,
                 Cost: entry.Cost,
                 Capabilities: entry.Capabilities));

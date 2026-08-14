@@ -282,6 +282,26 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
+    public void CuratedViewListing_MatchesOwningPipelineCatalog()
+    {
+        AssertListingMatchesCatalog(
+            LibrarySections.CreatePipeline(),
+            new LibraryInspection
+            {
+                AssemblyInfo = new AssemblyInfo(),
+                HasSourceLink = true
+            });
+        AssertListingMatchesCatalog(
+            PackageSectionDescriptors.CreatePipeline(),
+            new InspectionResult
+            {
+                PackageName = "Example.Package",
+                Version = "1.0.0",
+                AssemblyCount = 1
+            });
+    }
+
+    [Fact]
     public void PackageSourceLinkViews_DiscloseAcquisitionCapabilities()
     {
         var model = new InspectionResult
@@ -438,5 +458,63 @@ public class InspectionViewDescriptorTests
 
         Assert.Contains(SectionNames.UnsafeMembers, discoverable);
         Assert.Equal([SectionNames.UnsafeMembers], selection.SectionNames);
+    }
+
+    [Fact]
+    public void TypeDiscovery_OmitsUnsafeMembersForSafeBodylessMembers()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "ISafe",
+            Kind = "interface",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method"
+                }
+            ]
+        };
+
+        IReadOnlyList<string> discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.DoesNotContain(SectionNames.UnsafeMembers, discoverable);
+    }
+
+    [Fact]
+    public void TypeDiscovery_PreservesDegradedSignaturesWithoutExecutableBodies()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "IDegraded",
+            Kind = "interface",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    SignatureDecodeStatus = SignatureDecodeStatus.Degraded
+                }
+            ]
+        };
+
+        IReadOnlyList<string> discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.Contains(SectionNames.UnsafeMembers, discoverable);
+    }
+
+    static void AssertListingMatchesCatalog<TModel>(
+        SectionPipeline<TModel> pipeline,
+        TModel model)
+    {
+        IReadOnlySet<string> hidden = pipeline.GetCatalogHiddenSections();
+
+        Assert.All(
+            pipeline.GetInspectionViews(model, includeInapplicable: true),
+            view => Assert.Equal(!hidden.Contains(view.Id), view.IsListed));
     }
 }
