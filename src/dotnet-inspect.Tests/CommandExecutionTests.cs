@@ -4033,6 +4033,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("Called Types", "--json")]
     [InlineData("@Surface", "--tsv")]
+    [InlineData("Called Types", "--jsonl")]
     public async Task Type_EffectiveDiscovery_OwnsFormatValidation(string section, string format)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4041,8 +4042,38 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
+        if (format == "--json")
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        }
+        else if (format == "--tsv")
+        {
+            Assert.StartsWith("name\tkind", output);
+        }
+        else
+        {
+            foreach (var line in SplitOutputLines(output))
+            {
+                using var document = JsonDocument.Parse(line);
+                Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+            }
+        }
         Assert.DoesNotContain("cannot be represented as raw type JSON", error, StringComparison.Ordinal);
         Assert.DoesNotContain("Selection matches", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_EffectiveDiscovery_HonorsCountProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.A", "--platform", "System.Runtime",
+            "-S", "Delegates", "-D", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
+        Assert.True(count > 0);
+        Assert.DoesNotContain("unprojected output", error, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -5134,6 +5165,18 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal("This section (Values) produced no output.", error.Trim());
+    }
+
+    [Fact]
+    public async Task Type_SingleType_LegacyAliasForEmptySection_FailsWithoutDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.DayOfWeek", "--platform", "System.Runtime",
+            "-S", "Optimization Opportunities", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal("This section (Performance Triage) produced no output.", error.Trim());
     }
 
     [Fact]

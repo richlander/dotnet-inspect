@@ -732,17 +732,26 @@ public class ApiCommand
         ApiOptions options,
         IEnumerable<string> sectionNames)
     {
-        string? selected = options.Select is [var selector]
-            ? selector
-            : options.Select is null
-                && !options.SelectDefault
-                && options.IncludeSections is { Count: 1 }
-                    ? options.IncludeSections.Single()
-                    : null;
-        if (selected is null)
-            return null;
+        var knownSections = sectionNames.ToArray();
+        if (options.Select is [var selector])
+        {
+            var result = SelectResolver.ResolveSelectAsSections(
+                [selector],
+                knownSections);
+            return result.ExactSections.Count == 1
+                ? result.ExactSections.Single()
+                : null;
+        }
 
-        return sectionNames.FirstOrDefault(
+        if (options.Select is not null
+            || options.SelectDefault
+            || options.IncludeSections is not { Count: 1 })
+        {
+            return null;
+        }
+
+        var selected = options.IncludeSections.Single();
+        return knownSections.FirstOrDefault(
             section => section.Equals(selected, StringComparison.OrdinalIgnoreCase));
     }
 

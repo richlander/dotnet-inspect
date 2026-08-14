@@ -42,8 +42,11 @@ public static class DiscoverOutput
                 : 0;
         }
 
+        bool machineReadable = json || tsv || jsonl;
+
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree
+            && !machineReadable
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
                 value, sectionCategories, schema.SectionNames, out _, out _))
@@ -51,7 +54,10 @@ public static class DiscoverOutput
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
-        if (!tree && discover is null or { Length: 0 } && verbosity >= 3)
+        if (!tree
+            && !machineReadable
+            && (discover is null or { Length: 0 })
+            && verbosity >= 3)
             tree = true;
 
         if (tree)

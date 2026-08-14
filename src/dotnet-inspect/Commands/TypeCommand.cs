@@ -377,7 +377,8 @@ public static class TypeCommand
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                         sectionCategories: typePipeline.GetCategoryMap(),
                         catalogHiddenSections: typePipeline.GetCatalogHiddenSections(),
-                        listedCategoryDoors: typePipeline.GetListedCategoryDoors());
+                        listedCategoryDoors: typePipeline.GetListedCategoryDoors(),
+                        projection: options);
                 }
                 else if (TryWritePrefixBrowse(
                     api,
