@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using ILInspector.Metadata;
@@ -9,19 +10,38 @@ namespace DotnetInspector.Tests;
 public class EcosystemIntegrationScannerTests
 {
     [Fact]
-    public void Scan_IgnoresNonPublicStarterExtensionMethods()
+    public void Scan_ProjectsExactOrderedPublicCurrencyAndPresence()
     {
         using var stream = BuildDependencyInjectionExtensionAssembly();
         using var peReader = new PEReader(stream);
 
         var signals = EcosystemIntegrationScanner.Scan(peReader);
-        var apis = signals
-            .Where(signal => signal.Shape == IntegrationSignalShape.Api)
-            .Select(signal => signal.Name)
-            .ToArray();
+        EcosystemIntegrationSignalInfo[] expected =
+        [
+            new(
+                EcosystemIntegrationNames.DependencyInjection,
+                "Service Registration",
+                "Microsoft.Extensions.DependencyInjection.TestServiceCollectionExtensions.AddPublicThing(...)",
+                IntegrationSignalShape.Api),
+            new(
+                EcosystemIntegrationNames.DependencyInjection,
+                "Dependency Injection",
+                "Microsoft.Extensions.DependencyInjection.IServiceCollection"),
+        ];
 
-        Assert.Contains("Microsoft.Extensions.DependencyInjection.TestServiceCollectionExtensions.AddPublicThing(...)", apis);
-        Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.TestServiceCollectionExtensions.AddInternalThing(...)", apis);
+        Assert.Equal(expected, signals);
+
+        var scannedPresence =
+            EcosystemIntegrationScanner.ScanPresence(peReader.GetMetadataReader());
+        var summarizedPresence =
+            EcosystemIntegrationScanner.SummarizePresence(
+                peReader,
+                signals,
+                hasOpenTelemetrySupport: false);
+
+        Assert.Equal(scannedPresence, summarizedPresence);
+        Assert.Equal(1, scannedPresence.IntegrationCount);
+        Assert.True(scannedPresence.HasDependencyInjectionSupport);
     }
 
     private static MemoryStream BuildDependencyInjectionExtensionAssembly()

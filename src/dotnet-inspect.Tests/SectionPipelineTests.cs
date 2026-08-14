@@ -1533,6 +1533,19 @@ public class SectionPipelineTests
         Assert.Equal([UnionTypesQuery.Definition], queries);
     }
 
+    [Fact]
+    public void LibraryPipeline_TargetedSwitches_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Switches" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([SwitchesQuery.Definition], queries);
+    }
+
     // ===== Scanner registry tests =====
 
     [Fact]
@@ -1640,6 +1653,7 @@ public class SectionPipelineTests
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
+                SwitchesQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
             ],
@@ -2485,6 +2499,162 @@ public class SectionPipelineTests
             model.UnionTypeInspection!.Value);
         Assert.Null(model.UnionTypes);
         Assert.Equal("Union Types", Assert.Single(model.InspectionFailures!).Section);
+    }
+
+    [Fact]
+    public void SwitchesQuery_ReturnsOrderedCompositeSwitchesFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(DotnetInspector.Fixtures.AppContextSwitchFixture).Assembly.Location);
+
+        var result = Assert.IsType<SwitchesResult.Available>(
+            SwitchesQuery.Execute(session));
+
+        Assert.Contains(
+            result.Switches,
+            item => item is
+            {
+                Kind: "AppContext",
+                Switch: "DotnetInspector.Fixtures.AppContextOnly",
+            });
+        Assert.Single(
+            result.Switches,
+            item => item.Switch == "DotnetInspector.Fixtures.Duplicate");
+        Assert.DoesNotContain(
+            result.Switches,
+            item => item.Switch.StartsWith("TestSwitch.", StringComparison.Ordinal)
+                || item.Switch.StartsWith("Switch.", StringComparison.Ordinal)
+                || item.Switch.StartsWith(
+                    "System.Resources.UseSystemResourceKeys",
+                    StringComparison.Ordinal));
+        Assert.Equal(
+            result.Switches
+                .OrderBy(item => item.Kind, StringComparer.Ordinal)
+                .ThenBy(item => item.Switch, StringComparer.Ordinal)
+                .ThenBy(item => item.Api, StringComparer.Ordinal),
+            result.Switches);
+    }
+
+    [Fact]
+    public void SwitchesQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(DotnetInspector.Fixtures.AppContextSwitchFixture).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [SwitchesQuery.Definition],
+            context);
+        var switches = Assert.IsType<SwitchesResult.Available>(
+            results.Get(SwitchesQuery.Definition));
+
+        Assert.Contains(
+            switches.Switches,
+            item => item.Switch == "DotnetInspector.Fixtures.AppContextOnly");
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void SwitchesQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [SwitchesQuery.Definition],
+            context);
+        var failure = Assert.IsType<SwitchesResult.Failed>(
+            results.Get(SwitchesQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void SwitchesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(DotnetInspector.Fixtures.AppContextSwitchFixture).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<SwitchesResult.Failed>(
+            SwitchesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void SwitchesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary =
+            typeof(DotnetInspector.Fixtures.AppContextSwitchFixture).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            var canary = Assert.IsType<SwitchesResult.Available>(
+                SwitchesQuery.Execute(canarySession));
+            Assert.Contains(
+                canary.Switches,
+                item => item.Switch == "DotnetInspector.Fixtures.AppContextOnly");
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [SwitchesQuery.Definition],
+            context);
+        var failure = Assert.IsType<SwitchesResult.Failed>(
+            results.Get(SwitchesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void SwitchesQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<SwitchesResult.Failed>(
+            SwitchesQuery.Execute(session));
+        LibraryMetadataService.ApplySwitchesResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<SwitchInfo>.Failed>(
+            model.SwitchInspection!.Value);
+        Assert.Null(model.Switches);
+        Assert.Equal("Switches", Assert.Single(model.InspectionFailures!).Section);
     }
 
     [Fact]
@@ -3982,9 +4152,8 @@ public class SectionPipelineTests
         //
         // That regression is invisible to every other test — the output still looks correct — so
         // it needs its own gate. The set below is pinned rather than derived because the property
-        // is historical: it is exactly what the deleted fan-out covered. Reverting any one of
-        // these registrations to LibraryMetadataService.ScanX(ctx.AssemblyPath, ...) drops the
-        // count and fails here.
+        // is historical: it is the scanner-backed residual of what the deleted fan-out covered.
+        // Reverting either registration to a path overload drops the count and fails here.
         //
         // What this does NOT do is simulate a concurrent retarget. AssemblyImage.Open uses
         // File.OpenRead (FileShare.Read), so a live session blocks delete and rename on Windows,
@@ -3994,7 +4163,6 @@ public class SectionPipelineTests
         [
             // remains from ScanInfoCounts's fan-out
             LibrarySections.ScannerClassifiedMethods,
-            LibrarySections.ScannerSwitches,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
         ];
@@ -4143,6 +4311,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 ResourcesQuery.Definition,
+                SwitchesQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
             ],
@@ -4357,8 +4526,8 @@ public class SectionPipelineTests
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
             // The action-based scanners must distinguish the fixtures on their own. Found by
-            // review: asserting only the combined signature let the two value-returning census
-            // scanners carry the whole assertion, so a tamper confined to the void Scan overload
+            // review: asserting only the combined signature let the value-returning census
+            // scanner carry the whole assertion, so a tamper confined to the void Scan overload
             // -- which is how Audit Signals, Integrations and Integration Opportunities run --
             // left this gate green while three scanners reopened the path.
             Assert.NotEqual(expectedA.Actions, expectedB.Actions);
@@ -4548,7 +4717,7 @@ public class SectionPipelineTests
     /// <summary>
     /// Runs the shared-session scanners over an untouched path and returns their signature, split
     /// so a caller can assert that the action-based scanners on their own distinguish the two
-    /// fixtures. Without that split, the two value-returning census scanners could carry the whole
+    /// fixtures. Without that split, the value-returning census scanner could carry the whole
     /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
     /// </summary>
     private static (string Full, string Actions) CensusSignature(string assemblyPath)
@@ -4575,15 +4744,12 @@ public class SectionPipelineTests
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
-        LibrarySections.ScannerSwitches,
         LibrarySections.ScannerAuditSignals,
     ];
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
-        $"unions={PayloadCount(model.UnionTypeInspection)}",
-        $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
 
     /// <summary>

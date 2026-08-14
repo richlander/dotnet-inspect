@@ -774,6 +774,251 @@ public sealed class CSharpFormatterTests
             CSharpFormatter.FormatParameterList(parameters));
     }
 
+    [Fact]
+    public void CanOmitParameterAndReturnAttributesFromMemberUnits()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Create",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Create",
+                ReturnType = "Widget",
+                ReturnAttributes = ["System.Diagnostics.CodeAnalysis.NotNull"],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Runtime.InteropServices.Optional"],
+                        Type = "int",
+                        Name = "value"
+                    }
+                ]
+            }
+        };
+
+        var withAttributes = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+        }).FormatMemberUnit(type, member);
+        var withoutAttributes = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            IncludeSignatureAttributes = false,
+        }).FormatMemberUnit(type, member);
+
+        Assert.Contains("[return: System.Diagnostics.CodeAnalysis.NotNull]", withAttributes.Text);
+        Assert.Contains("[Optional]", withAttributes.Text);
+        Assert.DoesNotContain("CodeAnalysis.NotNull", withoutAttributes.Text);
+        Assert.DoesNotContain("Optional", withoutAttributes.Text);
+        Assert.Contains("System.Runtime.InteropServices", withAttributes.Usings);
+        Assert.DoesNotContain("System.Runtime.InteropServices", withoutAttributes.Usings);
+    }
+
+    [Fact]
+    public void CanOmitSignatureAttributesFromDelegates()
+    {
+        var type = new ApiType
+        {
+            Name = "Callback",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Widget",
+                ReturnAttributes = ["Gamma.Result"],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["Beta.Widget"],
+                        Type = "Alpha.Widget",
+                        Name = "value"
+                    }
+                ]
+            }
+        };
+
+        var declaration = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            Usings = ["Alpha"],
+            IncludeSignatureAttributes = false
+        }).FormatDelegate(type, invoke);
+
+        Assert.Equal("public delegate Widget Callback(Widget value);", declaration);
+    }
+
+    [Fact]
+    public void DelegateAttributeSuffixCollisionRemainsQualified()
+    {
+        var type = new ApiType
+        {
+            Name = "Callback",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Other.MarkerAttribute",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["External.Marker"],
+                        Type = "int",
+                        Name = "value"
+                    }
+                ]
+            }
+        };
+
+        var declaration = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            Usings = ["External", "Other"]
+        }).FormatDelegate(type, invoke);
+
+        Assert.Equal(
+            "public delegate MarkerAttribute Callback([External.Marker] int value);",
+            declaration);
+    }
+
+    [Fact]
+    public void SignatureSuppressionDeclinesUnstructuredCompatibilityText()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature =
+                "void .ctor([External.Marker(typeof(Gamma.Widget))] Alpha.Widget value)"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeSignatureAttributes = false
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => formatter.FormatMember(type, constructor));
+
+        Assert.Contains(
+            "signature attributes cannot be suppressed safely",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SignatureSuppressionAllowsAttributeFreeModeledCompatibilityText()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Map",
+            Kind = "method",
+            Signature = "void Map(T value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Map",
+                TypeParameters = [new TypeParameter { Name = "T" }],
+                Parameters = [new ApiParameter { Type = "T", Name = "value" }]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeSignatureAttributes = false
+        });
+
+        var declaration = formatter.FormatMember(type, method, ["T"]);
+
+        Assert.Equal("public void Map<T>(T value)", declaration);
+    }
+
+    [Fact]
+    public void SignatureSuppressionDeclinesStructuredMetadataOnlyDefault()
+    {
+        var type = new ApiType { Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature =
+                "void .ctor([System.Runtime.InteropServices.Optional, "
+                + "System.Runtime.CompilerServices.DateTimeConstant(42L)] "
+                + "System.DateTime when)",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = ".ctor",
+                ReturnType = "void",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.DateTime",
+                        Name = "when",
+                        HasDefault = true,
+                        Attributes =
+                        [
+                            "System.Runtime.InteropServices.Optional",
+                            "System.Runtime.CompilerServices.DateTimeConstant(42L)"
+                        ]
+                    }
+                ]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeSignatureAttributes = false
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => formatter.FormatMember(type, constructor));
+
+        Assert.Contains(
+            "signature attributes cannot be suppressed safely",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OmittedPrimaryConstructorAttributesDoNotAffectTypeNames()
+    {
+        var type = new ApiType
+        {
+            Name = "Container",
+            Kind = "class",
+            Accessibility = "public"
+        };
+        var parameter = new ApiParameter
+        {
+            Attributes = ["Beta.Widget"],
+            Type = "Alpha.Widget",
+            Name = "value"
+        };
+
+        var declaration = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            Usings = ["Alpha"],
+            IncludeSignatureAttributes = false
+        }).FormatTypeDeclaration(type, [parameter]);
+
+        Assert.Equal("public class Container(Widget value)", declaration);
+    }
+
     [Theory]
     [InlineData("await")]
     [InlineData("file")]

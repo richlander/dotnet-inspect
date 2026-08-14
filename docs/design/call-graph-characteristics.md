@@ -36,6 +36,7 @@ Related:
 | `CallGraphProjection.Nodes` | Member identity, boundary kind, `CallTreePerf`, and graph evidence | Inspection-graph member nodes |
 | `CallGraphProjection.Edges` | One logical caller-to-callee row collapsed by `(From, To)` | Edge with primary `call` relationship |
 | `CallGraphEdge.LoopLabel` | Any collapsed site was in a loop, stored as display text | Legacy source for an aggregated loop descriptor |
+| `CallGraphInspectionGraphAdapter` | `call` edges with typed `call.logical-edge` projection receipts and explicit edge-scoped `call.physical-occurrences-unavailable` limits | Transitional L1 adapter until document-wide physical receipts land |
 | `AnnotatedCallGraphOccurrence` | Retained focus call site joined to an edge row and source fact | Partial occurrence adapter, not document-wide retention |
 | `CallGraphSectionAdapter --fields` | Node signal selection and label projection | L2 bindings over semantic node descriptors |
 | Markout `GraphEdge.Label` | Renderer slot | Projection target, never semantic storage |
@@ -43,8 +44,10 @@ Related:
 `AnnotatedCallGraphOccurrence` currently carries module, caller token, IL
 offset, operand token, `CallKind`, and loop state for focus call sites. It does
 not retain occurrences for every projected edge and does not carry dispatch
-kind. The first implementation slice must fill those gaps rather than describe
-them as current behavior.
+kind. The occurrence delivery slice must fill those gaps rather than describe
+them as current behavior. Until then, the generic adapter preserves each
+logical row as a typed projection receipt and keeps the missing physical detail
+visible as a limit; it does not fabricate call sites from logical rows.
 
 ## Call topology is not a characteristic
 
