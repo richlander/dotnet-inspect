@@ -61,16 +61,16 @@ public static class DependencyResolutionService
     /// </summary>
     public static DependencyGroup? FindBestMatchingTfmGroup(List<DependencyGroup> groups, string targetTfm)
     {
-        var exact = groups.FirstOrDefault(g =>
-            g.TargetFramework.Equals(targetTfm, StringComparison.OrdinalIgnoreCase));
+        List<DependencyGroup> legacyGroups = LegacyResolutionGroups(groups);
+        var exact = FindNormalizedExactGroup(legacyGroups, targetTfm);
         if (exact != null) return exact;
 
         var targetPriority = TfmSelector.GetTfmPriority(targetTfm);
 
         return TfmSelector.OrderByTfmPriorityDescending(
-                groups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
-                                  g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                                  TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
+                legacyGroups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
+                                        g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
+                                        TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
                 g => g.TargetFramework)
             .FirstOrDefault();
     }
@@ -93,16 +93,74 @@ public static class DependencyResolutionService
         {
             var group = allowCompatibleFallbackForRequestedTfm
                 ? FindBestMatchingTfmGroup(groups, requestedTfm)
-                : groups.FirstOrDefault(g => g.TargetFramework.Equals(requestedTfm, StringComparison.OrdinalIgnoreCase));
+                : FindExactOrUniversalGroup(groups, requestedTfm);
 
             return group == null
                 ? new DependencyGroupSelection(null, requestedTfm, DependencyGroupSelectionStatus.NoMatchingTargetFramework, availableTfms)
                 : new DependencyGroupSelection(group, requestedTfm, DependencyGroupSelectionStatus.Selected, availableTfms);
         }
 
-        var highest = TfmSelector.OrderByTfmPriorityDescending(groups, g => g.TargetFramework)
+        IEnumerable<DependencyGroup> candidates =
+            allowCompatibleFallbackForRequestedTfm
+                ? LegacyResolutionGroups(groups)
+                : groups;
+        var highest = TfmSelector.OrderByTfmPriorityDescending(
+                candidates,
+                g => g.TargetFramework)
             .First();
         return new DependencyGroupSelection(highest, highest.TargetFramework, DependencyGroupSelectionStatus.Selected, availableTfms);
+    }
+
+    static List<DependencyGroup> LegacyResolutionGroups(
+        IEnumerable<DependencyGroup> groups)
+    {
+        var result = new List<DependencyGroup>();
+        List<PackageDependency>? implicitDependencies = null;
+        foreach (DependencyGroup group in groups)
+        {
+            if (!group.IsImplicitManifestGroup)
+            {
+                result.Add(group);
+                continue;
+            }
+
+            implicitDependencies ??= [];
+            implicitDependencies.AddRange(group.Dependencies);
+        }
+
+        if (implicitDependencies is not null)
+        {
+            result.Add(new DependencyGroup
+            {
+                TargetFramework = "any",
+                Dependencies = implicitDependencies,
+                IsImplicitManifestGroup = true,
+            });
+        }
+
+        return result;
+    }
+
+    static DependencyGroup? FindExactOrUniversalGroup(
+        IEnumerable<DependencyGroup> groups,
+        string requestedTargetFramework)
+        => FindNormalizedExactGroup(groups, requestedTargetFramework)
+            ?? groups.FirstOrDefault(group =>
+                string.IsNullOrWhiteSpace(group.TargetFramework)
+                || group.TargetFramework.Equals(
+                    "any",
+                    StringComparison.OrdinalIgnoreCase));
+
+    static DependencyGroup? FindNormalizedExactGroup(
+        IEnumerable<DependencyGroup> groups,
+        string requestedTargetFramework)
+    {
+        string normalizedRequest = TfmSelector.NormalizeTfm(
+            requestedTargetFramework);
+        return groups.FirstOrDefault(group =>
+            TfmSelector.NormalizeTfm(group.TargetFramework).Equals(
+                normalizedRequest,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task<(List<DependencyNode> Children, string? Author)> ResolveChildDependenciesAsync(
