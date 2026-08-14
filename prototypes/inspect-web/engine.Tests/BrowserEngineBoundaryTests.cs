@@ -516,7 +516,7 @@ public sealed class BrowserEngineBoundaryTests
             AssemblyContextApiSurfaceQuery.ExecuteBounded(
                 group,
                 ApiSurfaceScope.PublicWithNonPublicTypes,
-                new ApiSurfaceProjectionLimits(1, 1, 1)));
+                new ApiSurfaceProjectionLimits(1, 1, 1, 1, 1)));
 
         Assert.NotNull(truncated.Truncation);
         Assert.False(truncated.IsComplete);

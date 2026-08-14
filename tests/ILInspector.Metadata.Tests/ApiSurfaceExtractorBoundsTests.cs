@@ -25,7 +25,11 @@ public sealed class ApiSurfaceExtractorBoundsTests
     {
         ApiSurface unbounded = Unbounded();
         ApiSurface bounded = Extracted(
-            new ApiSurfaceExtractionBounds(int.MaxValue, int.MaxValue));
+            new ApiSurfaceExtractionBounds(
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue));
 
         Assert.Equal(
             unbounded.Types.Select(type => (type.FullName, type.Members.Count)),
@@ -42,10 +46,17 @@ public sealed class ApiSurfaceExtractorBoundsTests
         ApiSurface unbounded = Unbounded();
         int types = unbounded.Types.Count;
         int members = unbounded.Types.Sum(type => type.Members.Count);
+        int inspectionFailures = unbounded.InspectionFailures.Count;
+        int typeForwarders = unbounded.TypeForwarders.Count;
         Assert.True(types > 0);
         Assert.True(members > 0);
 
-        ApiSurface exact = Extracted(new ApiSurfaceExtractionBounds(types, members));
+        ApiSurface exact = Extracted(
+            new ApiSurfaceExtractionBounds(
+                types,
+                members,
+                inspectionFailures,
+                typeForwarders));
 
         Assert.Equal(types, exact.Types.Count);
         Assert.Equal(members, exact.Types.Sum(type => type.Members.Count));
@@ -59,7 +70,11 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
         var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
             Extract(
-                new ApiSurfaceExtractionBounds(unbounded.Types.Count - 1, members)));
+                new ApiSurfaceExtractionBounds(
+                    unbounded.Types.Count - 1,
+                    members,
+                    int.MaxValue,
+                    int.MaxValue)));
 
         Assert.Equal(ApiSurfaceExtractionBound.Types, exceeded.Bound);
     }
@@ -72,7 +87,11 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
         var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
             Extract(
-                new ApiSurfaceExtractionBounds(unbounded.Types.Count, members - 1)));
+                new ApiSurfaceExtractionBounds(
+                    unbounded.Types.Count,
+                    members - 1,
+                    int.MaxValue,
+                    int.MaxValue)));
 
         Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
     }
@@ -83,7 +102,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void AnExhaustedTypeBudget_RefusesBeforeWalkingMembers()
     {
         var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
-            Extract(new ApiSurfaceExtractionBounds(0, 0)));
+            Extract(new ApiSurfaceExtractionBounds(0, 0, int.MaxValue, int.MaxValue)));
 
         Assert.Equal(ApiSurfaceExtractionBound.Types, exceeded.Bound);
     }
@@ -92,19 +111,44 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void NegativeBounds_AreRejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceExtractionBounds(-1, 0));
+            () => new ApiSurfaceExtractionBounds(-1, 0, 0, 0));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceExtractionBounds(0, -1));
+            () => new ApiSurfaceExtractionBounds(0, -1, 0, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceExtractionBounds(0, 0, -1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceExtractionBounds(0, 0, 0, -1));
     }
 
     [Fact]
     public void TypesOnlyExtraction_SpendsNoMemberBudget()
     {
         ApiSurfaceExtractionResult result = Extract(
-            new ApiSurfaceExtractionBounds(int.MaxValue, 0),
+            new ApiSurfaceExtractionBounds(
+                int.MaxValue,
+                0,
+                int.MaxValue,
+                int.MaxValue),
             typesOnly: true);
 
         Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+    }
+
+    [Fact]
+    public void OneTypeForwarderShortOfTheSurfaceSize_IsAbandoned()
+    {
+        ApiSurface unbounded = Unbounded();
+        Assert.True(unbounded.TypeForwarders.Count > 0);
+
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    unbounded.TypeForwarders.Count - 1)));
+
+        Assert.Equal(ApiSurfaceExtractionBound.TypeForwarders, exceeded.Bound);
     }
 
     static ApiSurface Unbounded()

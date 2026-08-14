@@ -43,13 +43,32 @@ public class ApiSurfaceRelationshipFailureTests
         ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
             peReader,
             ApiSurfaceExtractionScope.IncludeAll,
-            new ApiSurfaceExtractionBounds(0, 0),
+            new ApiSurfaceExtractionBounds(0, 0, 1, 0),
             typesOnly: true);
 
         ApiSurface surface =
             Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result).Surface;
         Assert.Empty(surface.Types);
         Assert.Equal("Cycle", Assert.Single(surface.InspectionFailures).Kind);
+    }
+
+    [Fact]
+    public void BoundedApiSurface_StopsAtTheInspectionFailureBound()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: "Rejected",
+            validTypeNames: [],
+            cyclicTypeCount: 2));
+        using var peReader = new PEReader(stream);
+
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.IncludeAll,
+                new ApiSurfaceExtractionBounds(0, 0, 1, 0),
+                typesOnly: true));
+
+        Assert.Equal(ApiSurfaceExtractionBound.InspectionFailures, exceeded.Bound);
     }
 
     [Fact]
@@ -167,7 +186,8 @@ public class ApiSurfaceRelationshipFailureTests
 
     static byte[] BuildImage(
         string? cyclicTypeName,
-        IReadOnlyList<string> validTypeNames)
+        IReadOnlyList<string> validTypeNames,
+        int cyclicTypeCount = 1)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -193,14 +213,20 @@ public class ApiSurfaceRelationshipFailureTests
 
         if (cyclicTypeName is not null)
         {
-            var cyclic = metadata.AddTypeDefinition(
-                TypeAttributes.NestedPublic,
-                default,
-                metadata.GetOrAddString(cyclicTypeName),
-                baseType: default,
-                fieldList: MetadataTokens.FieldDefinitionHandle(1),
-                methodList: MetadataTokens.MethodDefinitionHandle(1));
-            metadata.AddNestedType(cyclic, cyclic);
+            for (int index = 0; index < cyclicTypeCount; index++)
+            {
+                string name = cyclicTypeCount == 1
+                    ? cyclicTypeName
+                    : cyclicTypeName + index;
+                var cyclic = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString(name),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(cyclic, cyclic);
+            }
         }
 
         foreach (string name in validTypeNames)

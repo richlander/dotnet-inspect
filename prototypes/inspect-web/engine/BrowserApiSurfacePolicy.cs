@@ -34,17 +34,23 @@ namespace InspectWeb.Engine;
 internal static class BrowserApiSurfacePolicy
 {
     // The participant bound is the workspace's own assembly-per-role limit, so declaring it here
-    // refuses nothing the workspace already accepted; the type and member ceilings are the output
-    // bound. Both sit far above real packages — the largest assemblies in the .NET libraries
-    // project a few thousand public types — and far below what a hostile artifact can encode
+    // refuses nothing the workspace already accepted; the remaining ceilings bound every retained
+    // row kind. They sit far above real packages and far below what a hostile artifact can encode
     // within the scope's 64 MB retained-image budget.
     internal const int MaxParticipants = BrowserInspectionScope.MaxAssembliesPerRole;
     internal const int MaxTypes = 100_000;
     internal const int MaxMembers = 1_000_000;
+    internal const int MaxInspectionFailures = 1_024;
+    internal const int MaxTypeForwarders = 100_000;
 
     /// <summary>The bounds every browser API-surface projection runs under.</summary>
     internal static ApiSurfaceProjectionLimits Limits { get; } =
-        new(MaxParticipants, MaxTypes, MaxMembers);
+        new(
+            MaxParticipants,
+            MaxTypes,
+            MaxMembers,
+            MaxInspectionFailures,
+            MaxTypeForwarders);
 
     /// <summary>
     /// The visible notice for a truncated projection, or null when the projection was complete.
@@ -54,7 +60,9 @@ internal static class BrowserApiSurfacePolicy
             ? null
             : $"API surface truncated at the browser {truncation.Limit} bound "
                 + $"({truncation.Bound}): projected {truncation.ProjectedTypes} type(s) and "
-                + $"{truncation.ProjectedMembers} member(s) from "
+                + $"{truncation.ProjectedMembers} member(s), retained "
+                + $"{truncation.ProjectedInspectionFailures} inspection failure(s) and "
+                + $"{truncation.ProjectedTypeForwarders} type forwarder(s) from "
                 + $"{truncation.ProjectedParticipants} assembly(ies); "
                 + $"{truncation.OmittedParticipants} assembly(ies) were not projected.";
 }

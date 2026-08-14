@@ -136,6 +136,12 @@ public enum ApiSurfaceProjectionLimit
 
     /// <summary>The projected members reached the member bound.</summary>
     Members,
+
+    /// <summary>The projected inspection failures reached their bound.</summary>
+    InspectionFailures,
+
+    /// <summary>The projected type forwarders reached their bound.</summary>
+    TypeForwarders,
 }
 
 /// <summary>
@@ -153,14 +159,23 @@ public enum ApiSurfaceProjectionLimit
 /// </remarks>
 public sealed record ApiSurfaceProjectionLimits
 {
-    public ApiSurfaceProjectionLimits(int maxParticipants, int maxTypes, int maxMembers)
+    public ApiSurfaceProjectionLimits(
+        int maxParticipants,
+        int maxTypes,
+        int maxMembers,
+        int maxInspectionFailures,
+        int maxTypeForwarders)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxParticipants, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxTypes, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxMembers, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         MaxParticipants = maxParticipants;
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
+        MaxInspectionFailures = maxInspectionFailures;
+        MaxTypeForwarders = maxTypeForwarders;
     }
 
     /// <summary>The most participants one projection may walk.</summary>
@@ -171,6 +186,12 @@ public sealed record ApiSurfaceProjectionLimits
 
     /// <summary>The most members one projection may return.</summary>
     public int MaxMembers { get; }
+
+    /// <summary>The most inspection failures one projection may return.</summary>
+    public int MaxInspectionFailures { get; }
+
+    /// <summary>The most type forwarders one projection may return.</summary>
+    public int MaxTypeForwarders { get; }
 }
 
 /// <summary>
@@ -183,7 +204,9 @@ public sealed record ApiSurfaceProjectionTruncation(
     int ProjectedParticipants,
     int OmittedParticipants,
     int ProjectedTypes,
-    int ProjectedMembers);
+    int ProjectedMembers,
+    int ProjectedInspectionFailures,
+    int ProjectedTypeForwarders);
 
 /// <summary>
 /// Ordered API-surface outcomes for every participant in one assembly context group, plus the
@@ -294,8 +317,8 @@ public static class AssemblyContextApiSurfaceQuery
     /// <see cref="ApiSurfaceProjectionLimits.MaxTypes"/> and
     /// <see cref="ApiSurfaceProjectionTruncation.ProjectedMembers"/> never exceeds
     /// <see cref="ApiSurfaceProjectionLimits.MaxMembers"/>; both count exactly the rows the result
-    /// carries. A participant that was walked and abandoned is counted as omitted, because none of
-    /// its rows are returned.
+    /// carries. The same applies to retained inspection failures and type forwarders. A participant
+    /// that was walked and abandoned is counted as omitted, because none of its rows are returned.
     /// </para>
     /// <para>
     /// Accessibility buckets are computed over the participants that were actually projected, so
@@ -322,6 +345,8 @@ public static class AssemblyContextApiSurfaceQuery
             participants ?? group.Participants;
         ApiSurfaceProjectionTruncation? truncation = null;
         int walked = 0;
+        int inspectionFailures = 0;
+        int typeForwarders = 0;
         if (selected.Count > limits.MaxParticipants)
         {
             truncation = new ApiSurfaceProjectionTruncation(
@@ -330,7 +355,9 @@ public static class AssemblyContextApiSurfaceQuery
                 ProjectedParticipants: limits.MaxParticipants,
                 OmittedParticipants: selected.Count - limits.MaxParticipants,
                 ProjectedTypes: 0,
-                ProjectedMembers: 0);
+                ProjectedMembers: 0,
+                ProjectedInspectionFailures: 0,
+                ProjectedTypeForwarders: 0);
             selected = [.. selected.Take(limits.MaxParticipants)];
         }
 
@@ -344,7 +371,9 @@ public static class AssemblyContextApiSurfaceQuery
             // inside the image that would overflow it instead of after building it.
             var bounds = new ApiSurfaceExtractionBounds(
                 limits.MaxTypes - types,
-                limits.MaxMembers - members);
+                limits.MaxMembers - members,
+                limits.MaxInspectionFailures - inspectionFailures,
+                limits.MaxTypeForwarders - typeForwarders);
             AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
@@ -359,18 +388,38 @@ public static class AssemblyContextApiSurfaceQuery
 
             if (available.Value is ApiSurfaceExtractionResult.Exceeded exceeded)
             {
+                ApiSurfaceProjectionLimit limit = exceeded.Bound switch
+                {
+                    ApiSurfaceExtractionBound.Types => ApiSurfaceProjectionLimit.Types,
+                    ApiSurfaceExtractionBound.Members => ApiSurfaceProjectionLimit.Members,
+                    ApiSurfaceExtractionBound.InspectionFailures =>
+                        ApiSurfaceProjectionLimit.InspectionFailures,
+                    ApiSurfaceExtractionBound.TypeForwarders =>
+                        ApiSurfaceProjectionLimit.TypeForwarders,
+                    _ => throw new InvalidOperationException(
+                        "Unknown API-surface extraction bound."),
+                };
+                int bound = exceeded.Bound switch
+                {
+                    ApiSurfaceExtractionBound.Types => limits.MaxTypes,
+                    ApiSurfaceExtractionBound.Members => limits.MaxMembers,
+                    ApiSurfaceExtractionBound.InspectionFailures =>
+                        limits.MaxInspectionFailures,
+                    ApiSurfaceExtractionBound.TypeForwarders =>
+                        limits.MaxTypeForwarders,
+                    _ => throw new InvalidOperationException(
+                        "Unknown API-surface extraction bound."),
+                };
                 truncation = new ApiSurfaceProjectionTruncation(
-                    exceeded.Bound == ApiSurfaceExtractionBound.Types
-                        ? ApiSurfaceProjectionLimit.Types
-                        : ApiSurfaceProjectionLimit.Members,
-                    exceeded.Bound == ApiSurfaceExtractionBound.Types
-                        ? limits.MaxTypes
-                        : limits.MaxMembers,
+                    limit,
+                    bound,
                     ProjectedParticipants: entries.Count,
                     OmittedParticipants: selected.Count - walked + 1
                         + (truncation?.OmittedParticipants ?? 0),
                     ProjectedTypes: types,
-                    ProjectedMembers: members);
+                    ProjectedMembers: members,
+                    ProjectedInspectionFailures: inspectionFailures,
+                    ProjectedTypeForwarders: typeForwarders);
                 break;
             }
 
@@ -382,6 +431,8 @@ public static class AssemblyContextApiSurfaceQuery
                     new AssemblyApiSurface(surface, [.. surface.InspectionFailures])));
             types += surface.Types.Count;
             members += surface.Types.Sum(type => type.Members.Count);
+            inspectionFailures += surface.InspectionFailures.Count;
+            typeForwarders += surface.TypeForwarders.Count;
         }
 
         if (truncation is not null)
@@ -390,6 +441,8 @@ public static class AssemblyContextApiSurfaceQuery
             {
                 ProjectedTypes = types,
                 ProjectedMembers = members,
+                ProjectedInspectionFailures = inspectionFailures,
+                ProjectedTypeForwarders = typeForwarders,
             };
         }
 

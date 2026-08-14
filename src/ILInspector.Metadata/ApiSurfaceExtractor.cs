@@ -36,6 +36,12 @@ public enum ApiSurfaceExtractionBound
 
     /// <summary>The extraction would have retained more members than the caller allows.</summary>
     Members,
+
+    /// <summary>The extraction would have retained more inspection failures than allowed.</summary>
+    InspectionFailures,
+
+    /// <summary>The extraction would have retained more type forwarders than allowed.</summary>
+    TypeForwarders,
 }
 
 /// <summary>
@@ -49,12 +55,20 @@ public enum ApiSurfaceExtractionBound
 /// </remarks>
 public sealed record ApiSurfaceExtractionBounds
 {
-    public ApiSurfaceExtractionBounds(int maxTypes, int maxMembers)
+    public ApiSurfaceExtractionBounds(
+        int maxTypes,
+        int maxMembers,
+        int maxInspectionFailures,
+        int maxTypeForwarders)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
+        MaxInspectionFailures = maxInspectionFailures;
+        MaxTypeForwarders = maxTypeForwarders;
     }
 
     /// <summary>The most types the extraction may retain.</summary>
@@ -62,6 +76,12 @@ public sealed record ApiSurfaceExtractionBounds
 
     /// <summary>The most members the extraction may retain across every retained type.</summary>
     public int MaxMembers { get; }
+
+    /// <summary>The most rejected metadata rows the extraction may retain as failures.</summary>
+    public int MaxInspectionFailures { get; }
+
+    /// <summary>The most type forwarders the extraction may retain.</summary>
+    public int MaxTypeForwarders { get; }
 }
 
 /// <summary>The outcome of one bounded API-surface extraction.</summary>
@@ -742,6 +762,7 @@ public static class ApiSurfaceExtractor
                 surface.PublicFieldCount = publicFieldCount;
                 AddInspectionFailure(
                     surface,
+                    budget,
                     ex.Operation,
                     typeDefHandle,
                     ex.Failure);
@@ -754,6 +775,7 @@ public static class ApiSurfaceExtractor
                 surface.PublicFieldCount = publicFieldCount;
                 AddInspectionFailure(
                     surface,
+                    budget,
                     "type row",
                     typeDefHandle,
                     MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
@@ -784,6 +806,7 @@ public static class ApiSurfaceExtractor
                     _ => throw new InvalidOperationException(
                         "Unknown exported-type relationship result."),
                 };
+                budget?.BeginTypeForwarder();
 
                 // Get the target assembly
                 string targetAssembly = "";
@@ -793,7 +816,7 @@ public static class ApiSurfaceExtractor
                     targetAssembly = reader.GetString(assemblyRef.Name);
                 }
 
-                surface.TypeForwarders.Add(new TypeForwarder
+                var typeForwarder = new TypeForwarder
                 {
                     DefinitionName =
                         MetadataTypeDefinitionNameReader.Read(
@@ -804,12 +827,15 @@ public static class ApiSurfaceExtractor
                             : null,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
-                });
+                };
+                budget?.RetainTypeForwarder();
+                surface.TypeForwarders.Add(typeForwarder);
             }
             catch (MetadataRowRejectedException ex)
             {
                 AddInspectionFailure(
                     surface,
+                    budget,
                     ex.Operation,
                     exportedTypeHandle,
                     ex.Failure);
@@ -818,6 +844,7 @@ public static class ApiSurfaceExtractor
             {
                 AddInspectionFailure(
                     surface,
+                    budget,
                     "type forwarder row",
                     exportedTypeHandle,
                     MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
@@ -2332,15 +2359,19 @@ public static class ApiSurfaceExtractor
 
     private static void AddInspectionFailure(
         ApiSurface surface,
+        ExtractionBudget? budget,
         string operation,
         EntityHandle subject,
         MetadataTypeNameFailure failure)
-        => surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+    {
+        budget?.RetainInspectionFailure();
+        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
             failure.Detail));
+    }
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
         => !typeDef.BaseType.IsNil
@@ -2712,6 +2743,8 @@ public static class ApiSurfaceExtractor
         int _types;
         int _members;
         int _pendingMembers;
+        int _inspectionFailures;
+        int _typeForwarders;
 
         /// <summary>Starts a retained type, refusing before its model or members are built.</summary>
         public void BeginType()
@@ -2745,6 +2778,38 @@ public static class ApiSurfaceExtractor
             if (_members >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
             _members++;
+        }
+
+        /// <summary>Counts one retained metadata-row rejection.</summary>
+        public void RetainInspectionFailure()
+        {
+            if (_inspectionFailures >= bounds.MaxInspectionFailures)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.InspectionFailures);
+            }
+            _inspectionFailures++;
+        }
+
+        /// <summary>Refuses before a type-forwarder model is built.</summary>
+        public void BeginTypeForwarder()
+        {
+            if (_typeForwarders >= bounds.MaxTypeForwarders)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.TypeForwarders);
+            }
+        }
+
+        /// <summary>Counts one retained type forwarder.</summary>
+        public void RetainTypeForwarder()
+        {
+            if (_typeForwarders >= bounds.MaxTypeForwarders)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.TypeForwarders);
+            }
+            _typeForwarders++;
         }
     }
 
