@@ -123,6 +123,62 @@ public static class ApiMemberIdentity
             => builder.Append(text);
     }
 
+    /// <summary>
+    /// TypeRef leaf that charges work from UTF-8 storage length and defers
+    /// UTF-16 materialization until the name is actually rendered into an
+    /// anchor. Discarded modopt trees therefore cannot force large string
+    /// allocations on cache miss.
+    /// </summary>
+    sealed class LazyTypeReferenceAnchorSignatureType : AnchorSignatureType
+    {
+        readonly MetadataReader _reader;
+        readonly TypeReferenceHandle _handle;
+        readonly Func<MetadataReader, TypeReferenceHandle, string> _format;
+        string? _text;
+
+        internal LazyTypeReferenceAnchorSignatureType(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            int estimatedLength,
+            Func<MetadataReader, TypeReferenceHandle, string> format)
+            : base(estimatedLength)
+        {
+            _reader = reader;
+            _handle = handle;
+            _format = format;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+            => builder.Append(_text ??= _format(_reader, _handle));
+    }
+
+    /// <summary>
+    /// TypeDef leaf counterpart of
+    /// <see cref="LazyTypeReferenceAnchorSignatureType"/>.
+    /// </summary>
+    sealed class LazyTypeDefinitionAnchorSignatureType : AnchorSignatureType
+    {
+        readonly MetadataReader _reader;
+        readonly TypeDefinitionHandle _handle;
+        readonly Func<MetadataReader, TypeDefinitionHandle, string> _format;
+        string? _text;
+
+        internal LazyTypeDefinitionAnchorSignatureType(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            int estimatedLength,
+            Func<MetadataReader, TypeDefinitionHandle, string> format)
+            : base(estimatedLength)
+        {
+            _reader = reader;
+            _handle = handle;
+            _format = format;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+            => builder.Append(_text ??= _format(_reader, _handle));
+    }
+
     sealed class WrappedAnchorSignatureType
         : AnchorSignatureType
     {
@@ -359,8 +415,16 @@ public static class ApiMemberIdentity
                 return cached;
             }
 
-            AnchorSignatureType encoded =
-                Encoded(FormatDefinitionTypeName(reader, handle));
+            // Charge from UTF-8 storage before any UTF-16 materialization so
+            // discarded modopt TypeDefs cannot allocate full names on miss.
+            // Gated by CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation.
+            int estimatedLength = EstimateDefinitionNameLength(reader, handle);
+            ChargeLeaf(estimatedLength);
+            AnchorSignatureType encoded = new LazyTypeDefinitionAnchorSignatureType(
+                reader,
+                handle,
+                estimatedLength,
+                FormatDefinitionTypeName);
             _definitionCache.Add(handle, encoded);
             return encoded;
         }
@@ -377,8 +441,13 @@ public static class ApiMemberIdentity
                 return cached;
             }
 
-            AnchorSignatureType encoded =
-                Encoded(FormatReferenceTypeName(reader, handle));
+            int estimatedLength = EstimateReferenceNameLength(reader, handle);
+            ChargeLeaf(estimatedLength);
+            AnchorSignatureType encoded = new LazyTypeReferenceAnchorSignatureType(
+                reader,
+                handle,
+                estimatedLength,
+                FormatReferenceTypeName);
             _referenceCache.Add(handle, encoded);
             return encoded;
         }
@@ -473,6 +542,115 @@ public static class ApiMemberIdentity
             _ = isRequired;
             _workBudget.Charge(1);
             return unmodifiedType;
+        }
+
+        int EstimateDefinitionNameLength(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0
+                || !terminal.IsNil)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid declaring-type chain.");
+            }
+
+            // UTF-8 storage length upper-bounds UTF-16 length for valid text, so
+            // charging it before GetString keeps the work budget honest without
+            // materializing discarded modifier names.
+            var outer = reader.GetTypeDefinition(chain[0]);
+            int length = StructuralUtf8Length(reader, outer.Namespace);
+            for (int i = 0; i < consumed; i++)
+            {
+                if (length > 0)
+                    length = CheckedNameLength(length, 1);
+                length = CheckedNameLength(
+                    length,
+                    StructuralUtf8Length(
+                        reader,
+                        reader.GetTypeDefinition(chain[i]).Name));
+            }
+            return length;
+        }
+
+        int EstimateReferenceNameLength(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out _,
+                    out var rejection)
+                || consumed == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid resolution-scope chain.");
+            }
+
+            var outer = reader.GetTypeReference(chain[0]);
+            int length = StructuralUtf8Length(reader, outer.Namespace);
+            for (int i = 0; i < consumed; i++)
+            {
+                if (length > 0)
+                    length = CheckedNameLength(length, 1);
+                length = CheckedNameLength(
+                    length,
+                    StructuralUtf8Length(
+                        reader,
+                        reader.GetTypeReference(chain[i]).Name));
+            }
+            return length;
+        }
+
+        static int StructuralUtf8Length(
+            MetadataReader reader,
+            StringHandle handle)
+        {
+            int length = reader.GetBlobReader(handle).Length;
+            if (length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+            {
+                throw new BadImageFormatException(
+                    "The metadata string exceeds the structural-signature budget.");
+            }
+            return length;
+        }
+
+        static int CheckedNameLength(int left, int right)
+        {
+            try
+            {
+                int length = checked(left + right);
+                if (length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+                {
+                    throw new BadImageFormatException(
+                        "The member anchor type exceeds the encoded-character budget.");
+                }
+                return length;
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor type exceeds the encoded-character budget.",
+                    ex);
+            }
         }
 
         string FormatDefinitionTypeName(

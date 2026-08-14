@@ -446,6 +446,42 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation()
+    {
+        // Unique long TypeRef modifiers: cache misses used to Format+GetString
+        // before the work budget could reject, so a handful of ~900 KiB names
+        // allocated >16 MiB on both reject and under-budget success. Lazy
+        // TypeRef leaves charge UTF-8 length and materialize only on render.
+        const int uniqueCount = 5;
+        const int typeNameLength = 900_000;
+        byte[] image = BuildUniqueLongTypeRefModoptImage(
+            uniqueCount,
+            typeNameLength);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Unique long TypeRef modopt rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -1106,6 +1142,47 @@ public sealed class MethodCorrespondenceResolverTests
         {
             signature.WriteByte(0x20); // CMOD_OPT
             signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildUniqueLongTypeRefModoptImage(
+        int uniqueCount,
+        int typeNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata("UniqueLongTypeRefModopt");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(new string('T', typeNameLength) + i));
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(uniqueCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            signature.WriteByte(0x20); // CMOD_OPT
+            signature.WriteCompressedInteger(((i + 1) << 2) | 1); // TypeRef i+1
             signature.WriteByte(0x08);
         }
         metadata.AddMethodDefinition(
