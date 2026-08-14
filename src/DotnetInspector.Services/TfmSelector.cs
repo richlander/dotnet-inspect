@@ -457,32 +457,5 @@ public static class TfmSelector
     }
 
     private static bool IsCultureDirectoryName(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return false;
-
-        if (name.Equals("any", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var parts = name.Split('-', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0)
-            return false;
-
-        return IsLanguageSubtag(parts[0])
-            && parts.Skip(1).All(IsCultureSubtag);
-    }
-
-    private static bool IsLanguageSubtag(string value)
-        => value.Length is 2 or 3 && value.All(IsAsciiLetter);
-
-    private static bool IsCultureSubtag(string value)
-    {
-        if (value.Length is < 2 or > 8)
-            return false;
-
-        return value.All(c => IsAsciiLetter(c) || c is >= '0' and <= '9');
-    }
-
-    private static bool IsAsciiLetter(char value)
-        => value is >= 'a' and <= 'z' or >= 'A' and <= 'Z';
+        => TfmResolver.IsCultureFolderName(name);
 }
