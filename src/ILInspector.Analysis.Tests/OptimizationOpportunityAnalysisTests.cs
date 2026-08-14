@@ -31,9 +31,7 @@ public sealed class OptimizationOpportunityAnalysisTests
         var resolver = new Resolver(il);
 
         var opportunities = OptimizationOpportunityAnalysis.Collect(
-            context,
-            [],
-            new MethodAllocationAnalysis(context),
+            MethodAllocationFacts.Create(context),
             resolver);
 
         Assert.Equal(
@@ -74,9 +72,7 @@ public sealed class OptimizationOpportunityAnalysisTests
         var unrelatedResolver = new Resolver(unrelatedIl);
 
         var unrelated = OptimizationOpportunityAnalysis.Collect(
-            unrelatedContext,
-            [],
-            new MethodAllocationAnalysis(unrelatedContext),
+            MethodAllocationFacts.Create(unrelatedContext),
             unrelatedResolver);
 
         Assert.Single(unrelated);
@@ -95,9 +91,7 @@ public sealed class OptimizationOpportunityAnalysisTests
 
         var outsideLoopMaterializer =
             OptimizationOpportunityAnalysis.Collect(
-                outsideLoopMaterializerContext,
-                [],
-                new MethodAllocationAnalysis(
+                MethodAllocationFacts.Create(
                     outsideLoopMaterializerContext),
                 outsideLoopMaterializerResolver);
 
@@ -118,9 +112,7 @@ public sealed class OptimizationOpportunityAnalysisTests
         var spanResolver = new Resolver(spanCopiesIl);
 
         var spanCopies = OptimizationOpportunityAnalysis.Collect(
-            spanContext,
-            [],
-            new MethodAllocationAnalysis(spanContext),
+            MethodAllocationFacts.Create(spanContext),
             spanResolver);
 
         Assert.Empty(spanCopies);
@@ -145,9 +137,7 @@ public sealed class OptimizationOpportunityAnalysisTests
 
         var exception = Assert.Throws<BadImageFormatException>(
             () => OptimizationOpportunityAnalysis.Collect(
-                context,
-                [],
-                new MethodAllocationAnalysis(context),
+                MethodAllocationFacts.Create(context),
                 resolver));
 
         Assert.Equal(
