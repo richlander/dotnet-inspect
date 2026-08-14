@@ -32,7 +32,27 @@ public record PackageExtractionResult(
     string? Version,
     string? NupkgPath = null,
     bool FromCache = false,
-    string? ProducerKey = null);
+    string? ProducerKey = null)
+{
+    /// <summary>
+    /// Tool wrapper packages traversed before reaching this inspectable payload,
+    /// ordered from the requested package to the final redirect hop.
+    /// </summary>
+    public IReadOnlyList<ToolWrapperPackage> ToolWrapperChain { get; init; } = [];
+}
+
+/// <summary>
+/// A tool wrapper package whose managed inspection payload lives in another package.
+/// </summary>
+/// <param name="ExtractPath">Path to the extracted wrapper contents.</param>
+/// <param name="PackageName">Wrapper package identity.</param>
+/// <param name="Version">Wrapper package version.</param>
+/// <param name="ProducerKey">Canonical identity of the source that produced the wrapper.</param>
+public sealed record ToolWrapperPackage(
+    string ExtractPath,
+    string PackageName,
+    string? Version,
+    string? ProducerKey);
 
 /// <summary>
 /// Outcome of a package extraction operation, carrying either a successful result or an error message.
@@ -129,6 +149,7 @@ public static class PackageExtractor
         var visitedPackageIds = new HashSet<string>(
             StringComparer.OrdinalIgnoreCase);
         List<string> redirectChain = [];
+        List<ToolWrapperPackage> wrapperPackages = [];
         string currentPackageSource = packageSource;
         string? currentVersion = version;
         bool currentForceLatest = forceLatest;
@@ -162,7 +183,14 @@ public static class PackageExtractor
                 NuGetFetch.PackageExtractor.TryGetToolWrapperRedirect(
                     result.ExtractPath);
             if (redirectId is null)
-                return result;
+            {
+                return wrapperPackages.Count == 0
+                    ? result
+                    : result with
+                    {
+                        ToolWrapperChain = wrapperPackages.ToArray()
+                    };
+            }
 
             if (string.IsNullOrWhiteSpace(result.PackageName))
             {
@@ -178,6 +206,11 @@ public static class PackageExtractor
             }
 
             redirectChain.Add(result.PackageName);
+            wrapperPackages.Add(new ToolWrapperPackage(
+                result.ExtractPath,
+                result.PackageName,
+                result.Version,
+                result.ProducerKey));
             if (visitedPackageIds.Contains(redirectId))
                 return ToolWrapperRedirectCycle(redirectChain, redirectId);
 

@@ -303,6 +303,11 @@ redirects to that portable `any` package (the framework-dependent build) at the 
 and inspects its managed assemblies. The redirect benefits every package-consuming command
 (`type`, `member`, `package`, `depends`).
 
+The extraction result retains the ordered wrapper chain separately from the final payload
+coordinate. Package inspection uses the requested wrapper's tool manifest for classification
+and commands while keeping the payload package identity and producer as the provenance of the
+managed assemblies being inspected.
+
 ### Signature decoding
 
 Method and property signatures are decoded using `SignatureTypeProvider`, which implements `ISignatureTypeProvider<string, object?>`:

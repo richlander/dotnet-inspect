@@ -200,6 +200,10 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(
             NuGetCache.GetPackageCachePath(PayloadPackage, Version, TestSourceKey),
             outcome.Result.ExtractPath);
+        ToolWrapperPackage wrapper = Assert.Single(outcome.Result.ToolWrapperChain);
+        Assert.Equal(WrapperPackage, wrapper.PackageName);
+        Assert.Equal(Version, wrapper.Version);
+        Assert.Equal(TestSourceKey, wrapper.ProducerKey);
         Assert.Equal(2, handler.RequestCount);
     }
 
@@ -241,6 +245,11 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(
             NuGetCache.GetSourceKey(FeedB),
             outcome.Result.ProducerKey);
+        ToolWrapperPackage wrapper = Assert.Single(outcome.Result.ToolWrapperChain);
+        Assert.Equal(wrapperPackage, wrapper.PackageName);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(FeedA),
+            wrapper.ProducerKey);
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
 
@@ -77,6 +78,71 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Equal(2025, result.Published!.Value.Year);
         Assert.Equal("Private.Package", result.PackageName);
         Assert.False(queriedSourceA);
+    }
+
+    [Fact]
+    public async Task InspectAsync_PreservesToolWrapperClassificationOnPayload()
+    {
+        string wrapperRoot = Path.Combine(_root, "wrapper");
+        string wrapperTools = Path.Combine(wrapperRoot, "tools", "net10.0", "any");
+        Directory.CreateDirectory(wrapperTools);
+        await File.WriteAllTextAsync(
+            Path.Combine(wrapperTools, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="wrapper-command" EntryPoint="Payload.dll" Runner="dotnet" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="Wrapper.Package.linux-x64" />
+                <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="Wrapper.Package.any" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """,
+            TestContext.Current.CancellationToken);
+
+        string payloadRoot = Path.Combine(_root, "payload");
+        string payloadTools = Path.Combine(payloadRoot, "tools", "net10.0", "any");
+        Directory.CreateDirectory(payloadTools);
+        File.Copy(
+            typeof(PackageInspectorMetadataSourceTests).Assembly.Location,
+            Path.Combine(payloadTools, "Payload.dll"));
+
+        var resolution = new PackageExtractionResult(
+            payloadRoot,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0")
+        {
+            ToolWrapperChain =
+            [
+                new ToolWrapperPackage(
+                    wrapperRoot,
+                    "Wrapper.Package",
+                    "1.0.0",
+                    ProducerKey: "wrapper-source")
+            ]
+        };
+
+        using var client = new HttpClient();
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            "Wrapper.Package.any",
+            "1.0.0",
+            isLocalFile: true,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("Wrapper.Package.any", result.PackageName);
+        Assert.Equal("Tool v2", new InspectionResultView(result).PackageType);
+        Assert.Equal(["wrapper-command"], result.ToolCommands);
+        Assert.True(result.IsRidSpecificPointerPackage);
+        Assert.Contains(
+            result.RuntimeIdentifierPackages!,
+            package => package.RuntimeIdentifier == "any"
+                && package.PackageId == "Wrapper.Package.any");
     }
 
     public void Dispose()

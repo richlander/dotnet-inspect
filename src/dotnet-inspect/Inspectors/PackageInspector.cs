@@ -64,6 +64,7 @@ internal static class PackageInspector
                         metadataSourceOptions);
                     ApplyMetadata(cached, metadata);
                 }
+                ApplyToolWrapperClassification(cached, resolution);
                 return cached;
             }
         }
@@ -183,7 +184,41 @@ internal static class PackageInspector
             ApplyMetadata(result, metadata);
         }
 
+        ApplyToolWrapperClassification(result, resolution);
         return result;
+    }
+
+    private static void ApplyToolWrapperClassification(
+        InspectionResult result,
+        PackageExtractionResult resolution)
+    {
+        ToolWrapperPackage? wrapper = resolution.ToolWrapperChain.FirstOrDefault();
+        if (wrapper is null)
+            return;
+
+        NuspecData? wrapperNuspec = NuspecParser.FindAndParse(wrapper.ExtractPath);
+        if (wrapperNuspec?.PackageTypes is { Count: > 0 })
+            result.PackageTypes = wrapperNuspec.PackageTypes;
+        result.IsToolPackage |= wrapperNuspec?.IsToolPackage == true;
+
+        string toolsDir = Path.Combine(wrapper.ExtractPath, "tools");
+        if (!Directory.Exists(toolsDir))
+            return;
+
+        var wrapperTool = new InspectionResult();
+        ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
+        if (string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
+            return;
+
+        result.IsToolPackage = true;
+        result.ManifestVersion = wrapperTool.ManifestVersion;
+        result.ToolFormat = wrapperTool.ToolFormat;
+        result.ToolCommands = wrapperTool.ToolCommands;
+        result.IsRidSpecificPointerPackage = wrapperTool.IsRidSpecificPointerPackage;
+        result.IsFrameworkDependent = wrapperTool.IsFrameworkDependent;
+        result.HasRidSpecificAssets |= wrapperTool.HasRidSpecificAssets;
+        result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
+        result.SupportedRids = wrapperTool.SupportedRids;
     }
 
     private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)

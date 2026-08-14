@@ -478,9 +478,6 @@ The tool can inspect its own package.
 dotnet-inspect package dotnet-inspect@0.16.0 -v:q
 ```
 
-Known issue: #3919 — the Tool v2 package redirect loses tool classification.
-Preserve the intended package classification below.
-
 ```expect
 Type: Tool v2
 ```
