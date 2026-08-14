@@ -35,7 +35,7 @@ static class PostDomProbe
         MultiMergeCrossing,     // >1 join whose regions overlap — the genuine hard climb
         ExitMerge,              // arms flow to the method exit independently
         Unrooted,               // a residual conditional cannot reach the exit
-        Loop,                   // a back-edge survives — out of forward-structuring scope
+        Loop,                   // a back-edge survives; the product join plan records its region
     }
 
     public static int Run(List<string> assemblies, int cap, int sample)
@@ -179,43 +179,27 @@ static class PostDomProbe
     static MergeShape ClassifyMerge(BlockContainer container)
     {
         var blocks = container.Blocks;
-        var offsetToIndex = new Dictionary<int, int>();
-        for (int i = 0; i < blocks.Count; i++)
-            offsetToIndex[blocks[i].StartOffset] = i;
-
-        // A back-edge (a branch to a block at or before its own index) means an
-        // unraised loop survives in the container — out of the acyclic
-        // forward-merge first slice (doc step 4 scope), and its post-dominator
-        // merge would otherwise masquerade as a foldable return tail.
-        for (int i = 0; i < blocks.Count; i++)
-            foreach (int target in BranchTargets(blocks[i]))
-                if (offsetToIndex.TryGetValue(target, out int ti) && ti <= i)
-                    return MergeShape.Loop;
-
-        var pd = PostDominators.Of(Cfg.Build(blocks));
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+        if (!plan.UnrootedDecisions.IsEmpty)
+            return MergeShape.Unrooted;
 
         // Each residual conditional's region is the half-open span [decision, join)
         // from the branch block to its immediate post-dominator. Crossing spans are
         // the interleaved/irreducible shape; nested or sequential (disjoint, or
         // sharing only a boundary) spans are the safe SingleMerge-x-N case.
-        var regions = new List<(int Start, int End)>();
-        var merges = new HashSet<int>();
-        bool anyExit = false;
-        for (int i = 0; i < blocks.Count; i++)
-        {
-            if (blocks[i].Children.Count == 0 || blocks[i].Children[^1] is not ConditionalBranch)
-                continue;
-            int ipdom = pd.ImmediatePostDominator(i);
-            if (ipdom == PostDominators.None)
-                return MergeShape.Unrooted;
-            if (ipdom == PostDominators.VirtualExit)
-                anyExit = true;
-            else
-            {
-                merges.Add(ipdom);
-                regions.Add((i, ipdom));
-            }
-        }
+        var eligibleForwardRegions = plan.ForwardRegions
+            .Where(region => !region.IsBackEdgeEntangled)
+            .ToList();
+        if (eligibleForwardRegions.Count == 0 && !plan.BackEdgeRegions.IsEmpty)
+            return MergeShape.Loop;
+
+        var regions = eligibleForwardRegions
+            .Select(region => (region.Start, region.End))
+            .ToList();
+        var merges = eligibleForwardRegions
+            .Select(region => region.Merge)
+            .ToHashSet();
+        bool anyExit = !plan.VirtualExitDecisions.IsEmpty;
 
         if (merges.Count == 0)
             return MergeShape.ExitMerge;
@@ -226,11 +210,11 @@ static class PostDomProbe
             // while another rejoins — treat the escape as a degenerate region
             // [decision, exit) that spans to the container end.
             if (anyExit)
-                for (int i = 0; i < blocks.Count; i++)
-                    if (blocks[i].Children.Count > 0 && blocks[i].Children[^1] is ConditionalBranch
-                        && pd.ImmediatePostDominator(i) == PostDominators.VirtualExit)
-                        regions.Add((i, blocks.Count));
-            return AnyCrossing(regions) ? MergeShape.MultiMergeCrossing : MergeShape.MultiMergeNested;
+                regions.AddRange(plan.VirtualExitDecisions.Select(index => (index, blocks.Count)));
+            return eligibleForwardRegions.Any(region => !region.IsNonCrossing)
+                || AnyCrossing(regions)
+                ? MergeShape.MultiMergeCrossing
+                : MergeShape.MultiMergeNested;
         }
 
         int merge = merges.Single();
@@ -252,20 +236,6 @@ static class PostDomProbe
                     return true;
             }
         return false;
-    }
-
-    static IEnumerable<int> BranchTargets(Block block)
-    {
-        foreach (var node in block.Children)
-            switch (node)
-            {
-                case Branch b: yield return b.TargetOffset; break;
-                case ConditionalBranch c: yield return c.TargetOffset; break;
-                case SwitchBranch sw:
-                    foreach (int t in sw.TargetOffsets) yield return t;
-                    break;
-                case Leave lv: yield return lv.TargetOffset; break;
-            }
     }
 
     static bool IsShortReturnTail(Block block) =>
