@@ -437,6 +437,14 @@ The browser engine consumes the same projection and generates its own Mermaid; i
 reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI
 and the browser deliberately do not share a Mermaid generator — sharing the
 *graph* is the point, not sharing the *format*.
+Browser navigation transports the projected display spelling separately from
+the exact metadata type name; the latter preserves nested `+` delimiters and
+generic arity and is the only spelling used to resolve a graph target.
+Constructed generic declaring types recover that name and assembly from their
+definition. Synthetic array and function-pointer declaring shapes remain
+renderable but intentionally carry no navigable definition identity. Property
+and event accessors resolve through their opaque body selector when no physical
+method token survives projection.
 
 Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
 (edge direction and inversion, duplicates/cycles, node-kind precedence,
