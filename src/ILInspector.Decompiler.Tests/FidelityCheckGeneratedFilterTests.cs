@@ -12,7 +12,6 @@ using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
