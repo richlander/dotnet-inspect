@@ -113,7 +113,9 @@ public class ProjectionDiagnosticsTests
     [Fact]
     public async Task DiagnoseProjectedJson_ReportsMissingFieldAndColumn()
     {
-        var schema = new DocumentSchema().Add("API Info", "field", "Types");
+        var schema = new DocumentSchema()
+            .Add("API Info", "field", "Types", "Version")
+            .Add("Classes", "column", "Field", "Bogus");
 
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {

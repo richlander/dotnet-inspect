@@ -666,9 +666,13 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<EventsView>()!.ToDocumentSchema());
         // MemberCodeView owns source/IL/fact/call-graph sections. Type discovery also needs
         // those schema entries because the type pipeline exposes whole-type code sections.
-        var detailSchema = MergeSchemas(schema,
-            ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
-        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+        var memberCodeSchema =
+            ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema();
+        var usesDetailPipeline = ApiMemberSectionPipelines.UsesDetailPipeline(options);
+        var detailSchema = usesDetailPipeline
+            ? MergeSchemas(schema, memberCodeSchema)
+            : MergeSchemas(memberCodeSchema, schema);
+        if (!usesDetailPipeline)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
@@ -835,7 +839,23 @@ public class ApiCommand
 
         if (projectedJson)
         {
-            var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            var writerOptions = ApiOutputFormatter.BuildWriterOptions(
+                api, options, out var promotedApiInfo);
+            var schema =
+                ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            IReadOnlyCollection<string> projectionSections =
+                writerOptions.IncludeSections is { } includedSections
+                    ? includedSections
+                    : schema.SectionNames.ToArray();
+            if (!ProjectionDiagnostics.ValidateProjection(
+                schema,
+                projectionSections,
+                options.Fields,
+                options.Columns,
+                SurfaceFieldLayoutSections))
+            {
+                return 1;
+            }
             Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
                 (writer, formatter, projectedOptions) =>
                     MarkoutSerializer.Serialize(
@@ -846,7 +866,8 @@ public class ApiCommand
                 serialize,
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
-                writerOptions);
+                writerOptions,
+                promotedApiInfo ? [SectionNames.ApiInfo] : null);
             var fieldEvidence = options.Fields is { Length: > 0 }
                 ? OutputFormatter.CorrelateProjectedFields(
                     document,
@@ -863,7 +884,9 @@ public class ApiCommand
                 options.Columns,
                 fieldEvidence,
                 document.EmittedColumns,
-                ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema());
+                schema,
+                projectionSections,
+                SurfaceFieldLayoutSections);
             var json = document.Json;
             if (!TryReportEmptyProjection(json == "{}" ? string.Empty : json, options))
                 return 1;
@@ -1538,6 +1561,20 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             ConfigureTypeSectionOrder(type, options, writerOptions);
+            var schema = ToQueryableSchema(GetTypeDocumentSchema(options), options);
+            IReadOnlyCollection<string> projectionSections =
+                writerOptions.IncludeSections is { } includedSections
+                    ? includedSections
+                    : schema.SectionNames.ToArray();
+            if (!ProjectionDiagnostics.ValidateProjection(
+                schema,
+                projectionSections,
+                options.Fields,
+                options.Columns,
+                TypeFieldLayoutSections))
+            {
+                return 1;
+            }
             Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
                 (writer, formatter, projectedOptions) =>
                 {
@@ -1574,7 +1611,9 @@ public class ApiCommand
                 options.Columns,
                 fieldEvidence,
                 document.EmittedColumns,
-                GetTypeDocumentSchema(options));
+                schema,
+                projectionSections,
+                TypeFieldLayoutSections);
             sink.WriteLine(document.Json);
             ApiOutputFormatter.WriteSignatureDecodeWarning(view);
             ApiOutputFormatter.WriteCallGraphWarning(view);
@@ -2072,6 +2111,9 @@ public class ApiCommand
     /// </summary>
     internal static readonly HashSet<string> TypeFieldLayoutSections =
         new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
+
+    private static readonly HashSet<string> SurfaceFieldLayoutSections =
+        new(StringComparer.OrdinalIgnoreCase) { SectionNames.ApiInfo };
 
     /// <summary>
     /// Where a type was acquired from. Not derivable from <see cref="ApiType"/>, so it has to be

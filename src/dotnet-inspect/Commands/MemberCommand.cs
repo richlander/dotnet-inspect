@@ -367,6 +367,12 @@ public static class MemberCommand
             }
 
             var projectionSections = effectiveOptions.IncludeSections;
+            var loweredJsonProjection = effectiveOptions.JsonOutput
+                && !effectiveOptions.Count
+                && !effectiveOptions.Print
+                && !effectiveOptions.Value
+                && !effectiveOptions.Urls
+                && !effectiveOptions.Paths;
             if (projectionSections is null && ApiOutputFormatter.ShouldRenderSectionedTabularView(apiType, effectiveOptions))
             {
                 var grouped = ApiOutputFormatter.GroupMembersByKind(
@@ -376,6 +382,7 @@ public static class MemberCommand
             }
 
             if ((effectiveOptions.Fields is { Length: > 0 } || effectiveOptions.Columns is { Length: > 0 })
+                && !loweredJsonProjection
                 && projectionSections is { Count: > 0 })
             {
                 var schema = ApiCommand.ToQueryableSchema(

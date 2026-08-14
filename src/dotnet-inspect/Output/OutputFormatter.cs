@@ -210,7 +210,8 @@ public static class OutputFormatter
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         bool indented = true,
         RowWindow? maxRows = null,
-        MarkoutWriterOptions? writerOptions = null)
+        MarkoutWriterOptions? writerOptions = null,
+        IReadOnlyCollection<string>? unwindowedSections = null)
     {
         writerOptions ??= new MarkoutWriterOptions();
         writerOptions.Projection = BuildProjection(columns, fields);
@@ -224,6 +225,48 @@ public static class OutputFormatter
         var formatter = new JsonSectionFormatter();
         formatter.BeginDocument(writerOptions);
         serialize(formatter.ContentWriter, formatter, writerOptions);
+
+        // Some lowered field sets are promoted from document-level facts into a synthetic table
+        // only because the formatter seam cannot associate a single field callback with its value.
+        // They are not user-selected row sets, so preserve their complete facts while the real
+        // tables honor --rows, then replace only those buffered sections before JSON is assembled.
+        if (maxRows is { IsUnlimited: false }
+            && unwindowedSections is { Count: > 0 })
+        {
+            var emittedSections = new HashSet<string>(
+                formatter.EmittedSectionNames,
+                StringComparer.OrdinalIgnoreCase);
+            var selectedSections = unwindowedSections
+                .Where(emittedSections.Contains)
+                .Where(section => writerOptions.IncludeSections is not { Count: > 0 } included
+                    || included.Contains(section, StringComparer.OrdinalIgnoreCase))
+                .ToArray();
+            if (selectedSections.Length > 0)
+            {
+                var savedSections = writerOptions.IncludeSections;
+                var savedWindow = writerOptions.RowWindow;
+                try
+                {
+                    writerOptions.IncludeSections = new HashSet<string>(
+                        selectedSections,
+                        StringComparer.OrdinalIgnoreCase);
+                    writerOptions.RowWindow = null;
+                    var unwindowedFormatter = new JsonSectionFormatter();
+                    unwindowedFormatter.BeginDocument(writerOptions);
+                    serialize(
+                        unwindowedFormatter.ContentWriter,
+                        unwindowedFormatter,
+                        writerOptions);
+                    formatter.ReplaceSectionsFrom(unwindowedFormatter, selectedSections);
+                }
+                finally
+                {
+                    writerOptions.IncludeSections = savedSections;
+                    writerOptions.RowWindow = savedWindow;
+                }
+            }
+        }
+
         return new ProjectedJsonDocument(
             formatter.Finish(indented),
             formatter.EmittedFields,

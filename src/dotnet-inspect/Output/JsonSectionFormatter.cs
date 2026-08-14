@@ -283,6 +283,28 @@ internal sealed class JsonSectionFormatter :
         }
     }
 
+    internal void ReplaceSectionsFrom(
+        JsonSectionFormatter source,
+        IReadOnlyCollection<string> sectionNames)
+    {
+        foreach (var name in sectionNames)
+        {
+            var replacement = source._sections.FirstOrDefault(
+                section => string.Equals(section.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (replacement is null)
+                throw new InvalidOperationException(
+                    $"Cannot replace section '{name}' because the unwindowed render did not produce it.");
+
+            var index = _sections.FindIndex(
+                section => string.Equals(section.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                throw new InvalidOperationException(
+                    $"Cannot replace section '{name}' because the windowed render did not produce it.");
+
+            _sections[index] = replacement;
+        }
+    }
+
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
     {
         RequireNoActiveStreamingTable("format a heading");

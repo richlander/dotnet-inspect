@@ -6133,6 +6133,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_QuietExplicitSectionUnderProjectedJsonStillPopulatesRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath,
+            "-v:q", "-S", "Classes", "--columns", "Type",
+            "--json", "--rows", "2", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            2,
+            document.RootElement.GetProperty("classes").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task TypeListing_PromotedApiInfoIgnoresTableRowWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--fields", "Types,Methods", "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var facts = document.RootElement.GetProperty("api_info")
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("field").GetString()!,
+                row => row.GetProperty("value").GetString());
+        Assert.Equal(2, facts.Count);
+        Assert.Contains("Types", facts);
+        Assert.Contains("Methods", facts);
+        Assert.Single(document.RootElement.GetProperty("classes").EnumerateArray());
+    }
+
+    [Fact]
     public async Task TypeListing_PartiallyUnmatchedProjectedJsonReportsMissingName()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6155,7 +6192,8 @@ public partial class CommandExecutionTests
             "--json", "--rows", "1", "--compact");
 
         Assert.Equal(0, exit);
-        Assert.Contains("1 column has no data: Bogus", error, StringComparison.Ordinal);
+        Assert.Contains("column 'Bogus' not found", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("column has no data: Bogus", error, StringComparison.Ordinal);
         using var document = JsonDocument.Parse(output);
         var row = Assert.Single(document.RootElement.GetProperty("api_info").EnumerateArray());
         Assert.Equal("Types", row.GetProperty("field").GetString());
@@ -6220,16 +6258,20 @@ public partial class CommandExecutionTests
         Assert.Contains("1 field has no data: Version", error, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task SingleType_UnmatchedProjectedJsonFieldIsDiagnosed()
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task TypeOrMember_UnmatchedProjectedJsonFieldFailsBeforeOutput(string command)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "--platform", "System.Runtime",
+            command, "System.String", "--platform", "System.Runtime",
             "--fields", "Bogus", "--json", "--compact");
 
-        Assert.Equal(0, exit);
-        Assert.NotEmpty(output);
-        Assert.Contains("1 field has no data: Bogus", error, StringComparison.Ordinal);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("field 'Bogus' not found", error, StringComparison.Ordinal);
+        Assert.Contains("No fields matched projection: Bogus", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("field has no data: Bogus", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -6409,6 +6451,26 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         Assert.Single(document.RootElement.GetProperty("exception_regions").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task WholeType_ExceptionRegionsProjectedJsonPreservesMemberColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(MemberExceptionRegionsFixture).FullName!, "--library", TestAssemblyPath,
+            "-S", "Exception Regions", "--columns", "Member,Region",
+            "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("exception_regions").EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row =>
+        {
+            Assert.True(row.TryGetProperty("member", out _));
+            Assert.True(row.TryGetProperty("region", out _));
+        });
     }
 
     [Fact]

@@ -120,7 +120,8 @@ public static class ApiOutputFormatter
                 view.Description = "This library contains no public types.";
             }
         }
-        else if (options.Verbosity != Verbosity.Quiet)
+        else if (options.Verbosity != Verbosity.Quiet
+            || options.IncludeSections is { Count: > 0 })
         {
             if (api.IsTypeForwardingAssembly)
                 view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
@@ -184,11 +185,18 @@ public static class ApiOutputFormatter
         }
     }
 
-    internal static MarkoutWriterOptions BuildWriterOptions(ApiSurface api, ApiOptions options)
+    internal static MarkoutWriterOptions BuildWriterOptions(ApiSurface api, ApiOptions options) =>
+        BuildWriterOptions(api, options, out _);
+
+    internal static MarkoutWriterOptions BuildWriterOptions(
+        ApiSurface api,
+        ApiOptions options,
+        out bool promotedApiInfo)
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
             api, options.Verbosity, options.IncludeSections);
+        promotedApiInfo = false;
         if (options.JsonOutput
             && !options.Count
             && options.Fields is { Length: > 0 }
@@ -199,6 +207,7 @@ public static class ApiOutputFormatter
             // associate Markout's value-less single-field callback, so promote the equivalent
             // projectable fact table instead of dropping the field or failing the whole document.
             includeSections = [SectionNames.ApiInfo, .. selected];
+            promotedApiInfo = true;
         }
 
         return new MarkoutWriterOptions

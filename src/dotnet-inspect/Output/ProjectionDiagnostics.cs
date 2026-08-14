@@ -70,22 +70,8 @@ public static class ProjectionDiagnostics
         // A name is an error only when it resolves in NO selected section. Names that
         // resolve in any section drop out, so a valid graph field is not reported against a
         // companion table that happens to lack it (e.g. the Callers table implied by --bin).
-        var resolvedSomewhere = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var section in sectionNames)
-        {
-            var unresolved = new HashSet<string>(
-                schema.ValidateProjection(section, names).Unresolved, StringComparer.OrdinalIgnoreCase);
-            foreach (var name in names)
-                if (!unresolved.Contains(name))
-                    resolvedSomewhere.Add(name);
-
-            if (string.Equals(kind, "column", StringComparison.Ordinal)
-                && fieldLayoutSections?.Contains(section) == true)
-            {
-                foreach (var name in MatchedRequests(names, ["Field", "Value"]))
-                    resolvedSomewhere.Add(name);
-            }
-        }
+        var resolvedSomewhere = ResolveNamesAcrossSections(
+            schema, sectionNames, names, kind, fieldLayoutSections);
 
         // Warn (with the per-section discovery hint) only for names missing everywhere.
         foreach (var section in sectionNames)
@@ -124,9 +110,18 @@ public static class ProjectionDiagnostics
         string[]? columns,
         IReadOnlyList<string> emittedFields,
         IReadOnlyList<string> emittedColumns,
-        DocumentSchema schema)
+        DocumentSchema schema,
+        IReadOnlyCollection<string>? sectionNames = null,
+        IReadOnlySet<string>? fieldLayoutSections = null)
     {
-        ReportMissing(UnmatchedRequests(fields, emittedFields), "field");
+        sectionNames ??= schema.SectionNames.ToArray();
+        var resolvedFields = ResolveNamesAcrossSections(
+            schema, sectionNames, fields ?? [], "field", fieldLayoutSections);
+        ReportMissing(
+            UnmatchedRequests(
+                fields?.Where(resolvedFields.Contains).ToArray(),
+                emittedFields),
+            "field");
 
         var emittedMachineColumns = new HashSet<string>(
             emittedColumns,
@@ -155,7 +150,43 @@ public static class ProjectionDiagnostics
         if (emittedMachineColumns.Contains("value"))
             emittedDisplayColumns.Add("Value");
 
-        ReportMissing(UnmatchedRequests(columns, emittedDisplayColumns), "column");
+        var resolvedColumns = ResolveNamesAcrossSections(
+            schema, sectionNames, columns ?? [], "column", fieldLayoutSections);
+        ReportMissing(
+            UnmatchedRequests(
+                columns?.Where(resolvedColumns.Contains).ToArray(),
+                emittedDisplayColumns),
+            "column");
+    }
+
+    private static HashSet<string> ResolveNamesAcrossSections(
+        DocumentSchema schema,
+        IReadOnlyCollection<string> sectionNames,
+        string[] names,
+        string kind,
+        IReadOnlySet<string>? fieldLayoutSections)
+    {
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in sectionNames)
+        {
+            var unresolved = new HashSet<string>(
+                schema.ValidateProjection(section, names).Unresolved,
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+            {
+                if (!unresolved.Contains(name))
+                    resolved.Add(name);
+            }
+
+            if (string.Equals(kind, "column", StringComparison.Ordinal)
+                && fieldLayoutSections?.Contains(section) == true)
+            {
+                foreach (var name in MatchedRequests(names, ["Field", "Value"]))
+                    resolved.Add(name);
+            }
+        }
+
+        return resolved;
     }
 
     private static void DiagnoseRendered(string[]? requestedNames, string renderedOutput, string kind)
