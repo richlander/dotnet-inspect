@@ -85,6 +85,23 @@ public class SignatureBlobGuardTests
     }
 
     [Fact]
+    public void CompleteMethodSignature_RejectsTruncationAndTrailingBytes()
+    {
+        Assert.True(GuardCompleteMethodSig([0x00, 0x00, 0x01]));
+        Assert.False(GuardCompleteMethodSig([0x00]));
+        Assert.False(GuardCompleteMethodSig([0x00, 0x00, 0x01, 0xFF]));
+
+        var truncated = new BlobBuilder();
+        truncated.WriteByte(0x00);
+        var (reader, handle) = BuildStandaloneSig(truncated);
+        Assert.True(
+            SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                reader.GetStandaloneSignature(handle).Signature,
+                SignatureBlobGuard.Kind.Method));
+    }
+
+    [Fact]
     public void DeeplyNestedMethodParameter_IsUnsafe()
     {
         // void M(int[][]...[]) with a 2000-deep array parameter: shallow arity, deep structure.
@@ -199,6 +216,17 @@ public class SignatureBlobGuardTests
     {
         var (reader, handle) = BuildStandaloneSig(sig);
         return SignatureBlobGuard.IsSafeToDecode(reader, reader.GetStandaloneSignature(handle).Signature, SignatureBlobGuard.Kind.Method);
+    }
+
+    static bool GuardCompleteMethodSig(byte[] signature)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteBytes(signature);
+        var (reader, handle) = BuildStandaloneSig(blob);
+        return SignatureBlobGuard.IsSafeAndCompleteToDecode(
+            reader,
+            reader.GetStandaloneSignature(handle).Signature,
+            SignatureBlobGuard.Kind.Method);
     }
 
     static byte[] Nested(byte wrapper, int count)

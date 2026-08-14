@@ -32,7 +32,11 @@ public class StructuralCloneCorpusTests
         [
             .. corpus.Cases
                 .SelectMany(static item =>
-                    new[] { item.Left.Method, item.Right.Method })
+                    new[]
+                    {
+                        $"{item.Left.Type}.{item.Left.Method}",
+                        $"{item.Right.Type}.{item.Right.Method}",
+                    })
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal),
         ];
@@ -43,7 +47,8 @@ public class StructuralCloneCorpusTests
                     BindingFlags.Public
                     | BindingFlags.Static
                     | BindingFlags.DeclaredOnly)
-                .Select(static method => method.Name)
+                .Select(static method =>
+                    $"{method.DeclaringType!.FullName}.{method.Name}")
                 .Order(StringComparer.Ordinal),
         ];
 

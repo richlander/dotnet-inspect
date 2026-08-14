@@ -58,19 +58,23 @@ Exception-handling bodies, region-leaving or external control flow, unsupported
 local type shapes, non-IL implementations, and methods without IL are
 unsupported. Malformed or incomplete bodies fail visibly, including invalid
 local/argument slots, invalid metadata or user-string operands, non-method
-or incomplete `calli` signatures, and terminal fallthrough. Body-byte,
-instruction, block, local, and witness-search limits produce `LimitReached`,
-not `Different`.
+or incomplete method and `calli` signatures, and terminal fallthrough. Valid
+function-pointer and custom-modifier signature shapes remain supported within
+the guarded decode policy. Body-byte, instruction, block, CFG-edge, local, and
+witness-search limits produce `LimitReached`, not `Different`.
 The body-byte bound applies before instruction/CFG materialization; receipts
-retain every count measured before a comparison stops.
+retain every count measured before a comparison stops, including CFG edges,
+refinement rounds, and witness-search steps.
 
 `StructuralCloneAnalysisTests` gates this policy with compiler-produced and
 synthetic close-positive/close-negative cases.
 
 ## Correspondence and automorphisms
 
-Joint block/local refinement narrows possible correspondence classes. A bounded
-search then proves one exact graph-isomorphism witness.
+Joint block/local refinement narrows possible correspondence classes until it
+reaches a fixed point, subject to its finite theoretical ceiling. A bounded
+search with indexed edge membership then proves one exact graph-isomorphism
+witness.
 
 If every final left-side class has one right-side member, correspondence is
 `Unique`. Otherwise it is `Ambiguous`. A multi-member class is a conservative
