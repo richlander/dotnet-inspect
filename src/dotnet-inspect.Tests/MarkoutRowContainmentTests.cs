@@ -552,6 +552,14 @@ public class MarkoutRowContainmentTests
         Assert.True(
             checkedPropertiesByType.GetValueOrDefault(typeof(DotnetInspector.Views.InspectionResultView)) >= 10,
             "InspectionResultView did not receive the hostile package model; its computed columns were not checked.");
+        Assert.Equal(
+            5,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.PackageSourceAvailabilitySection)));
+        Assert.Equal(
+            6,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.PackageSourceIntegritySection)));
 
         Assert.Equal(OutOfReach, declined.Order(StringComparer.Ordinal).ToArray());
 
@@ -725,6 +733,26 @@ public class MarkoutRowContainmentTests
         if (type == typeof(InertString))
         {
             return new InertString(TextPolicy.Field, Hostile);
+        }
+
+        if (type == typeof(List<PackageSourceLinkIssueText>))
+        {
+            return new List<PackageSourceLinkIssueText>
+            {
+                new(
+                    new InertString(TextPolicy.Field, Hostile),
+                    new InertString(TextPolicy.Field, Hostile)),
+            };
+        }
+
+        if (type == typeof(List<PackageSourceLinkFileText>))
+        {
+            return new List<PackageSourceLinkFileText>
+            {
+                new(
+                    new InertString(TextPolicy.Field, Hostile),
+                    new InertString(TextPolicy.Field, Hostile)),
+            };
         }
 
         var underlying = Nullable.GetUnderlyingType(type);
