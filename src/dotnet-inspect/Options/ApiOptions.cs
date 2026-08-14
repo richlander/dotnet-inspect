@@ -312,6 +312,11 @@ public record MemberOptions : ApiOptions
     public bool MemberSourceTooComplex { get; init; }
 
     /// <summary>
+    /// True when portable-PDB sequence-point coordinates cannot address the verified source.
+    /// </summary>
+    public bool MemberSourceCoordinatesInvalid { get; init; }
+
+    /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers
     /// and bidirectional Call Graph traversal, in addition to the member's own assembly.
     /// Empty = own assembly only.
