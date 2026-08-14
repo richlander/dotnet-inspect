@@ -803,6 +803,16 @@ public class ApiMember
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
+    /// Referenced assembly containing the external interface implemented by
+    /// this explicit member; null for a same-assembly interface or when the
+    /// identity is unavailable. The compiled skeleton gate
+    /// <c>ExternalGenericExplicitInterfaceUsesResolvedAssemblyAlias</c>
+    /// verifies that consumers bind through this identity instead of display text.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyReferenceIdentity? ExplicitInterfaceAssembly { get; set; }
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>

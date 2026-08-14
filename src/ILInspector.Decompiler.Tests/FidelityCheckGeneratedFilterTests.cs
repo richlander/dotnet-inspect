@@ -3,6 +3,7 @@ using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using Microsoft.CodeAnalysis;
@@ -186,6 +187,104 @@ public class FidelityCheckGeneratedFilterTests
         finally
         {
             DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ExternalGenericExplicitInterfaceUsesResolvedAssemblyAlias()
+    {
+        string dependencyPath = CompileFixture(
+            """
+            namespace Collision;
+
+            public interface IProbe<T>
+            {
+                T Get();
+            }
+            """,
+            assemblyName: "ExplicitDependency");
+        string targetPath = "";
+        try
+        {
+            MetadataReference dependencyReference =
+                MetadataReference.CreateFromFile(
+                    dependencyPath,
+                    new MetadataReferenceProperties(
+                        MetadataImageKind.Assembly,
+                        aliases: ["external"]));
+            targetPath = CompileFixture(
+                """
+                extern alias external;
+
+                namespace Collision;
+
+                public interface IProbe<T>
+                {
+                    T Other();
+                }
+
+                public sealed class Target
+                    : external::Collision.IProbe<int>
+                {
+                    int external::Collision.IProbe<int>.Get() => 42;
+                }
+
+                public sealed class Bystander
+                    : external::Collision.IProbe<int>
+                {
+                    int external::Collision.IProbe<int>.Get() => 7;
+                }
+                """,
+                references:
+                [
+                    .. RoslynTestReferences.TrustedPlatform,
+                    dependencyReference,
+                ],
+                assemblyName: "ExplicitTarget");
+            File.Copy(
+                dependencyPath,
+                Path.Combine(
+                    Path.GetDirectoryName(targetPath)!,
+                    Path.GetFileName(dependencyPath)));
+
+            using (FileStream stream = File.OpenRead(targetPath))
+            using (var peReader = new PEReader(stream))
+            {
+                ApiType targetApi = Assert.Single(
+                    ApiSurfaceExtractor.Extract(
+                        peReader,
+                        includeAll: true).Types,
+                    type => type.FullName == "Collision.Target");
+                Assert.Equal(
+                    ["Collision.IProbe<int>"],
+                    targetApi.Interfaces);
+                ApiMember explicitMember = Assert.Single(
+                    targetApi.Members,
+                    member => member.Name.EndsWith(
+                        ".Get",
+                        StringComparison.Ordinal));
+                Assert.Equal(
+                    "ExplicitDependency",
+                    explicitMember.ExplicitInterfaceAssembly?.Name);
+            }
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(targetPath),
+                candidate =>
+                    candidate.Type == "Collision.Target"
+                    && candidate.Method
+                        == "external::Collision.IProbe<System.Int32>.Get");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                    + result.Annotated);
+        }
+        finally
+        {
+            if (targetPath.Length != 0)
+                DeleteFixture(targetPath);
+            DeleteFixture(dependencyPath);
         }
     }
 
@@ -2049,13 +2148,14 @@ public class FidelityCheckGeneratedFilterTests
         string source,
         OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary,
         IEnumerable<MetadataReference>? references = null,
+        string assemblyName = "fixture",
         bool allowUnsafe = false)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "fixture.dll");
+        var path = Path.Combine(directory, $"{assemblyName}.dll");
         var compilation = CSharpCompilation.Create(
-            Path.GetFileNameWithoutExtension(path),
+            assemblyName,
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
             references ?? RoslynTestReferences.TrustedPlatform,
             new CSharpCompilationOptions(

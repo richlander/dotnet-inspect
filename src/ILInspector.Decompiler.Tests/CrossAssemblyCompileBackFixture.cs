@@ -9,10 +9,10 @@ public static class CrossAssemblyCompileBackExtensions
         value.Value * 2;
 }
 
-public sealed class CrossAssemblyAccessorCompileBackFixture
+public class CrossAssemblyAccessorCompileBackFixture
     : CrossAssemblyAccessorBase
 {
-    public override int Value => base.Value + 1;
+    public sealed override int Value => base.Value + 1;
 }
 
 public sealed class CrossAssemblyNeedsArgumentCompileBackFixture

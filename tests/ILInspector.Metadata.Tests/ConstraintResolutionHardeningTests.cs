@@ -1400,6 +1400,48 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void MissingExternalBaseIsReportedAsBaseResolutionFailure()
+    {
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "MissingBaseConsumer",
+                "MissingBaseAssembly",
+                "Base");
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy(),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Equal(
+            "MissingBaseAssembly",
+            failure.DependencyAssembly?.Name);
+        Assert.Contains(
+            "external base type",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "generic-constraint",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            candidate => candidate.Operation
+                == ApiSurface.ConstraintResolutionOperation);
+    }
+
+    [Fact]
     public void TransitiveDependencyOpenFailurePreservesResolvedIdentity()
     {
         byte[] dependencyImage =

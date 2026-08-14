@@ -158,7 +158,7 @@ public class SkeletonEmitTests
     }
 
     [Fact]
-    public void SkeletonRetainsCrossAssemblyBaseForAccessorOnlySelection()
+    public void SkeletonRetainsSealedCrossAssemblyPropertyOverride()
     {
         var result = Assert.Single(FidelityCheck.Evaluate(
             typeof(CrossAssemblyAccessorCompileBackFixture).Assembly.Location,
@@ -166,9 +166,10 @@ public class SkeletonEmitTests
                 "ILInspector.Decompiler.Tests.CrossAssemblyAccessorCompileBackFixture",
             method => method.Method == "get_Value"));
 
-        Assert.Equal(
-            FidelityCheck.CompileBackStatus.Exact,
-            result.Status);
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
     }
 
     [Theory]
@@ -190,9 +191,10 @@ public class SkeletonEmitTests
             type => type == typeName,
             method => method.Method == methodName));
 
-        Assert.Equal(
-            FidelityCheck.CompileBackStatus.Exact,
-            result.Status);
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
     }
 
     [Fact]
