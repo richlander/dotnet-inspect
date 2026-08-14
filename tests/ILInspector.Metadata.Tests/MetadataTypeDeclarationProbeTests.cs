@@ -183,10 +183,14 @@ public class MetadataTypeDeclarationProbeTests
     {
         string leaf = new(
             'X',
-            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars / 4);
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 16);
+        int repetitions =
+            (MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                / leaf.Length)
+            + 1;
         using MetadataImage image = BuildMetadata(metadata =>
         {
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < repetitions; i++)
             {
                 AddTypeDefinition(
                     metadata,

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -9,10 +10,15 @@ public enum MetadataTypeNameRejectionKind
     MissingNamespace,
     MissingSegments,
     MissingSegment,
-    SerializedNameTooLong,
     InvalidSerializedName,
     AssemblyQualifiedSerializedName,
     NonDefinitionSerializedName,
+
+    /// <summary>
+    /// The namespace and segments together exceed
+    /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
+    /// </summary>
+    SegmentsTooLong,
 }
 
 /// <summary>Typed evidence for a rejected structured metadata type-definition name.</summary>
@@ -79,6 +85,60 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             : $"{Namespace}.{typeName}";
     }
 
+    /// <summary>
+    /// Projects an injective text identity for browser and composition keys. Delimiters that are
+    /// literal metadata-name characters are escaped before nested segments are joined.
+    /// <c>AssemblyContextApiSurfaceQueryTests.MetadataTypeIdentity_PreservesStructuredSegments</c>
+    /// gates the segment-boundary and literal-delimiter distinction.
+    /// </summary>
+    public string ToEscapedFullName()
+    {
+        static string EscapeNamespace(string value) =>
+            value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("+", "\\+", StringComparison.Ordinal);
+        static string EscapeSegment(string value) =>
+            EscapeNamespace(value)
+                .Replace(".", "\\.", StringComparison.Ordinal);
+
+        string typeName = string.Join(
+            '+',
+            Segments.Select(EscapeSegment));
+        return Namespace.Length == 0
+            ? typeName
+            : $"{EscapeNamespace(Namespace)}.{typeName}";
+    }
+
+    /// <summary>
+    /// Projects the flattened metadata spelling of the nested segments alone: root-to-leaf
+    /// segments joined by <c>+</c>, without the namespace. This is the spelling IL and analysis
+    /// display surfaces carry as a type's <c>Name</c>.
+    /// </summary>
+    /// <remarks>
+    /// Construction is a single linear pass over already-validated segments, and the validated
+    /// name is bounded by <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>, so a caller
+    /// can neither rebuild a growing prefix per level nor flatten an unbounded name.
+    /// <c>MetadataTypeNameBudgetTests</c> gates both properties.
+    /// </remarks>
+    public string ToNestedMetadataName()
+    {
+        if (Segments.Length == 1)
+            return Segments[0];
+
+        int length = Segments.Length - 1;
+        foreach (string segment in Segments)
+            length += segment.Length;
+
+        var builder = new StringBuilder(length);
+        for (int i = 0; i < Segments.Length; i++)
+        {
+            if (i > 0)
+                builder.Append('+');
+            builder.Append(Segments[i]);
+        }
+
+        return builder.ToString();
+    }
+
     public static MetadataTypeDefinitionNameResult Create(
         string? @namespace,
         ImmutableArray<string> segments)
@@ -97,6 +157,7 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                     MetadataTypeNameRejectionKind.MissingSegments));
         }
 
+        long characters = @namespace.Length;
         for (int i = 0; i < segments.Length; i++)
         {
             if (string.IsNullOrEmpty(segments[i]))
@@ -104,6 +165,18 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                 return new MetadataTypeDefinitionNameResult.Rejected(
                     new MetadataTypeNameRejection(
                         MetadataTypeNameRejectionKind.MissingSegment,
+                        i));
+            }
+
+            // One delimiter per boundary: '.' after the namespace, '+' between segments. The
+            // running total is checked per segment so an over-budget name is refused before its
+            // remaining segments are measured, and never after a flattened spelling was built.
+            characters += segments[i].Length + 1;
+            if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                return new MetadataTypeDefinitionNameResult.Rejected(
+                    new MetadataTypeNameRejection(
+                        MetadataTypeNameRejectionKind.SegmentsTooLong,
                         i));
             }
         }
@@ -123,10 +196,10 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     {
         ArgumentNullException.ThrowIfNull(serializedName);
         if (serializedName.Length
-            > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
         {
             return Reject(
-                MetadataTypeNameRejectionKind.SerializedNameTooLong);
+                MetadataTypeNameRejectionKind.SegmentsTooLong);
         }
 
         var options = new TypeNameParseOptions

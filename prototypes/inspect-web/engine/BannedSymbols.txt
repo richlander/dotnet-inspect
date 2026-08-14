@@ -1,0 +1,39 @@
+; Every browser interaction that inspects an assembly runs inside a workspace, through a public
+; product query that owns the session, the metadata source, and the analysis index. This file is
+; that rule, enforced by the compiler's semantic model through BannedApiAnalyzers rather than by a
+; scan of the source text — a scan has to model C# to know what a name binds to, and every
+; spelling it does not model is a hole.
+;
+; Minting a participant requires decoding the entry's real metadata identity, but that narrow raw
+; read lives in InspectWeb.Acquisition. The engine cannot reach PEReader, MetadataReader, an
+; inspection session, a metadata source, a body index, or a retained image directly.
+;
+; BrowserEngineLayeringTests in engine.Tests pins this file into the engine project and
+; checks that every identifier below still resolves, so a rename cannot leave a silently vacuous
+; entry behind.
+
+T:ILInspector.Metadata.AssemblyInspectionSession;Inspect through a public product query that owns the session, never by opening one.
+T:ILInspector.Metadata.AssemblyImageSnapshot;A group's immutable image belongs to the query layer; hand the group to a query instead.
+T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
+T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
+T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
+T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.
+T:ILInspector.Metadata.ApiSurfaceExtractor;API projection belongs to a product query, never to the browser host.
+P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead;A descriptor may carry identity into a query, but the browser host must not open its image.
+T:System.Reflection.PortableExecutable.PEReader;Raw image decoding is isolated in InspectWeb.Acquisition; the browser host uses product queries.
+T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding is isolated in InspectWeb.Acquisition; the browser host uses product queries.
+
+M:DotnetInspector.Queries.AssemblyContextGroup.UseAssemblyImage``1(ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyImageCallback{``0});Inspecting an image span in the host is the thing the workspace rule exists to prevent.
+M:DotnetInspector.Queries.AssemblyContextGroup.GetAssemblyImageSpan(ILInspector.Metadata.ResolvedAssemblyReference);Inspecting an image span in the host is the thing the workspace rule exists to prevent.
+M:DotnetInspector.Queries.AssemblyContextGroup.RetainAssemblyReference(ILInspector.Metadata.ResolvedAssemblyReference);A retained descriptor is content the query layer owns; ask a query for the projection instead.
+
+M:DotnetInspector.Queries.AssemblyContextIntegrationsQuery.ExecuteParticipantAsync``1(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.AssemblyContextParticipant,System.Func{ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyIntegrationsEntry,System.Threading.Tasks.Task{``0}});Its release is terminal for the released participant, and this engine reuses one workspace across exports.
+M:DotnetInspector.Queries.AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipantAsync``1(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.AssemblyContextParticipant,System.Func{ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyIntegrationsEntry,DotnetInspector.Queries.AssemblyIntegrationOpportunitiesEntry,System.Threading.Tasks.Task{``0}});Its release is terminal for the released participant, and this engine reuses one workspace across exports.
+
+; A package load is not an explicit request for unbounded work. AssemblyContextApiSurfaceQuery's
+; whole-group and participant entry points are declared InspectionCost.Unbounded, so the browser
+; uses only the bounded overload, which takes explicit participant/type/member limits and reports
+; any early stop. BrowserApiSurfacePolicy owns those limits.
+M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.Execute(DotnetInspector.Queries.AssemblyContextGroup,System.Boolean);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits; the unbounded projection is not a default package load.
+M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.Execute(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.ApiSurfaceScope);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits; the unbounded projection is not a default package load.
+M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteParticipant(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.AssemblyContextParticipant,DotnetInspector.Queries.ApiSurfaceScope);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits and a one-participant selection.
