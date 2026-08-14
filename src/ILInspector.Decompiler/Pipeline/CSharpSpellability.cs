@@ -84,8 +84,7 @@ internal static class CSharpSpellability
     {
         var pending = new Stack<IrExpression>();
         var seenPlaces = new HashSet<(PlaceKind Kind, int Index)>();
-        var bodyNodes = GenericDeclarationPatternProof
-            .DescendantsOutsideNestedFunctions(function).ToList();
+        var bodyNodes = function.DescendantsOutsideNestedFunctions.ToList();
         pending.Push(expression);
 
         while (pending.Count > 0)

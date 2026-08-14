@@ -240,9 +240,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        if (regions.Values.Any(region =>
-                ContainsOuterOwnedContinue(blocks, region)
-                && RegionContainsCycle(blocks, region, offsetToIndex)))
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex, s))
             return false;
 
         // Nothing outside the switch (the block s aside, which dispatches) may
@@ -408,9 +406,7 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        if (regions.Values.Any(region =>
-                ContainsOuterOwnedContinue(blocks, region)
-                && RegionContainsCycle(blocks, region, offsetToIndex)))
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex, s))
             return false;
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
@@ -1330,7 +1326,7 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (int idx in region)
         {
             var root = blocks[idx];
-            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(root))
+            foreach (var node in root.DescendantsOutsideNestedFunctions)
             {
                 if (node is not Continue @continue)
                     continue;
@@ -1353,13 +1349,18 @@ public sealed class SwitchRaisingPass : IIrPass
     {
         var members = region.ToHashSet();
         var incoming = region.ToDictionary(index => index, _ => 0);
+        var successorsByIndex = new Dictionary<int, HashSet<int>>();
         foreach (int index in region)
         {
             if (!TrySuccessors(blocks, index, offsetToIndex, out var successors))
                 return true;
-            foreach (int target in successors)
-                if (members.Contains(target))
-                    incoming[target]++;
+            var internalSuccessors = successors.Where(members.Contains).ToHashSet();
+            foreach (int targetOffset in TargetsInFunctionScope(blocks[index]))
+                if (offsetToIndex.TryGetValue(targetOffset, out int target) && members.Contains(target))
+                    internalSuccessors.Add(target);
+            successorsByIndex.Add(index, internalSuccessors);
+            foreach (int target in internalSuccessors)
+                incoming[target]++;
         }
 
         var ready = new Queue<int>(incoming.Where(pair => pair.Value == 0).Select(pair => pair.Key));
@@ -1368,14 +1369,44 @@ public sealed class SwitchRaisingPass : IIrPass
         {
             int index = ready.Dequeue();
             visited++;
-            TrySuccessors(blocks, index, offsetToIndex, out var successors);
-            foreach (int target in successors)
+            foreach (int target in successorsByIndex[index])
             {
-                if (members.Contains(target) && --incoming[target] == 0)
+                if (--incoming[target] == 0)
                     ready.Enqueue(target);
             }
         }
         return visited != region.Count;
+    }
+
+    static bool OuterContinueCouldBeCaptured(
+        IReadOnlyList<Block> blocks,
+        IReadOnlyDictionary<int, List<int>> regions,
+        Dictionary<int, int> offsetToIndex,
+        int switchHead)
+    {
+        bool containsOuterContinue = false;
+        foreach (var region in regions.Values)
+        {
+            if (!ContainsOuterOwnedContinue(blocks, region))
+                continue;
+            containsOuterContinue = true;
+            if (RegionContainsCycle(blocks, region, offsetToIndex))
+                return true;
+        }
+        return containsOuterContinue
+            && HasBackEdgeEncirclingSwitch(blocks, switchHead, offsetToIndex);
+    }
+
+    static bool HasBackEdgeEncirclingSwitch(
+        IReadOnlyList<Block> blocks,
+        int switchHead,
+        Dictionary<int, int> offsetToIndex)
+    {
+        for (int source = switchHead + 1; source < blocks.Count; source++)
+            foreach (int targetOffset in TargetsInFunctionScope(blocks[source]))
+                if (offsetToIndex.TryGetValue(targetOffset, out int target) && target <= switchHead)
+                    return true;
+        return false;
     }
 
     static bool OnlyReachedByTable(
@@ -1386,7 +1417,8 @@ public sealed class SwitchRaisingPass : IIrPass
         IReadOnlyDictionary<int, List<int>>? regions = null,
         int? consumedDefaultDispatcherOffset = null)
     {
-        var ownedByOffset = owned.ToDictionary(i => blocks[i].StartOffset);
+        if (!TryMapOwnedOffsets(blocks, owned, out var ownedByOffset))
+            return false;
         if (ownedByOffset.Keys.Any(leaveTargets.Contains))
             return false;
         var regionByBlock = BuildRegionByBlock(regions);
@@ -1441,7 +1473,7 @@ public sealed class SwitchRaisingPass : IIrPass
             yield break;
         foreach (int target in Targets(node))
             yield return target;
-        foreach (var descendant in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(node))
+        foreach (var descendant in node.DescendantsOutsideNestedFunctions)
             foreach (int target in Targets(descendant))
                 yield return target;
     }
@@ -1902,9 +1934,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        if (regions.Values.Any(region =>
-                ContainsOuterOwnedContinue(blocks, region)
-                && RegionContainsCycle(blocks, region, offsetToIndex)))
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex, s))
             return false;
 
         if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets, regions))
@@ -2067,7 +2097,8 @@ public sealed class SwitchRaisingPass : IIrPass
         HashSet<int> leaveTargets,
         IReadOnlyDictionary<int, List<int>>? regions = null)
     {
-        var ownedByOffset = owned.ToDictionary(i => blocks[i].StartOffset);
+        if (!TryMapOwnedOffsets(blocks, owned, out var ownedByOffset))
+            return false;
         var regionByBlock = BuildRegionByBlock(regions);
         var consumedDispatchOffsets = Enumerable.Range(s + 1, dispatchEnd - s)
             .Select(i => blocks[i].StartOffset)
@@ -2098,6 +2129,18 @@ public sealed class SwitchRaisingPass : IIrPass
                     }
             }
         }
+        return true;
+    }
+
+    static bool TryMapOwnedOffsets(
+        IReadOnlyList<Block> blocks,
+        HashSet<int> owned,
+        out Dictionary<int, int> ownedByOffset)
+    {
+        ownedByOffset = new Dictionary<int, int>();
+        foreach (int index in owned)
+            if (!ownedByOffset.TryAdd(blocks[index].StartOffset, index))
+                return false;
         return true;
     }
 

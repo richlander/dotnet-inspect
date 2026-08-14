@@ -235,6 +235,129 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
+    public void NestedBackEdgeWithOuterContinue_DeclinesSwitchRaise()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10, 0x40]));
+        loopBody.Add(dispatch);
+
+        var defaultBody = new Block(0x08);
+        defaultBody.Add(new Return(null));
+        loopBody.Add(defaultBody);
+
+        var caseHead = new Block(0x10);
+        loopBody.Add(caseHead);
+
+        var backEdgeArm = new Block();
+        backEdgeArm.Add(new Branch(0x10));
+        var caseExit = new Block(0x20);
+        caseExit.Add(new IfStatement(
+            new LoadArgument(1, "repeat", s_bool),
+            backEdgeArm,
+            elseArm: null));
+        caseExit.Add(new Continue());
+        loopBody.Add(caseExit);
+
+        var otherCase = new Block(0x40);
+        otherCase.Add(new Return(null));
+        loopBody.Add(otherCase);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [
+                new Parameter("value", s_int),
+                new Parameter("repeat", s_bool),
+            ]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<Continue>());
+    }
+
+    [Fact]
+    public void BackEdgeEncirclingSwitchWithOuterContinue_DeclinesSwitchRaise()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10, 0x20]));
+        loopBody.Add(dispatch);
+
+        foreach (int offset in new[] { 0x08, 0x10, 0x20 })
+        {
+            var section = new Block(offset);
+            section.Add(new Continue());
+            loopBody.Add(section);
+        }
+
+        var latch = new Block(0x30);
+        latch.Add(new Branch(0x00));
+        loopBody.Add(latch);
+
+        var function = CreateLoopFunction(
+            loopBody,
+            [new Parameter("value", s_int)]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(3, function.Descendants.OfType<Continue>().Count());
+    }
+
+    [Fact]
+    public void DuplicateOwnedBlockOffsets_DeclineWithoutThrowing()
+    {
+        var body = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10]));
+        body.Add(dispatch);
+
+        var inlineDefault = new Block(0x08);
+        inlineDefault.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        body.Add(inlineDefault);
+
+        var defaultExit = new Block(0x10);
+        defaultExit.Add(new Branch(0x20));
+        body.Add(defaultExit);
+
+        var caseBody = new Block(0x10);
+        caseBody.Add(new Branch(0x20));
+        body.Add(caseBody);
+
+        var join = new Block(0x20);
+        join.Add(new Return(null));
+        body.Add(join);
+
+        var function = CreateFunction(
+            body,
+            [new Parameter("value", s_int)],
+            [s_int]);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<Switch>());
+    }
+
+    [Fact]
     public void LoopOwnedBreakInsideContinueSection_DeclinesSwitchWrapping()
     {
         var loopBody = new BlockContainer();
