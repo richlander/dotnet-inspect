@@ -160,4 +160,44 @@ public class PostDominatorsTests
         Assert.True(pdom.PostDominates(postDominator: 2, block: 1));
         Assert.True(pdom.PostDominates(postDominator: 2, block: 0));
     }
+
+    [Fact]
+    public void NearestCommonPostDominator_FindsRealMergeAndVirtualExit()
+    {
+        var blocks = new List<Block>
+        {
+            Term(0, Cond(2)),
+            Term(1, new Branch(3)),
+            Term(2, new Branch(3)),
+            Term(3, new Return(null)),
+        };
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
+
+        Assert.Equal(3, pdom.NearestCommonPostDominator([1, 2]));
+        Assert.Equal(3, pdom.NearestCommonPostDominator([0, 3]));
+
+        var splitExitBlocks = new List<Block>
+        {
+            Term(0, Cond(2)),
+            Term(1, new Return(null)),
+            Term(2, new Return(null)),
+        };
+        var splitExitPdom = PostDominators.Of(Cfg.Build(splitExitBlocks));
+
+        Assert.Equal(PostDominators.VirtualExit, splitExitPdom.NearestCommonPostDominator([1, 2]));
+    }
+
+    [Fact]
+    public void NearestCommonPostDominator_UnrootedInputHasNoJoin()
+    {
+        var blocks = new List<Block>
+        {
+            Term(0, Cond(2)),
+            Term(1, new Branch(1)),
+            Term(2, new Return(null)),
+        };
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
+
+        Assert.Equal(PostDominators.None, pdom.NearestCommonPostDominator([1, 2]));
+    }
 }

@@ -4203,6 +4203,15 @@ public partial class CommandExecutionTests
         foreach (var field in new[] { "Library", "Types", "Methods", "Properties", "Source", "Version", "TFM" })
             Assert.Contains(field + ":", line, StringComparison.Ordinal);
 
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "--json", "--tips", "q");
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
+
         foreach (var args in withoutTheLine)
         {
             var (exit, output, _) = await RunAppAsync(
@@ -4221,6 +4230,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, fieldsExit);
         Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
+
         // Structured resolution reaches ParamCollectionAttribute through the
         // platform policy instead of dropping it with the sibling-only probe.
         Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
@@ -4242,6 +4252,113 @@ public partial class CommandExecutionTests
         Assert.Equal(0, bothExit);
         Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_QuietPlatformForwarderCounts_MatchFullSurface()
+    {
+        var (quietExit, quietOutput, quietError) = await RunAppAsync(
+            "type", "System.Runtime", "-v:q", "--verbose", "--tips", "q");
+        Assert.Equal(0, quietExit);
+        Assert.Contains(
+            "Extracting compact API summary from:",
+            quietError,
+            StringComparison.Ordinal);
+        var line = quietOutput.Split('\n')
+            .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
+
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "type", "System.Runtime", "--json", "--tips", "q");
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
+    }
+
+    [Fact]
+    public async Task Type_QuietPinnedRuntimeForwarderCounts_MatchFullSurface()
+    {
+        var (_, version, error) = PlatformResolver.ResolveFramework("runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var parts = version.Split('.');
+        string framework = $"runtime@{parts[0]}.{parts[1]}";
+        string[] source =
+        [
+            "--platform", "System.Runtime.CompilerServices.Unsafe",
+            "--framework", framework
+        ];
+
+        var (quietExit, quietOutput, quietError) = await RunAppAsync(
+            ["type", .. source, "-v:q", "--verbose", "--tips", "q"]);
+        Assert.Equal(0, quietExit);
+        Assert.Contains("Extracting API from:", quietError, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Extracting compact API summary from:",
+            quietError,
+            StringComparison.Ordinal);
+        var line = quietOutput.Split('\n')
+            .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
+
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            ["type", .. source, "--json", "--tips", "q"]);
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
+    }
+
+    [Fact]
+    public async Task Type_QuietAspNetCoreForwarderCounts_MatchFullSurface()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        string[] source =
+        [
+            "--platform", "Microsoft.AspNetCore.Mvc.Formatters.Json",
+            "--framework", "aspnetcore"
+        ];
+        var (quietExit, quietOutput, _) = await RunAppAsync(
+            ["type", .. source, "-v:q", "--tips", "q"]);
+        Assert.Equal(0, quietExit);
+        var line = quietOutput.Split('\n')
+            .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
+
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            ["type", .. source, "--json", "--tips", "q"]);
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
+    }
+
+    [Fact]
+    public async Task Type_QuietAlternateModes_KeepFullExtraction()
+    {
+        string[][] modes =
+        [
+            ["--plaintext"],
+            ["--rows", "1"]
+        ];
+
+        foreach (var mode in modes)
+        {
+            var (exit, _, error) = await RunAppAsync(
+                ["type", "System.Text.Json", "-v:q", "--verbose", .. mode, "--tips", "q"]);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Extracting API from:", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Extracting compact API summary from:", error, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>

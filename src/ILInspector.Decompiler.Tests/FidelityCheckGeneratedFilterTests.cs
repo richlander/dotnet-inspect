@@ -1,8 +1,12 @@
 using DotnetInspector.Services;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -152,6 +156,203 @@ public class FidelityCheckGeneratedFilterTests
                 result => result.Type == "AutoPropertyPairFixture" && result.Method == ".ctor");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, ctor.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+            using System.Runtime.CompilerServices;
+
+            [AttributeUsage(AttributeTargets.Constructor)]
+            internal sealed class ConstructorTagAttribute : Attribute
+            {
+            }
+
+            public class ConstructorWholeMemberFixture
+            {
+                private readonly int _value;
+
+                [ConstructorTag]
+                [SkipLocalsInit]
+                private ConstructorWholeMemberFixture()
+                {
+                    _value = 42;
+                }
+
+                public ConstructorWholeMemberFixture(int value)
+                {
+                    _value = value;
+                }
+
+                public static ConstructorWholeMemberFixture CreateDefault() => new();
+                public int Value => _value;
+            }
+
+            public sealed class DerivedConstructorWholeMemberFixture
+                : ConstructorWholeMemberFixture
+            {
+                public DerivedConstructorWholeMemberFixture() : base(1)
+                {
+                }
+            }
+            """, allowUnsafe: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "ConstructorWholeMemberFixture");
+            var type = reader.GetTypeDefinition(typeHandle);
+            int constructorOverload = -1;
+            MethodDefinitionHandle target = default;
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != ".ctor")
+                    continue;
+                constructorOverload++;
+                if (method.GetParameters().Count(
+                        parameterHandle => reader.GetParameter(parameterHandle).SequenceNumber > 0) == 0)
+                {
+                    target = methodHandle;
+                    break;
+                }
+            }
+            Assert.False(target.IsNil);
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                target,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            Assert.Contains(
+                "private ConstructorWholeMemberFixture()",
+                wholeMember.Value.Text,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("[ConstructorTag]", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains(
+                "[global::System.Runtime.CompilerServices.SkipLocalsInit]",
+                wholeMember.Value.Text,
+                StringComparison.Ordinal);
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                target,
+                targeted: true,
+                isPrimaryConstructor: true));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "ConstructorWholeMemberFixture",
+                    method => method.Method == ".ctor"
+                        && method.Overload == constructorOverload));
+
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_ReportsProductWholeMemberWhenConstructorRecompileFails()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.ComponentModel;
+
+            internal sealed class DerivedDescriptionAttribute : DescriptionAttribute
+            {
+                public DerivedDescriptionAttribute(string text) : base(text)
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "DerivedDescriptionAttribute",
+                    method => method.Method == ".ctor"));
+
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("CS1729", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ConstructorShellAccessibility_PreservesBodySyntaxDiagnostics()
+    {
+        const string member = """
+                private Fixture()
+                {
+                    Consume(,);
+                }
+            """;
+
+        Assert.True(
+            FidelityCheck.TryForcePublicConstructorAccessibility(
+                member,
+                out string normalized));
+        Assert.Contains("public Fixture()", normalized, StringComparison.Ordinal);
+        Assert.Contains("Consume(,);", normalized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evaluate_EscapesProductWholeMemberNamespaces()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Tags.@event
+            {
+                public sealed class Payload
+                {
+                }
+            }
+
+            namespace ConstructorHost
+            {
+                public sealed class KeywordNamespaceConstructor
+                {
+                    private readonly Tags.@event.Payload _value;
+
+                    public KeywordNamespaceConstructor(Tags.@event.Payload value)
+                    {
+                        _value = value;
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "ConstructorHost.KeywordNamespaceConstructor",
+                    method => method.Method == ".ctor"));
+
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
@@ -1145,7 +1346,7 @@ public class FidelityCheckGeneratedFilterTests
             result.Detail);
     }
 
-    static string CompileFixture(string source)
+    static string CompileFixture(string source, bool allowUnsafe = false)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -1157,6 +1358,7 @@ public class FidelityCheckGeneratedFilterTests
             references,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
+                allowUnsafe: allowUnsafe,
                 optimizationLevel: OptimizationLevel.Release,
                 nullableContextOptions: NullableContextOptions.Disable));
 

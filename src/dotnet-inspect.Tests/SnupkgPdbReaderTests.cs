@@ -38,6 +38,32 @@ public class SnupkgPdbReaderTests
     }
 
     [Fact]
+    public void ExtractPortablePdb_MatchingGuidWithMismatchedStamp_ReturnsNull()
+    {
+        var guid =
+            Guid.Parse(
+                "11112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            BuildPortablePdb(
+                guid,
+                stamp: 0x01020304);
+        var snupkg =
+            MakeSnupkg(
+                ("lib/net8.0/Foo.pdb", pdbBytes));
+
+        using var stream = new MemoryStream(snupkg);
+        var result =
+            SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                expectedStamp: 0x05060708);
+
+        Assert.Null(result.PdbBytes);
+        Assert.False(result.WindowsPdbDetected);
+    }
+
+    [Fact]
     public void ExtractPortablePdb_WindowsPdb_FlagsWindowsDetectedAndReturnsNull()
     {
         var windowsPdb = new byte[] { (byte)'M', (byte)'i', (byte)'c', (byte)'r', 0, 0, 0, 0 };
@@ -77,10 +103,12 @@ public class SnupkgPdbReaderTests
         Assert.Equal(pdbBytes, result.PdbBytes);
     }
 
-    internal static (byte[] Bytes, Guid Guid) BuildPortablePdb(Guid id)
+    internal static (byte[] Bytes, Guid Guid) BuildPortablePdb(
+        Guid id,
+        uint stamp = 0x04030201u)
     {
         var metadata = new MetadataBuilder();
-        var contentId = new BlobContentId(id, 0x04030201u);
+        var contentId = new BlobContentId(id, stamp);
         var rowCounts = ImmutableArray.CreateRange(new int[MetadataTokens.TableCount]);
         var pdbBuilder = new PortablePdbBuilder(
             metadata,

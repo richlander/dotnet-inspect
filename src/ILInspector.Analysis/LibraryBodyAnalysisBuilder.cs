@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
 using ILInspector.Findings;
@@ -16,21 +15,16 @@ namespace ILInspector.Analysis;
 /// <summary>
 /// Decodes one assembly's IL bodies and metadata into a
 /// <see cref="LibraryBodyAnalysisResult"/> bundle. It consumes one caller-owned
-/// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the
-/// cross-assembly reference-resolution state created for that acquisition.
+/// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the lifetime
+/// of the cross-assembly reference-resolution service created for that
+/// acquisition.
 /// </summary>
 internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
 {
     readonly string _path;
     readonly MetadataReader _reader;
     readonly PEReader _peReader;
-    readonly TypeResolutionCatalog? _resolutionCatalog;
-    readonly AssemblyReferenceBindingPolicy? _bindingPolicy;
-    readonly ResolvedAssemblyReference? _rootAssembly;
-    readonly Dictionary<
-        AssemblyAcquisitionRegistration,
-        ReferencedAssemblyMetadata?> _referencedAssemblyCache =
-            new(ReferenceEqualityComparer.Instance);
+    readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly string _assemblyName;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly Guid _mvid;
@@ -69,239 +63,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         if (resolver is not null && reader.IsAssembly)
-        {
-            string fullPath = System.IO.Path.GetFullPath(path);
-            ImmutableArray<byte> image = rootImage.IsDefault
-                ? peReader.GetEntireImage().GetContent()
-                : rootImage;
-            byte[] bytes =
-                ImmutableCollectionsMarshal.AsArray(image)!;
-            _rootAssembly = ResolvedAssemblyReference.Create(
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                fullPath,
-                () => new MemoryStream(
-                    bytes,
-                    writable: false),
-                AssemblyResolutionProvenance.Local(
-                    "LibraryBodyIndex"));
-            _bindingPolicy =
-                new AssemblyReferenceBindingPolicy(resolver);
-            _resolutionCatalog = new TypeResolutionCatalog();
-        }
+            _referenceMetadataResolver =
+                new LibraryBodyReferenceMetadataResolver(
+                    path,
+                    reader,
+                    resolver,
+                    rootImage);
     }
 
-    public void Dispose()
-    {
-        foreach (var assembly in _referencedAssemblyCache.Values)
-            assembly?.Dispose();
-        _referencedAssemblyCache.Clear();
-        _resolutionCatalog?.Dispose();
-    }
+    public void Dispose() =>
+        _referenceMetadataResolver?.Dispose();
+
+    internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveExternalTypeDefinition(TypeReferenceHandle handle) =>
+        _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
+            handle);
 
     // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
     // when MemorySafetyRulesAttribute is applied (emitted [module:], like
     // RefSafetyRulesAttribute). Check the module and assembly scopes.
     public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
-
-    sealed class ReferencedAssemblyMetadata(Stream stream, PEReader peReader) : IDisposable
-    {
-        public MetadataReader Reader { get; } = peReader.GetMetadataReader();
-
-        internal static ReferencedAssemblyMetadata? TryOpen(
-            ResolvedAssemblyReference assembly)
-        {
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
-            {
-                stream = assembly.OpenRead();
-                peReader = new PEReader(stream);
-                if (!peReader.HasMetadata)
-                    return null;
-                var metadata =
-                    new ReferencedAssemblyMetadata(stream, peReader);
-                stream = null;
-                peReader = null;
-                return metadata;
-            }
-            catch (Exception ex) when (
-                ex is IOException
-                    or UnauthorizedAccessException
-                    or BadImageFormatException
-                    or InvalidOperationException
-                    or NotSupportedException
-                    or ArgumentException)
-            {
-                return null;
-            }
-            finally
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
-            }
-        }
-
-        public void Dispose()
-        {
-            peReader.Dispose();
-            stream.Dispose();
-        }
-    }
-
-    internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(TypeReferenceHandle handle)
-        => TryResolveExternalTypeDefinition(handle, new HashSet<TypeReferenceHandle>());
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(
-        TypeReferenceHandle handle,
-        HashSet<TypeReferenceHandle> visited)
-    {
-        if (handle.IsNil || !visited.Add(handle))
-            return null;
-
-        var typeRef = _reader.GetTypeReference(handle);
-        string name = _reader.GetString(typeRef.Name);
-        string ns = _reader.GetString(typeRef.Namespace);
-        return typeRef.ResolutionScope.Kind switch
-        {
-            HandleKind.AssemblyReference => TryResolveTopLevelExternalType(
-                (AssemblyReferenceHandle)typeRef.ResolutionScope,
-                ns,
-                name),
-            HandleKind.TypeReference => TryResolveNestedExternalType(
-                (TypeReferenceHandle)typeRef.ResolutionScope,
-                ns,
-                name,
-                visited),
-            _ => null,
-        };
-    }
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveTopLevelExternalType(
-        AssemblyReferenceHandle assemblyReference,
-        string ns,
-        string name)
-    {
-        if (_resolutionCatalog is null
-            || _bindingPolicy is null
-            || _rootAssembly is null
-            || MetadataTypeDefinitionName.Create(ns, [name])
-                is not MetadataTypeDefinitionNameResult.Valid valid)
-        {
-            return null;
-        }
-
-        return TryResolveExternalTypeDefinition(
-            AssemblyReferenceIdentity.From(_reader, assemblyReference),
-            ScopeForReference(assemblyReference),
-            valid.Name);
-    }
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(
-        AssemblyReferenceIdentity identity,
-        AssemblyResolutionScope scope,
-        MetadataTypeDefinitionName type)
-    {
-        if (_resolutionCatalog is null
-            || _bindingPolicy is null
-            || _rootAssembly is null)
-        {
-            return null;
-        }
-
-        var request = TypeResolutionRequest.FromReference(
-            identity,
-            AssemblyBindingOrigin.FromAssembly(_rootAssembly),
-            scope,
-            type);
-        using TypeResolutionContext context =
-            _resolutionCatalog.CreateContext(
-                _bindingPolicy,
-                [_rootAssembly],
-                [request]);
-        if (context.Resolve(request)
-            is not TypeResolutionOutcome.Resolved resolved)
-        {
-            return null;
-        }
-
-        ReferencedAssemblyMetadata? metadata =
-            OpenResolvedAssembly(
-                context,
-                resolved.Definition.Assembly);
-        return metadata is not null
-            && resolved.Definition.Address.TryResolve(
-                metadata.Reader,
-                out TypeDefinitionHandle definition)
-                ? (metadata.Reader, definition)
-                : null;
-    }
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveNestedExternalType(
-        TypeReferenceHandle declaringReference,
-        string ns,
-        string name,
-        HashSet<TypeReferenceHandle> visited)
-    {
-        var declaring = TryResolveExternalTypeDefinition(declaringReference, visited);
-        if (declaring is not { } resolvedDeclaring)
-            return null;
-
-        var declaringDefinition = resolvedDeclaring.DefiningReader.GetTypeDefinition(resolvedDeclaring.Definition);
-        foreach (var nestedHandle in declaringDefinition.GetNestedTypes())
-        {
-            var nested = resolvedDeclaring.DefiningReader.GetTypeDefinition(nestedHandle);
-            if ((ns.Length == 0 || resolvedDeclaring.DefiningReader.StringComparer.Equals(nested.Namespace, ns))
-                && resolvedDeclaring.DefiningReader.StringComparer.Equals(nested.Name, name))
-                return (resolvedDeclaring.DefiningReader, nestedHandle);
-        }
-
-        return null;
-    }
-
-    ReferencedAssemblyMetadata? OpenReferencedAssembly(
-        ResolvedAssemblyReference assembly)
-    {
-        lock (_referencedAssemblyCache)
-        {
-            if (_referencedAssemblyCache.TryGetValue(
-                    assembly.Registration,
-                    out ReferencedAssemblyMetadata? cached))
-            {
-                return cached;
-            }
-
-            ReferencedAssemblyMetadata? opened =
-                ReferencedAssemblyMetadata.TryOpen(assembly);
-            _referencedAssemblyCache[assembly.Registration] = opened;
-            return opened;
-        }
-    }
-
-    ReferencedAssemblyMetadata? OpenResolvedAssembly(
-        TypeResolutionContext context,
-        ResolvedAssemblyCandidate candidate)
-    {
-        lock (_referencedAssemblyCache)
-        {
-            if (_referencedAssemblyCache.TryGetValue(
-                    candidate.Assembly.Registration,
-                    out ReferencedAssemblyMetadata? cached))
-            {
-                return cached;
-            }
-        }
-
-        ResolvedAssemblyReference? retained =
-            context.RetainAssemblyReference(candidate);
-        return retained is null
-            ? null
-            : OpenReferencedAssembly(retained);
-    }
-
-    AssemblyResolutionScope ScopeForReference(AssemblyReferenceHandle handle)
-        => FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
-            ? AssemblyResolutionScope.Platform
-            : AssemblyResolutionScope.Any;
 
     static MethodInstructions DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
@@ -462,9 +243,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         // method body. For a full (unscoped) build the analysis runs in parallel across cores;
         // each method writes only to method-local builders, and results are merged back in
         // metadata order below, so output is byte-identical to a sequential build. Metadata/PE
-        // reads are thread-safe on the immutable prefetched image (see Open); the two lazily
-        // populated caches touched during analysis are made concurrency-safe (AsyncStateMachineTypes
-        // is prewarmed here, _referencedAssemblyCache is lock-guarded).
+        // reads are thread-safe on the immutable prefetched image (see Open); the lazily
+        // populated AsyncStateMachineTypes cache is prewarmed here.
         var workItems = new List<(TypeDefinitionHandle TypeHandle, TypeDefinition TypeDef, bool TypeSourceGenerated, MethodDefinitionHandle MethodHandle)>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
@@ -647,8 +427,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
     // Analyze a single method into a MethodBuildResult. Mirrors the original per-method loop body
     // statement-for-statement, writing to method-local builders instead of the shared Build()
     // builders. Safe to run concurrently: metadata/PE reads are thread-safe on the prefetched
-    // image. Reader-bound lookup maps are prewarmed, and the referenced-assembly
-    // cache is lock-guarded.
+    // image. Reader-bound lookup maps are prewarmed, and the referenced-metadata
+    // resolver's registration-keyed cache is lock-guarded.
     MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
         MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
         bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
