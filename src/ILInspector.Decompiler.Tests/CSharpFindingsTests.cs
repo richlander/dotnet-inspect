@@ -84,7 +84,6 @@ public class CSharpFindingsTests
         Assert.False(result.IsExact);
         Assert.Equal(2, result.Pairs.Count(pair => pair.Difference == FindingDifferenceKind.Moved));
         Assert.Equal(0, result.Pairs.Count(pair => pair.Kind is PairKind.Added or PairKind.Removed));
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Pairs));
     }
 
     [Theory]

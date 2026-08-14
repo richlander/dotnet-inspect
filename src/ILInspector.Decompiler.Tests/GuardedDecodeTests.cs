@@ -31,6 +31,30 @@ public class GuardedDecodeTests
     }
 
     [Fact]
+    public void CdeclVarargStandaloneMethodSignature_Decodes()
+    {
+        var sig = new BlobBuilder();
+        sig.WriteByte((byte)SignatureCallingConvention.CDecl);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x08);
+        sig.WriteByte(0x0f);
+        sig.WriteByte(0x04);
+        sig.WriteByte(0x41);
+        sig.WriteByte(0x08);
+
+        var (reader, handle) = BuildStandaloneSig(sig);
+        var decoded = GuardedDecode.MethodSignature(
+            reader,
+            reader.GetStandaloneSignature(handle),
+            GenericScope.Empty);
+
+        Assert.Equal(SignatureCallingConvention.CDecl, decoded.Header.CallingConvention);
+        Assert.Equal(2, decoded.ParameterTypes.Length);
+        Assert.Equal(1, decoded.RequiredParameterCount);
+        Assert.DoesNotContain(decoded.ParameterTypes, type => type.Kind == TypeRefKind.Unsupported);
+    }
+
+    [Fact]
     public void DeepLocalSignature_DegradesToEmpty()
     {
         // LOCAL_SIG with one local that is a 600-deep array.
