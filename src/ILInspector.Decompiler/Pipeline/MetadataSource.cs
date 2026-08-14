@@ -34,9 +34,10 @@ public sealed class MetadataSource : IDisposable
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
 
-    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
+    MetadataSource(string path, string? filePath, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
         Path = path;
+        FilePath = filePath;
         _stream = stream;
         Pe = peReader;
         Reader = reader;
@@ -49,6 +50,18 @@ public sealed class MetadataSource : IDisposable
     }
 
     public string Path { get; }
+
+    /// <summary>
+    /// The filesystem path this source was opened from, or <see langword="null"/> when it was
+    /// opened from a stream-backed <see cref="ResolvedAssemblyReference"/> that has none.
+    /// <see cref="Path"/> falls back to the assembly's identity name so a source always has
+    /// something to name itself by; that fallback is a label, not a file, and a caller that
+    /// intends to open a file — or to key a path-shaped cache — must consult this instead.
+    /// For a source opened from a path the two are the same string, so no existing caller's
+    /// answer changes. Gated by
+    /// <c>ContentShapedMemberProjectionTests.PathlessSourceProjectsWithoutFabricatingAFilePath</c>.
+    /// </summary>
+    internal string? FilePath { get; }
 
     /// <summary>Simple assembly name (no version/culture).</summary>
     public string AssemblyName { get; }
@@ -209,6 +222,7 @@ public sealed class MetadataSource : IDisposable
                 AssemblyResolutionProvenance.Local("MetadataSource"));
             return new MetadataSource(
                 path,
+                path,
                 stream,
                 peReader,
                 reader,
@@ -258,6 +272,7 @@ public sealed class MetadataSource : IDisposable
             string path = assembly.Path ?? assembly.Identity.Name;
             return new MetadataSource(
                 path,
+                assembly.Path,
                 stream,
                 peReader,
                 reader,
@@ -1000,9 +1015,9 @@ public sealed class MetadataSource : IDisposable
             }
         try
         {
-            string peImagePath = _assembly.Path ?? Path;
+            string peImagePath = FilePath ?? Path;
             Func<string, Stream?> pdbStreamProvider =
-                _assembly.Path is null
+                FilePath is null
                     ? static _ => null
                     : static path =>
                         File.Exists(path)

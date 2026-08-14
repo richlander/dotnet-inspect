@@ -92,6 +92,9 @@ public static class MethodClassificationScanner
             return results;
 
         var reader = peReader.GetMetadataReader();
+        int identityDecodeFailures = 0;
+        int scanWorkRemaining =
+            MetadataSafetyPolicy.MaxClassificationScanWorkChars;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -119,7 +122,12 @@ public static class MethodClassificationScanner
                 {
                     if (!identityAttempted)
                     {
-                        methodIdentity = TryCreateMethodIdentity(reader, typeDefHandle, method);
+                        methodIdentity = TryCreateMethodIdentity(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            ref identityDecodeFailures,
+                            ref scanWorkRemaining);
                         identityAttempted = true;
                     }
 
@@ -137,13 +145,17 @@ public static class MethodClassificationScanner
                 if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
                 {
                     string? moduleName = GetPInvokeModuleName(reader, methodHandle);
-                    var signature = FormatSignature(reader, typeDef, method);
+                    // Identity first: a hostile signature must not also pay
+                    // FormatSignature after CreateMethodAnchorInfo already rejected.
+                    MethodAnchorInfo? identity = GetMethodIdentity();
+                    string signature = FormatSignatureOrFallback(
+                        reader, typeDef, method, methodName, identity);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature,
                         MethodClassification.PInvoke, moduleName)
                     {
-                        Anchor = GetMethodIdentity()?.Anchor,
-                        ReturnType = GetMethodIdentity()?.ReturnType,
+                        Anchor = identity?.Anchor,
+                        ReturnType = identity?.ReturnType,
                     });
                     continue; // P/Invoke methods are also "unsafe" but classify as P/Invoke
                 }
@@ -152,32 +164,74 @@ public static class MethodClassificationScanner
                 var asyncClassification = ClassifyAsyncMethod(reader, method);
                 if (asyncClassification is { } asyncKind)
                 {
-                    var signature = FormatSignature(reader, typeDef, method);
+                    MethodAnchorInfo? identity = GetMethodIdentity();
+                    string signature = FormatSignatureOrFallback(
+                        reader, typeDef, method, methodName, identity);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature, asyncKind)
                     {
-                        Anchor = GetMethodIdentity()?.Anchor,
-                        ReturnType = GetMethodIdentity()?.ReturnType,
+                        Anchor = identity?.Anchor,
+                        ReturnType = identity?.ReturnType,
                     });
                 }
 
-                // Check unsafe (pointer types in signature)
+                // Check unsafe (pointer types in signature). Use a budgeted pointer
+                // detector — string MethodText materializes discarded modopt trees
+                // (~570 MiB/method). Even the allocation-light PointerDetector still
+                // expands wide GENERICINST TypeSpecs; charge structural visits
+                // against the shared scan work budget (R1 Opus plain-hostile).
                 try
                 {
-                    var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var sig = GuardedSignatureText.MethodText(reader, method, context)
-                        .GetValueOrThrow();
-                    if (HasPointerType(sig))
+                    if (scanWorkRemaining <= 0)
                     {
-                        var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
+                        throw new BadImageFormatException(
+                            "The assembly exceeds the classification scan work budget.");
+                    }
+
+                    var pointerProbe = new BudgetedPointerDetector(scanWorkRemaining);
+                    try
+                    {
+                        var decoded = GuardedProviderDecode.MethodResult(
+                            reader,
+                            method,
+                            pointerProbe,
+                            (object?)null,
+                            PointerDetection.Degraded);
+                        var detection = PointerDetection.Combine(
+                            decoded.Value.ReturnType,
+                            decoded.Value.ParameterTypes);
+                        if (!detection.HasPointer)
+                            continue;
+
+                        MethodAnchorInfo? identity = GetMethodIdentity();
+                        string signature = FormatSignatureOrFallback(
+                            reader, typeDef, method, methodName, identity);
                         results.Add(new ClassifiedMethodInfo(
                             methodName, fullTypeName, ns, signature,
                             MethodClassification.Unsafe)
                         {
-                            Anchor = GetMethodIdentity()?.Anchor,
-                            ReturnType = GetMethodIdentity()?.ReturnType,
+                            Anchor = identity?.Anchor,
+                            ReturnType = identity?.ReturnType,
                         });
                     }
+                    finally
+                    {
+                        scanWorkRemaining = pointerProbe.Remaining;
+                    }
+                }
+                catch (BadImageFormatException ex)
+                {
+                    // Pointer-shape probes share the scan failure / work budgets so a
+                    // multi-method hostile image cannot decode forever here either.
+                    if (scanWorkRemaining <= 0
+                        || ex.Message.Contains(
+                            "classification scan work budget",
+                            StringComparison.Ordinal))
+                    {
+                        throw;
+                    }
+
+                    NoteDecodeFailure(ref identityDecodeFailures, ex);
                 }
                 catch
                 {
@@ -187,6 +241,125 @@ public static class MethodClassificationScanner
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Pointer detection that draws from the classification-scan work budget on
+    /// composite / TypeSpec visits so wide successful shapes cannot multiply
+    /// across MethodDefs without charging.
+    /// </summary>
+    sealed class BudgetedPointerDetector : ISignatureTypeProvider<PointerDetection, object?>
+    {
+        int _remaining;
+
+        public BudgetedPointerDetector(int remaining) => _remaining = remaining;
+
+        public int Remaining => _remaining;
+
+        void Charge(int units)
+        {
+            if (units < 0)
+                units = 0;
+            if (units > _remaining)
+            {
+                _remaining = 0;
+                throw new BadImageFormatException(
+                    "The assembly exceeds the classification scan work budget.");
+            }
+
+            _remaining -= units;
+        }
+
+        public PointerDetection GetPrimitiveType(PrimitiveTypeCode typeCode)
+        {
+            Charge(1);
+            return default;
+        }
+
+        public PointerDetection GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+        {
+            // Match anchor leaf floor so wide TypeSpec arg lists draw down the
+            // shared scan budget before ImmutableArrays accumulate.
+            Charge(64);
+            return default;
+        }
+
+        public PointerDetection GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+        {
+            Charge(64);
+            return default;
+        }
+
+        public PointerDetection GetTypeFromSpecification(
+            MetadataReader reader,
+            object? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+        {
+            Charge(64);
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return PointerDetection.Degraded;
+            using (scope)
+            {
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            }
+        }
+
+        public PointerDetection GetSZArrayType(PointerDetection elementType) => elementType;
+
+        public PointerDetection GetArrayType(PointerDetection elementType, ArrayShape shape)
+            => elementType;
+
+        public PointerDetection GetByReferenceType(PointerDetection elementType) => elementType;
+
+        public PointerDetection GetPointerType(PointerDetection elementType)
+        {
+            Charge(64);
+            return new(HasPointer: true, elementType.IsDegraded);
+        }
+
+        public PointerDetection GetGenericInstantiation(
+            PointerDetection genericType,
+            System.Collections.Immutable.ImmutableArray<PointerDetection> typeArguments)
+        {
+            Charge(64);
+            return PointerDetection.Combine(genericType, typeArguments);
+        }
+
+        public PointerDetection GetGenericMethodParameter(object? context, int index)
+            => default;
+
+        public PointerDetection GetGenericTypeParameter(object? context, int index)
+            => default;
+
+        public PointerDetection GetFunctionPointerType(
+            MethodSignature<PointerDetection> signature)
+        {
+            Charge(64);
+            return new(
+                HasPointer: true,
+                signature.ReturnType.IsDegraded
+                    || signature.ParameterTypes.Any(static type => type.IsDegraded));
+        }
+
+        public PointerDetection GetModifiedType(
+            PointerDetection modifier,
+            PointerDetection unmodifiedType,
+            bool isRequired)
+        {
+            Charge(64);
+            return new(
+                modifier.HasPointer || unmodifiedType.HasPointer,
+                modifier.IsDegraded || unmodifiedType.IsDegraded);
+        }
+
+        public PointerDetection GetPinnedType(PointerDetection elementType) => elementType;
     }
 
     /// <summary>
@@ -209,20 +382,6 @@ public static class MethodClassificationScanner
         return null;
     }
 
-    private static bool HasPointerType(MethodSignature<string> signature)
-    {
-        if (signature.ReturnType.Contains('*'))
-            return true;
-
-        foreach (var paramType in signature.ParameterTypes)
-        {
-            if (paramType.Contains('*'))
-                return true;
-        }
-
-        return false;
-    }
-
     private static string? GetPInvokeModuleName(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
         var import = reader.GetMethodDefinition(methodHandle).GetImport();
@@ -236,34 +395,85 @@ public static class MethodClassificationScanner
     private static MethodAnchorInfo? TryCreateMethodIdentity(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        MethodDefinition method)
+        MethodDefinition method,
+        ref int identityDecodeFailures,
+        ref int scanWorkRemaining)
     {
         try
         {
-            return ApiMemberIdentity.CreateMethodAnchorInfo(reader, typeHandle, method);
+            return ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                typeHandle,
+                method,
+                ref scanWorkRemaining);
         }
-        catch (BadImageFormatException)
+        catch (BadImageFormatException ex)
         {
+            // One malformed anchor is skippable (null identity on that row). Many
+            // hostile methods each paying the per-anchor reject cost — or many
+            // near-limit successes drawing down the scan work budget — are not.
+            // Gated by MaxClassificationIdentityDecodeFailures and
+            // MaxClassificationScanWorkChars.
+            // Exhausted scan-level work (including a single near-limit identity that
+            // consumed the shared budget) must fail the scan, not soft-skip.
+            if (scanWorkRemaining <= 0
+                || ex.Message.Contains(
+                    "classification scan work budget",
+                    StringComparison.Ordinal))
+            {
+                throw;
+            }
+
+            NoteDecodeFailure(ref identityDecodeFailures, ex);
             return null;
         }
+    }
+
+    static void NoteDecodeFailure(
+        ref int identityDecodeFailures,
+        BadImageFormatException ex)
+    {
+        identityDecodeFailures++;
+        if (identityDecodeFailures
+            >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures)
+        {
+            throw new BadImageFormatException(
+                "The assembly exceeds the method-identity decode failure budget during classification scan.",
+                ex);
+        }
+    }
+
+    static string FormatSignatureOrFallback(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        string methodName,
+        MethodAnchorInfo? identity)
+    {
+        // When identity decode already failed, the blob is hostile or malformed —
+        // do not decode it again for display text.
+        if (identity is null)
+            return methodName + "(...)";
+
+        return FormatSignature(reader, typeDef, method, methodName);
     }
 
     private static string FormatSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
-        MethodDefinition method)
+        MethodDefinition method,
+        string methodName)
     {
         try
         {
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = GuardedSignatureText.MethodText(reader, method, context)
                 .GetValueOrThrow();
-            string methodName = reader.GetString(method.Name);
             return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
         }
         catch
         {
-            return reader.GetString(method.Name) + "(...)";
+            return methodName + "(...)";
         }
     }
 }
