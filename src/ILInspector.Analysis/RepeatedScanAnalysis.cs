@@ -286,11 +286,11 @@ internal static class RepeatedScanAnalysis
                 method,
                 "scan-method-in-recursive-traversal",
                 $"Linearly scans a sequence (Enumerable.{operation}); invoked once per recursive traversal node by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
-                "Build an index for the traversal before recursion, then look up each node's related items instead of scanning the full sequence at every node.",
+                "If the scan source is shared across recursive calls, build an index before recursion and reuse it; otherwise keep the node-local scan.",
                 "low",
                 true,
                 null,
-                "Superlinear only if each recursive step scans a shared sequence that grows with the traversal; confirm collection identity and size.",
+                "Potentially superlinear only when each recursive step scans the same growing sequence; static analysis has not proved source identity.",
                 reachByToken.GetValueOrDefault(calleeToken)));
         }
 

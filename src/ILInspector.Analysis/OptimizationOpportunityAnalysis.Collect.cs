@@ -24,6 +24,8 @@ internal interface IOptimizationOpportunityResolver
 
     bool GenericParameterCanBeValueType(TypeRef genericParameter);
 
+    bool IsStableReceiverGetter(DecodedInstruction instruction);
+
     bool IsAsyncStateMachineType(TypeRef? type);
 
     ReachingDefinitionsResult AnalyzeReachingDefinitions();
@@ -58,9 +60,12 @@ internal static partial class OptimizationOpportunityAnalysis
         int? pendingDelegateOffset = null;
         bool pendingDelegateCapturing = false;
         bool pendingDelegateInstanceGroup = false;
+        bool pendingDelegateStableReceiver = false;
         // The opcode that loaded the delegate receiver (the instruction before ldftn).
         // A static method group loads `ldnull`; a real instance receiver is anything else.
         ILOpCode previousOpcode = default;
+        DecodedInstruction? previousInstruction = null;
+        DecodedInstruction? previousPreviousInstruction = null;
         // A `box` of a concrete value type is deferred until the next instruction so we can
         // see whether the boxed value escapes (into a ref array, a call, a field, or a
         // return) rather than being consumed locally (unbox round-trip / type test).
@@ -259,6 +264,7 @@ internal static partial class OptimizationOpportunityAnalysis
                     // handled by the linq-scan-in-loop shape, so they are not annotated here.)
                     if (pendingDelegateOpportunityIndex is { } moveIndex
                         && opportunities[moveIndex].Shape == "instance-method-group-delegate"
+                        && pendingDelegateStableReceiver
                         && IsConcurrentDictionaryGetOrAdd(callee))
                     {
                         var row = opportunities[moveIndex];
@@ -402,6 +408,12 @@ internal static partial class OptimizationOpportunityAnalysis
                         && ftnTarget.Kind != MemberKind.Unsupported
                         && !CompilerGeneratedNames.LeafName(ftnTarget.DeclaringType).Contains("<>", StringComparison.Ordinal)
                         && previousOpcode != ILOpCode.Ldnull;
+                    pendingDelegateStableReceiver = (previousOpcode == ILOpCode.Ldarg_0
+                            && !caller.IsStatic
+                        || (previousInstruction is { OpCode: ILOpCode.Call or ILOpCode.Callvirt } receiverCall
+                            && previousPreviousInstruction?.OpCode == ILOpCode.Ldarg_0
+                            && !caller.IsStatic
+                            && resolver.IsStableReceiverGetter(receiverCall)));
                     break;
                 }
                 case ILOpCode.Ldarg_0:
@@ -475,14 +487,20 @@ internal static partial class OptimizationOpportunityAnalysis
             // A bare ldftn not consumed by the next newobj does not allocate a delegate.
             // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
             if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
+            {
                 pendingDelegateOffset = null;
+                pendingDelegateStableReceiver = false;
+            }
 
             // The "moved allocation" annotation only applies when the delegate flows
             // directly into its consuming call. Keep the pending index alive across the
             // delegate newobj and intervening nops; clear it once any other instruction
             // (including the consuming call, already handled above) is processed.
-            if (opcode is not (ILOpCode.Newobj or ILOpCode.Nop))
+            if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
+            {
                 pendingDelegateOpportunityIndex = null;
+                pendingDelegateStableReceiver = false;
+            }
 
             // A boxed concrete value type that flows straight into an escaping consumer
             // (stored into a reference array, passed to a call/ctor, written to a field, or
@@ -516,7 +534,11 @@ internal static partial class OptimizationOpportunityAnalysis
             // Remember the receiver-bearing instruction. Nops never carry the receiver, so
             // they do not overwrite it (Debug IL can interleave them before the ldftn).
             if (opcode != ILOpCode.Nop)
+            {
+                previousPreviousInstruction = previousInstruction;
+                previousInstruction = instruction;
                 previousOpcode = opcode;
+            }
         }
 
         return [.. opportunities.Select(AnnotateOpportunityMetadata)];

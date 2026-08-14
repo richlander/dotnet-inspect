@@ -252,6 +252,16 @@ public class OutputFormatterTests
         Assert.Equal("exact", row.Provenance);
         Assert.Equal("newarr", row.Operation);
         Assert.Contains("0x", row.Token, StringComparison.Ordinal);
+        Assert.Equal("low", row.Priority);
+
+        var generatedGenericBox = Assert.Single(rows, row =>
+            row.Shape == "generic-parameter-object-box"
+            && row.Member.Contains(
+                nameof(HasGeneratedGenericObjectBoxOpportunity),
+                StringComparison.Ordinal));
+        Assert.Equal("medium", generatedGenericBox.Priority);
+        Assert.Null(generatedGenericBox.Finding);
+        Assert.Equal("unmatched", generatedGenericBox.Provenance);
     }
 
     [Fact]
@@ -310,6 +320,7 @@ public class OutputFormatterTests
         Assert.Contains("Performance Triage", markdown);
         Assert.Contains("small-array", markdown);
         Assert.Contains("| Member | Candidate | Finding | Provenance |", markdown);
+        Assert.Contains("| Priority | Confidence |", markdown);
     }
 
     [Fact]
@@ -688,7 +699,7 @@ public class OutputFormatterTests
             .ToList();
 
         Assert.Equal(
-            ["CacheFactoryHighConfidence", "AlgorithmicLowConfidence", "GenericLoopHighConfidence"],
+            ["CacheFactoryHighConfidence", "GenericLoopHighConfidence", "AlgorithmicLowConfidence"],
             filtered);
     }
 
@@ -702,6 +713,19 @@ public class OutputFormatterTests
             rootReach: 59,
             shape: "small-array",
             weight: "high");
+
+        Assert.Equal("medium", LibraryMetadataService.TriagePriority(opportunity));
+    }
+
+    [Fact]
+    public void TriagePriority_RecursiveScanWithoutSourceIdentity_IsMedium()
+    {
+        var opportunity = Opp(
+            "RecursiveScan",
+            inLoop: true,
+            confidence: "low",
+            rootReach: 1,
+            shape: "scan-method-in-recursive-traversal");
 
         Assert.Equal("medium", LibraryMetadataService.TriagePriority(opportunity));
     }

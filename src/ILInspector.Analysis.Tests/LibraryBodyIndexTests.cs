@@ -3341,10 +3341,19 @@ public class LibraryBodyIndexTests
         Assert.Equal("high", op.Confidence);
         Assert.Contains("cache hits", op.SafeFixDirection, StringComparison.Ordinal);
 
+        Assert.Contains(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryStableGetterFactory)
+            && o.Shape == "cache-lookup-factory-delegate");
+
         var lookalike = Assert.Single(index.OptimizationOpportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.UserGetOrAddInstanceFactory)
             && o.Shape == "instance-method-group-delegate"));
         Assert.DoesNotContain("ConcurrentDictionary", lookalike.Evidence, StringComparison.Ordinal);
+
+        var freshReceiver = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryFreshReceiverFactory)
+            && o.Shape == "instance-method-group-delegate"));
+        Assert.DoesNotContain("cache hits", freshReceiver.SafeFixDirection, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4344,6 +4353,11 @@ public class LibraryBodyIndexTests
         Assert.Equal("medium", row.Confidence);
         Assert.Contains("value-type instantiations", row.Caveat);
         Assert.Null(row.RuntimeAllocationType);
+        Assert.Null(row.SourceFinding);
+        Assert.Null(row.Operation);
+        Assert.Equal(PerformanceTriageProvenance.Unmatched, row.Provenance);
+        Assert.Null(row.Weight);
+        Assert.Null(row.EstimatedSizeBytes);
     }
 
     [Fact]
@@ -4361,9 +4375,11 @@ public class LibraryBodyIndexTests
 
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReferenceGenericObjectEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.NamedClassGenericObjectEquals))]
     [InlineData(nameof(OptimizationOpportunityFixtures.GenericTypedEquals))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StaticObjectEquals))]
     [InlineData(nameof(OptimizationOpportunityFixtures.PassesGenericToObjectConsumer))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CompilerGeneratedOrdinaryGenericObjectEquals))]
     public void OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported(
         string methodName)
     {
@@ -4688,6 +4704,8 @@ public class LibraryBodyIndexTests
         return (path, directory);
     }
 }
+
+public class GenericConstraintBase;
 
 public class OptimizationOpportunityFixtures
 {
@@ -5422,10 +5440,23 @@ public class OptimizationOpportunityFixtures
 
     private readonly ColdStackGuard _stackGuard = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _concurrentCache = new();
+    private readonly FreshFactory _stableFactory = new();
     private readonly UserGetOrAddCache _userCache = new();
 
     public int ConcurrentDictionaryInstanceFactory(string key)
         => _concurrentCache.GetOrAdd(key, InstanceParseLength);
+
+    public int ConcurrentDictionaryFreshReceiverFactory(string key)
+        => _concurrentCache.GetOrAdd(
+            key,
+            new FreshFactory().Create);
+
+    public int ConcurrentDictionaryStableGetterFactory(string key)
+        => _concurrentCache.GetOrAdd(
+            key,
+            StableFactory.Create);
+
+    private FreshFactory StableFactory => _stableFactory;
 
     public int UserGetOrAddInstanceFactory(string key)
         => _userCache.GetOrAdd(key, InstanceParseLength);
@@ -5545,6 +5576,11 @@ public class OptimizationOpportunityFixtures
             => valueFactory(key);
     }
 
+    private sealed class FreshFactory
+    {
+        public int Create(string value) => value.Length;
+    }
+
     // A user-defined type whose name echoes the closure suffix `c__DisplayClass`
     // but lacks the compiler-generated `<>` marker. A field store here must be a
     // plain Field escape, never a false Capture.
@@ -5632,6 +5668,16 @@ public class OptimizationOpportunityFixtures
     public static bool ReferenceGenericObjectEquals<T>(T left, T right)
         where T : class
         => left.Equals(right);
+
+    public static bool NamedClassGenericObjectEquals<T>(T left, T right)
+        where T : GenericConstraintBase
+        => left.Equals(right);
+
+    [System.Runtime.CompilerServices.CompilerGenerated]
+    public static bool CompilerGeneratedOrdinaryGenericObjectEquals<T>(
+        T left,
+        T right)
+        => left!.Equals(right);
 
     public static bool GenericTypedEquals<T>(T left, T right)
         where T : System.IEquatable<T>

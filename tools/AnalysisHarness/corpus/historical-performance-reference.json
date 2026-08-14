@@ -7,8 +7,8 @@
       "author": "Stephen Toub",
       "classification": "il-visible",
       "currentStatus": "found",
-      "beforeCommit": "368a064f",
-      "afterCommit": "48810625",
+      "beforeCommit": "368a064fb3359f10467ae12bba009c8aed1c3458",
+      "afterCommit": "4881062511705e731a49ad56ce42642a3f906a97",
       "rationale": "A new instance value-factory delegate was allocated on every cache lookup; the fixed package removes the construction.",
       "before": {
         "package": "System.Text.Json",
@@ -35,8 +35,8 @@
       "author": "Stephen Toub",
       "classification": "il-visible",
       "currentStatus": "found",
-      "beforeCommit": "c7edb61f",
-      "afterCommit": "dd593413",
+      "beforeCommit": "c7edb61f66445bc63b5a3a7bbef7540f45b3f28b",
+      "afterCommit": "dd59341331994980fe217d60068f723ae041771b",
       "rationale": "A captured delegate was constructed for a type-dynamic cache path and is absent after the fix.",
       "before": {
         "package": "Microsoft.NETCore.App.Runtime.linux-x64",
@@ -63,8 +63,8 @@
       "author": "Stephen Toub",
       "classification": "il-visible",
       "currentStatus": "found",
-      "beforeCommit": "3e3e14d2",
-      "afterCommit": "4c667f11",
+      "beforeCommit": "3e3e14d2e8745d18012feb00ab6d90cdb7501675",
+      "afterCommit": "4c667f113f1eeec9bdd5f62bd438cb3038f56d2d",
       "rationale": "Unconstrained generic equality boxed a struct-backed set for object.Equals on every newline; the released fix constrains typed equality.",
       "before": {
         "package": "Microsoft.NETCore.App.Runtime.linux-x64",
@@ -91,8 +91,8 @@
       "author": "Stephen Toub",
       "classification": "il-visible",
       "currentStatus": "partial",
-      "beforeCommit": "808c523f",
-      "afterCommit": "f202f6ba",
+      "beforeCommit": "808c523fd2127abb53292ff199cb8b01752d0b54",
+      "afterCommit": "b22827ce059a7ee22731d07eb8383ce42531016f",
       "rationale": "Coarse boxing symptoms surface, but equivalent rows survive the fix, so the analyzer does not yet isolate the failure-path regression."
     },
     {
@@ -101,8 +101,8 @@
       "author": "Stephen Toub",
       "classification": "il-visible",
       "currentStatus": "missed",
-      "beforeCommit": "f846c970",
-      "afterCommit": "6a7050ea",
+      "beforeCommit": "f846c970bd8c9ab54569f7d209b53902358cd11e",
+      "afterCommit": "6a7050ea35ca2078837a02ed93934683c9205370",
       "rationale": "The temporary XmlQualifiedName allocation is not represented by a sufficiently specific current discriminator."
     },
     {
@@ -121,8 +121,8 @@
       "author": "Stephen Toub",
       "classification": "il-visible",
       "currentStatus": "missed",
-      "beforeCommit": "103fb847",
-      "afterCommit": "f846c970",
+      "beforeCommit": "103fb847f66f53557b0e3179599365b65de02ce4",
+      "afterCommit": "f846c970bd8c9ab54569f7d209b53902358cd11e",
       "rationale": "The bool array length is not recovered as a stable local stackalloc candidate by the current constant and escape analysis."
     },
     {
@@ -131,8 +131,8 @@
       "author": "Stephen Toub",
       "classification": "generated-artifact",
       "currentStatus": "generated-artifact",
-      "beforeCommit": "47601dc1",
-      "afterCommit": "1f90082f",
+      "beforeCommit": "47601dc175badb61870461134f54a698fab09ed2",
+      "afterCommit": "1f90082fd433cdec4bbe45318d4301a344a82313",
       "rationale": "The relevant allocation appears in a generated serializer consumer, so library-only inspection cannot own this cell without materializing that artifact."
     },
     {

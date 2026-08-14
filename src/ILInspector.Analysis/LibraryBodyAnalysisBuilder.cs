@@ -629,7 +629,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     // blanket suppression for every other generated-code opportunity.
                     if (!typeSourceGenerated
                         && !sourceGenerated
-                        && compilerGenerated)
+                        && compilerGenerated
+                        && CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                            caller.Name))
                     {
                         result.Opportunities =
                         [
@@ -1144,6 +1146,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 genericParameter,
                 caller);
 
+        public bool IsStableReceiverGetter(DecodedInstruction instruction)
+            => owner.IsStableReceiverGetter(instruction);
+
         public bool IsAsyncStateMachineType(TypeRef? type)
             => owner.IsAsyncStateMachineType(type);
 
@@ -1449,9 +1454,21 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
             var handle = handles.ElementAt(
                 genericParameter.GenericParameterIndex);
-            var attributes = _reader.GetGenericParameter(handle).Attributes;
-            return (attributes & GenericParameterAttributes.ReferenceTypeConstraint)
-                == 0;
+            var parameter = _reader.GetGenericParameter(handle);
+            if ((parameter.Attributes
+                    & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
+            {
+                return false;
+            }
+
+            foreach (var constraintHandle in parameter.GetConstraints())
+            {
+                EntityHandle constraint =
+                    _reader.GetGenericParameterConstraint(constraintHandle).Type;
+                if (!ConstraintCanIncludeValueType(constraint))
+                    return false;
+            }
+            return true;
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -1461,6 +1478,84 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             return false;
         }
+    }
+
+    bool IsStableReceiverGetter(DecodedInstruction instruction)
+    {
+        try
+        {
+            EntityHandle methodHandle = MetadataTokens.EntityHandle(
+                MethodInstructionFacts.OperandInt32(instruction));
+            if (methodHandle.Kind != HandleKind.MethodDefinition)
+                return false;
+
+            var method = _reader.GetMethodDefinition(
+                (MethodDefinitionHandle)methodHandle);
+            if (method.RelativeVirtualAddress == 0
+                || !_reader.GetString(method.Name).StartsWith(
+                    "get_",
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+            DecodedInstruction[] instructions = DecodeBody(
+                    body.GetILBytes() ?? [],
+                    body.ExceptionRegions)
+                .Instructions
+                .Where(static candidate => candidate.OpCode != ILOpCode.Nop)
+                .ToArray();
+            if (instructions is not
+                [
+                    { OpCode: ILOpCode.Ldarg_0 },
+                    { OpCode: ILOpCode.Ldfld } fieldLoad,
+                    { OpCode: ILOpCode.Ret },
+                ])
+            {
+                return false;
+            }
+
+            EntityHandle fieldHandle = MetadataTokens.EntityHandle(
+                MethodInstructionFacts.OperandInt32(fieldLoad));
+            return fieldHandle.Kind == HandleKind.FieldDefinition
+                && (_reader.GetFieldDefinition(
+                        (FieldDefinitionHandle)fieldHandle).Attributes
+                    & FieldAttributes.InitOnly) != 0;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or InvalidCastException)
+        {
+            return false;
+        }
+    }
+
+    bool ConstraintCanIncludeValueType(EntityHandle constraint)
+    {
+        if (constraint.Kind == HandleKind.TypeDefinition)
+        {
+            TypeAttributes attributes = _reader
+                .GetTypeDefinition((TypeDefinitionHandle)constraint)
+                .Attributes;
+            return (attributes & TypeAttributes.Interface) != 0;
+        }
+
+        if (constraint.Kind == HandleKind.TypeReference)
+        {
+            var reference = _reader.GetTypeReference(
+                (TypeReferenceHandle)constraint);
+            string @namespace = _reader.GetString(reference.Namespace);
+            string name = _reader.GetString(reference.Name);
+            return @namespace == "System"
+                && name is "ValueType" or "Enum";
+        }
+
+        // Type specifications and generic-parameter constraints cannot be
+        // proven here to admit a value-type instantiation.
+        return false;
     }
 
     // Reads a TypeSpec signature blob to decide value-type-ness directly from metadata. The

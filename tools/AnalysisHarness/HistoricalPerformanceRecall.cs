@@ -78,11 +78,11 @@ public static class HistoricalPerformanceRecall
         foreach (var reference in manifest.References)
         {
             if (string.IsNullOrWhiteSpace(reference.Rationale)
-                || string.IsNullOrWhiteSpace(reference.BeforeCommit)
-                || string.IsNullOrWhiteSpace(reference.AfterCommit))
+                || !IsFullCommit(reference.BeforeCommit)
+                || !IsFullCommit(reference.AfterCommit))
             {
                 Console.Error.WriteLine(
-                    $"{reference.Id}: provenance or rationale is incomplete.");
+                    $"{reference.Id}: provenance must contain a rationale and full 40-character commit IDs.");
                 failed = true;
                 continue;
             }
@@ -91,6 +91,15 @@ public static class HistoricalPerformanceRecall
             {
                 Console.Error.WriteLine(
                     $"{reference.Id}: before and after cells must be supplied together.");
+                failed = true;
+                continue;
+            }
+
+            bool executableStatus = reference.CurrentStatus == "found";
+            if (executableStatus != (reference.Before is not null))
+            {
+                Console.Error.WriteLine(
+                    $"{reference.Id}: recovered status and executable cells disagree.");
                 failed = true;
                 continue;
             }
@@ -130,6 +139,10 @@ public static class HistoricalPerformanceRecall
             + (failed ? " REGRESSION" : ""));
         return failed ? 1 : 0;
     }
+
+    static bool IsFullCommit(string commit)
+        => commit.Length == 40
+            && commit.All(Uri.IsHexDigit);
 
     static async Task<int?> CountAsync(
         HttpClient client,

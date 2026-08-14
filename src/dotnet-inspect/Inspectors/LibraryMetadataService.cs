@@ -999,6 +999,19 @@ internal static class LibraryMetadataService
         => IsGeneratedMethod(method)
            || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
 
+    internal static bool IncludePerformanceOpportunity(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+        => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
+            || opportunity.Shape == "generic-parameter-object-box"
+                && !generatedFrameworkTypes.Contains(
+                    opportunity.Method.DeclaringType.ToQualifiedDisplayString())
+                && IsSourceFunctionName(opportunity.Method.Name);
+
+    static bool IsSourceFunctionName(string methodName)
+        => methodName.Contains(">g__", StringComparison.Ordinal)
+            || methodName.Contains(">b__", StringComparison.Ordinal);
+
     private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
         => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
            && method.IsStatic
@@ -1124,12 +1137,9 @@ internal static class LibraryMetadataService
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
-                        .Where(opportunity =>
-                            opportunity.Shape
-                                == "generic-parameter-object-box"
-                            || !IsGeneratedMethod(
-                                opportunity.Method,
-                                generatedFrameworkTypes)),
+                        .Where(opportunity => IncludePerformanceOpportunity(
+                            opportunity,
+                            generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
@@ -1333,7 +1343,6 @@ internal static class LibraryMetadataService
                 or "linq-scan-in-loop"
                 or "materialize-in-loop"
                 or "scan-method-in-loop-call"
-                or "scan-method-in-recursive-traversal"
                 or "string-build-in-loop"
             || (opportunity.Weight == "high"
                 && opportunity.Shape != "small-array"))

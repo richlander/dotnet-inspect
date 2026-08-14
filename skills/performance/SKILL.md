@@ -82,9 +82,10 @@ prove that the scanned sequence grows with the loop or traversal, so a
 `--min-confidence high` pass intentionally excludes them.
 
 The default `Triage` order keeps `Priority` separate from `Confidence`.
-`Priority` is a static actionability judgment: algorithmic amplification,
+`Priority` is a static actionability judgment: directly evidenced algorithmic amplification,
 avoidable cache-lookup factory allocations, and actionable high allocation
-weight rank high; generic repeated costs rank medium; ordinary one-shot
+weight rank high; recursive scan helpers without shared-source identity and
+other generic repeated costs rank medium; ordinary one-shot
 candidates rank low. Escape-unknown `small-array` rows remain medium even at
 high weight because no safe stack rewrite is proven. `Confidence` describes
 certainty in the evidence and proposed rewrite, so a high-priority,

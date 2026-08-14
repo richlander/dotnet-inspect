@@ -278,9 +278,11 @@ occurrence. Those fields let trace and version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
-of post-processing. The default ranking puts algorithmic amplification,
+of post-processing. The default ranking puts directly evidenced algorithmic amplification,
 avoidable cache-lookup factory allocations, and actionable high allocation
-weight first, then generic repeated costs. Escape-unknown `small-array` rows
+weight first, then generic repeated costs. Recursive scan helpers remain medium
+priority unless source identity can establish shared-sequence amplification.
+Escape-unknown `small-array` rows
 remain medium priority even at high weight because no safe stack rewrite is
 proven. Static priority is not proof of runtime heat. `--top` limits the ranked data before
 rendering; flattened `Performance:*` output preserves that global order across
