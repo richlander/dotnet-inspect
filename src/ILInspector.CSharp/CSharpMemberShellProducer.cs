@@ -97,6 +97,7 @@ public static class CSharpMemberShellProducer
             throw new ArgumentOutOfRangeException(nameof(primaryConstructorParameterCount));
 
         ValidateBodyKind(spec);
+        ValidateExplicitInterfaceMemberName(spec);
         var member = BuildMember(spec);
         return spec.BodyKind switch
         {
@@ -340,6 +341,37 @@ public static class CSharpMemberShellProducer
             spec.Parameters.Select(parameter =>
                 CSharpDeclarationWriter.FormatParameter(BuildParameter(parameter))));
         return $"{spec.ReturnType} {spec.ExplicitInterfaceMemberName}{typeParameters}({parameters})";
+    }
+
+    static void ValidateExplicitInterfaceMemberName(CSharpMemberShellSpec spec)
+    {
+        if (spec.ExplicitInterfaceMemberName is not { } name)
+            return;
+
+        bool supportsExplicitInterfaceName = spec.Kind is CSharpShellMemberKind.Method
+            or CSharpShellMemberKind.PropertyGet
+            or CSharpShellMemberKind.PropertySet
+            or CSharpShellMemberKind.EventAdd
+            or CSharpShellMemberKind.EventRemove;
+        if (!supportsExplicitInterfaceName)
+        {
+            throw new ArgumentException(
+                $"Member kind '{spec.Kind}' does not support an explicit-interface name.",
+                nameof(spec));
+        }
+
+        int separator = name.LastIndexOf('.');
+        if (string.IsNullOrWhiteSpace(name)
+            || name.Length != name.Trim().Length
+            || separator <= 0
+            || separator == name.Length - 1
+            || char.IsWhiteSpace(name[separator - 1])
+            || char.IsWhiteSpace(name[separator + 1]))
+        {
+            throw new ArgumentException(
+                "Explicit-interface member names must be qualified as 'Interface.Member'.",
+                nameof(spec));
+        }
     }
 
     static void ValidateBodyKind(CSharpMemberShellSpec spec)

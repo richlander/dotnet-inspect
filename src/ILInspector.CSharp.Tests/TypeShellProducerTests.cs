@@ -308,6 +308,55 @@ public sealed class TypeShellProducerTests
     }
 
     [Theory]
+    [InlineData(CSharpShellMemberKind.Method, "Run")]
+    [InlineData(CSharpShellMemberKind.Method, " IRunner.Run")]
+    public void MemberShellProducer_RejectsUnqualifiedExplicitInterfaceName(
+        CSharpShellMemberKind memberKind,
+        string explicitInterfaceMemberName)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Run",
+                Kind: memberKind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "void",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;",
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName)));
+
+        Assert.Contains(
+            "must be qualified as 'Interface.Member'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellMemberKind.Constructor)]
+    [InlineData(CSharpShellMemberKind.Field)]
+    public void MemberShellProducer_RejectsExplicitInterfaceNameForUnsupportedMember(
+        CSharpShellMemberKind memberKind)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Member",
+                Kind: memberKind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.None,
+                Body: null,
+                ExplicitInterfaceMemberName: "IContract.Member")));
+
+        Assert.Contains(
+            $"Member kind '{memberKind}' does not support an explicit-interface name",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(CSharpShellMemberKind.PropertyGet, CSharpShellBodyKind.TargetSetterWithGetter)]
     [InlineData(CSharpShellMemberKind.PropertySet, CSharpShellBodyKind.TargetGetterWithSetter)]
     [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.TargetInitBody)]
