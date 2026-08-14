@@ -3559,6 +3559,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareQualifiedAspNetCoreType_RoutesPastNonOwningAssemblyPrefix()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpContext", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("# Microsoft.AspNetCore.Http.HttpContext", output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Http.Abstractions", output);
+        Assert.Contains("Source: Platform", output);
+    }
+
+    [Fact]
     public async Task BareQualifiedAspNetCoreMember_RoutesAcrossPlatformFrameworks()
     {
         SkipUnlessAspNetCoreAvailable();
@@ -6871,51 +6886,552 @@ public partial class CommandExecutionTests
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
     }
 
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task Find_ColumnProjectionWithJson_IsRejected(string projectionFlag)
+    [Fact]
+    public async Task Find_ColumnProjectionWithJson_LowersToProjectedView()
     {
-        // Same category error as #3386: --fields/--columns select table columns, but find's
-        // --json emits the full per-result objects and has no column-slicing facility, so the
-        // combination used to silently drop the column filter. It now fails closed.
+        // #3494: --fields/--columns name post-lowering vocabulary (computed table columns), so
+        // naming one opts into the lowered display view rather than the pre-lowered typed
+        // document. This combination failed closed under #3386/#3472 only because the lowered
+        // JSON view did not exist yet; the error is now replaced by the output it asked for.
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, projectionFlag, "Type", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("results");
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.NotEmpty(rows.EnumerateArray().ToArray());
+
+        // The projection is honored rather than dropped: the requested column is the only key.
+        foreach (var row in rows.EnumerateArray())
+            Assert.Equal(["type"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Theory]
+    [InlineData("3")]
+    [InlineData("2..10")]
+    [InlineData("2+10")]
+    [InlineData("1..1")]
+    public async Task Find_RowWindowUnderProjectedJson_MatchesTheTableFormats(string window)
+    {
+        // #3494: --rows is a Shape decision, so it has to survive the change of Format. It is
+        // applied by Markout before rows reach any formatter rather than by a line-oriented
+        // post-processor -- counting lines is only safe when one row is one line, which a
+        // pretty-printed JSON document violates. Every window kind is covered because Markout,
+        // not the caller, decides what head/range/start+count mean.
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
+
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonExit);
+
+        // Skip the TSV header; what remains is one data row per line.
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var actual = document.RootElement.GetProperty("results")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("type").GetString())
+            .ToArray();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, actual);
     }
 
     [Fact]
-    public async Task Find_MemberSearch_ColumnProjectionWithJson_IsRejected()
+    public async Task Find_RowWindowUnderProjectedJson_KeepsTheDocumentParsable()
     {
-        // The member-search path shares ExecuteAsync's guard, so it rejects too.
+        // A window that selects nothing must still be a JSON document. The table formats emit an
+        // empty string here; JSON cannot, because "no bytes" is not a value a consumer can parse.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "100000..");
+
+        Assert.Equal(0, exit);
+        using var document = JsonDocument.Parse(output);
+        Assert.Empty(document.RootElement.GetProperty("results").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Find_CompactUnderProjectedJson_IsHonored()
+    {
+        // --compact is a Format concern, so the lowered view has to honor it the same way the
+        // pre-lowered view does rather than always pretty-printing.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("\n  ", output, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        Assert.NotEmpty(document.RootElement.GetProperty("results").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Find_ProjectedJsonRows_CarryTheSameContentAsJsonl()
+    {
+        // The load-bearing invariant behind "JSON is a Format, not a Shape": at the same Shape,
+        // changing Format must not change content. --jsonl is JSON's closest sibling -- same
+        // projection, one row per line -- so every row of the projected --json array must carry the
+        // same keys, in the same order, with the same values. This is what catches key-casing drift
+        // (#3494 review): before Markout was asked for its JSONL vocabulary, --json emitted "Type"
+        // where --jsonl emitted "type" for the same query.
+        //
+        // Decoded pairs rather than raw bytes, because the two writers escape differently and that
+        // is encoding, not content: Utf8JsonWriter renders a backtick as \u0060 where Markout emits
+        // it literally. Matching Utf8JsonWriter is correct here -- it is what the pre-lowered
+        // --json already does, so the --json flag keeps one encoding whether or not a projection
+        // was requested.
+        var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--jsonl");
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--json");
+
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, jsonExit);
+
+        static string[] Pairs(JsonElement row) =>
+            [.. row.EnumerateObject().Select(property => $"{property.Name}={property.Value.GetString()}")];
+
+        var expected = jsonlOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return string.Join("\u001f", Pairs(row.RootElement));
+            })
+            .ToArray();
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var actual = document.RootElement.GetProperty("results")
+            .EnumerateArray()
+            .Select(row => string.Join("\u001f", Pairs(row)))
+            .ToArray();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task Find_MemberSearch_RowWindowUnderProjectedJson_MatchesTheTableFormats()
+    {
+        // The member search reaches the lowered view through a separate call site; a fix applied to
+        // only one of the two would leave --rows silently dropped on the other.
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "2");
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "2");
+
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonExit);
+
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var actual = document.RootElement.GetProperty("members")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("member").GetString())
+            .ToArray();
+
+        Assert.Equal(2, expected.Length);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task Find_FieldsProjectionWithJson_AgreesWithTableFormats()
+    {
+        // Format-invariance gate (#3494): --fields selects rows of a fields section, not table
+        // columns, so on find's table section it is a no-op -- under --tsv as much as --json. The
+        // lowered JSON view must agree with the table formats rather than invent a narrowing of
+        // its own, so compare the two renderings instead of asserting a shape in isolation.
+        var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--tsv");
+
+        Assert.Equal(0, jsonExit);
+        Assert.Equal(0, tsvExit);
+        Assert.DoesNotContain("cannot be combined with --json", jsonError);
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var keys = document.RootElement.GetProperty("results")[0]
+            .EnumerateObject().Select(property => property.Name).ToArray();
+        var tsvColumns = tsvOutput.TrimStart().Split('\n')[0].TrimEnd('\r').Split('\t');
+
+        // Compare the key names, not just how many there are: a count alone passes even when the
+        // two formats disagree about casing, which is exactly the defect adversarial review found.
+        Assert.Equal(tsvColumns, keys);
+        Assert.True(keys.Length > 1, $"expected the unprojected column set, got: {string.Join(",", keys)}");
+    }
+
+    [Fact]
+    public async Task Find_MemberSearch_ColumnProjectionWithJson_LowersToProjectedView()
+    {
+        // The member-search path shares the writer, so it lowers the same way (#3494).
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--members", "--library", TestAssemblyPath, "--fields", "Member", "--json");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("members");
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.NotEmpty(rows.EnumerateArray().ToArray());
+
+        foreach (var row in rows.EnumerateArray())
+            Assert.Equal(["member"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    public async Task Find_DuplicateColumn_FailsClosedInEveryFormat(string format)
+    {
+        // A duplicate column is silent data loss in the keyed formats: --jsonl and the lowered
+        // --json both emit the property twice, and no JSON parser reports that -- consumers keep
+        // one. Rejecting it in BuildProjection rather than in a renderer is what keeps every format
+        // agreeing about which requests are valid; fixing it only where it happens to be lossy
+        // would make --json reject what --jsonl accepts, which is the Format-invariance this change
+        // exists to establish. Found by adversarial review of #3494.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,Type", format);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("CommandExecutionTests", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Type,*", "*", "--json")]
+    [InlineData("Type,*", "*", "--jsonl")]
+    [InlineData("Type,*", "*", "--tsv")]
+    [InlineData("Type,*", "*", "--table")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--tsv")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
+    public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
+        string columns,
+        string deduplicatedColumns,
+        string format)
+    {
+        // Markout resolves overlapping patterns to each source column once. Comparing with the
+        // explicit deduplicated spelling pins both key uniqueness and format-invariant ordering.
+        var actual = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", columns, format);
+        var expected = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", deduplicatedColumns, format);
+
+        Assert.Equal(0, actual.Exit);
+        Assert.Equal(0, expected.Exit);
+        Assert.Empty(actual.Error);
+        Assert.Empty(expected.Error);
+        Assert.Equal(expected.Output, actual.Output);
+    }
+
+    [Fact]
+    public async Task Find_DisjointColumnPatterns_AreStillAccepted()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", "Ty*,Lib*", "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        using var row = JsonDocument.Parse(output.Trim());
+        Assert.Equal(
+            ["type", "library"],
+            row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task Find_DuplicateColumn_IsDetectedCaseInsensitively()
+    {
+        // Column selection is case-insensitive, so "Type,type" is the same duplicate request and
+        // produces the same duplicate JSON key. A case-sensitive check would pass this through.
+        var (exit, _, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,type", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--columns", ",")]
+    [InlineData("--columns", " , ; ")]
+    [InlineData("--fields", ";")]
+    [InlineData("--fields", "   ")]
+    public async Task Find_EmptyProjectionUnderJson_FailsInsteadOfEmittingTypedJson(
+        string flag,
+        string value)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, flag, value, "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Contains($"{flag} requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EmptyProjection_IsRejectedByCommandsThatDoNotCatchIt()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "No.Such.Package.Xyz123", "--columns", ",", "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--columns requires at least one name.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public async Task Find_InlineEmptyProjectionUnderJson_FailsInsteadOfEmittingTypedJson(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, option, "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{option[..^1]} requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_RepeatedInlineEmptyProjectionUnderJson_IsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns=", "--columns=", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--columns requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--columns=", "--columns")]
+    [InlineData("--columns", "--columns=")]
+    [InlineData("--fields=", "--fields")]
+    public async Task Find_MixedInlineEmptyAndBareProjectionUnderJson_IsRejected(
+        string first,
+        string second)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            first, second, "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{first.Split('=')[0]} requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_InlineEmptyThenValidRepeatedProjection_UsesTheValidName()
+    {
+        // Repeated list values form one projection before RemoveEmptyEntries is applied. An empty
+        // occurrence is rejected only when the aggregate list has no names; a later valid name
+        // therefore remains a valid one-column request.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns=", "--columns", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var firstRow = document.RootElement.GetProperty("results").EnumerateArray().First();
+        Assert.Equal(["type"], firstRow.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Theory]
+    [InlineData("--columns")]
+    [InlineData("--fields")]
+    public async Task Find_BareProjectionUnderJson_PreservesTypedJson(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, option, option, "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        var firstResult = document.RootElement.EnumerateArray().First();
+        Assert.True(firstResult.TryGetProperty("type", out _));
+        Assert.False(firstResult.TryGetProperty("results", out _));
+    }
+
+    [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public async Task Find_InlineEmptyProjectionAfterOptionTerminator_IsALiteralPattern(string literal)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "--library", TestAssemblyPath, "--", literal);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("No types found matching the pattern.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("requires at least one name", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Type;Type")]
+    [InlineData("Type, Type")]
+    [InlineData("Type,TYPE")]
+    public async Task DuplicateProjection_IsRejectedInEverySpellingTheParserAccepts(string columns)
+    {
+        // The duplicate check must split the value the same way ParseColumns does, or a duplicate
+        // written in a spelling the check does not understand escapes the parse-time gate. --columns
+        // accepts semicolons as well as commas, tolerates surrounding whitespace, and matches
+        // case-insensitively, so each of these is the same request as "Type,Type".
+        //
+        // This runs against `package` deliberately. `find` has a catch-all that reports the second
+        // gate's throw with the same "Error: Duplicate ..." text, so asserting there cannot tell
+        // which gate fired -- an earlier version of this test used `find` and passed even with the
+        // splitter replaced by a plain comma split. `package` has no catch-all, so only the
+        // parse-time gate can produce a clean error here. Parse-time rejection also precedes any
+        // network call, so this does not hit NuGet -- the package name is deliberately one that
+        // does not exist, which makes that structural rather than incidental: if the parse-time
+        // gate ever stopped firing, this would fail with "Package ... not found" instead, which is
+        // a different message rather than a hang.
+        var (exit, _, error) = await RunAppAsync(
+            "package", "No.Such.Package.Xyz123", "--columns", columns, "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DuplicateProjection_IsRejectedAcrossRepeatedOccurrences()
+    {
+        // Repeated occurrences are merged into one comma-separated value before parsing, so
+        // `--columns Type --columns Type` is the same request as `--columns Type,Type` and must
+        // fail the same way. This pins that the validator reads the merged token rather than one
+        // occurrence in isolation, which would let the duplicate through. Uses `package` for the
+        // same reason as above: it distinguishes the parse-time gate from the second gate, and the
+        // nonexistent package name keeps it off the network.
+        var (exit, _, error) = await RunAppAsync(
+            "package", "No.Such.Package.Xyz123", "--columns", "Type", "--columns", "Type", "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry: Type", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_DistinctColumnsAcrossRepeatedOccurrences_AreStillAccepted()
+    {
+        // The negative case for the above: merging is real, so both names must survive it. Without
+        // this, a check that rejected every repeated occurrence would pass the duplicate test while
+        // breaking a valid request.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", "Type", "--columns", "Kind", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("type\tkind", output.TrimStart(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DuplicateProjection_IsRejectedByCommandsThatDoNotCatchIt()
+    {
+        // The duplicate check must fire at parse time, not from inside the invocation pipeline.
+        // A throw there is only reported cleanly by commands that happen to catch it: `find` has a
+        // catch-all that prints "Error: ...", but `package` catches only HttpRequestException, so a
+        // pipeline throw reached System.CommandLine's default handler and printed a stack trace.
+        // Validating on the --columns/--fields options themselves is what makes the contract
+        // uniform across every command. Found by adversarial review of #3494.
+        //
+        // This asserts on the *absence* of a stack trace, because exit 1 and a message on stderr
+        // were already true of the crashing form -- the stack trace was the whole defect.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "No.Such.Package.Xyz123", "--fields", "Authors,Authors", "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --fields entry: Authors", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
+        // Rejection precedes package resolution, so the name is never looked up.
+        Assert.DoesNotContain("not found", error, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.Trim());
+    }
+
+    [Fact]
+    public async Task Find_UnmatchedColumnUnderJson_StillFailsClosed()
+    {
+        // Lowering must not turn a bad column name into a success-shaped empty document. The
+        // lowered path reuses Markout's projection, so it fails exactly as --tsv does.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "NotAColumn", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection", error);
+    }
+
+    [Theory]
+    [InlineData(false, "Type", "No types found matching the pattern.")]
+    [InlineData(true, "Member", "No members found matching the pattern.")]
+    public async Task Find_NoMatchesUnderProjectedJson_PreservesTheEstablishedDiagnostic(
+        bool members,
+        string column,
+        string diagnostic)
+    {
+        var args = new List<string>
+        {
+            "find", "ZzzNoSuchResult", "--library", TestAssemblyPath,
+            "--columns", column, "--json",
+        };
+        if (members)
+            args.Insert(2, "--members");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(diagnostic, error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
+    {
+        // The lowering is opt-in: plain --json must keep emitting the typed per-result objects
+        // with their machine keys, not the title-cased display view (#3494).
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"type\":", output);
+        Assert.DoesNotContain("\"Results\":", output);
     }
 
     [Fact]
     public async Task Find_ColumnProjectionWithJsonl_IsHonored()
     {
-        // Boundary: the row-oriented formats keep honoring column projection. Only document
-        // --json is rejected.
+        // Boundary: the row-oriented formats project columns, and must keep doing so now that
+        // --json lowers to the same projected view. The pattern has to actually match: while the
+        // rejection guard ran ahead of the search, a non-matching pattern still exercised it, so
+        // this assertion has to reach real rows to mean anything.
         var (exit, output, error) = await RunAppAsync(
-            "find", "ILSampleClass", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.NotEmpty(lines);
-        foreach (var line in lines)
-        {
-            using var document = JsonDocument.Parse(line);
-            Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
-        }
+
+        var firstRow = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
+        using var document = JsonDocument.Parse(firstRow);
+        Assert.Equal(["type"], document.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]
@@ -13896,6 +14412,32 @@ public partial class CommandExecutionTests
             Assert.Contains($"No columns matched projection: {column}", error);
             Assert.DoesNotContain("System.InvalidOperationException", error);
             Assert.DoesNotContain("MarkoutProjection.ComputeColumnMap", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_OverlappingColumnPatterns_AreDeduplicated()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.OverlappingColumns",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var actual = await RunAppAsync(
+                "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+            var expected = await RunAppAsync(
+                "package", packagePath, "--columns", "Field,Value", "--table", "--tips", "q");
+
+            Assert.Equal(0, actual.Exit);
+            Assert.Equal(0, expected.Exit);
+            Assert.Contains("1 field has no data: *", actual.Error, StringComparison.Ordinal);
+            Assert.Empty(expected.Error);
+            Assert.Equal(expected.Output, actual.Output);
         }
         finally
         {

@@ -103,7 +103,7 @@ public sealed partial class CSharpPrinter
         {
             appliedLenses = RaiseWithStyleLenses(function, importMethodBody, options, typesProvablyDisjoint);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -217,7 +217,7 @@ public sealed partial class CSharpPrinter
         {
             appliedLenses = RaiseWithStyleLenses(function, importMethodBody, options, typesProvablyDisjoint);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -230,7 +230,7 @@ public sealed partial class CSharpPrinter
             printedRanges = sink.Complete(output);
             return WithAppliedLenses(printer.Result(output, function), appliedLenses);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -253,7 +253,7 @@ public sealed partial class CSharpPrinter
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -286,7 +286,7 @@ public sealed partial class CSharpPrinter
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -299,7 +299,7 @@ public sealed partial class CSharpPrinter
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -328,7 +328,7 @@ public sealed partial class CSharpPrinter
             string output = printer.PrintBody(function);
             return printer.Result(output, function);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -346,7 +346,7 @@ public sealed partial class CSharpPrinter
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
