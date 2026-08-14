@@ -298,3 +298,23 @@ public sealed class ClassicProtectedStaticSiblingDerivedFixture
         return Read();
     }
 }
+
+public interface IClassicContravariantDefaultSiblingFixture<in T>
+{
+    void Consume(T value);
+
+    async Task ConsumeAsync(T value)
+    {
+        await Task.Yield();
+        ((IClassicContravariantDefaultSiblingFixture<string>)(object)this)
+            .Consume("");
+    }
+}
+
+public sealed class ClassicContravariantDefaultSiblingFixture
+    : IClassicContravariantDefaultSiblingFixture<object>
+{
+    public void Consume(object value)
+    {
+    }
+}

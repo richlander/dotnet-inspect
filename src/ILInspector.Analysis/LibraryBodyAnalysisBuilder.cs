@@ -1605,6 +1605,19 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         {
             return null;
         }
+        EntityHandle physicalHandle =
+            MetadataTokens.EntityHandle(
+                physicalMethod.MetadataToken);
+        if (physicalHandle.Kind
+                != HandleKind.MethodDefinition
+            || !ImplementsAsyncStateMachine(
+                _reader.GetTypeDefinition(
+                    methodDefinition.GetDeclaringType()))
+            || !IsMoveNextBody(
+                (MethodDefinitionHandle)physicalHandle))
+        {
+            return null;
+        }
 
         IReadOnlyDictionary<
             int,
@@ -1673,6 +1686,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                         AsyncStateMachineAttribute(
                             methodDefinition.GetCustomAttributes());
                     if (attribute.Rejected
+                        || MethodClassificationScanner
+                            .ClassifyAsyncMethod(
+                                _reader,
+                                methodDefinition)
+                            == MethodClassification.RuntimeAsync
                         || attribute.SerializedType is not
                             { } serializedType
                         || StateMachineTypeDefinitionName(serializedType)

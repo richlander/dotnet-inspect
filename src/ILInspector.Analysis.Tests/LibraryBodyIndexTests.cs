@@ -808,6 +808,16 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicProtectedStaticSiblingDerivedFixture
                             .AnalyzeAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == "IClassicContravariantDefaultSiblingFixture`1"
+                && opportunity.Method.Name
+                    == nameof(
+                        IClassicContravariantDefaultSiblingFixture<
+                            object>.ConsumeAsync));
     }
 
     [Fact]
@@ -2022,6 +2032,13 @@ public class LibraryBodyIndexTests
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString(
                     "AsyncStateMachineAttribute"));
+        TypeReferenceHandle asyncStateMachine =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "IAsyncStateMachine"));
         metadata.AddTypeDefinition(
             default,
             default,
@@ -2038,6 +2055,18 @@ public class LibraryBodyIndexTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle stateMachineType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("StateMachine"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddInterfaceImplementation(
+            stateMachineType,
+            asyncStateMachine);
         MemberReferenceHandle readReference =
             metadata.AddMemberReference(
                 api,
@@ -2115,6 +2144,23 @@ public class LibraryBodyIndexTests
             MetadataTokens.ParameterHandle(1));
         if (addStateMachineAttribute)
         {
+            var moveNextIl = new BlobBuilder();
+            moveNextIl.WriteByte((byte)ILOpCode.Ldc_i4_0);
+            moveNextIl.WriteByte((byte)ILOpCode.Call);
+            moveNextIl.WriteInt32(
+                MetadataTokens.GetToken(read));
+            moveNextIl.WriteByte((byte)ILOpCode.Ret);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("MoveNext"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }),
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(moveNextIl),
+                    maxStack: 1),
+                MetadataTokens.ParameterHandle(1));
             MemberReferenceHandle constructor =
                 metadata.AddMemberReference(
                     asyncStateMachineAttribute,
@@ -2129,15 +2175,24 @@ public class LibraryBodyIndexTests
             metadata.AddCustomAttribute(
                 analyze,
                 constructor,
-                metadata.GetOrAddBlob(
-                    new byte[]
-                    {
-                        0x01, 0x00, 0xFF, 0x00, 0x00,
-                    }));
+                AddSerializedTypeAttributeValue(
+                    metadata,
+                    "Probe.StateMachine, DirectionProbeCaller"));
         }
         return SerializeDirectionProbe(
             metadata,
             bodies);
+    }
+
+    static BlobHandle AddSerializedTypeAttributeValue(
+        MetadataBuilder metadata,
+        string serializedType)
+    {
+        var value = new BlobBuilder();
+        value.WriteUInt16(0x0001);
+        value.WriteSerializedString(serializedType);
+        value.WriteUInt16(0);
+        return metadata.GetOrAddBlob(value);
     }
 
     static AssemblyReferenceHandle

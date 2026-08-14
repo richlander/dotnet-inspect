@@ -648,6 +648,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         {
             TypeRelation relation = SourceTypeRelation(
                 sourceMethod.GetDeclaringType(),
+                asyncSource.DeclaringType,
                 candidateReader,
                 candidateType,
                 candidate.DeclaringType);
@@ -856,6 +857,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
     TypeRelation SourceTypeRelation(
         TypeDefinitionHandle sourceType,
+        TypeRef sourceDeclaringType,
         MetadataReader candidateReader,
         TypeDefinitionHandle candidateType,
         TypeRef candidateDeclaringType)
@@ -863,21 +865,84 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         var pending = new Stack<(
             MetadataReader Reader,
             TypeDefinitionHandle Definition,
-            ImmutableArray<TypeRef> TypeArguments)>();
+            ImmutableArray<TypeRef> TypeArguments,
+            ImmutableArray<(
+                MetadataReader Reader,
+                TypeDefinitionHandle Definition)> Ancestry)>();
         var visited =
             new Dictionary<MetadataReader, HashSet<string>>(
                 ReferenceEqualityComparer.Instance);
         int visitedCount = 0;
         bool incomplete = false;
-        pending.Push((_reader, sourceType, []));
+        ImmutableArray<TypeRef> sourceTypeArguments =
+            SourceTypeArguments(
+                sourceType,
+                sourceDeclaringType,
+                ref incomplete);
+        TypeRelation sourceRelation =
+            TypeDefinitionRelation(
+                _reader,
+                sourceType,
+                candidateReader,
+                candidateType);
+        if (sourceRelation == TypeRelation.Yes
+            && (_reader.GetTypeDefinition(sourceType)
+                    .Attributes
+                & TypeAttributes.Interface) != 0)
+        {
+            TypeRef sourceInterface =
+                sourceTypeArguments.Length == 0
+                    ? TypeRefDecoder.Instance
+                        .GetTypeFromDefinition(
+                            _reader,
+                            sourceType,
+                            0)
+                    : TypeRef.GenericInstance(
+                        TypeRefDecoder.Instance
+                            .GetTypeFromDefinition(
+                                _reader,
+                                sourceType,
+                                0),
+                        sourceTypeArguments);
+            TypeRelation arguments =
+                ConstructedTypeArgumentsRelation(
+                    _reader,
+                    sourceType,
+                    sourceInterface,
+                    candidateDeclaringType);
+            if (arguments == TypeRelation.Yes)
+                return TypeRelation.Yes;
+            if (arguments == TypeRelation.Unknown)
+                incomplete = true;
+        }
+        else if (sourceRelation == TypeRelation.Unknown)
+        {
+            incomplete = true;
+        }
+        pending.Push((
+            _reader,
+            sourceType,
+            sourceTypeArguments,
+            []));
         while (pending.Count > 0
             && visitedCount
                 < MetadataSafetyPolicy.MaxRelationshipNodes)
         {
             (MetadataReader reader,
                 TypeDefinitionHandle current,
-                ImmutableArray<TypeRef> currentTypeArguments) =
+                ImmutableArray<TypeRef> currentTypeArguments,
+                ImmutableArray<(
+                    MetadataReader Reader,
+                    TypeDefinitionHandle Definition)> ancestry) =
                 pending.Pop();
+            if (ancestry.Any(entry =>
+                    ReferenceEquals(entry.Reader, reader)
+                    && entry.Definition == current))
+            {
+                incomplete = true;
+                continue;
+            }
+            ancestry = ancestry.Add((reader, current));
             if (!TryVisitConstructedTypeDefinition(
                     visited,
                     reader,
@@ -938,7 +1003,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 pending.Push((
                     resolvedInterface.DefiningReader,
                     resolvedInterface.Definition,
-                    interfaceType.TypeArguments));
+                    interfaceType.TypeArguments,
+                    ancestry));
             }
 
             EntityHandle baseHandle = definition.BaseType;
@@ -968,13 +1034,46 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             pending.Push((
                 resolvedBase.DefiningReader,
                 resolvedBase.Definition,
-                baseType.TypeArguments));
+                baseType.TypeArguments,
+                ancestry));
         }
         if (pending.Count > 0)
             incomplete = true;
         return incomplete
             ? TypeRelation.Unknown
             : TypeRelation.No;
+    }
+
+    ImmutableArray<TypeRef> SourceTypeArguments(
+        TypeDefinitionHandle sourceType,
+        TypeRef sourceDeclaringType,
+        ref bool incomplete)
+    {
+        if (sourceDeclaringType.Kind
+            == TypeRefKind.GenericInstance)
+        {
+            return sourceDeclaringType.TypeArguments;
+        }
+
+        var arguments =
+            ImmutableArray.CreateBuilder<TypeRef>();
+        int expectedIndex = 0;
+        foreach (var handle in _reader
+            .GetTypeDefinition(sourceType)
+            .GetGenericParameters())
+        {
+            int index = _reader.GetGenericParameter(
+                    handle)
+                .Index;
+            if (index != expectedIndex++)
+            {
+                incomplete = true;
+                return [];
+            }
+            arguments.Add(
+                TypeRef.GenericParameter(index));
+        }
+        return arguments.ToImmutable();
     }
 
     internal static bool ConstructedTypeArgumentsMatch(
