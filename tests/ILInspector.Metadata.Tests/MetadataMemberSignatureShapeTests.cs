@@ -115,6 +115,24 @@ public unsafe class MetadataMemberSignatureShapeTests
                 legacy.Shape!));
     }
 
+    [Fact]
+    public void MetadataAdapter_RefusesShapeBeyondTransportDepthLimit()
+    {
+        using var stream = File.OpenRead(typeof(MetadataMemberSignatureShapeTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle handle = FindMethod(
+            reader,
+            nameof(ShapeSpecimens),
+            nameof(ShapeSpecimens.DeepArray));
+
+        MemberSignatureShapeResult result =
+            MetadataMemberSignatureShape.Create(reader, handle);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("transport safety limits", result.UnavailableReason);
+    }
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         string typeName,
@@ -148,6 +166,12 @@ public unsafe class ShapeSpecimens
     public void ByRefFunctionPointer(delegate*<ref int, void> callback) { }
     public void LegacyNamed(IReadOnlyList<string> values) { }
     public void LegacyGeneric<T>(T value) { }
+    public void DeepArray(
+        int[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
+            [][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
+            [][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
+            [][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
+            [] value) { }
     public static implicit operator int(ShapeSpecimens value) => 0;
 
     public class Outer<T>

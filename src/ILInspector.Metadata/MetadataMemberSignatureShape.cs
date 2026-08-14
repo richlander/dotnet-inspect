@@ -69,11 +69,12 @@ public static class MetadataMemberSignatureShape
                 conversionReturnType = decoded.Value.ReturnType.Shape;
             }
 
-            return MemberSignatureShapeResult.Available(
-                new MemberSignatureShape(
-                    method.GetGenericParameters().Count,
-                    new(parameters),
-                    conversionReturnType));
+            var shape = new MemberSignatureShape(
+                method.GetGenericParameters().Count,
+                new(parameters),
+                conversionReturnType);
+            _ = MemberSignatureShapeCodec.Encode(shape);
+            return MemberSignatureShapeResult.Available(shape);
         }
         catch (BadImageFormatException ex)
         {
@@ -89,6 +90,11 @@ public static class MetadataMemberSignatureShape
         {
             return MemberSignatureShapeResult.Unavailable(
                 $"The metadata signature is out of range: {ex.Message}");
+        }
+        catch (ArgumentException ex)
+        {
+            return MemberSignatureShapeResult.Unavailable(
+                $"The metadata signature shape exceeds the transport safety limits: {ex.Message}");
         }
     }
 
