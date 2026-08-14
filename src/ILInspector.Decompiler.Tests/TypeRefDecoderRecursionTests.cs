@@ -278,6 +278,117 @@ public class TypeRefDecoderRecursionTests
         Assert.NotNull(result);
     }
 
+    // Depth is bounded by the node budget; size is not. 64 segments of 512 characters is a legal
+    // chain by every count-based rule and still a 32 KB name, so the decoder refuses it — and
+    // refuses it visibly, as an unsupported type rather than a truncated name.
+    [Fact]
+    public void OverBudgetAggregateTypeName_IsRejectedVisibly()
+    {
+        const int levels = 64;
+        var reader = BuildMetadata(metadata =>
+        {
+            for (int row = 1; row <= levels; row++)
+            {
+                metadata.AddTypeReference(
+                    row == levels ? default : MetadataTokens.TypeReferenceHandle(row + 1),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(new string('x', 512)));
+            }
+
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "metadata name is incomplete",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverBudgetAggregateNestedDefinitionName_IsRejectedVisibly()
+    {
+        const int levels = 64;
+        TypeDefinitionHandle leafHandle = default;
+        var reader = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle previous = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(new string('x', 512)),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            var nestings = new List<(TypeDefinitionHandle Nested, TypeDefinitionHandle Enclosing)>();
+            for (int level = 1; level < levels; level++)
+            {
+                TypeDefinitionHandle current = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString(new string('x', 512)),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+                nestings.Add((current, previous));
+                previous = current;
+            }
+
+            foreach ((TypeDefinitionHandle nested, TypeDefinitionHandle enclosing) in nestings)
+                metadata.AddNestedType(nested, enclosing);
+            leafHandle = previous;
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, leafHandle, 0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-definition metadata name is incomplete",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+    }
+
+    // The close negative: the same shape well inside the budget still decodes, and its flattened
+    // name, structured segments, and escaped identity are exact.
+    [Fact]
+    public void DeepNestedTypeNameWithinBudget_PreservesTheExactIdentity()
+    {
+        const int levels = 32;
+        var reader = BuildMetadata(metadata =>
+        {
+            for (int row = 1; row <= levels; row++)
+            {
+                metadata.AddTypeReference(
+                    row == levels ? default : MetadataTokens.TypeReferenceHandle(row + 1),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString($"Level{row}`1"));
+            }
+
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Definition, result.Kind);
+        string[] rootToLeaf =
+        [
+            .. Enumerable.Range(1, levels).Reverse().Select(row => $"Level{row}`1"),
+        ];
+        Assert.Equal(string.Join('+', rootToLeaf), result.Name);
+        Assert.Equal(rootToLeaf, result.DefinitionName!.Segments);
+        Assert.Equal(
+            $"N.{string.Join('+', rootToLeaf)}",
+            result.DefinitionName.ToEscapedFullName());
+    }
+
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)
     {
         var metadata = new MetadataBuilder();

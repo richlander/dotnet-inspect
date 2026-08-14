@@ -47,8 +47,50 @@ public class TypeReferenceOriginTests
                 MetadataTokens.AssemblyReferenceHandle(1)),
             origin.Assembly);
         Assert.Equal(
-            ["Outer`1", "Inner"],
+            ["Outer`1+Inner"],
             decoded.Resolution.Type.Segments);
+    }
+
+    [Fact]
+    public void TypeReferenceSegments_DistinguishNestingFromLiteralPlus()
+    {
+        using MetadataReaderProvider provider = BuildMetadata(
+            metadata =>
+            {
+                AssemblyReferenceHandle assembly =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("Target"),
+                        new Version(1, 0, 0, 0),
+                        culture: default,
+                        publicKeyOrToken: default,
+                        flags: default,
+                        hashValue: default);
+                TypeReferenceHandle outer = metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Outer"));
+                metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Outer+Inner"));
+                return metadata.AddTypeReference(
+                    outer,
+                    default,
+                    metadata.GetOrAddString("Inner"));
+            });
+        MetadataReader reader = provider.GetMetadataReader();
+
+        TypeRef literal = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(2),
+            0);
+        TypeRef nested = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(3),
+            0);
+
+        Assert.Equal(["Outer+Inner"], literal.Resolution!.Type.Segments);
+        Assert.Equal(["Outer", "Inner"], nested.Resolution!.Type.Segments);
     }
 
     [Fact]

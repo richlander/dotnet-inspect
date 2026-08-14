@@ -64,8 +64,40 @@ public interface IPackageContent
     bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream);
 
     /// <summary>
+    /// Opens a package entry only when the implementation can keep its expanded content within
+    /// <paramref name="maxExpandedBytes"/>. Implementations should reject before expansion when
+    /// they know the declared length. The default preserves compatibility for implementations
+    /// that cannot preflight length; callers must still bound observed reads from the returned
+    /// stream.
+    /// </summary>
+    bool TryOpenEntry(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        return TryOpenEntry(relativePath, out stream);
+    }
+
+    /// <summary>
     /// Enumerates the <c>/</c>-separated, package-root relative paths of every
     /// entry in the package.
     /// </summary>
     IEnumerable<string> EnumerateEntries();
 }
+
+/// <summary>
+/// Optional package-content capability that exposes a cached entry manifest with declared
+/// expanded lengths. Hosts use it to reject an over-budget workspace before opening entry bodies.
+/// </summary>
+public interface IPackageContentEntryManifest
+{
+    /// <summary>Gets one entry's declared expanded length.</summary>
+    bool TryGetEntryLength(string relativePath, out long length);
+
+    /// <summary>Returns package entry paths and their declared expanded lengths.</summary>
+    IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths();
+}
+
+/// <summary>One package entry's path and declared expanded length.</summary>
+public readonly record struct PackageContentEntry(string Path, long Length);
