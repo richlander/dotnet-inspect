@@ -29,17 +29,27 @@ public static class SnupkgPdbReader
     /// <summary>
     /// Scans <paramref name="snupkg"/> for a Portable PDB named
     /// <c>{assemblyName}.pdb</c> whose debug identity matches
-    /// <paramref name="expectedGuid"/>, returning its bytes on success.
+    /// <paramref name="expectedGuid"/> and, when supplied,
+    /// <paramref name="expectedStamp"/>, returning its bytes on success.
     /// </summary>
     /// <param name="snupkg">A readable stream over the .snupkg (ZIP) content.</param>
     /// <param name="assemblyName">Assembly name without extension (e.g. <c>System.Text.Json</c>).</param>
     /// <param name="expectedGuid">The PDB debug identity GUID that must match.</param>
     /// <param name="log">Optional diagnostic callback.</param>
+    /// <param name="expectedStamp">
+    /// The Portable PDB content-id stamp that must match, or <c>null</c> for the
+    /// GUID-only compatibility behavior.
+    /// </param>
+    /// <remarks>
+    /// <c>SnupkgPdbReaderTests.ExtractPortablePdb_MatchingGuidWithMismatchedStamp_ReturnsNull</c>
+    /// gates comparison of the complete Portable PDB content identity.
+    /// </remarks>
     public static SnupkgPdbResult ExtractPortablePdb(
         Stream snupkg,
         string assemblyName,
         Guid expectedGuid,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        uint? expectedStamp = null)
     {
         ArgumentNullException.ThrowIfNull(snupkg);
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
@@ -77,8 +87,16 @@ public static class SnupkgPdbReader
             if (header != PdbHeaderKind.Portable)
                 continue;
 
-            if (PortablePdbMatchesGuid(bytes, expectedGuid, log))
+            using var pdbStream =
+                new MemoryStream(bytes, writable: false);
+            if (PortablePdbMatchesIdentity(
+                    pdbStream,
+                    expectedGuid,
+                    expectedStamp,
+                    log))
+            {
                 return new SnupkgPdbResult(bytes, windowsPdbDetected);
+            }
         }
 
         return new SnupkgPdbResult(null, windowsPdbDetected);
@@ -125,30 +143,63 @@ public static class SnupkgPdbReader
         return PdbHeaderKind.Unknown;
     }
 
-    private static bool PortablePdbMatchesGuid(byte[] pdbBytes, Guid expectedGuid, Action<string>? log)
+    internal static bool PortablePdbMatchesIdentity(
+        Stream pdbStream,
+        Guid expectedGuid,
+        uint? expectedStamp,
+        Action<string>? log)
     {
         try
         {
-            using var stream = new MemoryStream(pdbBytes, writable: false);
-            using var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
+            using var provider =
+                MetadataReaderProvider.FromPortablePdbStream(
+                    pdbStream,
+                    MetadataStreamOptions.PrefetchMetadata);
             var reader = provider.GetMetadataReader();
             var id = reader.DebugMetadataHeader?.Id;
-            if (id is not { Length: >= 16 })
+            int requiredLength = expectedStamp.HasValue ? 20 : 16;
+            if (id is not { Length: var length }
+                || length < requiredLength)
+            {
                 return false;
+            }
 
             Span<byte> guidBytes = stackalloc byte[16];
             id.Value.AsSpan(0, 16).CopyTo(guidBytes);
             var actualGuid = new Guid(guidBytes);
-            if (actualGuid == expectedGuid)
+            uint? actualStamp = id.Value.Length >= 20
+                ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(
+                    id.Value.AsSpan(16, 4))
+                : null;
+            if (actualGuid == expectedGuid
+                && (!expectedStamp.HasValue
+                    || actualStamp == expectedStamp))
+            {
                 return true;
+            }
 
-            log?.Invoke($"Skipping mismatched PDB from symbol package: expected {expectedGuid:D}; found {actualGuid:D}");
+            log?.Invoke(
+                "Skipping mismatched Portable PDB: expected "
+                + FormatIdentity(expectedGuid, expectedStamp)
+                + "; found "
+                + FormatIdentity(actualGuid, actualStamp));
             return false;
         }
         catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
         {
-            log?.Invoke($"Could not read PDB identity from symbol package entry: {ex.Message}");
+            log?.Invoke(
+                $"Could not read Portable PDB identity: {ex.Message}");
             return false;
         }
     }
+
+    private static string FormatIdentity(
+        Guid guid,
+        uint? stamp)
+        => stamp.HasValue
+            ? $"{guid:D}/{stamp.Value:x8}"
+            : guid.ToString("D");
 }
