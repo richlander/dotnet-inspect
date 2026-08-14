@@ -4406,6 +4406,60 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisTopLevelAsync.AssemblyPath());
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(
+            opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelAsyncEqual",
+                    StringComparison.Ordinal)));
+
+        Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_TopLevelNameWithoutEntryPoint_IsSuppressed()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-no-entry-point-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "NoEntryPoint.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath());
+            using (var peReader = new PEReader(
+                new MemoryStream(image, writable: false)))
+            {
+                int corHeaderOffset =
+                    peReader.PEHeaders.CorHeaderStartOffset;
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
+                    image.AsSpan(corHeaderOffset + 20, sizeof(int)),
+                    0);
+            }
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelEqual",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_SourceGeneratedLiftedMethods_AreNotReported()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);

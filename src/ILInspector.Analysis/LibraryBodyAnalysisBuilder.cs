@@ -350,7 +350,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
-            if (includeMethodEvidence)
+            if (includeMethodEvidence || includeOpportunities)
                 _ = AsyncStateMachineTypes();
             Parallel.For(0, workItems.Count, i =>
             {
@@ -1164,31 +1164,49 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
         string ownerName = liftedName[1..close];
         MethodDefinitionHandle ownerHandle = default;
+        bool ownerIsTopLevelEntryPoint = false;
         foreach (var ownerMethodHandle in ownerDefinition.GetMethods())
         {
             var ownerMethod = _reader.GetMethodDefinition(ownerMethodHandle);
-            if (_reader.StringComparer.Equals(ownerMethod.Name, ownerName)
-                && MethodReferencesLiftedBody(
-                    ownerDefinition,
+            if (!_reader.StringComparer.Equals(ownerMethod.Name, ownerName))
+                continue;
+
+            TypeDefinition executionType = default;
+            MethodDefinition executionMethod = default;
+            bool topLevelEntryPoint =
+                _reader.StringComparer.Equals(ownerMethod.Name, "<Main>$")
+                && TryGetTopLevelExecutionMethod(
+                    ownerMethodHandle,
                     ownerMethod,
-                    liftedHandle,
-                    liftedMethod.Signature,
-                    liftedIdentity))
+                    out executionType,
+                    out executionMethod);
+            if ((topLevelEntryPoint
+                    ? MethodReferencesLiftedBody(
+                        executionType,
+                        executionMethod,
+                        liftedHandle,
+                        liftedMethod.Signature,
+                        liftedIdentity)
+                    : MethodReferencesLiftedBody(
+                        ownerDefinition,
+                        ownerMethod,
+                        liftedHandle,
+                        liftedMethod.Signature,
+                        liftedIdentity)))
             {
                 if (!ownerHandle.IsNil)
                     return false;
                 ownerHandle = ownerMethodHandle;
+                ownerIsTopLevelEntryPoint = topLevelEntryPoint;
             }
         }
         if (ownerHandle.IsNil)
             return false;
 
         var definition = _reader.GetMethodDefinition(ownerHandle);
-        bool topLevelEntryPoint =
-            _reader.StringComparer.Equals(definition.Name, "<Main>$");
         sourceGenerated =
             HasGeneratedCodeAttribute(definition.GetCustomAttributes())
-            || !topLevelEntryPoint
+            || !ownerIsTopLevelEntryPoint
                 && (HasCompilerGeneratedAttribute(
                         definition.GetCustomAttributes())
                     || IsCompilerGeneratedSourceTypeOrEnclosing(ownerType));
@@ -1198,6 +1216,157 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             definition,
             CreateScope(ownerDefinition, definition));
         return true;
+    }
+
+    bool TryGetTopLevelExecutionMethod(
+        MethodDefinitionHandle ownerHandle,
+        MethodDefinition ownerMethod,
+        out TypeDefinition executionType,
+        out MethodDefinition executionMethod)
+    {
+        executionType = default;
+        executionMethod = default;
+        CorHeader? corHeader = _peReader.PEHeaders.CorHeader;
+        if (corHeader is null
+            || (corHeader.Flags & CorFlags.NativeEntryPoint) != 0
+            || corHeader.EntryPointTokenOrRelativeVirtualAddress == 0)
+        {
+            return false;
+        }
+
+        EntityHandle entryPoint;
+        try
+        {
+            entryPoint = MetadataTokens.EntityHandle(
+                corHeader.EntryPointTokenOrRelativeVirtualAddress);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        if (entryPoint.Kind != HandleKind.MethodDefinition)
+            return false;
+
+        var entryPointHandle = (MethodDefinitionHandle)entryPoint;
+        if (entryPointHandle == ownerHandle)
+        {
+            executionType = _reader.GetTypeDefinition(
+                ownerMethod.GetDeclaringType());
+            executionMethod = ownerMethod;
+            return true;
+        }
+
+        MethodDefinition entryPointMethod =
+            _reader.GetMethodDefinition(entryPointHandle);
+        if (!MethodBodyReferencesDefinition(entryPointMethod, ownerHandle))
+            return false;
+
+        if ((ownerMethod.ImplAttributes & MethodImplAttributes.Async) != 0)
+        {
+            executionType = _reader.GetTypeDefinition(
+                ownerMethod.GetDeclaringType());
+            executionMethod = ownerMethod;
+            return true;
+        }
+
+        if (!TryGetAsyncStateMachineType(
+                ownerMethod,
+                out TypeDefinitionHandle stateMachineHandle))
+        {
+            return false;
+        }
+
+        executionType = _reader.GetTypeDefinition(stateMachineHandle);
+        MethodDefinitionHandle moveNextHandle = default;
+        foreach (MethodDefinitionHandle methodHandle
+            in executionType.GetMethods())
+        {
+            MethodDefinition method = _reader.GetMethodDefinition(methodHandle);
+            if (!_reader.StringComparer.Equals(method.Name, "MoveNext"))
+                continue;
+            if (!moveNextHandle.IsNil)
+                return false;
+            moveNextHandle = methodHandle;
+            executionMethod = method;
+        }
+        return !moveNextHandle.IsNil;
+    }
+
+    bool MethodBodyReferencesDefinition(
+        MethodDefinition method,
+        MethodDefinitionHandle targetHandle)
+    {
+        if (method.RelativeVirtualAddress == 0)
+            return false;
+
+        int targetToken = MetadataTokens.GetToken(targetHandle);
+        MethodBodyBlock body =
+            _peReader.GetMethodBody(method.RelativeVirtualAddress);
+        foreach (var instruction in DecodeBody(
+            body.GetILBytes() ?? [],
+            body.ExceptionRegions).Instructions)
+        {
+            if (instruction.OpCode is (ILOpCode.Call or ILOpCode.Callvirt)
+                && PeelToDefinitionToken(
+                    MethodInstructionFacts.OperandInt32(instruction))
+                    == targetToken)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool TryGetAsyncStateMachineType(
+        MethodDefinition ownerMethod,
+        out TypeDefinitionHandle stateMachineHandle)
+    {
+        stateMachineHandle = default;
+        string? stateMachineName = null;
+        foreach (CustomAttributeHandle attributeHandle
+            in ownerMethod.GetCustomAttributes())
+        {
+            CustomAttribute attribute =
+                _reader.GetCustomAttribute(attributeHandle);
+            if (AttributeDecoder.GetAttributeTypeName(
+                    _reader,
+                    attribute.Constructor)
+                != "System.Runtime.CompilerServices.AsyncStateMachineAttribute"
+                || AttributeDecoder.TryDecode(_reader, attribute)
+                    is not { FixedArguments.Length: 1 } decoded
+                || decoded.FixedArguments[0].Value is not string typeName)
+            {
+                continue;
+            }
+            if (stateMachineName is not null)
+                return false;
+            stateMachineName = typeName;
+        }
+        if (stateMachineName is null)
+            return false;
+
+        foreach (TypeDefinitionHandle typeHandle in _reader.TypeDefinitions)
+        {
+            if (TypeResolver.GetTypeNameFromDefinition(
+                    _reader,
+                    typeHandle)
+                != stateMachineName)
+            {
+                continue;
+            }
+            TypeRef type = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                _reader,
+                typeHandle,
+                0);
+            if (!AsyncStateMachineTypes().Contains(
+                    type.ToQualifiedDisplayString())
+                || !stateMachineHandle.IsNil)
+            {
+                return false;
+            }
+            stateMachineHandle = typeHandle;
+        }
+        return !stateMachineHandle.IsNil;
     }
 
     bool MethodReferencesLiftedBody(
