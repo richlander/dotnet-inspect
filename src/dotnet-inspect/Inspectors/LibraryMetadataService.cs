@@ -821,19 +821,37 @@ internal static class LibraryMetadataService
                     AssemblyResolutionScope.Any));
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
-            if (selection is AssemblyBindingSelection.Unavailable)
+            if (selection is AssemblyBindingSelection.Unavailable unavailable)
             {
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Unavailable;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        unavailable.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because a candidate was unavailable.");
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
             }
-            else if (selection is AssemblyBindingSelection.Rejected)
+            else if (selection is AssemblyBindingSelection.Rejected rejected)
             {
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Rejected;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        rejected.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because binding was rejected.");
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
             }
 
             node.Path = resolved?.Path;
@@ -906,6 +924,20 @@ internal static class LibraryMetadataService
 
         return nodes;
     }
+
+    private static IdentifierConfusionAuditFailureKind
+        ClassifyIdentifierConfusionBindingFailure(
+            AssemblyBindingFailure failure) =>
+        failure.CandidateFailureKind switch
+        {
+            CandidateOpenFailureKind.InvalidImage =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            CandidateOpenFailureKind.Unreadable =>
+                IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            CandidateOpenFailureKind.ResourceBudget =>
+                IdentifierConfusionAuditFailureKind.InspectionFailed,
+            _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
+        };
 
     private static IdentifierConfusionAuditFailureKind
         ClassifyIdentifierConfusionReferenceFailure(Exception exception) =>
