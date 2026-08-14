@@ -300,8 +300,15 @@ notification was ever sent. Detection latency was unbounded, not weekly
 (#3432), and five regressions (#3489–#3493) accumulated unseen.
 
 The `decompiler-gates` CI job closes that hole. It is path-gated on the
-decompiler and its substrate, runs as its own job so it never serializes with
-the hot `test` lane, and runs `--gate pre-merge`:
+evaluated project-reference closure rooted at `ILInspector.Decompiler.Tests`,
+runs as its own job so it never serializes with the hot `test` lane, and runs
+`--gate pre-merge`. The committed closure is
+`eng/decompiler-gate-projects.txt`;
+`test-ci-change-detection.cs` asserts set equality with MSBuild's restore graph,
+so adding or removing a transitive project cannot silently stale the filter.
+Global build inputs and the gate's own scripts and pins remain explicit
+triggers. If the manifest cannot be loaded, detection fails safe by running the
+gate for every source, test, or tool change.
 
 ```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \

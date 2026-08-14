@@ -313,6 +313,45 @@ jobs:
           PACKAGING=false
           SHIPPED=false
           SKILLS=false
+          DECOMPILER_PROJECTS_READY=true
+          DECOMPILER_PROJECTS=()
+          DECOMPILER_PROJECTS_FILE=eng/decompiler-gate-projects.txt
+          if [ ! -f "$DECOMPILER_PROJECTS_FILE" ]; then
+            DECOMPILER_PROJECTS_READY=false
+          else
+            while IFS= read -r project || [ -n "$project" ]; do
+              case "$project" in
+                src/*|tests/*|tools/*) ;;
+                *) DECOMPILER_PROJECTS_READY=false; break ;;
+              esac
+              case "/$project/" in
+                *"//"*|*"/./"*|*"/../"*) DECOMPILER_PROJECTS_READY=false; break ;;
+              esac
+              if [ ! -d "$project" ]; then
+                DECOMPILER_PROJECTS_READY=false
+                break
+              fi
+              DECOMPILER_PROJECTS+=("$project/")
+            done < "$DECOMPILER_PROJECTS_FILE"
+            if [ "${#DECOMPILER_PROJECTS[@]}" -eq 0 ]; then
+              DECOMPILER_PROJECTS_READY=false
+            fi
+          fi
+          if [ "$DECOMPILER_PROJECTS_READY" != "true" ]; then
+            echo "::warning title=Decompiler change filter fell back::Could not load $DECOMPILER_PROJECTS_FILE; decompiler gates will run for every source, test, or tool change."
+          fi
+          selects_decompiler_project() {
+            if [ "$DECOMPILER_PROJECTS_READY" != "true" ]; then
+              return 0
+            fi
+            local project
+            for project in "${DECOMPILER_PROJECTS[@]}"; do
+              case "$1" in
+                "$project"*) return 0 ;;
+              esac
+            done
+            return 1
+          }
           while IFS= read -r -d '' file; do
             case "$file" in
               src/*) CODE=true ;;
@@ -413,27 +452,24 @@ jobs:
             # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
             # they run as their own job rather than in the hot `test` lane.
             #
-            # This filter is deliberately broad. The first version enumerated
-            # the decompiler projects, and review found it already wrong: it
-            # missed ILInspector.Decompiler.Fixtures.* (the assemblies the
-            # gates decompile), tools/RoundTripCompilation (the compile-back
-            # harness), DiffFixtures.V*, and transitive substrate such as
-            # ILInspector.MetadataPrimitives, ILInspector.Findings, and
-            # ILInspector.Text. A fidelity result is a whole-pipeline
-            # observation, so its true input set is the test project's
-            # transitive closure, which an enumerated list cannot track without
-            # rotting. Under-triggering silently disables the gate on exactly
-            # the changes it exists to catch; over-triggering costs a parallel
-            # job that never blocks the hot lane. Prefer the cheap error. The
-            # documentation-extension arm covers only `*.md`, deliberately: a
-            # `.txt` or `.jsonl` under these trees can be a corpus or baseline
-            # fixture, and excluding it by extension would silently un-gate it.
-            # `global.json` selects the SDK, which selects the compiler and the
-            # IL compared.
+            # The project paths come from the evaluated restore graph rooted at
+            # ILInspector.Decompiler.Tests. The self-test below asserts set
+            # equality between that graph and the committed manifest, avoiding
+            # both the original hand-maintained allow list's omissions and the
+            # later src/* overmatch that ran this job for unrelated CLI changes.
+            # If the manifest cannot be loaded, selects_decompiler_project
+            # deliberately falls back to the old broad behavior.
+            #
+            # The documentation-extension arm covers only `*.md`,
+            # deliberately: a `.txt` or `.jsonl` under a selected project can
+            # be a corpus or baseline fixture, and excluding it by extension
+            # would silently un-gate it. `global.json` selects the SDK, which
+            # selects the compiler and the IL compared.
             case "$file" in
               eng/check-decompiler-gate.cs) DECOMPILER=true ;;
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
               eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
+              eng/decompiler-gate-projects.txt) DECOMPILER=true ;;
               # Deliberately NOT mapped to this lane, though an earlier revision of this
               # PR mapped all four here on the premise that "the sweep builds the EVIL
               # pool this gate is run over". Measured, and false: `--gate pre-merge`
@@ -454,12 +490,14 @@ jobs:
               #
               # Map them here if this lane ever consumes the pool.
               *.md) ;;
-              src/*) DECOMPILER=true ;;
-              tests/*) DECOMPILER=true ;;
-              tools/*) DECOMPILER=true ;;
               global.json) DECOMPILER=true ;;
               *.props|*.targets|*.slnx) DECOMPILER=true ;;
               .github/workflows/ci.yml) DECOMPILER=true ;;
+              src/*|tests/*|tools/*)
+                if selects_decompiler_project "$file"; then
+                  DECOMPILER=true
+                fi
+                ;;
             esac
             # The IL round-trip oracle has a fast PR subset plus a slow assembly
             # sweep. It depends on ILInspector.Metadata ->

@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using YamlDotNet.RepresentationModel;
 
 string repository = Environment.CurrentDirectory;
@@ -254,6 +255,53 @@ if (source["code"] != "true")
         $"Source canary did not select code: {FormatValues(source)}");
 }
 AssertRouting(source, selected: "shipped", notSelected: "csharpdiff");
+AssertRouting(source, selected: "shipped", notSelected: "decompiler");
+
+Dictionary<string, string> cliTests = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/dotnet-inspect.Tests/CommandExecutionTests.cs",
+    outputs);
+AssertRouting(cliTests, selected: "code", notSelected: "decompiler");
+
+Dictionary<string, string> decompilerSubstrate = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/ILInspector.MetadataPrimitives/TypeName.cs",
+    outputs);
+AssertRouting(
+    decompilerSubstrate,
+    selected: "decompiler",
+    notSelected: "packaging");
+
+Dictionary<string, string> decompilerFixture = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/ILInspector.Decompiler.Fixtures.ClassicAsync/Fixture.cs",
+    outputs);
+AssertRouting(
+    decompilerFixture,
+    selected: "decompiler",
+    notSelected: "packaging");
+
+Dictionary<string, string> missingDecompilerManifest = RunDetection(
+    repository,
+    body.Replace(
+        "eng/decompiler-gate-projects.txt",
+        "eng/missing-decompiler-gate-projects.txt",
+        StringComparison.Ordinal),
+    "pull_request",
+    "src/dotnet-inspect/Program.cs",
+    outputs);
+if (missingDecompilerManifest["decompiler"] != "true")
+{
+    throw new InvalidOperationException(
+        "Missing decompiler project manifest did not fail safe: " +
+        FormatValues(missingDecompilerManifest));
+}
 
 Dictionary<string, string> multipleFiles = RunDetection(
     repository,
@@ -268,6 +316,25 @@ if (multipleFiles["code"] != "true" ||
     throw new InvalidOperationException(
         $"Distinct multi-file canary did not discriminate: " +
         FormatValues(multipleFiles));
+}
+
+Dictionary<string, string> platformTypeRouting = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    """
+    docs/workflows/getting-started/type-and-member-addressability.md
+    src/dotnet-inspect.Tests/CommandExecutionTests.cs
+    src/dotnet-inspect/CommandLine/Commands/RouterCommandDefinition.cs
+    """,
+    outputs);
+if (platformTypeRouting["code"] != "true"
+    || platformTypeRouting["docs"] != "true"
+    || platformTypeRouting["decompiler"] != "false")
+{
+    throw new InvalidOperationException(
+        "Platform type routing canary selected the wrong lanes: " +
+        FormatValues(platformTypeRouting));
 }
 
 Dictionary<string, string> csharpDiff = RunDetection(
@@ -451,6 +518,107 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         throw new InvalidOperationException(
             $"Expected one workflow document, found {yaml.Documents.Count}.");
     }
+
+    static void ValidateDecompilerProjectManifest(string repository)
+    {
+        string manifestPath = Path.Combine(
+            repository,
+            "eng",
+            "decompiler-gate-projects.txt");
+        string[] manifestLines = File.ReadAllLines(manifestPath);
+        var actual = manifestLines.ToHashSet(StringComparer.Ordinal);
+        if (manifestLines.Length == 0
+            || actual.Count != manifestLines.Length
+            || manifestLines.Any(line =>
+                string.IsNullOrWhiteSpace(line)
+                || line != line.Trim()
+                || Path.IsPathRooted(line)
+                || line.EndsWith('/')
+                || line.Split('/').Any(part => part is "" or "." or "..")))
+        {
+            throw new InvalidOperationException(
+                "eng/decompiler-gate-projects.txt must contain unique, canonical " +
+                "repository-relative project directories.");
+        }
+
+        string graphPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-decompiler-graph-{Guid.NewGuid():N}.json");
+        try
+        {
+            ProcessStartInfo startInfo = new("dotnet")
+            {
+                UseShellExecute = false,
+                WorkingDirectory = repository,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add("msbuild");
+            startInfo.ArgumentList.Add(
+                "src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj");
+            startInfo.ArgumentList.Add("-t:GenerateRestoreGraphFile");
+            startInfo.ArgumentList.Add($"-p:RestoreGraphOutputPath={graphPath}");
+            startInfo.ArgumentList.Add("-nologo");
+            startInfo.ArgumentList.Add("-v:q");
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(
+                    "Could not start dotnet msbuild for the decompiler project graph.");
+            string standardOutput = process.StandardOutput.ReadToEnd();
+            string standardError = process.StandardError.ReadToEnd();
+            bool timedOut = !process.WaitForExit(milliseconds: 30_000);
+            if (timedOut)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+            }
+            if (timedOut || process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    "Could not evaluate the decompiler project graph.\n" +
+                    $"stdout:\n{standardOutput}\nstderr:\n{standardError}");
+            }
+
+            using JsonDocument graph = JsonDocument.Parse(
+                File.ReadAllText(graphPath));
+            var expected = graph.RootElement
+                .GetProperty("projects")
+                .EnumerateObject()
+                .Select(project =>
+                {
+                    string relative = Path.GetRelativePath(repository, project.Name);
+                    if (Path.IsPathRooted(relative)
+                        || relative == ".."
+                        || relative.StartsWith(
+                            $"..{Path.DirectorySeparatorChar}",
+                            StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Decompiler graph project is outside the repository: {project.Name}");
+                    }
+
+                    return Path.GetDirectoryName(relative)!
+                        .Replace(Path.DirectorySeparatorChar, '/');
+                })
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (!actual.SetEquals(expected))
+            {
+                string missing = string.Join(", ", expected.Except(actual).Order());
+                string stale = string.Join(", ", actual.Except(expected).Order());
+                throw new InvalidOperationException(
+                    "eng/decompiler-gate-projects.txt does not match the evaluated " +
+                    $"ILInspector.Decompiler.Tests project graph. Missing: [{missing}]. " +
+                    $"Stale: [{stale}].");
+            }
+        }
+        finally
+        {
+            File.Delete(graphPath);
+        }
+    }
+
+    ValidateDecompilerProjectManifest(repository);
 
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
