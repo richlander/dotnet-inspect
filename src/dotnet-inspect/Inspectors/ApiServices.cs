@@ -209,6 +209,14 @@ internal static class ApiServices
         TypeDefinitionResolutionSession? resolution = null;
         Dictionary<string, ApiSurface?>? adjacentSummaries =
             summaryOnly ? new(StringComparer.OrdinalIgnoreCase) : null;
+        HashSet<MetadataTypeDefinitionName>? adjacentEligibleTypes = summaryOnly
+            ? api.TypeForwarders
+                .Where(forwarder => forwarder.DefinitionName is not null)
+                .GroupBy(forwarder => forwarder.DefinitionName!)
+                .Where(group => group.Count() == 1)
+                .Select(group => group.Key)
+                .ToHashSet()
+            : null;
         Dictionary<
             AssemblyAcquisitionRegistration,
             (ResolvedAssemblyReference Assembly,
@@ -228,6 +236,7 @@ internal static class ApiServices
 
                 bool added = false;
                 bool handledAdjacent = adjacentSummaries is not null
+                    && adjacentEligibleTypes!.Contains(forwarder.DefinitionName)
                     && TryResolveAdjacentSummaryForwarder(
                         api,
                         dllPath,
@@ -386,30 +395,44 @@ internal static class ApiServices
             adjacentSummaries.Add(targetPath, targetApi);
         }
 
-        var type = targetApi?.Types.FirstOrDefault(
-            candidate => candidate.DefinitionName == forwarder.DefinitionName);
-        if (type is not null)
-        {
-            AddForwardedType(api, type, targetPath);
-            added = true;
-            return true;
-        }
-
         if (targetApi is null)
             return false;
 
-        var nextForwarder = targetApi.TypeForwarders.FirstOrDefault(
-            candidate => candidate.DefinitionName == forwarder.DefinitionName);
-        if (nextForwarder is not null)
+        var matchingTypes = targetApi.Types
+            .Where(candidate => candidate.DefinitionName == forwarder.DefinitionName)
+            .Take(2)
+            .ToArray();
+        if (matchingTypes.Length == 1)
+        {
+            if (api.Types.Any(
+                candidate => candidate.DefinitionName == forwarder.DefinitionName))
+            {
+                return true;
+            }
+
+            AddForwardedType(api, matchingTypes[0], targetPath);
+            added = true;
+            return true;
+        }
+        if (matchingTypes.Length > 1)
+            return false;
+
+        var matchingForwarders = targetApi.TypeForwarders
+            .Where(candidate => candidate.DefinitionName == forwarder.DefinitionName)
+            .Take(2)
+            .ToArray();
+        if (matchingForwarders.Length == 1)
         {
             return TryResolveAdjacentSummaryForwarder(
                 api,
                 targetPath,
-                nextForwarder,
+                matchingForwarders[0],
                 adjacentSummaries,
                 visitedPaths,
                 out added);
         }
+        if (matchingForwarders.Length > 1)
+            return false;
 
         // The adjacent target was readable and contains neither a visible definition nor another
         // hop. The full extractor would not add this forwarded type to the public surface either.

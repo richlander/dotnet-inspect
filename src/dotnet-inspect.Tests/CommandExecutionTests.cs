@@ -4252,6 +4252,53 @@ public partial class CommandExecutionTests
         Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
     }
 
+    [Fact]
+    public async Task Type_QuietAspNetCoreForwarderCounts_MatchFullSurface()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        string[] source =
+        [
+            "--platform", "Microsoft.AspNetCore.Mvc.Formatters.Json",
+            "--framework", "aspnetcore"
+        ];
+        var (quietExit, quietOutput, _) = await RunAppAsync(
+            ["type", .. source, "-v:q", "--tips", "q"]);
+        Assert.Equal(0, quietExit);
+        var line = quietOutput.Split('\n')
+            .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
+
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            ["type", .. source, "--json", "--tips", "q"]);
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
+    }
+
+    [Fact]
+    public async Task Type_QuietAlternateModes_KeepFullExtraction()
+    {
+        string[][] modes =
+        [
+            ["--plaintext"],
+            ["--rows", "1"]
+        ];
+
+        foreach (var mode in modes)
+        {
+            var (exit, _, error) = await RunAppAsync(
+                ["type", "System.Text.Json", "-v:q", "--verbose", .. mode, "--tips", "q"]);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Extracting API from:", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Extracting compact API summary from:", error, StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>
     /// An unmatched <c>--fields</c> name with a section selected must fail by name, not render
     /// nothing and exit 0. Bare <c>-S</c> now always selects a section here, and <c>API Info</c>

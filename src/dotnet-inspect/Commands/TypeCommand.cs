@@ -59,6 +59,7 @@ public static class TypeCommand
         var packageVersion = source.PackageVersion;
         var apiSource = source.ApiSource;
         var apiVersion = source.ApiVersion;
+        var platformFramework = source.PlatformFramework;
         var selectedTfm = source.SelectedTfm;
         var projectAssetsPath = source.ProjectAssetsPath;
         var tempDir = source.TempDir;
@@ -80,7 +81,10 @@ public static class TypeCommand
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                var loaded = CanUsePlatformSummary(options, runtimeAssemblyPath)
+                var loaded = CanUsePlatformSummary(
+                    options,
+                    runtimeAssemblyPath,
+                    platformFramework)
                     ? ApiServices.LoadPlatformApiSummary(
                         searchPath,
                         runtimeAssemblyPath!,
@@ -439,17 +443,34 @@ public static class TypeCommand
         }
     }
 
-    private static bool CanUsePlatformSummary(TypeOptions options, string? runtimeAssemblyPath) =>
+    private static bool CanUsePlatformSummary(
+        TypeOptions options,
+        string? runtimeAssemblyPath,
+        string? platformFramework) =>
         runtimeAssemblyPath is not null
+        && string.Equals(platformFramework, "runtime", StringComparison.OrdinalIgnoreCase)
         && options.Verbosity == Verbosity.Quiet
         && !options.IsRawOutput
+        && !options.PlainText
+        && !options.Print
+        && !options.Value
+        && !options.Urls
+        && !options.Paths
+        && !options.JsonArray
+        && !options.Tree
+        && !options.MermaidOutput
+        && !options.EmbeddedMermaid
         && !options.IncludeAll
         && !options.EffectiveDiscovery
         && !options.HasSectionQuery
         && !options.Count
         && !options.UnsafeOnly
+        && !options.ShowDocs
         && options.TypeFilter is null
+        && options.MemberFilter.Count == 0
         && options.KindFilter.Count == 0
+        && options.Rows is null
+        && !options.PerformanceTriage.HasFilters
         && !options.Limit.HasValue;
 
     private static Task<int?> TryExecuteWidePlatformPrefixFallbackAsync(
