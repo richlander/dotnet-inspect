@@ -67,6 +67,24 @@ test("dependency coordinates require one compatible open package", () => {
     null);
 });
 
+test("runtime pseudo-packages do not satisfy NuGet dependency coordinates", () => {
+  const runtimePack = {
+    ...packageAt("10.0.10", "net10.0"),
+    id: "Microsoft.NETCore.App",
+    isRuntimePack: true
+  };
+  const satisfies = (version, minimum) =>
+    version.localeCompare(minimum, undefined, { numeric: true }) >= 0;
+
+  assert.equal(
+    uniqueCompatiblePackage(
+      [runtimePack],
+      "Microsoft.NETCore.App",
+      "1.0.5",
+      satisfies),
+    null);
+});
+
 test("dependency graph keys preserve complete coordinates and declared ranges", () => {
   assert.notEqual(
     dependencyGraphPackageKey(packageAt("1.0.0", "net8.0")),

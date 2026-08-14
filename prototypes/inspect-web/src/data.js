@@ -52,7 +52,8 @@ export function uniqueCompatiblePackage(
   declaredRange,
   versionSatisfies) {
   const matches = packages.filter(candidate =>
-    candidate.id.toLowerCase() === packageId.toLowerCase()
+    !candidate.isRuntimePack
+    && candidate.id.toLowerCase() === packageId.toLowerCase()
     && versionSatisfies(candidate.version, declaredRange));
   return matches.length === 1 ? matches[0] : null;
 }
