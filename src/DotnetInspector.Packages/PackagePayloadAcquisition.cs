@@ -74,7 +74,10 @@ public abstract record PackagePayloadResult
 /// after. The response body is read into one buffer under
 /// <see cref="PackagePayloadLimits.MaxArchiveBytes"/>, counted as received so a
 /// feed that advertises no length or under-reports one is bounded by the same
-/// number, and then opened as an archive and checked against
+/// number — a response that <em>does</em> advertise a length is read into
+/// exactly one buffer of that length, so the host's reservation and the
+/// allocation agree and a body contradicting its own header fails the source —
+/// and then opened as an archive and checked against
 /// <see cref="PackagePayloadLimits.MaxEntryCount"/> and
 /// <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Only a payload that
 /// passes reaches <see cref="IPackageStore.CommitAsync"/>, so an unreadable,
@@ -107,6 +110,10 @@ public abstract record PackagePayloadResult
 /// <c>ArchiveDeclaringTooManyEntries_IsRejected</c>, and
 /// <c>ArchiveDeclaringTooMuchExpandedContent_IsRejected</c> for the bounds —
 /// each of which also asserts the rejected payload is absent from the store —
+/// <c>TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit</c>,
+/// <c>TransferPolicy_RejectedPayloadDisposesWithoutCompleting</c>, and
+/// <c>TransferPolicy_CanRequireContentLengthBeforeBodyRead</c> for the optional
+/// host-capacity seam,
 /// <c>InvalidArchiveFromOneSource_LetsTheNextSourceServe</c> for source
 /// failover without cache poisoning, and
 /// <c>Acquisition_ObservesCancellationDuringDownload</c> for cancellation.
@@ -125,7 +132,8 @@ public static class PackagePayloadAcquisition
         IPackageStore store,
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IPackagePayloadTransferPolicy? transferPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(coordinate);
@@ -190,6 +198,7 @@ public static class PackagePayloadAcquisition
                 store,
                 log,
                 limits,
+                transferPolicy,
                 cancellationToken).ConfigureAwait(false);
             if (content is not null)
                 return Result(content, PackagePayloadOrigin.Download);
@@ -234,6 +243,7 @@ public static class PackagePayloadAcquisition
         IPackageStore store,
         Action<string>? log,
         PackagePayloadLimits limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
         CancellationToken cancellationToken)
     {
         string? nupkgUrl = await PackageExtractor.GetPackageDownloadUrlAsync(
@@ -268,12 +278,20 @@ public static class PackagePayloadAcquisition
         if (response is null)
             return null;
 
-        if (response.Content.Headers.ContentLength > limits.MaxArchiveBytes)
+        long? advertisedLength = response.Content.Headers.ContentLength;
+        if (advertisedLength > limits.MaxArchiveBytes)
         {
             log?.Invoke(
                 $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
             return null;
         }
+
+        string producerKey = NuGetCache.GetSourceKey(source.Url);
+        using IPackagePayloadReservation? reservation = transferPolicy?.Reserve(
+            new PackagePayloadTransfer(
+                coordinate,
+                producerKey,
+                advertisedLength));
 
         byte[] archive;
         try
@@ -295,14 +313,33 @@ public static class PackagePayloadAcquisition
                 .ConfigureAwait(false);
             await using (payload.ConfigureAwait(false))
             {
-                if (await PackageContentAdmission.ReadBoundedAsync(
-                        payload,
-                        limits.MaxArchiveBytes,
-                        bodyTimeout.Token).ConfigureAwait(false)
-                    is not { } received)
+                // A declared length is read into exactly that many bytes, once:
+                // the advertised number is what the host reserved against above,
+                // and the generic bounded reader — which must serve sources that
+                // advertise nothing or under-report — would grow into it while
+                // still holding the previous array. A body that falls short of
+                // its own declaration is a truncated transfer, and one that
+                // overruns it contradicts its header; both fail this source
+                // rather than being accepted at the declared prefix.
+                byte[]? received = advertisedLength is { } declared
+                    && declared >= 0
+                    && declared <= int.MaxValue
+                    ? await PackageContentAdmission.ReadExactAsync(
+                            payload,
+                            (int)declared,
+                            bodyTimeout.Token)
+                        .ConfigureAwait(false)
+                    : await PackageContentAdmission.ReadBoundedAsync(
+                            payload,
+                            limits.MaxArchiveBytes,
+                            bodyTimeout.Token)
+                        .ConfigureAwait(false);
+                if (received is null)
                 {
                     log?.Invoke(
-                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} sent a package payload above the configured archive limit.");
+                        advertisedLength is null
+                            ? $"Source {PackageSourceDisplay.ForDiagnostics(source)} sent a package payload above the configured archive limit."
+                            : $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not send the package payload length it advertised.");
                     return null;
                 }
 
@@ -326,8 +363,13 @@ public static class PackagePayloadAcquisition
             IPackageContent committed = await store.CommitAsync(
                 coordinate.PackageId,
                 coordinate.Version,
-                NuGetCache.GetSourceKey(source.Url),
-                new MemoryStream(archive, writable: false),
+                producerKey,
+                new MemoryStream(
+                    archive,
+                    index: 0,
+                    count: archive.Length,
+                    writable: false,
+                    publiclyVisible: true),
                 cancellationToken).ConfigureAwait(false);
             if (!await PackageContentAdmission.IsAdmissibleAsync(
                     committed,
@@ -339,6 +381,7 @@ public static class PackagePayloadAcquisition
                 return null;
             }
 
+            reservation?.Complete();
             return committed;
         }
         catch (HttpRequestException ex)

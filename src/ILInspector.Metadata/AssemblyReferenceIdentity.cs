@@ -14,6 +14,23 @@ public sealed record AssemblyReferenceIdentity(
     string? Culture,
     string? PublicKeyToken)
 {
+    /// <summary>
+    /// Whether another identity names the same ECMA assembly. Name, culture, and public-key token
+    /// comparisons are case-insensitive; null, empty, and <c>neutral</c> cultures are equivalent.
+    /// </summary>
+    public bool IsEquivalentTo(AssemblyReferenceIdentity other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return StringComparer.OrdinalIgnoreCase.Equals(Name, other.Name)
+            && Version == other.Version
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                NormalizeCulture(Culture),
+                NormalizeCulture(other.Culture))
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                PublicKeyToken ?? "",
+                other.PublicKeyToken ?? "");
+    }
+
     public AssemblyReference ToReference()
         => new(
             Name,
@@ -58,7 +75,6 @@ public sealed record AssemblyReferenceIdentity(
         {
             return false;
         }
-
         return true;
     }
 
@@ -88,19 +104,19 @@ public sealed record AssemblyReferenceIdentity(
     static string? StringOrNull(MetadataReader reader, StringHandle handle)
         => handle.IsNil ? null : reader.GetString(handle);
 
+    static string NormalizeCulture(string? value) =>
+        string.IsNullOrEmpty(value)
+            || value.Equals("neutral", StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : value;
+
     static bool CultureMatches(string? expected, string? actual)
     {
         if (string.IsNullOrEmpty(expected))
             return true;
 
-        static string Normalize(string? culture)
-            => string.IsNullOrEmpty(culture)
-                || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
-                    ? ""
-                    : culture;
-
-        return Normalize(expected).Equals(
-            Normalize(actual),
+        return NormalizeCulture(expected).Equals(
+            NormalizeCulture(actual),
             StringComparison.OrdinalIgnoreCase);
     }
 

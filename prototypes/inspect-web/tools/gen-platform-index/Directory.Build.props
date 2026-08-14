@@ -1,0 +1,12 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- This file-based app is a separate operator-facing entry point. It owns progress output on
+         stderr and cannot route through the dotnet-inspect CLI without becoming a consumer of the
+         product artifact it exists to generate. The inspect-web CI job compiles this tool. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
+  </PropertyGroup>
+
+</Project>
