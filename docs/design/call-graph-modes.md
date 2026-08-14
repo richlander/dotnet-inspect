@@ -7,6 +7,10 @@ topology with other typed relationships and optional characteristics.
 
 Tracking: [#4133](https://github.com/richlander/dotnet-inspect/issues/4133).
 
+The current product path is seed-centric. Ad hoc construction and any
+multi-input entry surface are design targets and remain unverified until an
+implementation names the gates below.
+
 | Mode | Center | Input | Primary question |
 | --- | --- | --- | --- |
 | **Seed-centric** | One focus member, or a future typed entry rule | Member plus optional scope wideners | What surrounds this API? |

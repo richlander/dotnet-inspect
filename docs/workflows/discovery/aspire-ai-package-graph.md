@@ -9,8 +9,9 @@ status: locked-demo
 # Locked demo: `IChatClient` dual lens
 
 > **One demo.** Start from a **type** and read **packages**; start from
-> **packages** and land on the **type**. Same member-centric world; arcs carry
-> integration richness the way AnnotatedSource carets carry facts.
+> **packages** and land on the **type**. Same evidence-backed inspection world;
+> arcs retain relationship semantics and carry optional richness the way
+> AnnotatedSource carets carry facts.
 >
 > Status: **locked narrative + pins + works-now path.** Full single-diagram
 > product experience is target

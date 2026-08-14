@@ -8,6 +8,10 @@ annotations.
 
 Tracking: [#4139](https://github.com/richlander/dotnet-inspect/issues/4139).
 
+Only the behavior under [Current substrate](#current-substrate) is current.
+The descriptor migration and catalogs are design targets and remain unverified
+until an implementation names the gates below.
+
 | Owns | Does not own |
 | --- | --- |
 | Mapping call topology, occurrences, node signals, and loop state into inspection-graph descriptors | The heterogeneous inspection-graph envelope |
