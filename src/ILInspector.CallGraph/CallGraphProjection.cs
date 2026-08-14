@@ -32,8 +32,13 @@ public enum CallGraphNodeKind
 /// always id 0.
 /// </param>
 /// <param name="Member">
-/// The typed member identity. This — not <paramref name="Label"/> — is the node's identity;
-/// hosts must not infer identity from display text.
+/// The typed member payload. Hosts use <paramref name="Identity"/> to join the
+/// node and must not infer identity from this value or from
+/// <paramref name="Label"/>.
+/// </param>
+/// <param name="Identity">
+/// The Analysis-owned identity that the projection used to collapse physical
+/// occurrences onto this logical node.
 /// </param>
 /// <param name="Label">
 /// A host-neutral default spelling of <paramref name="Member"/>, offered as a convenience.
@@ -53,6 +58,7 @@ public enum CallGraphNodeKind
 /// </param>
 public sealed record CallGraphNode(
     int Id,
+    GraphNodeIdentity Identity,
     MemberRef Member,
     string Label,
     CallGraphNodeKind Kind,
@@ -183,14 +189,28 @@ public sealed partial class CallGraphProjection
     /// </summary>
     public CallGraphRowMatch FindFocusCalleeRow(
         DirectCall call,
+        out CallGraphRow row) =>
+        FindCalleeRow(Focus.Id, call, out row);
+
+    /// <summary>
+    /// Resolves one physical call site from a projected caller node to its
+    /// stable logical edge row.
+    /// </summary>
+    public CallGraphRowMatch FindCalleeRow(
+        int callerNodeId,
+        DirectCall call,
         out CallGraphRow row)
     {
         ArgumentNullException.ThrowIfNull(call);
+        ArgumentOutOfRangeException.ThrowIfNegative(callerNodeId);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            callerNodeId,
+            Nodes.Length);
 
         CallGraphRow[] exact =
         [
             .. Rows.Where(candidate =>
-                candidate.Edge.From == Focus.Id
+                candidate.Edge.From == callerNodeId
                 && Nodes[candidate.Edge.To].GraphEvidence.Any(evidence =>
                     evidence.Storage.Kind
                         == GraphNodeStorageKind.CallSite
@@ -218,7 +238,7 @@ public sealed partial class CallGraphProjection
         CallGraphRow[] structural =
         [
             .. Rows.Where(candidate =>
-                candidate.Edge.From == Focus.Id
+                candidate.Edge.From == callerNodeId
                 && GraphNodeIdentity.FromMember(
                     Nodes[candidate.Edge.To].Member) == callee),
         ];
@@ -319,12 +339,14 @@ public sealed partial class CallGraphProjection
 
     private sealed class MutableNode(
         int id,
+        GraphNodeIdentity identity,
         MemberRef member,
         string label,
         CallGraphNodeKind kind,
         CallTreePerf? perf)
     {
         public int Id { get; } = id;
+        public GraphNodeIdentity Identity { get; } = identity;
         public MemberRef Member { get; } = member;
         public string Label { get; } = label;
         public CallGraphNodeKind Kind { get; set; } = kind;
@@ -400,6 +422,7 @@ public sealed partial class CallGraphProjection
                 nodes.Add(
                     new CallGraphNode(
                         node.Id,
+                        node.Identity,
                         node.Member,
                         node.Label,
                         node.Kind,
@@ -426,6 +449,7 @@ public sealed partial class CallGraphProjection
                 _ids[identity] = id;
                 var node = new MutableNode(
                     id,
+                    identity,
                     member,
                     Label(member),
                     candidate,

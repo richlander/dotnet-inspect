@@ -719,17 +719,18 @@ Research overlay bridge, and the application layer:
   member, calli-signature, and definition-token facts through
   `IMethodCallResolver`, appends calls and safety evidence incrementally, and
   delegates unsafe-call/opcode policy back to `MethodSafetyAnalysis`.
-  `MethodAllocationAnalysis` owns allocation interpretation for one decoded
+  `MethodAllocationFacts` owns allocation interpretation for one decoded
   body: occurrence discovery, allocation-shape classification, escape
   classification, and the private path-context/confidence/post-dominance indexes
   that produce its multiplicity reading. It receives metadata and raw-IL
   judgments through the narrow `IMethodAllocationResolver` contract the assembly
-  reader implements, and returns one `MethodAllocationResult` carrying the
-  discovered and escape-refined occurrences from a single scan.
+  reader implements, and binds the canonical context, discovered and
+  escape-refined occurrences, and Layer-1 queries in one object.
+  `FactsBundlesBindContextOccurrencesAndQueries` gates that coherence.
   `OptimizationOpportunityAnalysis` owns its per-method instruction walk,
   optimization-shape classification, lazy memoized reaching-definitions use,
   and allocation metadata projection. It reuses allocation discovery and the
-  allocation analysis's Layer-1 query methods rather than opening another
+  allocation facts' Layer-1 query methods rather than opening another
   allocation or decode path. The collector coordinates the ordered opportunity
   traversal and delegates focused evidence classification to
   `ArrayEscapeAnalysis`, `LoopInvariantMaterializerAnalysis`,

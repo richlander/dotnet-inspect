@@ -223,6 +223,8 @@ The following shape is conceptual. Names may change when concrete types land.
 
 ```text
 InspectionGraphDocument
+  Scope
+
   Nodes[]
     Id
     Subject
@@ -284,6 +286,16 @@ relationship whose producer and derivation are part of the edge contract. It
 must not look like observed call or metadata evidence. The first implementation
 should require at least one occurrence for every non-synthetic edge.
 
+The initial call adapter registers the observed `call` relationship with exact
+member-to-member endpoint projection. The current `CallGraphProjection` does
+not retain every physical call site, so each logical row initially contributes
+a typed `call.logical-edge` projection receipt and each edge carries a
+`call.physical-occurrences-unavailable` limit. This preserves positive topology
+without inventing call sites or making occurrence absence look complete. The
+call-occurrence slice replaces those transitional receipts with physical
+receipts. `CallGraphInspectionGraphAdapter` owns this current mapping, gated by
+`CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`.
+
 ## Subject identity
 
 ### Owner-issued currencies
@@ -327,6 +339,14 @@ If a subject kind has no safe portable projection, portability is a typed
 failure or the graph remains session-bound. A display label is never the
 fallback.
 
+`InspectionGraphDocument.Scope` makes that lifetime claim explicit as
+`SessionBound` or `Portable`; consumers do not infer it from subject display or
+from which evidence happens to be present. Each owner-issued subject identity
+declares whether it retains session authority, and portable construction
+rejects any subject that does. The call adapter derives the scope from the
+`GraphNodeIdentity` values the projection actually used rather than accepting a
+caller assertion.
+
 ### Nodes and groups
 
 Package and type are both subject kinds and grouping lenses.
@@ -351,7 +371,8 @@ A relationship descriptor defines:
 
 - a stable id;
 - semantic direction and endpoint roles;
-- admitted source and target subject kinds;
+- admitted edge source and target subject kinds;
+- admitted original-occurrence source and target subject kinds;
 - the producer that owns the relation;
 - whether the relation is observed, derived, or synthetic;
 - the occurrence evidence contract;
@@ -441,6 +462,13 @@ Traversal direction never changes that support relation. A package-inward lens
 may walk an incoming edge, but it cannot bind a source occurrence to the edge's
 target.
 
+Edge and occurrence endpoint domains are distinct descriptor constraints. A
+type-to-package edge can therefore require type and package view endpoints
+while admitting only member-to-member original occurrences. The projection
+rule receives the typed occurrence, including its producer evidence, and the
+semantically directed selected endpoint. It does not recover package ownership
+from labels or capture an unvalidated per-document side map.
+
 Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
 assigning deterministic document-local occurrence ids. For `call`, the key is
@@ -449,6 +477,11 @@ identity as appropriate to the document lifetime, caller token, IL offset, and
 operand token. Observing that call site from caller and callee walks cannot
 create two occurrences. Two distinct IL offsets remain two occurrences even
 when every other field and the logical edge are equal.
+
+Producers perform that projection and deduplication before document
+construction. `InspectionGraphDocument` independently rejects duplicate
+projected identities, so a producer cannot silently publish two receipts for
+one occurrence.
 
 Composition does not weaken the relationship invariant. A composed edge gets a
 derived occurrence of the composed relationship, with its own source and target
