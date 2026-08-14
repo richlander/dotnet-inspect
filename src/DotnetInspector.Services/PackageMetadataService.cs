@@ -48,6 +48,10 @@ public static class PackageMetadataService
         bool Succeeded,
         bool Found);
 
+    private readonly record struct RegistrationMetadataResult(
+        string? CatalogEntryUrl,
+        bool DeprecationMetadataAvailable);
+
     private readonly record struct VulnerabilityFetchResult(
         bool Succeeded,
         List<PackageVulnerability> Vulnerabilities);
@@ -218,7 +222,7 @@ public static class PackageMetadataService
         string normalizedName,
         string normalizedVersion,
         bool registrationOnly) =>
-        $"v4-{(registrationOnly ? "published" : "full")}-"
+        $"v5-{(registrationOnly ? "published" : "full")}-"
         + $"{NuGetCache.GetSourceKey(source.Url)}-"
         + $"{normalizedName}@{normalizedVersion}";
 
@@ -282,11 +286,17 @@ public static class PackageMetadataService
             {
                 try
                 {
-                    catalogEntryUrl = ApplyRegistrationMetadata(
+                    RegistrationMetadataResult registrationMetadata =
+                        ApplyRegistrationMetadata(
                         registrationResult.Content!,
                         registrationUrl,
                         metadata,
                         log);
+                    catalogEntryUrl =
+                        registrationMetadata.CatalogEntryUrl;
+                    metadata.DeprecationMetadataAvailable =
+                        registrationMetadata
+                            .DeprecationMetadataAvailable;
                     found = true;
                     break;
                 }
@@ -368,6 +378,7 @@ public static class PackageMetadataService
                 {
                     ApplyCatalogMetadata(catalogResult.Content!, metadata, log);
                     catalogDataAvailable = true;
+                    metadata.DeprecationMetadataAvailable = true;
                 }
             }
             catch (Exception ex) when (ex is not NetworkPolicyException)
@@ -397,6 +408,8 @@ public static class PackageMetadataService
                     if (searchResult.Succeeded)
                     {
                         searchDataAvailable = true;
+                        if (searchResult.Found)
+                            metadata.DeprecationMetadataAvailable = true;
                         break;
                     }
                 }
@@ -461,7 +474,8 @@ public static class PackageMetadataService
         return new SourceMetadataResult(
             SourcePresence.Present,
             metadata,
-            Cacheable: catalogDataAvailable
+            Cacheable: !sawIndeterminate
+                && catalogDataAvailable
                 && searchDataAvailable
                 && vulnerabilityDataAvailable);
     }
@@ -665,7 +679,8 @@ public static class PackageMetadataService
             Found: false);
     }
 
-    private static string? ApplyRegistrationMetadata(
+    private static RegistrationMetadataResult
+        ApplyRegistrationMetadata(
         string json,
         string registrationUrl,
         PackageMetadata metadata,
@@ -685,27 +700,41 @@ public static class PackageMetadataService
 
         if (!root.TryGetProperty("catalogEntry", out JsonElement catalogElement))
         {
-            return null;
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: false);
         }
 
         if (catalogElement.ValueKind == JsonValueKind.Object)
         {
             ApplyCatalogElement(catalogElement, metadata, log);
-            return null;
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: true);
         }
 
         string? catalogEntry = catalogElement.GetString();
         if (string.IsNullOrWhiteSpace(catalogEntry))
-            return null;
+        {
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: false);
+        }
 
         try
         {
-            return ResolveReference(registrationUrl, catalogEntry);
+            return new RegistrationMetadataResult(
+                ResolveReference(
+                    registrationUrl,
+                    catalogEntry),
+                DeprecationMetadataAvailable: false);
         }
         catch (UriFormatException)
         {
             log?.Invoke("Ignoring malformed catalog entry URL.");
-            return null;
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: false);
         }
     }
 

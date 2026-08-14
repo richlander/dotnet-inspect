@@ -15,6 +15,7 @@ internal enum IdentifierConfusionAuditFailureKind
     InvalidAssemblyMetadata,
     AssemblyUnreadable,
     InspectionFailed,
+    PackageMetadataUnavailable,
 }
 
 internal static class IdentifierConfusionAudit
@@ -29,6 +30,8 @@ internal static class IdentifierConfusionAudit
                 "assembly could not be read",
             IdentifierConfusionAuditFailureKind.InspectionFailed =>
                 "assembly inspection failed",
+            IdentifierConfusionAuditFailureKind.PackageMetadataUnavailable =>
+                "package registry metadata unavailable",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(failure),
                 failure,

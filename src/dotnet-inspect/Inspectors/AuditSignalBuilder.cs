@@ -487,11 +487,20 @@ internal static class AuditSignalBuilder
             FormatPortability(context.Result).ToSignalValue();
 
         private static SignalValue? ResolveIdentityIdentifierConfusion(
-            in PackageSignalContext context) =>
-            IdentifierConfusionAudit.Summarize(
+            in PackageSignalContext context)
+        {
+            if (context.Result.IdentifierConfusionFailure is { } failure)
+            {
+                return new(
+                    "Unavailable",
+                    IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            return IdentifierConfusionAudit.Summarize(
                     IdentifierConfusionAudit.InspectPackage(context.Result),
                     "package IDs")
                 .ToSignalValue();
+        }
 
         private static SignalValue? ResolveDocumentationReadme(in PackageSignalContext context) =>
             new(FormatBool(context.Result.HasReadme), context.Result.PackageReadmeFile ?? "package files");

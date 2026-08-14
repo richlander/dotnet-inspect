@@ -11638,6 +11638,69 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure()
+    {
+        const string concerningName = "Micr\u03BFsoft.Shared";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-diamond-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{concerningName}.dll"),
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Alpha.dll"),
+                "Alpha",
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                "Alpha",
+                concerningName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge");
+
+            var audit = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+            var tree = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, audit.Exit);
+            Assert.Empty(audit.Error);
+            Assert.Equal(
+                1,
+                CountOutput.CountMarkdownTableRows(audit.Output));
+            Assert.Equal(0, tree.Exit);
+            Assert.Empty(tree.Error);
+            Assert.Equal(
+                1,
+                tree.Output.Split(
+                    concerningName,
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences()
     {
         var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
@@ -12117,6 +12180,63 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("System.Collections", output);
         Assert.DoesNotContain("System.Private.CoreLib", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-shallowest-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Leaf.dll"),
+                "Leaf");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Target.dll"),
+                "Target",
+                "Leaf");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "B.dll"),
+                "B",
+                "Target");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "A.dll"),
+                "A",
+                "B");
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "A",
+                "Target");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--depth",
+                "3",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Leaf", output);
+            Assert.Equal(
+                1,
+                output.Split(
+                    "Target ",
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -15897,6 +16017,63 @@ public partial class CommandExecutionTests
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
             Assert.Equal(singleCountOutput, multiCountOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-multitfm-test-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            var net10Dir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(net8Dir);
+            Directory.CreateDirectory(net10Dir);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net8Dir, "Lib.dll"),
+                "\u0405ystem.Healthy");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net10Dir, "Lib.dll"),
+                "Lib",
+                "Bridge");
+            File.WriteAllText(
+                Path.Combine(net10Dir, "Bridge.dll"),
+                "not a managed assembly");
+            var packagePath = Path.Combine(
+                tempDir,
+                "Identifier.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("### Lib.dll (net8.0)", output);
+            Assert.Contains("U+0405→S", output);
+            Assert.Contains(
+                "Warning: Identifier audit failed for "
+                + "'lib/net10.0/Lib.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "IdentifierConfusionReferenceTraversalException",
+                error);
         }
         finally
         {

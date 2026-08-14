@@ -735,8 +735,67 @@ public class PackageMetadataServiceTests : IDisposable
                 sourceOptions: options);
 
         Assert.Null(first.Deprecation);
+        Assert.False(first.DeprecationMetadataAvailable);
         Assert.Equal("Use a replacement.", second.Deprecation!.Message);
+        Assert.True(second.DeprecationMetadataAvailable);
         Assert.True(catalogRequests > 1);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_DoesNotCacheIndeterminateRegistration()
+    {
+        const string source = "https://private.example/v3/index.json";
+        int registrationRequests = 0;
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" },
+                        { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" =>
+                    RegistrationFailure(),
+                "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
+                    Package(length: 42),
+                "/query" => Json("""{ "data": [] }"""),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata first =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        int firstRegistrationRequests = registrationRequests;
+        PackageMetadata second =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.False(first.DeprecationMetadataAvailable);
+        Assert.False(second.DeprecationMetadataAvailable);
+        Assert.True(registrationRequests > firstRegistrationRequests);
+
+        HttpResponseMessage RegistrationFailure()
+        {
+            registrationRequests++;
+            return new HttpResponseMessage(
+                System.Net.HttpStatusCode.BadGateway);
+        }
     }
 
     [Fact]
@@ -1232,14 +1291,16 @@ public class PackageMetadataServiceTests : IDisposable
         using var client = new HttpClient(handler);
         var options = new NuGetSourceOptions { Sources = [source] };
 
-        _ = await PackageMetadataService.FetchAllMetadataAsync(
+        PackageMetadata cold =
+            await PackageMetadataService.FetchAllMetadataAsync(
             client,
             "Empty.Package",
             "1.0.0",
             log: null,
             sourceOptions: options);
         int coldRequests = handler.Requests.Count;
-        _ = await PackageMetadataService.FetchAllMetadataAsync(
+        PackageMetadata warm =
+            await PackageMetadataService.FetchAllMetadataAsync(
             client,
             "Empty.Package",
             "1.0.0",
@@ -1247,6 +1308,8 @@ public class PackageMetadataServiceTests : IDisposable
             sourceOptions: options);
 
         Assert.Equal(coldRequests, handler.Requests.Count);
+        Assert.False(cold.DeprecationMetadataAvailable);
+        Assert.False(warm.DeprecationMetadataAvailable);
     }
 
     [Fact]
@@ -1301,6 +1364,7 @@ public class PackageMetadataServiceTests : IDisposable
         string key = $"injection-{Guid.NewGuid():N}";
         var metadata = new PackageMetadata
         {
+            DeprecationMetadataAvailable = true,
             Owners = ["owner\nvulnerabilities:"],
             Deprecation = new PackageDeprecation
             {
@@ -1327,6 +1391,7 @@ public class PackageMetadataServiceTests : IDisposable
                 MetadataFieldCache.TryGetEntry(key));
 
         Assert.False(cached.IsAbsent);
+        Assert.True(cached.Metadata.DeprecationMetadataAvailable);
         Assert.Equal(metadata.Owners, cached.Metadata.Owners);
         Assert.Equal(
             metadata.Deprecation.Message,
@@ -1605,6 +1670,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal(
             new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
             result.Published);
+        Assert.False(result.DeprecationMetadataAvailable);
         Assert.Equal(2, handler.Requests.Count);
     }
 

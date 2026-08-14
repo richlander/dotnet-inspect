@@ -1987,7 +1987,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackageIntegrityExitCode_FailsOnlyForMismatches()
+    public void PackageIntegrityExitCode_FailsForMismatchesAndAuditFailures()
     {
         var clean = new InspectionResult
         {
@@ -2006,11 +2006,175 @@ public class SectionPipelineTests
         {
             SourceIntegrity = clean.SourceIntegrity with { Mismatched = 1 },
         };
+        var auditFailure = new InspectionResult
+        {
+            IdentifierConfusionFailure =
+                IdentifierConfusionAuditFailureKind
+                    .PackageMetadataUnavailable,
+        };
 
         Assert.Equal(0, PackageCommand.PackageIntegrityExitCode(clean));
         Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(clean, mismatch));
+        Assert.Equal(
+            1,
+            PackageCommand.PackageIntegrityExitCode(
+                clean,
+                auditFailure));
         Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(1, clean));
+        Assert.Equal(7, PackageCommand.PackageIntegrityExitCode(7, clean));
         Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(0, mismatch));
+    }
+
+    [Theory]
+    [InlineData(PackageSections.AuditIdentifierConfusion)]
+    [InlineData(PackageSections.AuditArtifactText)]
+    public void MultiPackageCount_CountsSelectedAuditRows(
+        string section)
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-audit-count-{Guid.NewGuid():N}.txt");
+        InspectionResult Result(string suffix) =>
+            section == PackageSections.AuditIdentifierConfusion
+                ? new InspectionResult
+                {
+                    PackageName = $"\u0405ystem.{suffix}",
+                    Version = "1.0.0",
+                }
+                : new InspectionResult
+                {
+                    PackageName = $"Package.{suffix}",
+                    Version = "1.0.0",
+                    PackageFiles =
+                    [
+                        new PackageFile(
+                            $"lib/{suffix}\u001b.dll",
+                            1),
+                    ],
+                };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [Result("One"), Result("Two")],
+                rowSection: null,
+                new InspectionOptions
+                {
+                    Count = true,
+                    JsonOutput = true,
+                    IncludeSections =
+                        new HashSet<string>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            section,
+                        },
+                    OutputPath = outputPath,
+                },
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(
+                "2",
+                File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_PreservesSelectedSectionMap()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-count-map-{Guid.NewGuid():N}.txt");
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            IncludeSections =
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.PackageInfo,
+                    PackageSections.TargetFrameworks,
+                },
+            OutputPath = outputPath,
+        };
+        var results = new[]
+        {
+            new InspectionResult
+            {
+                PackageName = "One",
+                Version = "1.0.0",
+                TargetFrameworks = ["net8.0"],
+            },
+            new InspectionResult
+            {
+                PackageName = "Two",
+                Version = "1.0.0",
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                results,
+                rowSection: null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+            string output = File.ReadAllText(outputPath);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("| Section | Count |", output);
+            Assert.Contains("| Package Info |", output);
+            Assert.Contains("| Target Frameworks | 1 |", output);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_PreservesFixedOverviewMap()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-fixed-count-map-{Guid.NewGuid():N}.txt");
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult
+                    {
+                        PackageName = "One",
+                        Version = "1.0.0",
+                    },
+                ],
+                rowSection: null,
+                new InspectionOptions
+                {
+                    Count = true,
+                    JsonOutput = true,
+                    FixedOverview = true,
+                    OutputPath = outputPath,
+                },
+                pipeline);
+            string output = File.ReadAllText(outputPath);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("| Section | Count |", output);
+            foreach (string section in pipeline.BareSelectSectionNames)
+                Assert.Contains($"| {section} |", output);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
     }
 
     [Fact]

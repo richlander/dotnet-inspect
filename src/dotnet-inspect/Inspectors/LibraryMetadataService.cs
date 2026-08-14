@@ -729,6 +729,23 @@ internal static class LibraryMetadataService
         {
             fullAssemblyPath
         };
+        if (deduplicate)
+        {
+            return BuildDeduplicatedTransitiveReferences(
+                references,
+                bindingPolicy,
+                bindingPolicies,
+                Path.GetDirectoryName(fullAssemblyPath)
+                    ?? throw new InvalidOperationException(
+                        "The assembly path has no containing directory."),
+                visited,
+                visitedPaths,
+                logger,
+                depth,
+                maxDepth,
+                failOnReadError);
+        }
+
         return BuildTransitiveReferences(
             references,
             bindingPolicy,
@@ -740,9 +757,6 @@ internal static class LibraryMetadataService
             visitedPaths,
             logger,
             depth,
-            deduplicate,
-            new Dictionary<AssemblyReferenceTraversalKey, int>(
-                AssemblyReferenceTraversalKeyComparer.Instance),
             maxDepth,
             failOnReadError);
     }
@@ -776,6 +790,224 @@ internal static class LibraryMetadataService
         return created;
     }
 
+    private sealed record DeduplicatedReferenceNode(
+        AssemblyReferenceNode Value)
+    {
+        public List<DeduplicatedReferenceNode> Children { get; } = [];
+    }
+
+    private readonly record struct PendingAssemblyReference(
+        AssemblyReferenceIdentity Reference,
+        IAssemblyBindingPolicy BindingPolicy,
+        string BindingScope,
+        int Depth,
+        DeduplicatedReferenceNode? Parent);
+
+    private static List<AssemblyReferenceNode>
+        BuildDeduplicatedTransitiveReferences(
+            IReadOnlyList<AssemblyReferenceIdentity> references,
+            IAssemblyBindingPolicy bindingPolicy,
+            Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+            string bindingScope,
+            HashSet<string> visited,
+            HashSet<string> visitedPaths,
+            VerboseLogger logger,
+            int depth,
+            int? maxDepth,
+            bool failOnReadError)
+    {
+        List<DeduplicatedReferenceNode> roots = [];
+        var seen = new HashSet<AssemblyReferenceTraversalKey>(
+            AssemblyReferenceTraversalKeyComparer.Instance);
+        var pending = new Queue<PendingAssemblyReference>(
+            references
+                .OrderBy(reference => reference.Name)
+                .Select(
+                    reference =>
+                        new PendingAssemblyReference(
+                            reference,
+                            bindingPolicy,
+                            bindingScope,
+                            depth,
+                            Parent: null)));
+
+        while (pending.Count > 0)
+        {
+            PendingAssemblyReference next = pending.Dequeue();
+            AssemblyReferenceIdentity reference = next.Reference;
+            var node = new AssemblyReferenceNode
+            {
+                Name = reference.Name,
+                Version = reference.Version?.ToString() ?? "",
+                PublicKeyToken = reference.PublicKeyToken,
+                Depth = next.Depth,
+            };
+
+            AssemblyBindingSelection selection =
+                next.BindingPolicy.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(reference),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Any));
+            ResolvedAssemblyReference? resolved =
+                (selection as AssemblyBindingSelection.Selected)
+                    ?.Assembly;
+            if (selection is AssemblyBindingSelection.Unavailable
+                unavailable)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Unavailable;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        unavailable.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+            else if (selection is AssemblyBindingSelection.Rejected
+                rejected)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Rejected;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        rejected.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            node.Path = resolved?.Path;
+            node.ResolvedFrom =
+                resolved?.Provenance
+                    is AssemblyResolutionProvenance.PlatformAsset
+                    ? "platform"
+                    : resolved is null
+                        ? null
+                        : "local";
+
+            string? resolvedPath =
+                resolved?.Path is { } selectedPath
+                    ? Path.GetFullPath(selectedPath)
+                    : null;
+            bool isRootCycle = resolved is not null
+                && (resolvedPath is not null
+                    ? visitedPaths.Contains(resolvedPath)
+                    : visited.Contains(resolved.Identity.Name));
+            if (isRootCycle)
+                continue;
+
+            AssemblyReferenceTraversalKey traversalKey =
+                resolvedPath is not null
+                    ? AssemblyReferenceTraversalKey.ForResolvedPath(
+                        resolvedPath)
+                    : AssemblyReferenceTraversalKey.ForReference(
+                        reference,
+                        next.BindingScope);
+            if (!seen.Add(traversalKey))
+                continue;
+
+            var treeNode = new DeduplicatedReferenceNode(node);
+            if (next.Parent is null)
+                roots.Add(treeNode);
+            else
+                next.Parent.Children.Add(treeNode);
+
+            if (resolved is null)
+                continue;
+
+            try
+            {
+                var (childReferences, company) =
+                    AssemblyInspector
+                        .ExtractReferenceIdentitiesAndCompany(
+                            resolved);
+                node.Company = company;
+                if (childReferences.Count == 0
+                    || (maxDepth is not null
+                        && next.Depth + 1 >= maxDepth.Value))
+                {
+                    continue;
+                }
+
+                IAssemblyBindingPolicy childBindingPolicy =
+                    resolved.Path is { } childPath
+                        ? ReferenceTreeBindingPolicyFor(
+                            childPath,
+                            bindingPolicies)
+                        : next.BindingPolicy;
+                string childBindingScope =
+                    resolvedPath is not null
+                        ? Path.GetDirectoryName(resolvedPath)
+                            ?? next.BindingScope
+                        : next.BindingScope;
+                foreach (AssemblyReferenceIdentity childReference in
+                    childReferences.OrderBy(
+                        childReference =>
+                            childReference.Name))
+                {
+                    pending.Enqueue(
+                        new PendingAssemblyReference(
+                            childReference,
+                            childBindingPolicy,
+                            childBindingScope,
+                            next.Depth + 1,
+                            treeNode));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (IdentifierConfusionReferenceTraversalException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (
+                failOnReadError
+                || ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException)
+            {
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        ClassifyIdentifierConfusionReferenceFailure(ex),
+                        ex);
+                }
+
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(
+                        ClassifyIdentifierConfusionReferenceFailure(ex)));
+            }
+        }
+
+        List<AssemblyReferenceNode> flattened = [];
+        foreach (DeduplicatedReferenceNode root in roots)
+            FlattenDeduplicatedReferenceTree(root, flattened);
+        return flattened;
+    }
+
+    private static void FlattenDeduplicatedReferenceTree(
+        DeduplicatedReferenceNode node,
+        List<AssemblyReferenceNode> flattened)
+    {
+        flattened.Add(node.Value);
+        foreach (DeduplicatedReferenceNode child in node.Children)
+            FlattenDeduplicatedReferenceTree(child, flattened);
+    }
+
     private static List<AssemblyReferenceNode> BuildTransitiveReferences(
         IReadOnlyList<AssemblyReferenceIdentity> references,
         IAssemblyBindingPolicy bindingPolicy,
@@ -785,8 +1017,6 @@ internal static class LibraryMetadataService
         HashSet<string> visitedPaths,
         VerboseLogger logger,
         int depth,
-        bool deduplicate,
-        Dictionary<AssemblyReferenceTraversalKey, int> globalSeen,
         int? maxDepth,
         bool failOnReadError)
     {
@@ -858,31 +1088,10 @@ internal static class LibraryMetadataService
                     : visited.Contains(resolved.Identity.Name));
             if (isCyclic)
             {
-                if (!deduplicate)
-                {
-                    node.IsCyclic = true;
-                    nodes.Add(node);
-                }
+                node.IsCyclic = true;
+                nodes.Add(node);
                 continue;
             }
-
-            AssemblyReferenceTraversalKey traversalKey =
-                resolvedPath is not null
-                    ? AssemblyReferenceTraversalKey.ForResolvedPath(
-                        resolvedPath)
-                    : AssemblyReferenceTraversalKey.ForReference(
-                        reference,
-                        bindingScope);
-            if (deduplicate
-                && globalSeen.TryGetValue(
-                    traversalKey,
-                    out int seenDepth)
-                && seenDepth <= depth)
-            {
-                continue;
-            }
-            if (deduplicate)
-                globalSeen[traversalKey] = depth;
 
             nodes.Add(node);
 
@@ -925,8 +1134,6 @@ internal static class LibraryMetadataService
                             branchVisitedPaths,
                             logger,
                             depth + 1,
-                            deduplicate,
-                            globalSeen,
                             maxDepth,
                             failOnReadError);
                         nodes.AddRange(childNodes);

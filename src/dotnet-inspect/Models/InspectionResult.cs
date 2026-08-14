@@ -79,6 +79,10 @@ public class InspectionResult
     /// </summary>
     public PackageDeprecation? Deprecation { get; set; }
 
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind?
+        IdentifierConfusionFailure { get; set; }
+
     /// <summary>
     /// Known security vulnerabilities for this package version.
     /// </summary>

@@ -28,8 +28,20 @@ namespace DotnetInspector.Commands;
 public class PackageCommand
 {
     public const string Name = "package";
-    public static async Task<int> ExecuteAsync(InspectionOptions options)
+    public static Task<int> ExecuteAsync(InspectionOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        return ExecuteAsync(
+            options,
+            new CommandContext(options.Verbose));
+    }
+
+    internal static async Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(context);
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
         var catalog = PackageSectionDescriptors.CreateCatalog();
@@ -215,7 +227,6 @@ public class PackageCommand
         if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
             return 1;
 
-        var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
         if (packageArgs.Length > 1)
@@ -662,6 +673,7 @@ public class PackageCommand
                 nuspec, client, logger,
                 options.ForceLatest, options.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsPackageMetadata,
                 sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
@@ -788,14 +800,34 @@ public class PackageCommand
                     }
                 }
 
-                return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
-                    sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: pipeline.GetCategoryMap(),
-                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                    projection: options);
+                return PackageIntegrityExitCode(
+                    DiscoverOutput.ExecuteEffective(
+                        options.Discover,
+                        effective,
+                        schemaMap,
+                        tree: options.Tree,
+                        json: options.JsonOutput,
+                        tsv: options.Tsv,
+                        jsonl: options.Jsonl,
+                        markdown:
+                            !options.Tabular
+                            && !options.JsonOutput,
+                        verbosity: (int)userVerbosity,
+                        rootLabel: $"package {packageName}",
+                        fullSchema: fullSchemaMap,
+                        sectionCostAnnotations:
+                            pipeline.GetCostAnnotations(),
+                        sectionCategories:
+                            pipeline.GetCategoryMap(),
+                        catalogHiddenSections:
+                            options.Schema
+                                ? null
+                                : pipeline
+                                    .GetCatalogHiddenSections(),
+                        listedCategoryDoors:
+                            pipeline.GetListedCategoryDoors(),
+                        projection: options),
+                    result);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -991,12 +1023,40 @@ public class PackageCommand
     internal static int PackageIntegrityExitCode(
         int currentExitCode,
         params InspectionResult[] results)
-        => currentExitCode != 0
-            ? currentExitCode
-            : results.Any(
-                static result => result.SourceIntegrity?.Mismatched is > 0)
+    {
+        var identifierFailures = results
+            .Select(
+                (result, index) =>
+                    (
+                        Input: index + 1,
+                        Failure:
+                            result.IdentifierConfusionFailure))
+            .Where(
+                failure =>
+                    failure.Failure is not null)
+            .Select(
+                failure =>
+                    (
+                        failure.Input,
+                        Failure: failure.Failure!.Value))
+            .ToList();
+        foreach (var (input, failure) in identifierFailures)
+        {
+            CommandError.WriteWarning(
+                $"Identifier audit failed for package input #{input}: "
+                + IdentifierConfusionAudit.DescribeFailure(failure));
+        }
+
+        if (currentExitCode != 0)
+            return currentExitCode;
+
+        return results.Any(
+                static result =>
+                    result.SourceIntegrity?.Mismatched is > 0)
+            || identifierFailures.Count > 0
                 ? 1
                 : 0;
+    }
 
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
@@ -1930,6 +1990,7 @@ public class PackageCommand
                 options.ForceLatest,
                 options.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsPackageMetadata,
                 sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)

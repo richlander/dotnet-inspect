@@ -707,11 +707,19 @@ public class LibraryCommand
                                     packageName,
                                     packageVersion))),
                         trace);
-                var inspections = await CollectPackageInspectionsAsync(
+                PackageInspectionCollection collection =
+                    await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
                     queries, queryRegistry, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace);
+                List<LibraryInspection> inspections =
+                    collection.Inspections;
+                bool identifierAuditIncomplete =
+                    PackageCommand.WriteIdentifierAuditFailures(
+                        collection.IdentifierAuditFailures);
+                int identifierAuditExitCode =
+                    identifierAuditIncomplete ? 1 : 0;
 
                 if (inspections.Count == 0)
                 {
@@ -731,17 +739,39 @@ public class LibraryCommand
                 if (heapExitCode != 0)
                     return heapExitCode;
                 if (discoveryInspection)
-                    return WriteEffectiveSections(
-                        assemblyPaths[0], inspections[0], options, pipeline, userVerbosity,
-                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
-                        cache: useEffectiveDiscoveryCache,
-                        inspectedContentHash: inspectedContentHash);
+                    return IntegrityExitCode(
+                        Math.Max(
+                            identifierAuditExitCode,
+                            WriteEffectiveSections(
+                                assemblyPaths[0], inspections[0], options,
+                                pipeline, userVerbosity,
+                                fullEffectiveDiscovery,
+                                discoveryExecutionScope,
+                                sourceLinkAvailable,
+                                cache: useEffectiveDiscoveryCache,
+                                inspectedContentHash:
+                                    inspectedContentHash)),
+                        inspections[0]);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return 0;
+                    return IntegrityExitCode(
+                        identifierAuditExitCode,
+                        inspections[0]);
                 if (options.Print)
-                    return await WriteLibraryPrintProjectionAsync(inspections[0], options);
+                    return IntegrityExitCode(
+                        Math.Max(
+                            identifierAuditExitCode,
+                            await WriteLibraryPrintProjectionAsync(
+                                inspections[0],
+                                options)),
+                        inspections[0]);
                 if (options.Value || options.Urls || options.Paths)
-                    return WriteLibraryShapeProjection(inspections[0], options);
+                    return IntegrityExitCode(
+                        Math.Max(
+                            identifierAuditExitCode,
+                            WriteLibraryShapeProjection(
+                                inspections[0],
+                                options)),
+                        inspections[0]);
                 if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
                 WarnEmptySections(inspections, options, pipeline);
@@ -757,7 +787,9 @@ public class LibraryCommand
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
                 }
 
-                return IntegrityExitCode([.. inspections]);
+                return IntegrityExitCode(
+                    identifierAuditExitCode,
+                    [.. inspections]);
             }
             else
             {
@@ -873,6 +905,11 @@ public class LibraryCommand
     }
 
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
+        => IntegrityExitCode(0, inspections);
+
+    private static int IntegrityExitCode(
+        int currentExitCode,
+        params LibraryInspection[] inspections)
     {
         var identifierFailures = inspections
             .Where(
@@ -889,6 +926,9 @@ public class LibraryCommand
                 "Identifier audit failed: "
                 + IdentifierConfusionAudit.DescribeFailure(failure));
         }
+
+        if (currentExitCode != 0)
+            return currentExitCode;
 
         return inspections.Any(
                 inspection =>
@@ -2428,7 +2468,15 @@ public class LibraryCommand
         }
     }
 
-    private static async Task<List<LibraryInspection>> CollectPackageInspectionsAsync(
+    private readonly record struct PackageInspectionCollection(
+        List<LibraryInspection> Inspections,
+        List<(
+            string FileName,
+            IdentifierConfusionAuditFailureKind FailureKind)>
+            IdentifierAuditFailures);
+
+    private static async Task<PackageInspectionCollection>
+        CollectPackageInspectionsAsync(
         List<string> assemblyPaths, LibraryOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
@@ -2439,28 +2487,50 @@ public class LibraryCommand
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
+        List<(
+            string FileName,
+            IdentifierConfusionAuditFailureKind FailureKind)>
+            identifierAuditFailures = [];
 
         foreach (var targetPath in assemblyPaths)
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
+            string relativePath = Path.GetRelativePath(
+                    extractPath,
+                    targetPath)
+                .Replace('\\', '/');
 
-            var inspection = await LibraryMetadataService.InspectAsync(
-                targetPath,
-                options,
-                logger,
-                packageName,
-                version,
-                httpClient,
-                scanners: scanners,
-                scannerRegistry: scannerRegistry,
-                queries: queries,
-                queryRegistry: queryRegistry,
-                assemblyReference: integrations?.AssemblyForInspection(targetPath),
-                integrationsEntry: integrations?.EntryFor(targetPath),
-                integrationOpportunitiesEntry:
-                    integrations?.OpportunitiesEntryFor(targetPath),
-                discoveryOnly: discoveryOnly,
-                trace: trace);
+            LibraryInspection? inspection;
+            try
+            {
+                inspection = await LibraryMetadataService.InspectAsync(
+                    targetPath,
+                    options,
+                    logger,
+                    packageName,
+                    version,
+                    httpClient,
+                    scanners: scanners,
+                    scannerRegistry: scannerRegistry,
+                    queries: queries,
+                    queryRegistry: queryRegistry,
+                    assemblyReference:
+                        integrations?.AssemblyForInspection(targetPath),
+                    integrationsEntry:
+                        integrations?.EntryFor(targetPath),
+                    integrationOpportunitiesEntry:
+                        integrations?.OpportunitiesEntryFor(targetPath),
+                    discoveryOnly: discoveryOnly,
+                    trace: trace);
+            }
+            catch (
+                LibraryMetadataService
+                    .IdentifierConfusionReferenceTraversalException ex)
+            {
+                identifierAuditFailures.Add(
+                    (relativePath, ex.FailureKind));
+                continue;
+            }
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
@@ -2468,7 +2538,6 @@ public class LibraryCommand
             }
 
             // Populate TFM from path for multi-TFM display
-            var relativePath = Path.GetRelativePath(extractPath, targetPath).Replace('\\', '/');
             inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
 
             if (signatureResult != null)
@@ -2482,7 +2551,9 @@ public class LibraryCommand
             inspections.Add(inspection);
         }
 
-        return inspections;
+        return new PackageInspectionCollection(
+            inspections,
+            identifierAuditFailures);
     }
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(

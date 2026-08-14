@@ -1,4 +1,5 @@
 using System.Text;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Text;
 
 namespace DotnetInspector.Services;

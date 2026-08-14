@@ -1,11 +1,14 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using DotnetInspector.Core;
+using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
 
@@ -165,6 +168,181 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             identifierCase.Confusion.NonAsciiCodePoints);
     }
 
+    [Fact]
+    public async Task InspectAsync_IdentifierAuditMetadataFailureRemainsVisible()
+    {
+        const string source = "https://audit-failure.example/v3/index.json";
+        using var client = new HttpClient(new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "https://audit-failure.example/registration/",
+                          "@type": "RegistrationsBaseUrl/3.6.0"
+                        }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" => Json(
+                    """{ "catalogEntry": "/catalog/private.package.json" }"""),
+                "/catalog/private.package.json" =>
+                    new HttpResponseMessage(HttpStatusCode.BadGateway),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            }));
+
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Private.Package",
+            Version: "1.0.0",
+            ProducerKey: NuGetCache.GetSourceKey(source));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [source],
+        };
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            "Private.Package",
+            "1.0.0",
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
+            forceLatest: true,
+            verbosity: Verbosity.Normal,
+            fetchMetadata: true,
+            requireIdentifierMetadata: true,
+            sourceOptions: sourceOptions);
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            client,
+            new VerboseLogger(enabled: false),
+            sourceOptions);
+
+        Assert.Equal(
+            IdentifierConfusionAuditFailureKind.PackageMetadataUnavailable,
+            result.IdentifierConfusionFailure);
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            value => value.Signal == "Identifier confusion");
+        Assert.Equal("Unavailable", signal.Value);
+        Assert.Equal(
+            "package registry metadata unavailable",
+            signal.Evidence);
+    }
+
+    [Fact]
+    public async Task PackageCommand_IdentifierMetadataFailureIsNonzero()
+    {
+        string packageId =
+            $"Private.Command.{Guid.NewGuid():N}";
+        string normalizedId = packageId.ToLowerInvariant();
+        const string source =
+            "https://command-audit.example/v3/index.json";
+        byte[] package = CreatePackage(packageId);
+        using var client = new HttpClient(
+            new RoutingHandler(request =>
+                request.RequestUri!.AbsolutePath switch
+                {
+                    "/v3/index.json" => Json($$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            {
+                              "@id": "https://command-audit.example/flat/",
+                              "@type": "PackageBaseAddress/3.0.0"
+                            },
+                            {
+                              "@id": "https://command-audit.example/registration/",
+                              "@type": "RegistrationsBaseUrl/3.6.0"
+                            }
+                          ]
+                        }
+                        """),
+                    var path when path
+                        == $"/flat/{normalizedId}/index.json" =>
+                        Json("""{ "versions": [ "1.0.0" ] }"""),
+                    var path when path
+                        == $"/flat/{normalizedId}/1.0.0/"
+                            + $"{normalizedId}.1.0.0.nupkg" =>
+                        Bytes(package),
+                    var path when path
+                        == $"/registration/{normalizedId}/1.0.0.json" =>
+                        Json(
+                            $$"""
+                            {
+                              "catalogEntry":
+                                "/catalog/{{normalizedId}}.json"
+                            }
+                            """),
+                    var path when path
+                        == $"/catalog/{normalizedId}.json" =>
+                        new HttpResponseMessage(
+                            HttpStatusCode.BadGateway),
+                    _ => throw new InvalidOperationException(
+                        $"Unexpected command request: "
+                        + $"{request.Method} {request.RequestUri}"),
+                }));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [source],
+        };
+        InspectionOptions Options() => new()
+        {
+            PackageArgs = [$"{packageId}@1.0.0"],
+            ForceLatest = true,
+            Verbosity = Verbosity.Normal,
+            IncludeSections =
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.Signals,
+                },
+            SourceOptions = sourceOptions,
+        };
+
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                Options(),
+                new CommandContext(
+                    verbose: false,
+                    client)));
+        InspectionOptions discoveryOptions = Options() with
+        {
+            IncludeSections = null,
+            Discover = [PackageSections.Signals],
+        };
+        var discovered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                discoveryOptions,
+                new CommandContext(
+                    verbose: false,
+                    client)));
+
+        Assert.Equal(1, rendered.ExitCode);
+        Assert.Contains("Identifier confusion", rendered.Output);
+        Assert.Contains("Unavailable", rendered.Output);
+        Assert.Equal(
+            "Warning: Identifier audit failed for package input #1: "
+            + "package registry metadata unavailable"
+            + Environment.NewLine,
+            rendered.Error);
+        Assert.Equal(1, discovered.ExitCode);
+        Assert.Contains("| Signal | column |", discovered.Output);
+        Assert.Equal(
+            "Warning: Identifier audit failed for package input #1: "
+            + "package registry metadata unavailable"
+            + Environment.NewLine,
+            discovered.Error);
+        Assert.DoesNotContain(packageId, rendered.Error);
+        Assert.DoesNotContain(packageId, discovered.Error);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -178,6 +356,41 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         {
             Content = new StringContent(content, Encoding.UTF8, "application/json"),
         };
+
+    private static HttpResponseMessage Bytes(byte[] content) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(content),
+        };
+
+    private static byte[] CreatePackage(string packageId)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(
+            stream,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using var writer = new StreamWriter(
+                archive.CreateEntry(
+                    $"{packageId}.nuspec").Open(),
+                new UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: false));
+            writer.Write(
+                $$"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>{{packageId}}</id>
+                    <version>1.0.0</version>
+                    <authors>Test</authors>
+                    <description>Test package</description>
+                  </metadata>
+                </package>
+                """);
+        }
+        return stream.ToArray();
+    }
 
     private sealed class RoutingHandler(
         Func<HttpRequestMessage, HttpResponseMessage> route) : HttpMessageHandler

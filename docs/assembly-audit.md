@@ -138,7 +138,10 @@ gates full-effective discovery;
 gates nonzero failure propagation when Signals effective discovery cannot
 inspect direct references;
 `LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
-gates direct/closure identity deduplication; and
+gates direct/closure identity deduplication;
+`LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure` gates one
+projection row per resolved identity when several reference paths converge;
+and
 `AssemblyReferenceTreeResolutionTests.DistinctSameNameReferences_DoNotSuppressResolvableIdentity`
 gates traversal of distinct typed AssemblyRefs that share a simple name;
 `LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
@@ -146,6 +149,8 @@ gates visible traversal failure for absolute and bare relative library paths.
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure.
+`LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
+per-source outcome contract across target frameworks.
 `LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
 and
 `PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
@@ -155,6 +160,16 @@ content-free failure category on the public reference-tree projection.
 `PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata` and
 `InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId` gate the
 alternate-package metadata demand, producer result, and moderated network cost.
+`InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
+`Unavailable` result when that registry metadata cannot be established;
+`PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
+and content-free diagnostics for that failure;
+`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
+selected audit rows rather than unrelated package-info fields; and
+`MultiPackageCount_PreservesSelectedSectionMap` plus
+`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps.
+`LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
+minimum-depth canonicalization under a bounded reference traversal.
 
 ## Build Audit Fields
 
