@@ -3,6 +3,7 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   dependencyGroupSelectionMessage,
+  dependencyGraphGroupSelectionIndex,
   dependencyGraphExternalKey,
   dependencyGraphPackageKey,
   dependencyGraphRenderSignature,
@@ -6299,9 +6300,13 @@ function buildDependencyGraphMermaid() {
   const groupFor = pkg => {
     if (packageIdentityKey(pkg) === packageIdentityKey(state.package)) {
       const groups = state.packageDependencies?.dependencyGroups || [];
+      const selectedGroupIndex = dependencyGraphGroupSelectionIndex(
+        state.packageDependencies,
+        state.dependenciesGroupIndex,
+        resolveDependenciesGroupIndex(groups));
       return selectedDependencyGroup(
         state.packageDependencies,
-        resolveDependenciesGroupIndex(groups));
+        selectedGroupIndex);
     }
 
     const data = state.workspaceDependencies[workspaceDependencyKey(pkg)];

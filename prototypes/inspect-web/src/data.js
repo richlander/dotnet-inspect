@@ -194,6 +194,15 @@ export function dependencyGroupSelectionMessage(data) {
   return data?.dependencyGroupError || "";
 }
 
+export function dependencyGraphGroupSelectionIndex(
+  data,
+  selectedGroupIndex,
+  resolvedGroupIndex) {
+  return data?.dependencyGroupError
+    ? selectedGroupIndex
+    : resolvedGroupIndex;
+}
+
 export function selectedDependencyGroup(data, selectedGroupIndex = null) {
   const groups = data?.dependencyGroups || [];
   if (!groups.length) return null;

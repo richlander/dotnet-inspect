@@ -8,6 +8,7 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   dependencyGroupSelectionMessage,
+  dependencyGraphGroupSelectionIndex,
   dependencyGraphExternalKey,
   dependencyGraphPackageKey,
   dependencyGraphRenderSignature,
@@ -669,6 +670,25 @@ test("dependency graph honors explicit selection after an exact group miss", () 
     data.dependencyGroups[0]);
 });
 
+test("dependency graph does not turn display fallback into explicit selection", () => {
+  const missingExact = {
+    dependencyGroupError: "No exact dependency group."
+  };
+
+  assert.equal(
+    dependencyGraphGroupSelectionIndex(missingExact, null, 0),
+    null);
+  assert.equal(
+    dependencyGraphGroupSelectionIndex(missingExact, 1, 0),
+    1);
+  assert.equal(
+    dependencyGraphGroupSelectionIndex({}, null, 1),
+    1);
+  assert.match(
+    appSource,
+    /dependencyGraphGroupSelectionIndex\(\s*state\.packageDependencies,\s*state\.dependenciesGroupIndex,\s*resolveDependenciesGroupIndex\(groups\)\)/);
+});
+
 test("dependency graph uses each cached package's product-selected group", () => {
   const data = {
     dependencyGroupError: "",
@@ -697,7 +717,7 @@ test("dependency graph uses the active package's explicitly selected group", () 
     data.dependencyGroups[0]);
   assert.match(
     appSource,
-    /selectedDependencyGroup\(\s*state\.packageDependencies,\s*resolveDependenciesGroupIndex\(groups\)\)/);
+    /selectedDependencyGroup\(\s*state\.packageDependencies,\s*selectedGroupIndex\)/);
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {
