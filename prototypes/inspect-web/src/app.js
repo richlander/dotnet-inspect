@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectConfigurePackageSource, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource, inspectUseDefaultPackageSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -13,6 +13,21 @@ function loadStoredTaste() {
 
 const PLATFORM_RECENT_MAX = 8;
 const RECENT_PACKAGES_MAX = 12;
+const NUGET_MIRROR_STORAGE_KEY = "inspect-nuget-mirror";
+const DEFAULT_PACKAGE_SOURCE = Object.freeze({
+  serviceIndexUrl: "https://api.nuget.org/v3/index.json",
+  packageBaseAddress: "https://api.nuget.org/v3-flatcontainer/",
+  searchQueryService: "https://azuresearch-usnc.nuget.org/query",
+  isDefault: true,
+});
+
+function loadStoredNuGetMirror() {
+  try {
+    return localStorage.getItem(NUGET_MIRROR_STORAGE_KEY)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
 
 // Recently-opened NuGet packages, most-recent first, persisted across sessions so the
 // Home listing survives a refresh (the in-memory workspace does not). Written only from
@@ -149,6 +164,7 @@ const state = {
   spotlightPkgQuery: "",
   packageVersions: {},
   packageVersionsLoading: {},
+  packageSource: DEFAULT_PACKAGE_SOURCE,
   runtimePackLoading: false,
   runtimePackError: "",
   graphSourceOpen: false,
@@ -4449,7 +4465,18 @@ function scheduleSpotlightPackageFetch() {
 }
 
 async function fetchSpotlightPackages(query) {
-  const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
+  if (!state.packageSource.searchQueryService) {
+    state.spotlightPkgHits = [];
+    state.spotlightPkgQuery = query;
+    state.spotlightPkgLoading = false;
+    updateSpotlightResults();
+    return;
+  }
+  const url = new URL(state.packageSource.searchQueryService);
+  url.searchParams.set("q", query);
+  url.searchParams.set("take", "8");
+  url.searchParams.set("prerelease", "true");
+  url.searchParams.set("semVerLevel", "2.0.0");
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -4603,7 +4630,9 @@ async function ensurePackageVersions(pkg) {
   if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
   state.packageVersionsLoading[idLower] = true;
   try {
-    const url = `https://api.nuget.org/v3-flatcontainer/${encodeURIComponent(idLower)}/index.json`;
+    const url = new URL(
+      `${encodeURIComponent(idLower)}/index.json`,
+      state.packageSource.packageBaseAddress);
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
@@ -5157,6 +5186,13 @@ function showToast(message, duration = 2200) {
 // name surfaces as a NuGet 404; call that out plainly instead of showing a stack trace.
 function friendlyLoadError(error, packageId, version) {
   const raw = String(error?.message || error || "");
+  if (raw.includes("[package-source-unreachable]")) {
+    return {
+      notFound: false,
+      title: "NuGet source unavailable",
+      message: "The browser could not reach the active NuGet source. Configure an anonymous, CORS-enabled mirror in Settings and try again."
+    };
+  }
   if (/\b404\b|not\s*found/i.test(raw)) {
     const suffix = version && version !== "latest" ? `@${version}` : "";
     return {
@@ -5170,6 +5206,47 @@ function friendlyLoadError(error, packageId, version) {
     title: "Inspection query failed",
     message: `Couldn’t load “${packageId}”: ${raw || "unknown error"}`
   };
+}
+
+function isPackageSourceUnavailable(error) {
+  return String(error?.message || error || "").includes("[package-source-unreachable]");
+}
+
+function resetSourceScopedWorkspace() {
+  state.packages = [];
+  state.package = null;
+  state.packageVersions = {};
+  state.packageVersionsLoading = {};
+  state.workspaceDependencies = {};
+  state.spotlightPkgHits = [];
+  state.spotlightPkgQuery = "";
+  state.spotlightPkgLoading = false;
+}
+
+async function configureNuGetMirror(serviceIndexUrl) {
+  const configuration = await inspectConfigurePackageSource(serviceIndexUrl);
+  localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
+  state.packageSource = configuration;
+  resetSourceScopedWorkspace();
+  return configuration;
+}
+
+async function promptForNuGetMirror() {
+  const current = loadStoredNuGetMirror();
+  const entered = window.prompt(
+    "The browser could not reach the active NuGet source. Your network may block nuget.org.\n\n"
+      + "Enter an anonymous, CORS-enabled NuGet v3 mirror service-index URL. "
+      + "The validated URL will be stored only in this browser.",
+    current);
+  if (entered === null || !entered.trim()) return false;
+
+  try {
+    await configureNuGetMirror(entered);
+    return true;
+  } catch (error) {
+    window.alert(`That NuGet mirror could not be used: ${String(error?.message || error)}`);
+    return false;
+  }
 }
 
 async function copyText(value, confirmation) {
@@ -6876,6 +6953,8 @@ function renderSettingsView() {
   const styleBody = catalog
     || '<div class="taste-empty">Style catalog is still loading — reopen Settings in a moment.</div>';
   const activeCount = state.taste.length;
+  const storedMirror = loadStoredNuGetMirror();
+  const sourceBadge = state.packageSource.isDefault ? "nuget.org" : "mirror";
   app.innerHTML = `
     <div class="settings-page">
       <header class="settings-bar">
@@ -6903,6 +6982,22 @@ function renderSettingsView() {
 
         <section class="settings-section">
           <div class="settings-section-head">
+            <h2>NuGet source <span class="settings-badge">${sourceBadge}</span></h2>
+            <p>Package downloads use nuget.org by default. If your network blocks it, enter an anonymous, CORS-enabled NuGet v3 mirror service-index URL. The URL is validated before it is stored locally.</p>
+          </div>
+          <form id="settings-nuget-source" class="settings-source">
+            <label for="settings-nuget-source-url">Mirror service index</label>
+            <input id="settings-nuget-source-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://mirror.example/nuget/v3/index.json" value="${escapeHtml(storedMirror)}" />
+            <div class="settings-source-actions">
+              <button type="submit" class="settings-reset">Validate and use mirror</button>
+              ${storedMirror ? '<button id="settings-nuget-source-reset" type="button" class="settings-reset">Use nuget.org</button>' : ""}
+            </div>
+            <small>Current source: ${escapeHtml(state.packageSource.serviceIndexUrl)}</small>
+          </form>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-head">
             <h2>Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
             <p>Tune how decompiled C# is spelled and synthesized — including <strong>readable local names</strong>. These apply to every source and call-graph view. The default is opcode-faithful.</p>
           </div>
@@ -6925,6 +7020,27 @@ function bindSettingsEvents() {
   document.querySelectorAll(".settings-taste [data-taste]").forEach(checkbox =>
     checkbox.addEventListener("change", () => toggleTaste(checkbox.dataset.taste)));
   document.querySelector("#settings-taste-clear")?.addEventListener("click", clearTaste);
+  document.querySelector("#settings-nuget-source")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const input = document.querySelector("#settings-nuget-source-url");
+    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    const value = input?.value.trim() || "";
+    if (!value) return;
+    submit.disabled = true;
+    try {
+      const configuration = await inspectConfigurePackageSource(value);
+      localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
+      location.reload();
+    } catch (error) {
+      submit.disabled = false;
+      showToast(`Mirror not saved: ${String(error?.message || error)}`, 6000);
+    }
+  });
+  document.querySelector("#settings-nuget-source-reset")?.addEventListener("click", () => {
+    inspectUseDefaultPackageSource();
+    localStorage.removeItem(NUGET_MIRROR_STORAGE_KEY);
+    location.reload();
+  });
 }
 
 function renderGraphSource() {
@@ -7084,6 +7200,14 @@ async function loadPackage(packageId, version, framework, options = {}) {
     // A failed background restore of a non-target tab must not disrupt the workbench or the
     // real target; drop it silently (the tab simply won't appear).
     if (background) return null;
+    if (!options.sourceFallbackAttempted
+        && isPackageSourceUnavailable(error)
+        && await promptForNuGetMirror()) {
+      return loadPackage(packageId, version, framework, {
+        ...options,
+        sourceFallbackAttempted: true,
+      });
+    }
     state.loading = false;
     const friendly = friendlyLoadError(error, packageId, version);
     if (prevPackage) {
@@ -7204,7 +7328,7 @@ function isRuntimePackId(id) {
 // a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
 // Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
 // assemblies load lazily as navigation reaches them. Does not switch the active package.
-async function loadRuntimePack(framework) {
+async function loadRuntimePack(framework, sourceFallbackAttempted = false) {
   if (state.runtimePackLoading) return runtimePackPackage();
   const existing = runtimePackPackage();
   if (existing) return existing;
@@ -7243,6 +7367,11 @@ async function loadRuntimePack(framework) {
     return packageModel;
   } catch (error) {
     state.runtimePackLoading = false;
+    if (!sourceFallbackAttempted
+        && isPackageSourceUnavailable(error)
+        && await promptForNuGetMirror()) {
+      return loadRuntimePack(framework, true);
+    }
     state.runtimePackError = String(error?.message || error);
     return null;
   }
@@ -7256,7 +7385,11 @@ async function loadRuntimePack(framework) {
 // Platform drill-in: the Platform scope roster comes from the static index with no download,
 // and picking a library fetches just that assembly here. Types/assemblies are merged (deduped
 // by id/name) so the runtime pack accumulates the libraries the user visits.
-async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
+async function loadRuntimePackAssembly(
+  framework,
+  assemblyFileName,
+  pack,
+  sourceFallbackAttempted = false) {
   if (state.runtimePackLoading) return runtimePackPackage();
   state.runtimePackLoading = true;
   state.runtimePackError = "";
@@ -7295,6 +7428,11 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
     return packageModel;
   } catch (error) {
     state.runtimePackLoading = false;
+    if (!sourceFallbackAttempted
+        && isPackageSourceUnavailable(error)
+        && await promptForNuGetMirror()) {
+      return loadRuntimePackAssembly(framework, assemblyFileName, pack, true);
+    }
     state.runtimePackError = String(error?.message || error);
     return null;
   }
@@ -7421,6 +7559,16 @@ async function bootstrap() {
       render();
     });
     const tEngine = performance.now();
+    const storedMirror = loadStoredNuGetMirror();
+    if (storedMirror) {
+      state.loadingMessage = "Connecting to your NuGet mirror…";
+      render();
+      try {
+        state.packageSource = await inspectConfigurePackageSource(storedMirror);
+      } catch {
+        state.packageSource = inspectUseDefaultPackageSource();
+      }
+    }
     try {
       [state.styleTiers, state.styleOptions] = await Promise.all([
         inspectListStyleTiers(),

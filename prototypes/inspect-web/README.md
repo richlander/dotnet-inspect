@@ -56,6 +56,13 @@ Downloaded package bytes are retained in a bounded session cache shared by API,
 documentation, source, call-graph, and Facts queries. The cache holds at most
 four packages or 64 MB and evicts the least recently used entry.
 
+Package acquisition uses nuget.org by default. If the browser cannot reach the
+active source, the app asks for an anonymous, CORS-enabled NuGet v3 mirror
+service-index URL, validates its `PackageBaseAddress`, and retries through the
+mirror. The service-index URL is stored in browser local storage and can be
+replaced or cleared under Settings. Package search uses the mirror's
+`SearchQueryService` when it publishes one.
+
 ## Run the .NET 11 browser-WASM prototype
 
 Install the experimental browser workload selected by the repository SDK:
@@ -71,6 +78,12 @@ Open `http://127.0.0.1:5198`. The browser downloads `System.Text.Json` version
 compile assets, and uses `AssemblyInspectionSession.ApiSurface()` to populate
 the public type workspace. Remote addresses require HTTPS because the .NET
 loader uses secure-context browser APIs.
+
+For a network that blocks nuget.org, open Settings and enter its permitted
+mirror's NuGet v3 service index, for example
+`https://mirror.example/nuget/v3/index.json`. The mirror must allow anonymous
+browser requests and CORS from the site's origin; credential-bearing URLs are
+rejected and are never written to local storage.
 
 Create a deployable static bundle with:
 
