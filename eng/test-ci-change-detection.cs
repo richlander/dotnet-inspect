@@ -199,6 +199,15 @@ AssertAll(
         failDecodeAt: 1),
     "true");
 
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "eng/ci-detect-changes.sh",
+        outputs),
+    "true");
+
 Dictionary<string, string> readme =
     RunDetection(repository, body, "pull_request", "README.md", outputs);
 if (readme["code"] != "false" || readme["docs"] != "true")
@@ -936,13 +945,38 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["BASH_ENV"] = "",
+            ["CI_BEFORE_SHA"] = "${{ github.event.before }}",
+            ["CI_PR_NUMBER"] = "${{ github.event.pull_request.number }}",
             ["GH_TOKEN"] = "${{ github.token }}",
         },
         "Detect changes.env");
-    string body = GetRequiredScalar(detectionStep, "run", "Detect changes");
+    const string DetectionScript = "eng/ci-detect-changes.sh";
+    RequireScalarValue(
+        detectionStep,
+        "run",
+        DetectionScript,
+        "Detect changes");
+    string detectionScriptPath = Path.Combine(repository, DetectionScript);
+    string body = File.ReadAllText(detectionScriptPath);
     if (body.Length == 0)
     {
-        throw new InvalidOperationException("Detect changes has an empty run block.");
+        throw new InvalidOperationException("Detect changes has an empty script.");
+    }
+    if (!OperatingSystem.IsWindows()
+        && (File.GetUnixFileMode(detectionScriptPath)
+            & UnixFileMode.UserExecute) == 0)
+    {
+        throw new InvalidOperationException(
+            "Detect changes script must be executable.");
+    }
+    if (!body.StartsWith(
+            "#!/usr/bin/env bash\nset -e -o pipefail\n",
+            StringComparison.Ordinal)
+        || body.Contains("${{", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "Detect changes script must own its Bash failure mode and contain " +
+            "no unevaluated workflow expressions.");
     }
 
     return (body, declaredOutputs.ToArray());
@@ -1530,18 +1564,7 @@ static Dictionary<string, string> RunDetection(
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
-    string rendered = body
-        .Replace("${{ github.event_name }}", eventName, StringComparison.Ordinal)
-        .Replace(
-            "${{ github.event.pull_request.number }}",
-            "3704",
-            StringComparison.Ordinal)
-        .Replace(
-            "${{ github.repository }}",
-            "richlander/dotnet-inspect",
-            StringComparison.Ordinal)
-        .Replace("${{ github.event.before }}", Before, StringComparison.Ordinal)
-        .Replace("${{ github.sha }}", Sha, StringComparison.Ordinal);
+    string rendered = body;
 
     string temporary = Path.Combine(
         Path.GetTempPath(),
@@ -1710,6 +1733,8 @@ static Dictionary<string, string> RunDetection(
         startInfo.ArgumentList.Add(standardErrorPath);
         startInfo.Environment["BASH_ENV"] = "";
         startInfo.Environment["CHANGED_FILES"] = files;
+        startInfo.Environment["CI_BEFORE_SHA"] = Before;
+        startInfo.Environment["CI_PR_NUMBER"] = "3704";
         startInfo.Environment["CHANGED_FILE_COUNT_IS_STRING"] =
             changedFileCountIsString.ToString().ToLowerInvariant();
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
@@ -1717,7 +1742,11 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["EMPTY_PUSH_RECORD"] =
             emptyPushRecord.ToString().ToLowerInvariant();
         startInfo.Environment["FILE_STATUS"] = fileStatus;
+        startInfo.Environment["GITHUB_EVENT_NAME"] = eventName;
         startInfo.Environment["GITHUB_OUTPUT"] = output;
+        startInfo.Environment["GITHUB_REPOSITORY"] =
+            "richlander/dotnet-inspect";
+        startInfo.Environment["GITHUB_SHA"] = Sha;
         startInfo.Environment["BASE64_DECODE_COUNT"] =
             Path.Combine(temporary, "base64-decode-count");
         startInfo.Environment["FAIL_DECODE_AT"] =
