@@ -391,7 +391,9 @@ public sealed class SourceLinkService : IDisposable
         if (originIdentity is null || pdbId is null)
             return null;
 
-        string symbols = $"{pdbId.Guid:N}-{pdbId.Age}";
+        string symbols = pdbId.IsPortable
+            ? $"{pdbId.Guid:N}-{pdbId.Stamp:x8}"
+            : $"{pdbId.Guid:N}-{pdbId.Age}";
         return $"{originIdentity}{symbols.Length}:{symbols}|";
     }
 

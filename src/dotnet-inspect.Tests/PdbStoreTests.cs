@@ -85,6 +85,44 @@ public class PdbStoreTests
         }
     }
 
+    [Fact]
+    public async Task FileSystemPdbStore_FailedReplacementPreservesPublishedContent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var root =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"pdbstore-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new FileSystemPdbStore(root);
+            const string Key =
+                "servers/symbols.nuget.org/Foo.pdb/KEY/Foo.pdb";
+            byte[] published = [1, 2, 3, 4];
+            using (var initial = new MemoryStream(published))
+                await store.PutAsync(Key, initial, ct);
+
+            await Assert.ThrowsAsync<IOException>(
+                () => store.PutAsync(
+                        Key,
+                        new ThrowingReadStream(),
+                        ct)
+                    .AsTask());
+
+            await using Stream? reopened =
+                await store.TryOpenAsync(Key, ct);
+            Assert.NotNull(reopened);
+            using var buffer = new MemoryStream();
+            await reopened!.CopyToAsync(buffer, ct);
+            Assert.Equal(published, buffer.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("../escape.pdb")]
     [InlineData("pkg/../../escape.pdb")]
@@ -105,5 +143,48 @@ public class PdbStoreTests
             using var input = new MemoryStream(new byte[] { 1 });
             await store.PutAsync(key, input, ct);
         });
+    }
+
+    private sealed class ThrowingReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+            throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+            => throw new IOException("Injected read failure.");
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromException<int>(
+                new IOException("Injected read failure."));
+
+        public override void Flush()
+            => throw new NotSupportedException();
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin)
+            => throw new NotSupportedException();
+
+        public override void SetLength(long value)
+            => throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count)
+            => throw new NotSupportedException();
     }
 }

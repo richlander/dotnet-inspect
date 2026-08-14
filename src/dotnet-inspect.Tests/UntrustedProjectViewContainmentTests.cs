@@ -17,13 +17,10 @@ namespace DotnetInspector.Tests;
 /// containment now lives on the row records and both writers inherit it.
 ///
 /// The fixture is a hand-built package folder plus a <c>project.assets.json</c>
-/// whose library <c>path</c> is <em>rooted</em> at it. That avoids a restore, so
-/// the gate needs no network and no feed — and, more importantly, no real
-/// package cache: a relative library path is resolved against
-/// <c>NuGetCache.GetNuGetCachePath()</c>, so an earlier version of this fixture
-/// silently read whatever happened to sit in the developer's
-/// <c>~/.nuget/packages</c> and would have found nothing on a clean machine.
-/// <c>packageFolders</c> is not consulted by the parser at all.
+/// whose library <c>path</c> is relative to a test-owned
+/// <c>NUGET_PACKAGES</c> root. That avoids a restore, network, feed, and writes
+/// to the developer's real package cache while exercising the product's
+/// manifest-path containment.
 /// </remarks>
 [Collection("Console")]
 public class UntrustedProjectViewContainmentTests : IDisposable
@@ -48,6 +45,7 @@ public class UntrustedProjectViewContainmentTests : IDisposable
 
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"HostileProj_{Guid.NewGuid():N}");
     private readonly string _assets;
+    private readonly string? _originalNuGetPackages;
 
     public UntrustedProjectViewContainmentTests()
     {
@@ -74,19 +72,26 @@ public class UntrustedProjectViewContainmentTests : IDisposable
         var obj = Path.Combine(_dir, "app", "obj");
         Directory.CreateDirectory(obj);
         _assets = Path.Combine(obj, "project.assets.json");
-        File.WriteAllText(_assets, BuildAssets(package));
+        File.WriteAllText(_assets, BuildAssets(packages));
+        _originalNuGetPackages =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable(
+            "NUGET_PACKAGES",
+            packages);
     }
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable(
+            "NUGET_PACKAGES",
+            _originalNuGetPackages);
         try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
         GC.SuppressFinalize(this);
     }
 
-    private static string BuildAssets(string packageRoot)
+    private static string BuildAssets(string packagesRoot)
     {
-        var folder = JsonSerializer.Serialize(packageRoot);
-        var rootedPath = JsonSerializer.Serialize(packageRoot.Replace(Path.DirectorySeparatorChar, '/'));
+        var folder = JsonSerializer.Serialize(packagesRoot);
         var library = $"{HostileId}/{HostileVersion}";
         var skillPath = $"skills/{HostileSkillDir}/SKILL.md";
         return $$"""
@@ -105,7 +110,7 @@ public class UntrustedProjectViewContainmentTests : IDisposable
                 "{{library}}": {
                   "sha512": "",
                   "type": "package",
-                  "path": {{rootedPath}},
+                  "path": "hostile.skill/1.0.0",
                   "files": [
                     "AGENTS.md",
                     "hostile.skill.nuspec",

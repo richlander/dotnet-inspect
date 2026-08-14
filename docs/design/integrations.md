@@ -119,6 +119,21 @@ The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive
 metadata inventory.
 
+### Scanner implementation boundaries
+
+`EcosystemIntegrationScanner` is the public Metadata facade.
+`EcosystemIntegrationProjection` owns the SRM traversal, guarded signature
+decode, evidence buckets, and row ordering.
+`EcosystemIntegrationClassifier` owns the pure type-name and starter-method
+classification policy, while `EcosystemIntegrationPresenceBuilder` projects
+signals and broader public-type evidence into the legacy presence flags. The
+classifier owns no traversal or output state, and the presence path reuses the
+same projection rather than implementing a second scanner.
+
+`EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`
+gates public-method filtering, signal kind and shape, row order, and parity
+between direct and precomputed presence paths.
+
 ## Group-scoped queries
 
 `AssemblyContextIntegrationsQuery` scans an entire assembly context group. It

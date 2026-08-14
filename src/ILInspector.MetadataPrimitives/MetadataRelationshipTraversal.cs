@@ -20,10 +20,21 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
-    /// Maximum encoded characters charged while constructing one member-anchor
-    /// signature tree. Each occurrence of a type name is charged, so repeated
-    /// references cannot amplify past this ceiling before rejection. Gated by
-    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// Maximum work charged while constructing one member-anchor signature
+    /// tree. Type-name occurrences are charged by character length with a
+    /// short-leaf floor, and every composite type node (arrays, pointers,
+    /// generics, function pointers) is charged a fixed per-node unit, so
+    /// discarded modifier subtrees that are deep or wide cannot amplify past
+    /// this ceiling before rejection. TypeDef/TypeRef leaves charge from
+    /// UTF-8 storage and materialize names only when rendered, so unique long
+    /// discarded modifiers cannot force large string allocations on cache
+    /// miss either. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation</c>,
+    /// and
+    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>.
     /// </summary>
     public const int MaxAnchorSignatureWorkChars =
         MaxStructuralSignatureWorkChars;

@@ -245,7 +245,7 @@ generic scope. The producer appends to caller-owned call and safety-evidence
 builders so results emitted before a later recoverable metadata failure survive,
 and delegates unsafe-call/opcode classification to `MethodSafetyAnalysis`
 without a second body scan.
-`MethodAllocationAnalysis` owns the allocation topic for one decoded body:
+`MethodAllocationFacts` owns the allocation topic for one decoded body:
 allocation occurrence discovery, allocation-shape classification, escape
 classification, and the private path-context, path-confidence, and
 post-dominance indexes behind its multiplicity reading. It consumes the shared
@@ -255,12 +255,18 @@ delegate-constructor, value-type-box, non-heap-construction, in-assembly
 element, field-owner) and the raw-IL reaching-definitions analysis arrive
 through the narrow `IMethodAllocationResolver` contract implemented by the
 assembly reader, so no metadata reader, `PEReader`, generic scope, IL buffer, or
-reader-bound body reaches allocation analysis. One scan produces a
-`MethodAllocationResult` carrying both the discovered occurrences and the
-escape-refined occurrences: the published allocation facts take the latter,
-and `OptimizationOpportunityAnalysis` reuses the former plus the query methods
+reader-bound body reaches allocation analysis. One `MethodAllocationFacts`
+object binds the canonical context and Layer-1 query methods before other topic
+producers run. When allocation collection is selected, one scan populates that
+same object with both the discovered and escape-refined occurrences. The
+published allocation facts take the classified occurrences, and
+`OptimizationOpportunityAnalysis` reuses the discovered occurrences plus the
+query methods
 (`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
-That service owns the per-method optimization instruction walk, shape
+`FactsBundlesBindContextOccurrencesAndQueries` gates the bundle's context,
+occurrence, and query coherence.
+`OptimizationOpportunityAnalysis` owns the per-method optimization instruction
+walk, shape
 classification, lazy memoized reaching-definitions use, and allocation metadata
 projection without opening another allocation or decode path. Its traversal may
 repeat member and type resolution. It retains opportunity ordering and deferred
@@ -278,12 +284,16 @@ reader, generic scope, or raw IL. Call-site acquisition uses the same
 The assembly reader retains exactly: PE/body
 acquisition, the intentionally throwing `InstructionDecoder.Decode` +
 `BlockGraph.Build` decode, loop-region computation for the context, method
-identity and generic-scope creation, metadata ownership and token resolution,
-raw-IL ownership through the shared narrow method-analysis resolver, per-method
-orchestration and recoverable-failure diagnostics, resource/leak analysis, and
-result aggregation. Topic producers may each traverse the canonical decoded
-instructions for their own policy; this ownership split does not claim one
-instruction traversal overall.
+identity and generic-scope creation, primary-image metadata ownership and token
+resolution, raw-IL ownership through the shared narrow method-analysis resolver,
+per-method orchestration and recoverable-failure diagnostics, resource/leak
+analysis, and result aggregation. `LibraryBodyReferenceMetadataResolver`
+separately owns cross-assembly type-definition binding, referenced-image
+metadata lifetime, and its registration-keyed cache for that acquisition. It
+builds on `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog` rather
+than adding another binding engine. Topic producers may each traverse the
+canonical decoded instructions for their own policy; this ownership split does
+not claim one instruction traversal overall.
 `MethodInstructionFacts` owns the metadata-free local/argument-slot, operand,
 and single-branch-target grammar shared by safety and allocation interpretation,
 and `CompilerGeneratedNames` owns the unspeakable-name grammar shared by

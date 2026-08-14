@@ -337,6 +337,151 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation()
+    {
+        // Many parameters each carry modopt(TypeSpec) where the TypeSpec is a
+        // deep SZARRAY nest. GetModifiedType discards the modifier from the
+        // rendered anchor, so EnsureAnchorSignatureBudget never sees the tree;
+        // composite-node charging must reject during construction.
+        const int parameterCount = 1_000;
+        const int arrayDepth = 500;
+        byte[] image = BuildNestedArrayModoptImage(
+            parameterCount,
+            arrayDepth);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Nested modopt array rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation()
+    {
+        // Wide GENERICINST<!0 × arity> as a discarded modopt TypeSpec: leaf
+        // names are only two characters, so name-length charging alone lets
+        // O(params × arity) Encoded nodes allocate hundreds of MiB before the
+        // work budget trips. The short-leaf floor must reject earlier.
+        const int parameterCount = 2_000;
+        const int genericArity = 2_030;
+        byte[] image = BuildWideGenericModoptImage(
+            parameterCount,
+            genericArity);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Wide generic modopt rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation()
+    {
+        // Same width shape as WideGenericModopts, but every generic argument is
+        // a short TypeRef. After the first decode the TypeRef cache hits and
+        // must still pay the leaf floor; charging cached.Length alone let this
+        // path allocate ~100 MiB before reject (and succeed under the budget at
+        // slightly smaller widths).
+        const int parameterCount = 2_000;
+        const int genericArity = 2_030;
+        byte[] image = BuildWideTypeRefGenericModoptImage(
+            parameterCount,
+            genericArity);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Wide TypeRef generic modopt rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation()
+    {
+        // Unique long TypeRef modifiers: cache misses used to Format+GetString
+        // before the work budget could reject, so a handful of ~900 KiB names
+        // allocated >16 MiB on both reject and under-budget success. Lazy
+        // TypeRef leaves charge UTF-8 length and materialize only on render.
+        const int uniqueCount = 5;
+        const int typeNameLength = 900_000;
+        byte[] image = BuildUniqueLongTypeRefModoptImage(
+            uniqueCount,
+            typeNameLength);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Unique long TypeRef modopt rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -908,6 +1053,197 @@ public sealed class MethodCorrespondenceResolverTests
         {
             signature.WriteByte(0x12);
             signature.WriteCompressedInteger((1 << 2) | 1);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedArrayModoptImage(
+        int parameterCount,
+        int arrayDepth)
+    {
+        var metadata = CreateSingleTypeMetadata("NestedArrayModopt");
+        var typeSpecSignature = new BlobBuilder();
+        for (int i = 0; i < arrayDepth; i++)
+            typeSpecSignature.WriteByte(0x1d); // ELEMENT_TYPE_SZARRAY
+        typeSpecSignature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        // TypeDefOrRef coded index: TypeSpec tag = 2.
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01); // void
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x20); // ELEMENT_TYPE_CMOD_OPT
+            signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08); // I4
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideGenericModoptImage(
+        int parameterCount,
+        int genericArity)
+    {
+        var metadata = CreateSingleTypeMetadata("WideGenericModopt");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G"));
+
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        typeSpecSignature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        typeSpecSignature.WriteCompressedInteger((1 << 2) | 1); // TypeRef 1
+        typeSpecSignature.WriteCompressedInteger(genericArity);
+        for (int i = 0; i < genericArity; i++)
+        {
+            typeSpecSignature.WriteByte(0x13); // ELEMENT_TYPE_VAR
+            typeSpecSignature.WriteCompressedInteger(0);
+        }
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x20); // CMOD_OPT
+            signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildUniqueLongTypeRefModoptImage(
+        int uniqueCount,
+        int typeNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata("UniqueLongTypeRefModopt");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(new string('T', typeNameLength) + i));
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(uniqueCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            signature.WriteByte(0x20); // CMOD_OPT
+            signature.WriteCompressedInteger(((i + 1) << 2) | 1); // TypeRef i+1
+            signature.WriteByte(0x08);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideTypeRefGenericModoptImage(
+        int parameterCount,
+        int genericArity)
+    {
+        var metadata = CreateSingleTypeMetadata("WideTypeRefGenericModopt");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        // Row 1: short leaf reused across the generic arity (cache-hit path).
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        // Row 2: open generic type.
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G"));
+
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        typeSpecSignature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        typeSpecSignature.WriteCompressedInteger((2 << 2) | 1); // TypeRef 2
+        typeSpecSignature.WriteCompressedInteger(genericArity);
+        for (int i = 0; i < genericArity; i++)
+        {
+            typeSpecSignature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+            typeSpecSignature.WriteCompressedInteger((1 << 2) | 1); // TypeRef 1
+        }
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x20); // CMOD_OPT
+            signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08);
         }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
