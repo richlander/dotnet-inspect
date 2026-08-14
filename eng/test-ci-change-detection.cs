@@ -521,6 +521,33 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
 
     static void ValidateDecompilerProjectSkipList(string repository)
     {
+        static bool IsProjectDirectory(string repository, string relativePath)
+        {
+            string directory = Path.Combine(repository, relativePath);
+            return Directory.Exists(directory)
+                && Directory.EnumerateFiles(
+                        directory,
+                        "*.*proj",
+                        SearchOption.TopDirectoryOnly)
+                    .Any(path =>
+                        Path.GetExtension(path) is ".csproj" or ".vbproj" or ".fsproj");
+        }
+
+        static bool IsAtOrBelowProject(string project, string ancestor) =>
+            project == ancestor
+            || project.StartsWith($"{ancestor}/", StringComparison.Ordinal);
+
+        if (!IsAtOrBelowProject(
+                "src/dotnet-inspect/Nested",
+                "src/dotnet-inspect")
+            || IsAtOrBelowProject(
+                "src/dotnet-inspect.TestsExtra",
+                "src/dotnet-inspect.Tests"))
+        {
+            throw new InvalidOperationException(
+                "Decompiler skip-list project boundary check is not non-vacuous.");
+        }
+
         string manifestPath = Path.Combine(
             repository,
             "eng",
@@ -534,11 +561,11 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
                 || Path.IsPathRooted(line)
                 || line.EndsWith('/')
                 || line.Split('/').Any(part => part is "" or "." or "..")
-                || !Directory.Exists(Path.Combine(repository, line))))
+                || !IsProjectDirectory(repository, line)))
         {
             throw new InvalidOperationException(
                 "eng/decompiler-gate-skip-projects.txt must contain unique, " +
-                "existing, canonical repository-relative project directories.");
+                "existing, canonical repository-relative project roots.");
         }
 
         string graphPath = Path.Combine(
@@ -558,20 +585,26 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
                 "src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj");
             startInfo.ArgumentList.Add("-t:GenerateRestoreGraphFile");
             startInfo.ArgumentList.Add($"-p:RestoreGraphOutputPath={graphPath}");
+            startInfo.ArgumentList.Add("-p:Configuration=Release");
             startInfo.ArgumentList.Add("-nologo");
             startInfo.ArgumentList.Add("-v:q");
 
             using Process process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
                     "Could not start dotnet msbuild for the decompiler project graph.");
-            string standardOutput = process.StandardOutput.ReadToEnd();
-            string standardError = process.StandardError.ReadToEnd();
+            Task<string> standardOutputTask =
+                process.StandardOutput.ReadToEndAsync();
+            Task<string> standardErrorTask =
+                process.StandardError.ReadToEndAsync();
             bool timedOut = !process.WaitForExit(milliseconds: 30_000);
             if (timedOut)
             {
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit();
             }
+            Task.WaitAll(standardOutputTask, standardErrorTask);
+            string standardOutput = standardOutputTask.Result;
+            string standardError = standardErrorTask.Result;
             if (timedOut || process.ExitCode != 0)
             {
                 throw new InvalidOperationException(
@@ -603,14 +636,17 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
                 .ToHashSet(StringComparer.Ordinal);
 
             string[] unsafeExemptions = actual
-                .Intersect(projectClosure)
+                .Where(exemption =>
+                    projectClosure.Any(project =>
+                        IsAtOrBelowProject(project, exemption)))
                 .Order()
                 .ToArray();
             if (unsafeExemptions.Length != 0)
             {
                 throw new InvalidOperationException(
-                    "eng/decompiler-gate-skip-projects.txt exempts projects in " +
-                    "the evaluated ILInspector.Decompiler.Tests graph: [" +
+                    "eng/decompiler-gate-skip-projects.txt exempts project " +
+                    "trees containing projects in the evaluated Release " +
+                    "ILInspector.Decompiler.Tests graph: [" +
                     string.Join(", ", unsafeExemptions) + "].");
             }
         }
