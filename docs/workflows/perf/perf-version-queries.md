@@ -168,10 +168,6 @@ grep -o 'Source: [A-Za-z]*'
 
 > Intended target: ≤ 250ms for five warm invocations (≤ 50ms each). Loads
 > platform assembly metadata and enumerates public types.
->
-> **Known issue:** #3923 — the published NativeAOT executable currently exceeds
-> this target by an order of magnitude. Keep this focused target failing until
-> the regression is fixed.
 
 ```bash
 for i in 1 2 3 4; do
