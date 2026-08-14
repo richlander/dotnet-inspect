@@ -147,8 +147,9 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         }
 
         ReferencedAssemblyMetadata? metadata =
-            OpenReferencedAssembly(
-                resolved.Definition.Assembly.Assembly);
+            OpenResolvedAssembly(
+                context,
+                resolved.Definition.Assembly);
         return metadata is not null
             && resolved.Definition.Address.TryResolve(
                 metadata.Reader,
@@ -214,6 +215,27 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             _referencedAssemblyCache[assembly.Registration] = opened;
             return opened;
         }
+    }
+
+    ReferencedAssemblyMetadata? OpenResolvedAssembly(
+        TypeResolutionContext context,
+        ResolvedAssemblyCandidate candidate)
+    {
+        lock (_referencedAssemblyCache)
+        {
+            if (_referencedAssemblyCache.TryGetValue(
+                    candidate.Assembly.Registration,
+                    out ReferencedAssemblyMetadata? cached))
+            {
+                return cached;
+            }
+        }
+
+        ResolvedAssemblyReference? retained =
+            context.RetainAssemblyReference(candidate);
+        return retained is null
+            ? null
+            : OpenReferencedAssembly(retained);
     }
 
     AssemblyResolutionScope ScopeForReference(
