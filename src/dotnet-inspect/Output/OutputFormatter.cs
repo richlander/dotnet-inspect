@@ -406,7 +406,7 @@ public static class OutputFormatter
         if (options.Count)
         {
             var projection = CaptureLibraryCountProjection(
-                auditView, inspection, writerOpts, options.Rows);
+                auditView, inspection, writerOpts, options.Rows, options.Fields, options.Columns);
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath);
@@ -621,7 +621,7 @@ public static class OutputFormatter
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 projection.Merge(CaptureLibraryCountProjection(
-                    auditView, inspection, WriterOptions(inspection), options.Rows));
+                    auditView, inspection, WriterOptions(inspection), options.Rows, options.Fields, options.Columns));
             }
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             CountOutput.Write(
@@ -779,13 +779,78 @@ public static class OutputFormatter
         LibraryInspectionView auditView,
         LibraryInspection inspection,
         MarkoutWriterOptions writerOptions,
-        RowWindow? rows)
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
     {
         writerOptions.RowWindow = RowWindow.ToMarkout(rows);
         var projection = CountProjectionFormatter.Capture(
             auditView, InspectionContext.Default, writerOptions);
         projection.Merge(MetadataLensRenderer.CaptureCounts(
             inspection, writerOptions.IncludeSections, rows));
+        ApplyILCoordinateCardinality(
+            projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
     }
+
+    private static void ApplyILCoordinateCardinality(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows,
+        string[]? fields,
+        string[]? columns)
+    {
+        if (inspection.ILOffset is null || includedSections is null)
+            return;
+
+        var schema = InspectionContext.Default
+            .GetSchemaInfo<LibraryInspectionView>()!
+            .ToDocumentSchema();
+        foreach (var section in includedSections)
+        {
+            bool hasRow = section switch
+            {
+                SectionNames.ILOffset => true,
+                SectionNames.MemberContext => inspection.ILOffset.MemberContext != null,
+                SectionNames.InstructionContext => inspection.ILOffset.InstructionContext != null,
+                SectionNames.CallsiteContext => inspection.ILOffset.CallsiteContext != null,
+                SectionNames.ReturnAddressContext => inspection.ILOffset.ReturnAddressContext != null,
+                SectionNames.AllocationContext => inspection.ILOffset.AllocationContext is { Count: > 0 },
+                SectionNames.SafetyContext => inspection.ILOffset.SafetyContext is { Count: > 0 },
+                SectionNames.CostContext => inspection.ILOffset.CostContext is { Count: > 0 },
+                _ => false
+            };
+            if (!hasRow && section is not (
+                    SectionNames.ILOffset
+                    or SectionNames.MemberContext
+                    or SectionNames.InstructionContext
+                    or SectionNames.CallsiteContext
+                    or SectionNames.ReturnAddressContext
+                    or SectionNames.AllocationContext
+                    or SectionNames.SafetyContext
+                    or SectionNames.CostContext))
+            {
+                continue;
+            }
+
+            bool projected = ProjectionMatchesSection(
+                schema,
+                section,
+                fields is { Length: > 0 } || columns is { Length: > 0 }
+                    ? [.. fields ?? [], .. columns ?? []]
+                    : null);
+            int count = hasRow && projected
+                ? RowWindow.Apply(rows, new[] { 0 }).Count
+                : 0;
+            projection.SetRows(section, count);
+        }
+    }
+
+    private static bool ProjectionMatchesSection(
+        DocumentSchema schema,
+        string section,
+        string[]? names)
+        => names is not { Length: > 0 }
+            || schema.ValidateProjection(section, names).Resolved.Length > 0;
 }

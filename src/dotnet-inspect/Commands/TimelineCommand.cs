@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -1114,12 +1115,7 @@ public static class TimelineCommand
             return false;
         }
 
-        if (options.Count && selectedSections.Count != 1)
-        {
-            error = "--count requires exactly one selected section: Evaluations or Transitions.";
-            return false;
-        }
-        if (options.IsTabular && selectedSections.Count != 1)
+        if (!options.Count && options.IsTabular && selectedSections.Count != 1)
         {
             error = "Table, TSV, and JSONL output require exactly one selected section: Evaluations or Transitions.";
             return false;
@@ -1192,28 +1188,49 @@ public static class TimelineCommand
     {
         if (options.Count)
         {
-            if (selectedSections.Contains(EvaluationsSection))
+            var schema = TimelineViewContext.Default
+                .GetSchemaInfo<TimelineDocumentView>()!
+                .ToDocumentSchema();
+            if (!ProjectionDiagnostics.ValidateProjection(
+                    schema, selectedSections, options.Fields, options.Columns))
             {
-                return CountOutput.TryWriteProjected(
-                    new TimelineEvaluationsView { Rows = view.Evaluations },
-                    TimelineViewContext.Default,
-                    EvaluationsSection,
-                    options.Columns,
-                    options.Fields,
-                    options.Rows)
-                    ? 0
-                    : 1;
+                return 1;
             }
 
-            return CountOutput.TryWriteProjected(
-                new TimelineTransitionsView { Rows = view.Transitions },
-                TimelineViewContext.Default,
-                TransitionsSection,
-                options.Columns,
-                options.Fields,
-                options.Rows)
-                    ? 0
-                    : 1;
+            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
+                options.Columns, options.Fields);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+            var projection = new CountProjection();
+            if (selectedSections.Contains(EvaluationsSection))
+            {
+                writerOptions.IncludeSections = [EvaluationsSection];
+                projection.Merge(CountProjectionFormatter.Capture(
+                    new TimelineEvaluationsView { Rows = view.Evaluations },
+                    TimelineViewContext.Default,
+                    writerOptions));
+            }
+            if (selectedSections.Contains(TransitionsSection))
+            {
+                writerOptions.IncludeSections = [TransitionsSection];
+                projection.Merge(CountProjectionFormatter.Capture(
+                    new TimelineTransitionsView { Rows = view.Transitions },
+                    TimelineViewContext.Default,
+                    writerOptions));
+            }
+
+            var ordered = new[] { EvaluationsSection, TransitionsSection }
+                .Where(selectedSections.Contains)
+                .ToArray();
+            CountOutput.Write(
+                projection,
+                ordered.Length > 1 ? ordered : null,
+                options.JsonOutput ? OutputFormat.Json
+                    : options.Jsonl ? OutputFormat.Jsonl
+                    : options.Tsv ? OutputFormat.Tsv
+                    : options.Tabular ? OutputFormat.Table
+                    : OutputFormat.Markdown,
+                options.NoHeader);
+            return 0;
         }
 
         if (options.JsonOutput)

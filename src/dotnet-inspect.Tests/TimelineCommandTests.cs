@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -60,6 +61,57 @@ public sealed class TimelineCommandTests
         Assert.Equal(1, invalid.ExitCode);
         Assert.Empty(invalid.Output);
         Assert.Contains("NoSuchColumn", invalid.Error);
+    }
+
+    [Fact]
+    public async Task Count_MultipleSectionsWritesAnOrderedCountMap()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null)
+            ],
+            Transitions =
+            [
+                new("1.0.0", "1.0.1", "1.0.0..1.0.1", "Added", "api.member", "Run", null),
+                new("1.0.1", "1.0.2", "1.0.1..1.0.2", "Changed", "api.member", "Run", null)
+            ]
+        };
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Evaluations",
+            "Transitions"
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    Count = true,
+                    JsonOutput = true,
+                    Rows = RowWindow.Head(1)
+                },
+                sections)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Collection(
+            document.RootElement.EnumerateArray(),
+            row =>
+            {
+                Assert.Equal("Evaluations", row.GetProperty("section").GetString());
+                Assert.Equal(1, row.GetProperty("count").GetInt32());
+            },
+            row =>
+            {
+                Assert.Equal("Transitions", row.GetProperty("section").GetString());
+                Assert.Equal(1, row.GetProperty("count").GetInt32());
+            });
     }
 
     [Fact]

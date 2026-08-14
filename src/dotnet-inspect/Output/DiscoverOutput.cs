@@ -37,10 +37,11 @@ public static class DiscoverOutput
             var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
             if (projectedRows == null)
                 return 1;
+            var visibleRows = RowWindow.Apply(projection?.Rows, projectedRows);
             return LensProjection.TryProject(
                     projection,
                     "-D/--discover",
-                    projectedRows.Count,
+                    visibleRows.Count,
                     out var projectionExitCode,
                     ["Name", "Kind"])
                 ? projectionExitCode
@@ -60,11 +61,20 @@ public static class DiscoverOutput
             tree = true;
 
         if (tree)
-            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+            return WriteTree(
+                discover,
+                schema,
+                rootLabel,
+                sectionCostAnnotations,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors,
+                projection?.Rows);
 
         var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (rows == null)
             return 1;
+        rows = [.. RowWindow.Apply(projection?.Rows, rows)];
 
         var view = new DiscoveryListView { Items = rows };
         var context = new DiscoveryContext();
@@ -589,7 +599,8 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
-        IReadOnlySet<string>? listedCategoryDoors = null)
+        IReadOnlySet<string>? listedCategoryDoors = null,
+        RowWindow? rows = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -723,6 +734,8 @@ public static class DiscoverOutput
             }
         }
 
+        nodes = ApplyTreeWindow(nodes, rows, discover is { Length: > 0 });
+
         // Wrap in root node when label is provided and showing full tree
         if (rootLabel != null && discover is null or { Length: 0 })
             nodes = [new TreeNode(rootLabel) { Children = nodes }];
@@ -730,6 +743,47 @@ public static class DiscoverOutput
         var view = new DiscoveryTreeView { Sections = nodes };
         MarkoutSerializer.Serialize(view, Console.Out, DiscoveryContext.Default);
         return 0;
+    }
+
+    private static List<TreeNode> ApplyTreeWindow(
+        List<TreeNode> nodes,
+        RowWindow? rows,
+        bool grouped)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return nodes;
+
+        if (!grouped)
+            return [.. window.Apply(nodes)];
+
+        var rowAddresses = new List<(int Parent, int? Child)>();
+        for (var parent = 0; parent < nodes.Count; parent++)
+        {
+            if (nodes[parent].Children is { Count: > 0 } children)
+            {
+                for (var child = 0; child < children.Count; child++)
+                    rowAddresses.Add((parent, child));
+            }
+            else
+            {
+                rowAddresses.Add((parent, null));
+            }
+        }
+
+        var selected = window.Apply(rowAddresses);
+        var result = new List<TreeNode>();
+        foreach (var parentGroup in selected.GroupBy(address => address.Parent))
+        {
+            var source = nodes[parentGroup.Key];
+            var selectedChildren = parentGroup
+                .Where(address => address.Child.HasValue)
+                .Select(address => source.Children![address.Child!.Value])
+                .ToList();
+            result.Add(selectedChildren.Count == 0
+                ? source
+                : new TreeNode(source.Text) { Children = selectedChildren });
+        }
+        return result;
     }
 
     private static IReadOnlyDictionary<string, string[]>? FilterCategories(

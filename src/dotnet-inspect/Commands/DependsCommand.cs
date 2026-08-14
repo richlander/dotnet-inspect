@@ -58,13 +58,19 @@ public class DependsCommand
                 return 0;
             }
 
+            var visibleNodes = ApplyTreeWindow(
+                result.Tree,
+                options.Rows,
+                node => node.Children,
+                (node, children) => node with { Children = children });
+            var treeNodes = ToTreeNodes(visibleNodes);
             if (options.Count)
             {
-                WriteCount(result.Tree);
+                WriteCount(CountTypeNodes(result.Tree), options.Rows);
             }
             else if (options.JsonOutput)
             {
-                JsonOutputHelper.Write(result.Tree,
+                JsonOutputHelper.Write(visibleNodes,
                     DependsJsonContext.Default.ListTypeDependencyNode,
                     DependsCompactJsonContext.Default.ListTypeDependencyNode,
                     options.CompactJson);
@@ -75,7 +81,6 @@ public class DependsCommand
                 // the same containment as its children.
                 var rootName = ContainLabel(
                     options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!);
-                var treeNodes = ToTreeNodes(result.Tree);
 
                 if (options.MermaidOutput)
                 {
@@ -92,7 +97,7 @@ public class DependsCommand
                         Title = rootName,
                         Dependencies = treeNodes
                     };
-                    WriteMarkdown(view, options.Rows);
+                    WriteMarkdown(view);
                 }
             }
 
@@ -136,27 +141,32 @@ public class DependsCommand
 
             var graph = (LibraryDependencyGraphResult.Graph)result;
             var treeNodes = BuildNestedDependencyTree(graph.References);
+            var visibleTreeNodes = ApplyTreeWindow(
+                treeNodes,
+                options.Rows,
+                node => node.Children ?? [],
+                (node, children) => new TreeNode(node.Text) { Children = children });
 
             if (options.Count)
             {
-                WriteCount(graph.References.Count);
+                WriteCount(graph.References.Count, options.Rows);
             }
             else if (options.MermaidOutput)
             {
-                WriteMermaidTree(graph.AssemblyName, treeNodes);
+                WriteMermaidTree(graph.AssemblyName, visibleTreeNodes);
             }
             else if (options.EmbeddedMermaid)
             {
-                WriteEmbeddedMermaidTree(ContainLabel(graph.AssemblyName), treeNodes);
+                WriteEmbeddedMermaidTree(ContainLabel(graph.AssemblyName), visibleTreeNodes);
             }
             else
             {
                 var view = new PackageDependenciesView
                 {
                     Title = ContainLabel(graph.AssemblyName),
-                    Dependencies = treeNodes
+                    Dependencies = visibleTreeNodes
                 };
-                WriteMarkdown(view, options.Rows);
+                WriteMarkdown(view);
             }
             return 0;
         }
@@ -199,11 +209,16 @@ public class DependsCommand
             }
 
             var graph = (PackageDependencyGraphResult.Graph)result;
-            var treeNodes = ToDependencyTreeNodes(graph.Dependencies);
+            var visibleDependencies = ApplyTreeWindow(
+                graph.Dependencies,
+                options.Rows,
+                node => node.Children,
+                (node, children) => node with { Children = children });
+            var treeNodes = ToDependencyTreeNodes(visibleDependencies);
 
             if (options.Count)
             {
-                WriteCount(CountDependencyNodes(graph.Dependencies));
+                WriteCount(CountDependencyNodes(graph.Dependencies), options.Rows);
             }
             else if (options.MermaidOutput)
             {
@@ -220,7 +235,7 @@ public class DependsCommand
                     Title = ContainLabel(graph.Title),
                     Dependencies = treeNodes
                 };
-                WriteMarkdown(view, options.Rows);
+                WriteMarkdown(view);
             }
             return 0;
         }
@@ -249,13 +264,14 @@ public class DependsCommand
         ).ToList();
     }
 
-    private static void WriteCount(List<TypeDependencyNode> nodes)
+    private static void WriteCount(int count, RowWindow? rows = null)
     {
-        CountOutput.WriteCount(CountTypeNodes(nodes));
-    }
+        if (rows is { IsUnlimited: false } window)
+        {
+            var (start, end) = window.Resolve(count);
+            count = end - start;
+        }
 
-    private static void WriteCount(int count)
-    {
         CountOutput.WriteCount(count);
     }
 
@@ -264,6 +280,54 @@ public class DependsCommand
 
     private static int CountDependencyNodes(List<DependencyNode> nodes)
         => nodes.Count + nodes.Sum(node => CountDependencyNodes(node.Children));
+
+    private static List<T> ApplyTreeWindow<T>(
+        IReadOnlyList<T> roots,
+        RowWindow? rows,
+        Func<T, IReadOnlyList<T>> getChildren,
+        Func<T, List<T>, T> withChildren)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return [.. roots];
+
+        var (start, end) = window.Resolve(CountNodes(roots, getChildren));
+        int index = 0;
+        var result = new List<T>();
+        foreach (var root in roots)
+        {
+            if (TryFilter(root, getChildren, withChildren, start, end, ref index, out var filtered))
+                result.Add(filtered);
+        }
+        return result;
+    }
+
+    private static int CountNodes<T>(
+        IReadOnlyList<T> nodes,
+        Func<T, IReadOnlyList<T>> getChildren)
+        => nodes.Count + nodes.Sum(node => CountNodes(getChildren(node), getChildren));
+
+    private static bool TryFilter<T>(
+        T node,
+        Func<T, IReadOnlyList<T>> getChildren,
+        Func<T, List<T>, T> withChildren,
+        int start,
+        int end,
+        ref int index,
+        out T filtered)
+    {
+        bool selected = index >= start && index < end;
+        index++;
+
+        var children = new List<T>();
+        foreach (var child in getChildren(node))
+        {
+            if (TryFilter(child, getChildren, withChildren, start, end, ref index, out var filteredChild))
+                children.Add(filteredChild);
+        }
+
+        filtered = withChildren(node, children);
+        return selected || children.Count > 0;
+    }
 
     private static List<TreeNode> ToDependencyTreeNodes(List<DependencyNode> nodes)
     {
@@ -338,9 +402,9 @@ public class DependsCommand
         mdWriter.Flush();
     }
 
-    private static void WriteMarkdown(PackageDependenciesView view, RowWindow? rows)
+    private static void WriteMarkdown(PackageDependenciesView view)
     {
-        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
+        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
             opts => MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default, opts));
     }
 }

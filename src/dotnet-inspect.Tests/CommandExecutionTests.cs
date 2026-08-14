@@ -6710,20 +6710,30 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--all-libraries", "-S",
                 "--count", "--json", "--tips", "q");
+            var (renderExit, rendered, renderError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--tips", "q");
             var (treeExit, treeOutput, treeError) = await RunAppAsync(
                 "package", packagePath, "--all-libraries", "-S",
                 "--count", "--tree", "--tips", "q");
 
             Assert.Equal(0, exit);
+            Assert.Equal(0, renderExit);
             Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Error:", renderError, StringComparison.Ordinal);
             using var document = JsonDocument.Parse(output);
             var sections = document.RootElement
                 .EnumerateArray()
                 .Select(row => row.GetProperty("section").GetString())
                 .ToArray();
-            Assert.Contains("Library Info", sections);
-            Assert.Contains("Signals", sections);
-            Assert.Contains("Symbols", sections);
+            var renderedSections = rendered
+                .Split('\n')
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line => line[3..].Split(" (", 2, StringSplitOptions.None)[0])
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            Assert.Equal(
+                sections.Order(StringComparer.OrdinalIgnoreCase),
+                renderedSections.Order(StringComparer.OrdinalIgnoreCase));
 
             Assert.Equal(1, treeExit);
             Assert.Empty(treeOutput);
@@ -6915,6 +6925,12 @@ public partial class CommandExecutionTests
             var discovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
                 "--count", "--rows", "1", "--tips", "q");
+            var renderedTfms = await RunAppAsync(
+                "package", packagePath, "--tfms",
+                "--jsonl", "--rows", "1", "--tips", "q");
+            var renderedDiscovery = await RunAppAsync(
+                "library", TestAssemblyPath, "-D", "",
+                "--jsonl", "--rows", "1", "--tips", "q");
             var invalid = await RunAppAsync(
                 "package", packagePath, "--tfms",
                 "--columns", "NoSuchColumn",
@@ -6926,6 +6942,16 @@ public partial class CommandExecutionTests
                 Assert.Equal("1", result.Output.Trim());
                 Assert.Empty(result.Error);
             }
+
+            Assert.Equal(0, renderedTfms.Exit);
+            Assert.Single(renderedTfms.Output.Split(
+                '\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Empty(renderedTfms.Error);
+
+            Assert.Equal(0, renderedDiscovery.Exit);
+            Assert.Single(renderedDiscovery.Output.Split(
+                '\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Empty(renderedDiscovery.Error);
 
             Assert.Equal(1, invalid.Exit);
             Assert.Empty(invalid.Output);
@@ -6948,6 +6974,28 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
         Assert.True(count > 0, "fixture must have dependencies for this to be a meaningful regression test");
+    }
+
+    [Fact]
+    public async Task Depends_Count_AppliesRowsToTheNodeLowering()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Int128",
+            "--count", "--rows", "2..2", "--tips", "q");
+        var (renderExit, rendered, renderError) = await RunAppAsync(
+            "depends", "System.Int128",
+            "--rows", "2..2", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+
+        Assert.Equal(0, renderExit);
+        Assert.Empty(renderError);
+        Assert.Contains("IBinaryInteger", rendered);
+        Assert.Contains("IBinaryNumber", rendered);
+        Assert.DoesNotContain("IBitwiseOperators", rendered);
+        Assert.DoesNotContain("IMinMaxValue", rendered);
     }
 
     [Fact]
@@ -12182,6 +12230,34 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetContextCountsUseTypedRows()
+    {
+        var scalar = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0",
+            "-S", "Context: Member",
+            "--fields", "Type", "--rows", "2..2",
+            "--count", "--tips", "q");
+        var map = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0",
+            "-S", "Context: Member,Context: Instruction",
+            "--count", "--json", "--tips", "q");
+
+        Assert.Equal(0, scalar.Exit);
+        Assert.Equal("0", scalar.Output.Trim());
+        Assert.Empty(scalar.Error);
+
+        Assert.Equal(0, map.Exit);
+        Assert.Empty(map.Error);
+        using var document = JsonDocument.Parse(map.Output);
+        Assert.Equal(2, document.RootElement.GetArrayLength());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.Equal(1, row.GetProperty("count").GetInt32()));
     }
 
     [Fact]

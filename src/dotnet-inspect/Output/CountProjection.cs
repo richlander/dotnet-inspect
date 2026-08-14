@@ -30,6 +30,13 @@ internal sealed class CountProjection
     internal void RecordTable(string? section, int rowCount)
         => RecordRows(section, rowCount);
 
+    internal void SetRows(string section, int rowCount)
+    {
+        WroteAnyContent = true;
+        Total += rowCount - _sectionCounts.GetValueOrDefault(section);
+        _sectionCounts[section] = rowCount;
+    }
+
     internal void Merge(CountProjection other)
     {
         ArgumentNullException.ThrowIfNull(other);

@@ -72,7 +72,7 @@ public static class LensProjection
                 return true;
             }
 
-            CountOutput.WriteCount(WindowedCount(rowCount, options.Rows), options.OutputPath);
+            CountOutput.WriteCount(rowCount, options.OutputPath);
             return true;
         }
 
@@ -107,14 +107,5 @@ public static class LensProjection
             LensSection,
             options.Fields,
             options.Columns);
-    }
-
-    private static int WindowedCount(int count, RowWindow? rows)
-    {
-        if (rows is not { IsUnlimited: false } window)
-            return count;
-
-        var (start, end) = window.Resolve(count);
-        return end - start;
     }
 }

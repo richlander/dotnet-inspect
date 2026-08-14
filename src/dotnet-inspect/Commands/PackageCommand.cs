@@ -271,14 +271,15 @@ public class PackageCommand
                         // Materialized once: counting a lazy sequence and then re-enumerating it
                         // for the render is how a count starts to disagree with its payload.
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
+                        var visibleRangeRows = RowWindow.Apply(options.Rows, rangeRows);
                         if (LensProjection.TryProject(
                                 options,
                                 "--versions",
-                                rangeRows.Count,
+                                visibleRangeRows.Count,
                                 out var rangeListingExit,
                                 ["Version", "Listing"]))
                             return rangeListingExit;
-                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(visibleRangeRows, options.Tsv, options.Jsonl, Console.Out);
                         return 0;
                     }
 
@@ -292,14 +293,15 @@ public class PackageCommand
                         .Take(options.Limit ?? int.MaxValue)
                         .Select(address => address.Version.ToNormalizedString())
                         .ToList();
+                    var visibleRangeVersions = RowWindow.Apply(options.Rows, rangeVersions);
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
-                            rangeVersions.Count,
+                            visibleRangeVersions.Count,
                             out var rangeProjectionExit,
                             ["Version"]))
                         return rangeProjectionExit;
-                    OutputFormatter.WriteStringList(rangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+                    OutputFormatter.WriteStringList(visibleRangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
                     return 0;
                 }
                 catch (Exception ex) when (ex is HttpRequestException
@@ -338,14 +340,15 @@ public class PackageCommand
                             options.SourceOptions,
                             normalizedName)) != null)
                 {
+                    var visiblePinned = RowWindow.Apply(options.Rows, new[] { versionQueryPinned });
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
-                            1,
+                            visiblePinned.Count,
                             out var cachedPinnedExit,
                             ["Version", "Listing"]))
                         return cachedPinnedExit;
-                    WriteSingleVersion(versionQueryPinned, options);
+                    WriteVersions(visiblePinned, options);
                     return 0;
                 }
 
@@ -368,17 +371,20 @@ public class PackageCommand
                 {
                     // Either spelling renders a single version row, so the projection answers 1
                     // and returns before the render path chooses between them.
+                    var visiblePinned = RowWindow.Apply(options.Rows, new[] { pinnedMatch });
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
-                            1,
+                            visiblePinned.Count,
                             out var knownPinnedExit,
                             ["Version", "Listing"]))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
-                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(visiblePinned, options.Tsv, options.Jsonl, Console.Out);
                     else
-                        WriteSingleVersion(versionQueryPinned, options);
+                        WriteVersions(
+                            visiblePinned.Select(row => row.Version).ToArray(),
+                            options);
                     return 0;
                 }
 
@@ -419,10 +425,11 @@ public class PackageCommand
                 }
 
                 // A single resolved version is a one-row payload, so --count reports 1.
+                var visibleLatest = RowWindow.Apply(options.Rows, new[] { latest });
                 if (LensProjection.TryProject(
                         options,
                         "--latest-version",
-                        1,
+                        visibleLatest.Count,
                         out var latestProjectionExit,
                         ["Version", "Listing"]))
                     return latestProjectionExit;
@@ -432,11 +439,16 @@ public class PackageCommand
                     // listed by construction. Emit it as a one-row listing so the flag still
                     // produces the tagged column the user asked for.
                     OutputFormatter.WriteVersionListings(
-                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                        visibleLatest
+                            .Select(version => new PackageVersionInfo(version, Listed: true))
+                            .ToArray(),
+                        options.Tsv,
+                        options.Jsonl,
+                        Console.Out);
                     return 0;
                 }
 
-                WriteSingleVersion(latest, options);
+                WriteVersions(visibleLatest, options);
                 return 0;
             }
 
@@ -460,10 +472,11 @@ public class PackageCommand
                     return 1;
                 }
 
+                var visibleSingleVersions = RowWindow.Apply(options.Rows, singleVersions);
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
-                        singleVersions.Count,
+                        visibleSingleVersions.Count,
                         out var cachedLatestExit,
                         ["Version"]))
                 {
@@ -471,7 +484,7 @@ public class PackageCommand
                 }
 
                 OutputFormatter.WriteStringList(
-                    singleVersions,
+                    visibleSingleVersions,
                     "Version",
                     "Version",
                     options.Tsv,
@@ -493,14 +506,15 @@ public class PackageCommand
                     return 1;
                 }
 
+                var visibleVersionFeeds = RowWindow.Apply(options.Rows, versionFeeds);
                 if (LensProjection.TryProject(
                         options,
                         "--versions-with-feed",
-                        versionFeeds.Count,
+                        visibleVersionFeeds.Count,
                         out var feedExit,
                         ["Version", "Feed", "Listing"]))
                     return feedExit;
-                OutputFormatter.WriteVersionFeedTable(versionFeeds, options, Console.Out);
+                OutputFormatter.WriteVersionFeedTable(visibleVersionFeeds, options, Console.Out);
                 return 0;
             }
 
@@ -517,14 +531,15 @@ public class PackageCommand
                     return 1;
                 }
 
+                var visibleListings = RowWindow.Apply(options.Rows, listings);
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
-                        listings.Count,
+                        visibleListings.Count,
                         out var listingExit,
                         ["Version", "Listing"]))
                     return listingExit;
-                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
+                OutputFormatter.WriteVersionListings(visibleListings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
             }
 
@@ -537,15 +552,16 @@ public class PackageCommand
                 return 1;
             }
 
+            var visibleVersions = RowWindow.Apply(options.Rows, versions);
             if (LensProjection.TryProject(
                     options,
                     "--versions",
-                    versions.Count,
+                    visibleVersions.Count,
                     out var versionsProjectionExit,
                     ["Version"]))
                 return versionsProjectionExit;
 
-            OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+            OutputFormatter.WriteStringList(visibleVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
 
             return 0;
         }
@@ -927,11 +943,11 @@ public class PackageCommand
         }
     }
 
-    private static void WriteSingleVersion(
-        string version,
+    private static void WriteVersions(
+        IEnumerable<string> versions,
         InspectionOptions options)
         => OutputFormatter.WriteStringList(
-            [version],
+            versions,
             "Version",
             "Version",
             options.Tsv,
@@ -2382,6 +2398,7 @@ public class PackageCommand
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
 
         // Same rule the print projection applies: a Markdown scope names a Markdown construct,
         // and non-Markdown documents are passed through verbatim. Without this the scope would
@@ -2389,7 +2406,7 @@ public class PackageCommand
         // whole document -- a projection answered from a different payload than the one asked
         // for, which is the defect class this command is being kept clear of.
         if (options.ContentScope != PackageFileContentScope.Full
-            && rows.FirstOrDefault(row => row.Found && !IsMarkdownDocument(row.Path, row.IsReadme)) is { } nonMarkdown)
+            && visibleRows.FirstOrDefault(row => row.Found && !IsMarkdownDocument(row.Path, row.IsReadme)) is { } nonMarkdown)
         {
             CommandError.Write(
                 $"--frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown. "
@@ -2400,15 +2417,15 @@ public class PackageCommand
         // A path that matches nothing still yields one row so the render can show it as absent.
         // Counting that row would answer "one file matched" when none did, so count found files,
         // as the bare writer below already does.
-        if (LensProjection.TryProject(options, "--content", rows.Count(row => row.Found), out var contentProjectionExit))
+        if (LensProjection.TryProject(options, "--content", visibleRows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
         if (options.Bare)
-            return PrintBarePackageFileContentRows(rows, options.OutputPath);
+            return PrintBarePackageFileContentRows(visibleRows, options.OutputPath);
 
         var output = options.Jsonl
-            ? RenderPackageFileContentJsonl(rows)
-            : RenderPackageFileContentBlocks(rows);
+            ? RenderPackageFileContentJsonl(visibleRows)
+            : RenderPackageFileContentBlocks(visibleRows);
 
         if (!string.IsNullOrEmpty(options.OutputPath))
             File.WriteAllText(options.OutputPath, output);
@@ -3271,7 +3288,8 @@ public class PackageCommand
         {
             var sections = selectAll
                 ? pipeline.GetAllSelectorSections(inspection)
-                : pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections);
+                : pipeline.GetEffectiveSections(
+                    inspection, options.Verbosity, options.IncludeSections, options.FixedOverview);
             foreach (var section in sections)
             {
                 if (!union.Contains(section, StringComparer.OrdinalIgnoreCase))
@@ -3685,7 +3703,7 @@ public class PackageCommand
             foreach (var inspection in inspections)
             {
                 if (!pipeline.GetEffectiveSections(
-                        inspection, options.Verbosity, options.IncludeSections)
+                        inspection, options.Verbosity, options.IncludeSections, options.FixedOverview)
                     .Contains(section, StringComparer.OrdinalIgnoreCase))
                 {
                     continue;
@@ -3719,7 +3737,9 @@ public class PackageCommand
     {
         foreach (var inspection in inspections)
         {
-            if (!pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections).Contains(section, StringComparer.OrdinalIgnoreCase))
+            if (!pipeline.GetEffectiveSections(
+                    inspection, options.Verbosity, options.IncludeSections, options.FixedOverview)
+                .Contains(section, StringComparer.OrdinalIgnoreCase))
                 continue;
 
             var rendered = RenderLibrarySection(inspection, section, options);
@@ -3911,11 +3931,12 @@ public class PackageCommand
         var results = options.Limit.HasValue 
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
+        var visibleResults = RowWindow.Apply(options.Rows, results);
 
-        if (LensProjection.TryProject(options, "--layout", results.Count, out var projectionExitCode))
+        if (LensProjection.TryProject(options, "--layout", visibleResults.Count, out var projectionExitCode))
             return projectionExitCode;
 
-        PackageOutputFormatter.WriteFileTree(results);
+        PackageOutputFormatter.WriteFileTree([.. visibleResults]);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
         return 0;
     }
@@ -3943,16 +3964,17 @@ public class PackageCommand
     private static int ListPackageTfms(string extractPath, InspectionOptions options)
     {
         var tfms = TfmSelector.GetPackageTfms(extractPath);
+        var visibleTfms = RowWindow.Apply(options.Rows, tfms);
 
         if (LensProjection.TryProject(
                 options,
                 "--tfms",
-                tfms.Count,
+                visibleTfms.Count,
                 out var projectionExit,
                 ["TFM"]))
             return projectionExit;
 
-        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
+        OutputFormatter.WriteStringList(visibleTfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
         return 0;
     }
 

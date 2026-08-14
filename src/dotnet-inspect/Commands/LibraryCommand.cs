@@ -624,8 +624,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -737,8 +735,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return 0;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
@@ -837,8 +833,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -935,18 +929,21 @@ public class LibraryCommand
         }
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
 
         // A coordinate that failed to resolve is still a reported row, so it counts; the
         // non-zero exit remains the signal that some coordinate did not resolve.
         if (LensProjection.TryProject(
                 options,
                 "--il-offsets",
-                rows.Count,
+                visibleRows.Count,
                 out var projectionExitCode,
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
             return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
 
-        WriteILCoordinateBatchRows(rows, options);
+        WriteILCoordinateBatchRows(
+            [.. visibleRows],
+            options with { Rows = null });
         return batchExitCode;    }
 
     private static readonly string[] BatchCoordinateSections =
@@ -1173,18 +1170,6 @@ public class LibraryCommand
         SectionNames.MemberContext,
         SectionNames.InstructionContext,
         SectionNames.ExceptionContext,
-        SectionNames.CallsiteContext,
-        SectionNames.ReturnAddressContext,
-        SectionNames.AllocationContext,
-        SectionNames.SafetyContext,
-        SectionNames.CostContext
-    ];
-
-    private static readonly string[] ILCoordinateSingletonSections =
-    [
-        SectionNames.ILOffset,
-        SectionNames.MemberContext,
-        SectionNames.InstructionContext,
         SectionNames.CallsiteContext,
         SectionNames.ReturnAddressContext,
         SectionNames.AllocationContext,
@@ -1468,32 +1453,6 @@ public class LibraryCommand
         => string.IsNullOrEmpty(options.PlatformAssembly)
             && !string.IsNullOrEmpty(options.PackagePath)
             && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
-
-    private static bool TryWriteLibrarySingletonCount(LibraryInspection inspection, LibraryOptions options)
-    {
-        if (!options.Count
-            || options.IncludeSections is not { Count: 1 } sections
-            || !sections.Overlaps(ILCoordinateSingletonSections))
-        {
-            return false;
-        }
-
-        var section = sections.Single();
-        var hasRow = section switch
-        {
-            SectionNames.ILOffset => inspection.ILOffset != null,
-            SectionNames.MemberContext => inspection.ILOffset?.MemberContext != null,
-            SectionNames.InstructionContext => inspection.ILOffset?.InstructionContext != null,
-            SectionNames.CallsiteContext => inspection.ILOffset?.CallsiteContext != null,
-            SectionNames.ReturnAddressContext => inspection.ILOffset?.ReturnAddressContext != null,
-            SectionNames.AllocationContext => inspection.ILOffset?.AllocationContext is { Count: > 0 },
-            SectionNames.SafetyContext => inspection.ILOffset?.SafetyContext is { Count: > 0 },
-            SectionNames.CostContext => inspection.ILOffset?.CostContext is { Count: > 0 },
-            _ => false
-        };
-        CountOutput.WriteCount(hasRow ? 1 : 0);
-        return true;
-    }
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
