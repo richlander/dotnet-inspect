@@ -305,14 +305,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // has run without re-entering this method's import.
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
-                if (SelfCalls(body, method).Any(call => !CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length)))
+                if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
                     continue;
 
                 importScope.Run(body, IrPasses.Default);
 
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
-                if (SelfCalls(body, method).Any(call => !CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length)))
+                if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
                     continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
@@ -592,6 +592,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         => !method.ParameterTypes.Take(visibleParameterCount).Any(type => type.Kind == TypeRefKind.ByRef)
             || method.ParameterRefKindsFacts == ParameterRefKindFacts.Known
                 && method.ParameterRefKinds.Length == method.ParameterTypes.Length;
+
+    static bool CanRewriteSelfCall(Call call)
+        => call.Arguments.Count == call.Callee.ParameterTypes.Length
+            && CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length);
 
     static LocalFunctionInvocation LocalInvocation(
         string name,

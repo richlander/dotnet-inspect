@@ -138,6 +138,19 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
+    [Fact]
+    public void RecursiveOptionalArgument_DeclinesWhenTheNestedPipelineElidesAnArgument()
+    {
+        var (output, function) = Raise(
+            typeof(LocalFunctionArgumentSamples),
+            nameof(LocalFunctionArgumentSamples.RecursiveOptionalArgument));
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Contains("_g__Read_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
     [Theory]
     [InlineData(nameof(UnraisedLocalFunctionSamples.CallsUnraisedTry))]
     [InlineData(nameof(UnraisedLocalFunctionSamples.CallsUnraisedForeach))]

@@ -60,6 +60,13 @@ public static class LocalFunctionArgumentSamples
         return Read(value);
         static int Read(int source) => source + 1;
     }
+
+    public static int RecursiveOptionalArgument(int value)
+    {
+        return Read(ref value);
+        static int Read(ref int source, int retry = 1)
+            => retry == 0 ? source : Read(ref source);
+    }
 }
 
 // Two local functions in DISJOINT scopes sharing one source name, so the compiler emits
