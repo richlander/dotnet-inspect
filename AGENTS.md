@@ -64,6 +64,16 @@ change ready to merge.
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Do not reuse a worktree across unrelated changes.
 - Never amend commits; create follow-up commits.
+- **Conflict recovery is the first priority for an open PR.** When GitHub
+  reports a merge conflict, stop tests, reviews, lower-stack restacks, and
+  unrelated follow-up work on that PR. Integrate the effective base, resolve
+  the conflict, re-read these instructions and the task-relevant docs, and push
+  the replacement head immediately so CI starts. Run required local validation
+  against that exact pushed head after the push or in parallel with CI. This is
+  the standing exception to the validate-before-push order below; it changes
+  sequencing only, and the PR remains unready until local validation, CI, and
+  required review are clean. Recover a stack bottom-up so every child rests on
+  a conflict-free parent.
 - Form one frozen candidate for each review round. Immediately before local
   validation, fetch and integrate the effective base, record that base tip, and
   then keep the resulting head fixed through validation, push, CI, and review.
@@ -497,24 +507,38 @@ round:
   `headRefOid` is the pushed head, `mergeable` is `MERGEABLE`, and the current
   head's `ci-required` check run completed successfully. A `CONFLICTING`
   mergeability result blocks, and `UNKNOWN` means GitHub has not finished
-  computing the merge. Do not read `mergeStateStatus` as check state: it is a
-  composite, and it reports `CLEAN` for a PR with no checks at all (#3706). A
-  missing `ci-required` is likewise inconclusive: the aggregate may not have
-  registered yet. Inspect all returned contexts; no PR is green until its
-  current-head `ci-required` has completed with a `SUCCESS` conclusion. A
-  subordinate check run with status `COMPLETED` and conclusion `SKIPPED` does
-  not block, but it is also not evidence: never cite a skipped job as
-  validation, and if a change should have triggered a job that skipped, the
-  path filter is the bug.
+  computing the merge. When the exact head's `ci-required` is already
+  `SUCCESS` and mergeability is the only unknown, immediately make one REST
+  `GET /repos/{owner}/{repo}/pulls/{number}` request for `head.sha`,
+  `mergeable`, and `mergeable_state`. That endpoint triggers GitHub's
+  mergeability computation and often returns the definite answer while GraphQL
+  still says `UNKNOWN`. Accept it only when `head.sha` is the expected head:
+  `mergeable: true` satisfies the mergeability half of the gate, while
+  `mergeable: false` blocks. A null REST result is still computing; yield for
+  five minutes with small random jitter, then re-run the consolidated GraphQL
+  query and the REST fallback if it remains `UNKNOWN`. Continue that
+  five-minute self-recovery until GitHub returns a definite result; do not ask
+  the user to report CI or mergeability.
+
+  Do not infer mergeability from green CI: #4032 reported successful checks
+  while GitHub reported `CONFLICTING`/`DIRTY`. Do not read `mergeStateStatus` as
+  check state either: it is a composite, and it reports `CLEAN` for a PR with
+  no checks at all (#3706). A missing `ci-required` is likewise inconclusive:
+  the aggregate may not have registered yet. Inspect all returned contexts; no
+  PR is green until its current-head `ci-required` has completed with a
+  `SUCCESS` conclusion. A subordinate check run with status `COMPLETED` and
+  conclusion `SKIPPED` does not block, but it is also not evidence: never cite
+  a skipped job as validation, and if a change should have triggered a job
+  that skipped, the path filter is the bug.
 
   Status discovery must conserve the shared GitHub API budget. After a push,
   wait at least 15 minutes before the first status query; use 20 minutes for
-  lanes known to run longer. After any inconclusive result — including pending
-  checks, `UNKNOWN` mergeability, or a missing `ci-required` — wait at least 10
-  minutes plus small random jitter before querying again. Yield the session or
-  schedule a delayed wake-up; do not hold a synchronous shell or agent turn
-  open with `sleep`. Do not use `gh run watch`, `gh pr checks --watch`, or a
-  polling loop for long-running PR checks.
+  lanes known to run longer. After pending checks or a missing `ci-required`,
+  wait at least 10 minutes plus small random jitter before querying again.
+  Apply the short REST-backed recovery above when mergeability is the only
+  unknown. Yield the session or schedule a delayed wake-up; do not hold a
+  synchronous shell or agent turn open with `sleep`. Do not use `gh run watch`,
+  `gh pr checks --watch`, or a polling loop for long-running PR checks.
 
   Every status check must re-query the PR aggregate and compare its current
   `headRefOid`; a run or check identifier is pinned to one commit and cannot

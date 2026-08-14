@@ -31,6 +31,7 @@
     <Project Path="src/ILInspector.Analysis.Fixtures/ILInspector.Analysis.Fixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.LookalikeFixtures/ILInspector.Analysis.LookalikeFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.OwnershipFlowFixtures/ILInspector.Analysis.OwnershipFlowFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
     <Project Path="src/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />

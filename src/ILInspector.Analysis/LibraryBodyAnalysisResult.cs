@@ -7,6 +7,7 @@ internal sealed record LibraryBodyAnalysisResult(
     SafetyAnalysisResult Safety,
     AllocationAnalysisResult Allocations,
     OptimizationAnalysisResult Optimizations,
+    OwnershipFlowAnalysisResult OwnershipFlow,
     ResourceLifecycleAnalysisResult Resources,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
@@ -35,3 +36,6 @@ internal sealed record OptimizationAnalysisResult(
 
 internal sealed record ResourceLifecycleAnalysisResult(
     LeakTriageResult? LeakTriage);
+
+internal sealed record OwnershipFlowAnalysisResult(
+    ImmutableArray<ArrayPoolOwnershipMethodEvidence> Methods);
