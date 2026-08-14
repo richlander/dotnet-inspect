@@ -550,8 +550,7 @@ static (
     string ProvenancePin) LoadDetectionBody(
         string repository,
         string workflowText,
-        bool validateProvenancePin = true,
-        bool validateDecompilerProjectSkipList = true)
+        bool validateProvenancePin = true)
 {
     using TextReader reader = new StringReader(workflowText);
     YamlStream yaml = [];
@@ -663,10 +662,7 @@ static (
         }
     }
 
-    if (validateDecompilerProjectSkipList)
-    {
-        ValidateDecompilerProjectSkipList(repository);
-    }
+    ValidateDecompilerProjectSkipList(Environment.CurrentDirectory);
 
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
@@ -956,17 +952,11 @@ static void AssertEvilProvenancePinMutations(
         command + " --history-path /tmp/ci-pin-mutation.jsonl",
         "EVIL provenance command");
     AssertInvalidOperation(
-        () => _ = LoadDetectionBody(
-            repository,
-            stale,
-            validateDecompilerProjectSkipList: false),
+        () => _ = LoadDetectionBody(repository, stale),
         "jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale");
 
     string refreshed = RefreshEvilProvenancePin(repository, stale);
-    _ = LoadDetectionBody(
-        repository,
-        refreshed,
-        validateDecompilerProjectSkipList: false);
+    _ = LoadDetectionBody(repository, refreshed);
 }
 
 static string RefreshEvilProvenancePin(
@@ -977,8 +967,7 @@ static string RefreshEvilProvenancePin(
         LoadDetectionBody(
             repository,
             workflowText,
-            validateProvenancePin: false,
-            validateDecompilerProjectSkipList: false);
+            validateProvenancePin: false);
     return actual == expected
         ? workflowText
         : ReplaceExactlyOnce(
