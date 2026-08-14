@@ -796,7 +796,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                     opportunities.AddRange(
                         OptimizationOpportunityAnalysis.Collect(
                             allocationFacts,
-                            methodAnalysisResolver);
+                            methodAnalysisResolver));
                 }
                 else
                 {
