@@ -636,6 +636,18 @@ public class LibraryBodyIndexTests
         Assert.Equal(
             PerformanceTriageProvenance.Exact,
             opportunity.Provenance);
+        var memberScoped = LibraryBodyIndex.Open(
+            path,
+            bodyScope: new HashSet<int>
+            {
+                opportunity.Method.MetadataToken,
+            });
+        Assert.Single(
+            memberScoped.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "sync-call-in-async"
+                && candidate.Method.MetadataToken
+                    == opportunity.Method.MetadataToken);
 
         Assert.DoesNotContain(
             index.OptimizationOpportunities,
@@ -762,6 +774,39 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.Name
                     == nameof(
                         ClassicPrivateProtectedSiblingDerivedFixture
+                            .AnalyzeAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicCovariantInterfaceSelfSiblingFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicCovariantInterfaceSelfSiblingFixture
+                            .ReadAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicProtectedReceiverDerivedFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicProtectedReceiverDerivedFixture
+                            .AnalyzeAsync));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicProtectedStaticSiblingDerivedFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicProtectedStaticSiblingDerivedFixture
                             .AnalyzeAsync));
     }
 
@@ -1097,6 +1142,26 @@ public class LibraryBodyIndexTests
                     && opportunity.Method.Name
                         == "ReadAsync");
 
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    attributeConstructorHeader: 0x25));
+            var malformedAttributeConstructor =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                malformedAttributeConstructor
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                malformedAttributeConstructor.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
             foreach (byte unsupportedHeader
                 in new byte[] { 0x25, 0x60, 0xA0 })
             {
@@ -1309,7 +1374,8 @@ public class LibraryBodyIndexTests
         byte siblingSignatureHeader = 0x20,
         bool methodImplBodyAsMemberReference = false,
         bool finalInterfaceSibling = false,
-        string sourceMethodName = "AnalyzeAsync")
+        string sourceMethodName = "AnalyzeAsync",
+        byte attributeConstructorHeader = 0x20)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1515,7 +1581,7 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddBlob(
                     new byte[]
                     {
-                        0x20,
+                        attributeConstructorHeader,
                         0x01,
                         0x01,
                         0x12,
@@ -1626,6 +1692,33 @@ public class LibraryBodyIndexTests
         Assert.Empty(index.Diagnostics);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_UnresolvedSynchronousMemberFailsClosed()
+    {
+        byte[] dependency =
+            BuildDirectionProbeDependency(
+                byRef: false,
+                ParameterAttributes.None,
+                ParameterAttributes.None,
+                synchronousName: "Gone");
+        byte[] caller =
+            BuildDirectionProbeCaller(byRef: false);
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DirectionProbeCaller.dll",
+                [.. caller],
+                LibraryBodyAnalysisFeatures.Default,
+                new DirectionProbeResolver(dependency));
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "AnalyzeAsync");
+        Assert.Empty(index.Diagnostics);
+    }
+
     [Theory]
     [InlineData(true, 1)]
     [InlineData(false, 0)]
@@ -1695,6 +1788,34 @@ public class LibraryBodyIndexTests
         Assert.Empty(index.Diagnostics);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_RuntimeAsyncIgnoresClassicAttribute()
+    {
+        byte[] dependency =
+            BuildDirectionProbeDependency(
+                byRef: false,
+                ParameterAttributes.None,
+                ParameterAttributes.None);
+        byte[] caller =
+            BuildDirectionProbeCaller(
+                byRef: false,
+                addStateMachineAttribute: true);
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DirectionProbeCaller.dll",
+                [.. caller],
+                LibraryBodyAnalysisFeatures.Default,
+                new DirectionProbeResolver(dependency));
+
+        Assert.Single(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "AnalyzeAsync");
+        Assert.Empty(index.Diagnostics);
+    }
+
     static byte[] BuildDirectionProbeDependency(
         bool byRef,
         ParameterAttributes synchronousDirection,
@@ -1702,7 +1823,8 @@ public class LibraryBodyIndexTests
         bool duplicateSynchronous = false,
         bool asynchronousMethodIsStatic = true,
         bool genericSignature = false,
-        bool addAsynchronousGenericParameter = false)
+        bool addAsynchronousGenericParameter = false,
+        string synchronousName = "Read")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1785,7 +1907,7 @@ public class LibraryBodyIndexTests
             metadata.AddMethodDefinition(
             Attributes,
             MethodImplAttributes.IL,
-            metadata.GetOrAddString("Read"),
+            metadata.GetOrAddString(synchronousName),
             AddDirectionProbeSignature(
                 metadata,
                 asynchronous: false,
@@ -1830,7 +1952,7 @@ public class LibraryBodyIndexTests
             metadata.AddMethodDefinition(
                 Attributes,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("Read"),
+                metadata.GetOrAddString(synchronousName),
                 AddDirectionProbeSignature(
                     metadata,
                     asynchronous: false,
@@ -1847,7 +1969,8 @@ public class LibraryBodyIndexTests
 
     static byte[] BuildDirectionProbeCaller(
         bool byRef,
-        bool genericSignature = false)
+        bool genericSignature = false,
+        bool addStateMachineAttribute = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1887,6 +2010,18 @@ public class LibraryBodyIndexTests
                 dependency,
                 metadata.GetOrAddString("Probe"),
                 metadata.GetOrAddString("Api"));
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        TypeReferenceHandle asyncStateMachineAttribute =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "AsyncStateMachineAttribute"));
         metadata.AddTypeDefinition(
             default,
             default,
@@ -1960,7 +2095,8 @@ public class LibraryBodyIndexTests
             : bodyEncoder.AddMethodBody(
                 new InstructionEncoder(il),
                 maxStack: 1);
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle analyze =
+            metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | MethodAttributes.Static,
             MethodImplAttributes.IL
@@ -1977,6 +2113,28 @@ public class LibraryBodyIndexTests
                 }),
             body,
             MetadataTokens.ParameterHandle(1));
+        if (addStateMachineAttribute)
+        {
+            MemberReferenceHandle constructor =
+                metadata.AddMemberReference(
+                    asyncStateMachineAttribute,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0x20, 0x01, 0x01, 0x12,
+                            (byte)CodedIndex
+                                .TypeDefOrRefOrSpec(systemType),
+                        }));
+            metadata.AddCustomAttribute(
+                analyze,
+                constructor,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x01, 0x00, 0xFF, 0x00, 0x00,
+                    }));
+        }
         return SerializeDirectionProbe(
             metadata,
             bodies);

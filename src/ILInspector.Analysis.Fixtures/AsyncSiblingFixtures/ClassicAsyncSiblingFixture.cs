@@ -242,3 +242,59 @@ public sealed class ClassicPrivateProtectedSiblingDerivedFixture
         return Read(value);
     }
 }
+
+public interface IClassicCovariantInterfaceSelfSiblingFixture<out T>
+{
+    object Read();
+    Task<object> ReadAsync();
+}
+
+public sealed class ClassicCovariantInterfaceSelfSiblingFixture
+    : IClassicCovariantInterfaceSelfSiblingFixture<string>
+{
+    public object Read() => "";
+
+    public async Task<object> ReadAsync()
+    {
+        await Task.Yield();
+        return ((IClassicCovariantInterfaceSelfSiblingFixture<object>)this)
+            .Read();
+    }
+}
+
+public class ClassicProtectedReceiverBaseFixture
+{
+    public int Read() => 0;
+
+    protected Task<int> ReadAsync()
+        => Task.FromResult(0);
+}
+
+public sealed class ClassicProtectedReceiverDerivedFixture
+    : ClassicProtectedReceiverBaseFixture
+{
+    public async Task<int> AnalyzeAsync(
+        ClassicProtectedReceiverBaseFixture other)
+    {
+        await Task.Yield();
+        return other.Read();
+    }
+}
+
+public class ClassicProtectedStaticSiblingBaseFixture
+{
+    public static int Read() => 0;
+
+    protected static Task<int> ReadAsync()
+        => Task.FromResult(0);
+}
+
+public sealed class ClassicProtectedStaticSiblingDerivedFixture
+    : ClassicProtectedStaticSiblingBaseFixture
+{
+    public async Task<int> AnalyzeAsync()
+    {
+        await Task.Yield();
+        return Read();
+    }
+}

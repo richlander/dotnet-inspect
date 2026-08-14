@@ -128,16 +128,24 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return null;
         }
 
+        if (TryResolveSynchronousMethod(
+                resolved.DefiningReader,
+                resolved.Definition,
+                callee)
+            is not { } synchronous)
+        {
+            return null;
+        }
+        resolved = (
+            synchronous.DefiningReader,
+            synchronous.DeclaringType);
+        callee = synchronous.Reference;
         bool sameAssembly = ReferenceEquals(
             resolved.DefiningReader,
             _reader);
         var declaringDefinition =
             resolved.DefiningReader.GetTypeDefinition(
                 resolved.Definition);
-        callee = ResolveParameterDirections(
-            resolved.DefiningReader,
-            declaringDefinition,
-            callee);
         if (HasConstrainedMatchingMethod(
                 resolved.DefiningReader,
                 declaringDefinition,
@@ -168,6 +176,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     sameAssembly,
                     callee.DeclaringType,
                     asyncSource,
+                    synchronous.Attributes,
                     resolved.DefiningReader,
                     resolved.Definition))
             {
@@ -232,58 +241,144 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
     }
 
-    static MemberRef ResolveParameterDirections(
+    readonly record struct ResolvedSynchronousMethod(
+        MetadataReader DefiningReader,
+        TypeDefinitionHandle DeclaringType,
+        MemberRef Reference,
+        MethodAttributes Attributes);
+
+    ResolvedSynchronousMethod? TryResolveSynchronousMethod(
         MetadataReader reader,
-        TypeDefinition declaringType,
+        TypeDefinitionHandle declaringType,
         MemberRef callee)
     {
-        if (!callee.ParameterTypes.Any(
-                parameter => parameter.Kind
-                    == TypeRefKind.ByRef)
-            || callee.ParameterDirections.Length
-                    == callee.ParameterTypes.Length
-                && !callee.ParameterDirections.Contains(
-                    ParameterDirection.UnknownByRef))
+        ImmutableArray<TypeRef> typeArguments =
+            callee.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? callee.DeclaringType.TypeArguments
+                    : [];
+        var visited =
+            new Dictionary<MetadataReader, HashSet<int>>(
+                ReferenceEqualityComparer.Instance);
+        int visitedCount = 0;
+        while (visitedCount
+            < MetadataSafetyPolicy.MaxRelationshipNodes)
         {
-            return callee;
-        }
-
-        MemberRef? match = null;
-        foreach (var handle in declaringType.GetMethods())
-        {
-            var method = reader.GetMethodDefinition(handle);
-            if (!reader.StringComparer.Equals(
-                    method.Name,
-                    callee.Name))
+            if (!TryVisitTypeDefinition(
+                    visited,
+                    reader,
+                    declaringType,
+                    ref visitedCount))
             {
-                continue;
+                return null;
             }
 
-            MemberRef? candidate = DecodeAsyncSibling(
-                reader,
-                declaringType,
-                method,
-                callee,
-                requireAsyncReturn: false);
-            if (candidate is null
-                || !AsyncSiblingMethodsMatch(
-                    candidate,
-                    callee))
+            TypeRef definitionType =
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    reader,
+                    declaringType,
+                    0);
+            TypeRef constructedType =
+                typeArguments.Length == 0
+                    ? definitionType
+                    : TypeRef.GenericInstance(
+                        definitionType,
+                        typeArguments);
+            MemberRef lookup = callee with
             {
-                continue;
+                DeclaringType = constructedType,
+            };
+            MemberRef? match = null;
+            MethodAttributes matchAttributes = default;
+            TypeDefinition definition =
+                reader.GetTypeDefinition(declaringType);
+            foreach (var handle in definition.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(handle);
+                if (!reader.StringComparer.Equals(
+                        method.Name,
+                        callee.Name))
+                {
+                    continue;
+                }
+
+                MemberRef? candidate = DecodeAsyncSibling(
+                    reader,
+                    definition,
+                    method,
+                    lookup,
+                    requireAsyncReturn: false);
+                if (candidate is null
+                    || !SynchronousCallSignaturesMatch(
+                        candidate,
+                        callee))
+                {
+                    continue;
+                }
+                if (match is not null)
+                    return null;
+                match = candidate;
+                matchAttributes = method.Attributes;
             }
             if (match is not null)
-                return callee;
-            match = candidate;
-        }
-        return match is null
-            ? callee
-            : callee with
             {
-                ParameterDirections =
-                    match.ParameterDirections,
-            };
+                return new(
+                    reader,
+                    declaringType,
+                    match,
+                    matchAttributes);
+            }
+
+            EntityHandle baseHandle = definition.BaseType;
+            if (baseHandle.IsNil)
+                return null;
+            TypeRef baseType = DecodeType(
+                reader,
+                baseHandle)
+                .Instantiate(
+                    typeArguments,
+                    []);
+            if (FrameworkIdentity.IsCoreLibraryType(
+                    DefinitionType(baseType),
+                    "System",
+                    "Object"))
+            {
+                return null;
+            }
+            if (TryResolveTypeDefinition(
+                    reader,
+                    baseType)
+                is not { } resolvedBase)
+            {
+                return null;
+            }
+            reader = resolvedBase.DefiningReader;
+            declaringType = resolvedBase.Definition;
+            typeArguments = baseType.TypeArguments;
+        }
+        return null;
     }
+
+    static bool SynchronousCallSignaturesMatch(
+        MemberRef definition,
+        MemberRef call)
+        => definition.Name == call.Name
+            && AsyncSiblingTypesMatch(
+                definition.ParameterTypes,
+                call.ParameterTypes)
+            && AsyncSiblingTypesMatch(
+                definition.ReturnType,
+                call.ReturnType)
+            && AsyncSiblingTypesMatch(
+                definition.TypeArguments,
+                call.TypeArguments)
+            && definition.HasThis == call.HasThis
+            && definition.GenericArity
+                == call.GenericArity
+            && definition.SignatureHeader
+                == call.SignatureHeader
+            && definition.RequiredParameterCount
+                == call.RequiredParameterCount;
 
     (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
         TryResolveTypeDefinition(
@@ -376,6 +471,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         bool sameAssembly,
         TypeRef declaringType,
         MethodIdentity asyncSource,
+        MethodAttributes synchronousAttributes,
         MetadataReader candidateReader,
         TypeDefinitionHandle candidateType)
     {
@@ -384,6 +480,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         bool sameType = SameTypeDefinition(
             declaringType,
             asyncSource.DeclaringType);
+        MethodAttributes synchronousAccess =
+            synchronousAttributes
+                & MethodAttributes.MemberAccessMask;
+        bool protectedReceiverProven = sameType
+            || (method.Attributes
+                    & MethodAttributes.Static) != 0
+            || synchronousAccess
+                is MethodAttributes.Family
+                    or MethodAttributes.FamANDAssem
+            || !sameAssembly
+                && synchronousAccess
+                    == MethodAttributes.FamORAssem;
         TypeRelation derived = TypeRelation.No;
         if (access is MethodAttributes.Family
             or MethodAttributes.FamANDAssem
@@ -399,14 +507,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             MethodAttributes.Public => true,
             MethodAttributes.Assembly => sameAssembly,
             MethodAttributes.Family =>
-                derived == TypeRelation.Yes,
+                derived == TypeRelation.Yes
+                && protectedReceiverProven,
             MethodAttributes.FamORAssem =>
-                sameAssembly || derived == TypeRelation.Yes,
+                sameAssembly
+                || derived == TypeRelation.Yes
+                    && protectedReceiverProven,
             MethodAttributes.Private => sameAssembly
                 && sameType,
             MethodAttributes.FamANDAssem =>
                 sameAssembly
-                && derived == TypeRelation.Yes,
+                && derived == TypeRelation.Yes
+                && protectedReceiverProven,
             _ => false,
         };
     }
@@ -498,13 +610,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         string sourceName = separator < 0
             ? asyncSource.Name
             : asyncSource.Name[(separator + 1)..];
-        if (candidate.Name != sourceName
-            || !AsyncSiblingTypesMatch(
+        bool sourceSignatureMatches =
+            AsyncSiblingTypesMatch(
                 SourceFrameParameters(candidate),
                 asyncSource.ParameterTypes)
-            || !AsyncSiblingTypesMatch(
+            && AsyncSiblingTypesMatch(
                 SourceFrameReturn(candidate),
-                asyncSource.ReturnType)
+                asyncSource.ReturnType);
+        if (candidate.Name != sourceName
             || candidate.HasThis != !asyncSource.IsStatic
             || candidate.GenericArity != asyncSource.GenericArity
             || candidate.SignatureHeader
@@ -533,13 +646,19 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
         if (candidateDeclaringTypeIsInterface)
         {
-            return SourceTypeRelation(
-                    sourceMethod.GetDeclaringType(),
-                    candidateReader,
-                    candidateType,
-                    candidate.DeclaringType)
-                is not TypeRelation.No;
+            TypeRelation relation = SourceTypeRelation(
+                sourceMethod.GetDeclaringType(),
+                candidateReader,
+                candidateType,
+                candidate.DeclaringType);
+            return relation == TypeRelation.Yes
+                ? sourceSignatureMatches
+                : relation == TypeRelation.Unknown
+                    && SourceFrameParameters(candidate).Length
+                        == asyncSource.ParameterTypes.Length;
         }
+        if (!sourceSignatureMatches)
+            return false;
         if ((sourceMethod.Attributes
                 & MethodAttributes.NewSlot) != 0)
         {
@@ -797,11 +916,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                         candidateType);
                 if (relation == TypeRelation.Yes)
                 {
-                    if (ConstructedTypeArgumentsMatch(
+                    TypeRelation argumentRelation =
+                        ConstructedTypeArgumentsRelation(
+                            resolvedInterface.DefiningReader,
+                            resolvedInterface.Definition,
                             interfaceType,
-                            candidateDeclaringType))
+                            candidateDeclaringType);
+                    if (argumentRelation
+                        == TypeRelation.Yes)
                     {
                         return TypeRelation.Yes;
+                    }
+                    if (argumentRelation
+                        == TypeRelation.Unknown)
+                    {
+                        incomplete = true;
                     }
                 }
                 if (relation == TypeRelation.Unknown)
@@ -869,6 +998,57 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             }
         }
         return true;
+    }
+
+    static TypeRelation ConstructedTypeArgumentsRelation(
+        MetadataReader reader,
+        TypeDefinitionHandle definition,
+        TypeRef implementedType,
+        TypeRef candidateType)
+    {
+        if (ConstructedTypeArgumentsMatch(
+                implementedType,
+                candidateType))
+        {
+            return TypeRelation.Yes;
+        }
+        if (implementedType.TypeArguments.Length
+            != candidateType.TypeArguments.Length)
+        {
+            return TypeRelation.Unknown;
+        }
+
+        var parameters = reader.GetTypeDefinition(
+                definition)
+            .GetGenericParameters();
+        if (parameters.Count
+            != implementedType.TypeArguments.Length)
+        {
+            return TypeRelation.Unknown;
+        }
+        int index = 0;
+        foreach (var handle in parameters)
+        {
+            var parameter = reader.GetGenericParameter(
+                handle);
+            if (parameter.Index != index)
+                return TypeRelation.Unknown;
+            if (!AsyncSiblingTypesMatch(
+                    implementedType.TypeArguments[index],
+                    candidateType.TypeArguments[index])
+                && (parameter.Attributes
+                        & GenericParameterAttributes.VarianceMask)
+                    == GenericParameterAttributes.None)
+            {
+                return TypeRelation.No;
+            }
+            index++;
+        }
+
+        // Proving covariance/contravariance would require full assignability
+        // evidence. A valid projected call can dispatch to this implementation,
+        // so suppress rather than recommend a potentially recursive sibling.
+        return TypeRelation.Unknown;
     }
 
     static bool TryVisitConstructedTypeDefinition(

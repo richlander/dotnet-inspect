@@ -356,6 +356,49 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
     }
 
+    bool ScopeMayRequireStateMachineBody(
+        IReadOnlySet<int> bodyScope)
+    {
+        foreach (int token in bodyScope)
+        {
+            EntityHandle handle =
+                MetadataTokens.EntityHandle(token);
+            if (handle.Kind
+                != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+            try
+            {
+                foreach (var attributeHandle
+                    in _reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)handle)
+                        .GetCustomAttributes())
+                {
+                    string? name =
+                        AttributeDecoder.GetAttributeTypeName(
+                            _reader,
+                            _reader.GetCustomAttribute(
+                                attributeHandle).Constructor);
+                    if (name is
+                        KnownAttributeNames
+                            .AsyncStateMachineAttribute
+                        or KnownAttributeNames
+                            .AsyncIteratorStateMachineAttribute)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public LibraryBodyAnalysisResult Build(
         LibraryBodyAnalysisPlan plan)
     {
@@ -368,6 +411,28 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
+        if (includeOpportunities
+            && bodyScope is not null)
+        {
+            if (ScopeMayRequireStateMachineBody(
+                    bodyScope))
+            {
+                var expandedScope = new HashSet<int>(
+                    bodyScope);
+                foreach ((
+                    int moveNextToken,
+                    MethodIdentity source)
+                    in AsyncStateMachineSourceMethods())
+                {
+                    if (bodyScope.Contains(
+                            source.MetadataToken))
+                    {
+                        expandedScope.Add(moveNextToken);
+                    }
+                }
+                bodyScope = expandedScope;
+            }
+        }
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1474,6 +1539,23 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         MethodDefinition methodDefinition,
         bool typeSourceGenerated)
     {
+        MethodClassification? classification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
+                _reader,
+                methodDefinition);
+        if (classification
+            == MethodClassification.RuntimeAsync)
+        {
+            return !typeSourceGenerated
+                && !HasGeneratedCodeAttribute(
+                    methodDefinition.GetCustomAttributes())
+                && !HasCompilerGeneratedAttribute(
+                    methodDefinition.GetCustomAttributes())
+                && !IsBlazorRenderMethod(physicalMethod)
+                    ? physicalMethod
+                    : null;
+        }
+
         AsyncStateMachineAttributeInfo stateMachineAttribute =
             AsyncStateMachineAttribute(
                 methodDefinition.GetCustomAttributes());
@@ -1485,15 +1567,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         if (stateMachineAttribute.Ignored)
             return null;
 
-        MethodClassification? classification =
-            MethodClassificationScanner.ClassifyAsyncMethod(
-                _reader,
-                methodDefinition);
-        if (classification
-                == MethodClassification.RuntimeAsync
-            || stateMachineAttribute.Present
-                && classification
-                    == MethodClassification.StateMachineAsync)
+        if (stateMachineAttribute.Present
+            && classification
+                == MethodClassification.StateMachineAsync)
         {
             return !typeSourceGenerated
                 && !HasGeneratedCodeAttribute(
@@ -1798,12 +1874,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             {
                 continue;
             }
-            if (!IsTrustedAsyncStateMachineAttribute(
+            if (!TryGetTrustedAsyncStateMachineAttribute(
                     _reader,
                     attribute.Constructor,
-                    name))
+                    name,
+                    out MemberRef constructor))
             {
                 continue;
+            }
+            if (!HasAsyncStateMachineConstructorShape(
+                    constructor))
+            {
+                return new(
+                    Present: true,
+                    Rejected: true,
+                    Ignored: false,
+                    SerializedType: null);
             }
 
             if (sawAttribute)
@@ -1843,8 +1929,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         MetadataReader reader,
         EntityHandle constructor,
         string attributeName)
+        => TryGetTrustedAsyncStateMachineAttribute(
+                reader,
+                constructor,
+                attributeName,
+                out MemberRef member)
+            && HasAsyncStateMachineConstructorShape(member);
+
+    static bool TryGetTrustedAsyncStateMachineAttribute(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string attributeName,
+        out MemberRef member)
     {
-        MemberRef member = MemberResolver.ResolveMethod(
+        member = MemberResolver.ResolveMethod(
             reader,
             constructor,
             GenericScope.Empty);
@@ -1855,14 +1953,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         string name = separator < 0
             ? attributeName
             : attributeName[(separator + 1)..];
-        return member.Name == ".ctor"
-            && member.HasThis
-            && member.GenericArity == 0
-            && member.ParameterTypes.Length == 1
-            && FrameworkIdentity.IsCoreLibraryType(
+        return FrameworkIdentity.IsCoreLibraryType(
                 DefinitionType(member.DeclaringType),
                 ns,
-                name)
+                name);
+    }
+
+    static bool HasAsyncStateMachineConstructorShape(
+        MemberRef member)
+        => member.Name == ".ctor"
+            && member.Kind == MemberKind.Constructor
+            && member.HasThis
+            && member.GenericArity == 0
+            && member.SignatureHeader == 0x20
+            && member.RequiredParameterCount == 1
+            && member.ParameterTypes.Length == 1
             && FrameworkIdentity.IsCoreLibraryType(
                 member.ParameterTypes[0],
                 "System",
@@ -1871,7 +1976,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 member.ReturnType,
                 "System",
                 "Void");
-    }
 
     bool TryReadSerializedStateMachineType(
         CustomAttribute attribute,
