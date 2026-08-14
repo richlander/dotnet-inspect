@@ -19163,13 +19163,45 @@ public partial class CommandExecutionTests
                 "-S",
                 "--columns",
                 "Field");
+            var selectedCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Field");
+            var selectedRendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--columns",
+                "Field",
+                "--table");
+            var selectedUnknownColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Bogus");
 
             Assert.Equal(1, count.Exit);
             Assert.Equal(0, renderedColumn.Exit);
             Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, selectedCount.Exit);
+            Assert.Equal(0, selectedRendered.Exit);
+            Assert.Equal(1, selectedUnknownColumn.Exit);
             Assert.Empty(count.Output);
             Assert.Empty(renderedColumn.Error);
             Assert.Empty(rendered.Error);
+            Assert.Empty(selectedCount.Error);
+            Assert.Empty(selectedRendered.Error);
+            Assert.Contains(
+                "No columns matched projection: Bogus",
+                selectedUnknownColumn.Error);
             Assert.Contains(
                 "No fields matched projection: Bogus",
                 count.Error);
@@ -19182,6 +19214,9 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "| Field |",
                 rendered.Output);
+            Assert.Contains(
+                "Field",
+                selectedRendered.Output);
         }
         finally
         {

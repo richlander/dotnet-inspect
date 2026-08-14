@@ -1174,11 +1174,11 @@ public class PackageCommand
         if (options.IncludeSections is not { Count: > 0 })
             return true;
 
-        return ProjectionDiagnostics.ValidateProjection(
+        return ValidatePackageCountProjection(
             schema,
             options.IncludeSections,
-            options.Fields,
-            options.Columns);
+            options,
+            combinedRows: false);
     }
 
     private static bool ValidatePackageCountProjection(
