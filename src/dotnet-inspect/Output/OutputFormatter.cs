@@ -103,10 +103,14 @@ public static class OutputFormatter
     public static MarkoutWriterOptions CreateTableWriterOptions(bool tsv, bool jsonl) =>
         ConfigureTableWriterOptions(new MarkoutWriterOptions(), tsv, jsonl);
 
-    public static MarkoutWriterOptions CreateProjectedWriterOptions(string[]? columns = null, string[]? fields = null) =>
+    public static MarkoutWriterOptions CreateProjectedWriterOptions(
+        string[]? columns = null,
+        string[]? fields = null,
+        RowWindow? rows = null) =>
         new()
         {
-            Projection = BuildProjection(columns, fields)
+            Projection = BuildProjection(columns, fields),
+            RowWindow = RowWindow.ToMarkout(rows),
         };
 
     public static string RenderProjectedTable(
@@ -115,9 +119,10 @@ public static class OutputFormatter
         bool jsonl,
         string[]? columns,
         string[]? fields,
-        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize)
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        RowWindow? maxRows = null)
     {
-        var writerOptions = CreateProjectedWriterOptions(columns, fields);
+        var writerOptions = CreateProjectedWriterOptions(columns, fields, maxRows);
         ConfigureTableWriterOptions(writerOptions, tsv, jsonl);
         return RenderTable(showHeader,
             (writer, formatter) => serialize(writer, formatter, writerOptions));
@@ -132,7 +137,66 @@ public static class OutputFormatter
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         RowWindow? maxRows = null) =>
-        output.Write(LimitRenderedTableRows(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize), maxRows, showHeader));
+        output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows));
+
+    /// <summary>
+    /// Renders a view as the lowered JSON view: the same section and projection decisions the
+    /// table formats honor, emitted as JSON instead of Markdown/TSV/JSONL (dotnet-inspect#3494).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the <c>--json</c> destination once a caller names <c>--fields</c>/<c>--columns</c>.
+    /// Those flags select from the post-lowering vocabulary, so naming one opts into the display
+    /// view; plain <c>--json</c> keeps the pre-lowered typed shape and does not come through here.
+    /// </para>
+    /// <para>
+    /// The projection is applied by Markout, not re-implemented here, which is what keeps JSON
+    /// content-identical to the table formats at the same shape. An unmatched column therefore
+    /// fails the same way it does under <c>--tsv</c>: Markout throws and the top-level handler
+    /// reports <c>No columns matched projection</c>. Letting that propagate keeps a bad column
+    /// name failing closed instead of silently yielding an empty document.
+    /// </para>
+    /// <para>
+    /// The serialize callback is handed <see cref="TextWriter.Null"/> because JSON is assembled by
+    /// the formatter rather than written linearly; the rendered text stream carries no content.
+    /// </para>
+    /// </remarks>
+    public static string RenderProjectedJson(
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        bool indented = true,
+        RowWindow? maxRows = null)
+    {
+        var writerOptions = CreateProjectedWriterOptions(columns, fields, maxRows);
+        // Ask Markout for the JSONL flavor of the header names. The formatter is ours, so this
+        // does not change who renders the table -- it changes the vocabulary handed to the
+        // renderer, which is how --jsonl and the pre-lowered --json both get machine keys
+        // ("type") rather than the display headings Markdown shows ("Type"). Without it the same
+        // --json flag would change key casing depending on whether a projection was requested.
+        ConfigureTableWriterOptions(writerOptions, tsv: false, jsonl: true);
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(writerOptions);
+        serialize(TextWriter.Null, formatter, writerOptions);
+        return formatter.Finish(indented);
+    }
+
+    /// <summary>
+    /// Writes the lowered JSON view produced by <see cref="RenderProjectedJson"/>.
+    /// </summary>
+    /// <remarks>
+    /// This does not post-process rendered text with <see cref="LimitRenderedTableRows"/>. A
+    /// pretty-printed JSON document has no one-line-per-row correspondence and would be cut
+    /// mid-object. Markout applies the window to the data before handing rows to the formatter.
+    /// </remarks>
+    public static void WriteProjectedJson(
+        TextWriter output,
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        bool indented = true,
+        RowWindow? maxRows = null) =>
+        output.WriteLine(RenderProjectedJson(columns, fields, serialize, indented, maxRows));
 
     /// <summary>
     /// Serializes a view with <c>--rows</c> applied at the writer seam and writes the result.
@@ -765,11 +829,56 @@ public static class OutputFormatter
         if (columns == null && fields == null)
             return null;
 
+        RejectDuplicates(columns, "--columns");
+        RejectDuplicates(fields, "--fields");
+
         return new MarkoutProjection
         {
             IncludeColumns = columns,
             IncludeFields = fields,
         };
+    }
+
+    /// <summary>
+    /// Rejects a projection that names the same column or field twice.
+    /// </summary>
+    /// <remarks>
+    /// Naming a column twice cannot mean anything a caller wants, and what it produces depends on
+    /// whether the format keys its output: TSV and the Markdown table repeat a harmless column,
+    /// but JSON and JSONL emit a duplicate property, which is not an error any JSON parser reports
+    /// -- consumers silently keep one. Rejecting the request here rather than in a renderer keeps
+    /// every format agreeing about which requests are valid, which is the same reason an unmatched
+    /// column already fails closed (dotnet-inspect#3494 review). Matching is case-insensitive
+    /// because column selection is.
+    /// <para>
+    /// This is the second gate, not the first. <c>SharedOptions</c> attaches the same check to the
+    /// <c>--columns</c>/<c>--fields</c> options themselves, so a duplicate arriving from the command
+    /// line is rejected at parse time as a clean one-line error. That matters because a throw from
+    /// inside the invocation pipeline is only reported cleanly by commands that happen to catch it:
+    /// <c>find</c> does, <c>package</c> does not, and there it surfaced as an unhandled-exception
+    /// stack trace (dotnet-inspect#3494 review).
+    /// </para>
+    /// <para>
+    /// Every product caller of <c>BuildProjection</c> currently passes <c>Columns</c>/<c>Fields</c>
+    /// sourced from those validated options, so this check is unreachable from the CLI today. It
+    /// stays because <c>OutputFormatter</c> is in-process infrastructure that callers can drive
+    /// directly -- <c>FindCommandTests</c> already does -- and because a future option reaching
+    /// <c>BuildProjection</c> without a parse-time validator would otherwise emit a duplicate key
+    /// rather than fail. It is defense in depth, not the enforcing gate; the parse-time validator
+    /// is, and <c>DuplicateProjection_IsRejectedByCommandsThatDoNotCatchIt</c> pins it.
+    /// </para>
+    /// </remarks>
+    private static void RejectDuplicates(string[]? names, string flag)
+    {
+        if (names is not { Length: > 1 })
+            return;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names)
+        {
+            if (!seen.Add(name))
+                throw new InvalidOperationException($"Duplicate {flag} entry: {name}");
+        }
     }
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>

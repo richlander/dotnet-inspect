@@ -127,6 +127,27 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task Router_PlatformPrefixBrowse_IgnoresCachedPackageCandidate()
+    {
+        const string Target = "System.Text.Json.Serialization";
+        SeedLatestCandidate(
+            Target,
+            ExcludedSource,
+            "1.0.0");
+
+        var observations = await RunAppAsync(
+            [Target, "--source", ExcludedSource]);
+
+        var rewrite = Assert.Single(
+            observations,
+            observation => observation.Stage == "router-rewrite");
+        Assert.Contains(
+            $" -> type {Target}",
+            rewrite.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Router_InvalidNuGetConfig_ReportsCleanParseError()
     {
         string missingConfig = Path.Combine(_testRoot, "missing.nuget.config");
