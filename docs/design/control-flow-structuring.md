@@ -610,12 +610,12 @@ only when the post-dominator machinery is proven.
 
    *Scope addition (2026-08-12, from
    [#4063](https://github.com/richlander/dotnet-inspect/issues/4063)):* the
-   join primitive covers back-edge regions from day one — a non-crossing
-   region whose only back-edges target its head raises as `while`/
-   `while(true)` with the postdom-LCA exit as the break target. Loop-specific
-   mechanisms (continue placement, condition hoisting for effectful latches,
-   labeled break, conditional rotated entries) remain follow-on slices on top
-   of this shared core.
+   join plan represents and classifies back-edge regions from day one. The
+   first retained-label production slice consumes only proven acyclic forward
+   regions; raising a non-crossing region whose back-edges target its head as
+   `while`/`while (true)` remains a follow-on, together with continue placement,
+   condition hoisting for effectful latches, labeled break, and conditional
+   rotated entries.
 
    *Status: shared-terminator merge slice landed (partial).* The first slice of
    step 4 relaxes the all-or-nothing invariant for one safe case: a shared
@@ -635,6 +635,17 @@ only when the post-dominator machinery is proven.
    carrying a base/this constructor-chain call (it must stay the body's first
    statement for the `: base(...)` lift; duplicating it would strand a bare chain
    call, CS0175).
+
+   *Status: first retained-label production slice implemented.* The existing
+   whole-container all-or-nothing path still runs first. Only after it declines,
+   the product-owned join plan selects the furthest valid merge for the current
+   range, proves single entry and a merge reached by at least two explicit
+   transfers, and plans sequential tail ranges before mutation. The slice
+   retains unconditional and conditional gotos to the merge, preserves each
+   merge label when the tail is structured, and declines crossing, unrooted,
+   EH/switch, external-entry, and back-edge-entangled regions. Unrelated
+   back-edge regions in untouched tail ranges do not veto an eligible forward
+   region; unresolved loop regions remain represented but flat.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
@@ -1014,11 +1025,13 @@ add to the step-4 plan:
 1. **Merge selection**: deepest-valid post-dominator plus recursive
    re-application to the tail — nearest-first structures only a prefix of
    multi-merge containers (readable but visibly half-done).
-2. **Back-edge regions are in scope from day one** (see the corrected loop
-   entry under *Out of scope*).
-3. **Definite assignment**: retained gotos inside a structured tree flood
-   locals to `= default` (`Matrix4x4::Decompose` 1→7); the #631 CFG-based DA
-   walk must learn in-tree retained gotos. Cosmetic, but a merge-bar
-   implementation fixes it.
+2. **Back-edge regions are represented and classified from day one**; the first
+   production behavior slice declines unresolved loop regions while allowing an
+   unrelated loop in an untouched tail (see the corrected loop entry under
+   *Out of scope*).
+3. **Definite assignment**: the production slice extends the #631 analysis with
+   a forward structured-goto walk, so assignments reaching a retained merge are
+   intersected with lexical fallthrough instead of flooding locals to
+   `= default` (`Matrix4x4::Decompose` was 1→7 in the probe).
 4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
    corpus baseline as the regression sensor before the rewrite lands.
