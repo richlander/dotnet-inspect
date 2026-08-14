@@ -149,6 +149,37 @@ public class InfiniteLoopStructuringTests
     }
 
     [Fact]
+    public void SwitchLoopGotoDone_KeepsSwitchOwnedBreak()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchLoopGotoDone))!;
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(function, PassContext.None);
+            function.CheckInvariant();
+        }
+
+        var @switch = Assert.Single(function.Descendants.OfType<Switch>());
+        var caseZero = Assert.Single(
+            @switch.Sections,
+            section => section.Labels.Any(label => Equals(label.Value, 0)));
+        var switchBreak = Assert.Single(caseZero.Body.Descendants.OfType<Break>());
+        Assert.Same(@switch, StructuredTransferOwner(switchBreak));
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(caseZero.Body.Descendants.OfType<WhileLoop>());
+        Assert.Same(@switch, StructuredTransferOwner(switchBreak));
+        Assert.Single(caseZero.Body.Descendants.OfType<Branch>());
+    }
+
+    [Fact]
     public void EnumeratorLoopCatchContinue_RaisesLeaveToContinue()
     {
         var function = Raised(nameof(CfgSampleClass.EnumeratorLoopCatchContinue));
@@ -373,6 +404,64 @@ public class InfiniteLoopStructuringTests
         Assert.Empty(function.Descendants.OfType<Continue>());
     }
 
+    [Fact]
+    public void InfiniteLoopContainingSwitchOwnedBreak_StaysFlat()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var sectionBody = new BlockContainer();
+
+        var head = new Block(0x10);
+        head.Add(new ConditionalBranch(
+            new LoadArgument(1, "exit", boolType),
+            0x20));
+        sectionBody.Add(head);
+
+        var exitArm = new Block(0x18);
+        exitArm.Add(new Break());
+        sectionBody.Add(exitArm);
+
+        var latch = new Block(0x20);
+        latch.Add(new Branch(0x10));
+        sectionBody.Add(latch);
+
+        var body = new BlockContainer();
+        var entry = new Block(0x00);
+        entry.Add(new Switch(
+            new LoadArgument(0, "value", intType),
+            [
+                new SwitchSection(
+                    [new Constant(0, intType)],
+                    isDefault: false,
+                    sectionBody),
+            ]));
+        entry.Add(new Return(null));
+        body.Add(entry);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                voidType,
+                [
+                    new Parameter("value", intType),
+                    new Parameter("exit", boolType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<Break>());
+        Assert.Single(function.Descendants.OfType<Branch>());
+    }
+
     static IrFunction InOuterLoop(BlockContainer loopBody)
     {
         var body = new BlockContainer();
@@ -393,5 +482,13 @@ public class InfiniteLoopStructuringTests
                 GenericParameterCount: 0),
             [],
             body);
+    }
+
+    static IrNode? StructuredTransferOwner(IrNode node)
+    {
+        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            if (ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                return ancestor;
+        return null;
     }
 }

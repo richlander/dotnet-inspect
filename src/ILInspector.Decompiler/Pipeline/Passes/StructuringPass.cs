@@ -720,6 +720,17 @@ public sealed class StructuringPass : IIrPass
                 }
                 continue;
             }
+            if (node is Break)
+            {
+                if (!HasOwnerBeforeRoot(
+                    node,
+                    root,
+                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+                {
+                    return true;
+                }
+                continue;
+            }
             if (node is not Leave leave || !CanRaiseRetryLeave(leave))
                 continue;
 
