@@ -732,9 +732,15 @@ Research overlay bridge, and the application layer:
   `IOptimizationOpportunityResolver`; the producer does not own the metadata
   reader, generic scope, or raw IL. The assembly reader retains PE/body
   acquisition, the intentionally throwing decode path, method identity and
-  scope creation, metadata and raw-IL ownership through the shared narrow
-  method-analysis resolver, orchestration and diagnostics, resource/leak
-  analysis, and result aggregation.
+  scope creation, primary-image metadata and raw-IL ownership through the shared
+  narrow method-analysis resolver, orchestration and diagnostics, resource/leak
+  analysis, and result aggregation. Cross-assembly type-definition binding,
+  referenced-image metadata lifetime, and the registration-keyed cache belong
+  to `LibraryBodyReferenceMetadataResolver`, which composes
+  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.
+  `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
+  `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
+  forwarder and binding-scope behavior.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation

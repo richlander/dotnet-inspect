@@ -15,6 +15,29 @@ public class ApiSurfaceExtractorTests
         new CSharpFormatOptions { IncludeCustomAttributes = true });
 
     [Fact]
+    public void ExtractSummary_MatchesFullPublicSurfaceCounts()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+
+        using var fullStream = File.OpenRead(assemblyPath);
+        using var fullReader = new PEReader(fullStream);
+        var full = ApiSurfaceExtractor.Extract(fullReader);
+
+        using var summaryStream = File.OpenRead(assemblyPath);
+        using var summaryReader = new PEReader(summaryStream);
+        var summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+
+        Assert.Equal(full.PublicTypeCount, summary.PublicTypeCount);
+        Assert.Equal(full.PublicMethodCount, summary.PublicMethodCount);
+        Assert.Equal(full.PublicPropertyCount, summary.PublicPropertyCount);
+        Assert.Equal(full.PublicEventCount, summary.PublicEventCount);
+        Assert.Equal(full.PublicFieldCount, summary.PublicFieldCount);
+        Assert.Equal(
+            full.Types.Select(type => type.FullName).Order(),
+            summary.Types.Select(type => type.FullName).Order());
+    }
+
+    [Fact]
     public void Extract_IncludesParameterNamesInMethodSignatures()
     {
         // Use the test assembly itself - we know its methods have parameter names
