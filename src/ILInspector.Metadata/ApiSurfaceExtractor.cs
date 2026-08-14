@@ -179,7 +179,12 @@ public static class ApiSurfaceExtractor
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
                 surface.PublicFieldCount = publicFieldCount;
-                AddInspectionFailure(surface, ex.Operation, typeDefHandle, ex.Failure);
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    ex.Operation,
+                    typeDefHandle,
+                    ex.Failure);
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
@@ -189,6 +194,7 @@ public static class ApiSurfaceExtractor
                 surface.PublicFieldCount = publicFieldCount;
                 AddInspectionFailure(
                     surface,
+                    budget: null,
                     "type summary row",
                     typeDefHandle,
                     MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
@@ -871,7 +877,7 @@ public static class ApiSurfaceExtractor
         AttachLocalExtensionMethods(surface, budget);
 
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
-        ExtractTypeForwarders(reader, surface);
+        ExtractTypeForwarders(reader, surface, budget);
 
         ApiMemberIdentity.PopulateCanonicalIdentities(surface);
 
@@ -1007,7 +1013,10 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static void ExtractTypeForwarders(MetadataReader reader, ApiSurface surface)
+    private static void ExtractTypeForwarders(
+        MetadataReader reader,
+        ApiSurface surface,
+        ExtractionBudget? budget = null)
     {
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
