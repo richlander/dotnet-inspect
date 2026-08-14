@@ -87,6 +87,83 @@ public readonly record struct TransparentScopeSpan(
 }
 
 /// <summary>
+/// One branch of a lexically trustworthy conditional group.
+/// </summary>
+public sealed class ConditionalBranchSpan
+{
+    internal ConditionalBranchSpan(
+        int id,
+        int groupId,
+        int directiveLine,
+        int contentStartLine,
+        int contentEndLineExclusive)
+    {
+        Id = id;
+        GroupId = groupId;
+        DirectiveLine = directiveLine;
+        ContentStartLine = contentStartLine;
+        ContentEndLineExclusive = contentEndLineExclusive;
+    }
+
+    /// <summary>A source-ordered identity stable within one <see cref="DeclarationIndex"/>.</summary>
+    public int Id { get; }
+
+    /// <summary>The identity of the group that owns this branch.</summary>
+    public int GroupId { get; }
+
+    /// <summary>The 1-based physical line carrying this branch's directive.</summary>
+    public int DirectiveLine { get; }
+
+    /// <summary>The first 1-based physical source line after the directive.</summary>
+    public int ContentStartLine { get; }
+
+    /// <summary>
+    /// The first 1-based physical line not in this branch, which is the next branch or
+    /// <c>#endif</c> directive line. Equal to <see cref="ContentStartLine"/> for an empty branch.
+    /// </summary>
+    public int ContentEndLineExclusive { get; }
+
+    /// <summary>Whether a 1-based physical line lies in this branch's content.</summary>
+    public bool Contains(int line) =>
+        line >= ContentStartLine && line < ContentEndLineExclusive;
+}
+
+/// <summary>
+/// One complete conditional group whose directive nesting the lexer can vouch for.
+/// </summary>
+public sealed class ConditionalGroupSpan
+{
+    internal ConditionalGroupSpan(
+        int id,
+        int parentGroupId,
+        int ifDirectiveLine,
+        int endIfDirectiveLine,
+        ImmutableArray<ConditionalBranchSpan> branches)
+    {
+        Id = id;
+        ParentGroupId = parentGroupId;
+        IfDirectiveLine = ifDirectiveLine;
+        EndIfDirectiveLine = endIfDirectiveLine;
+        Branches = branches;
+    }
+
+    /// <summary>A source-ordered identity stable within one <see cref="DeclarationIndex"/>.</summary>
+    public int Id { get; }
+
+    /// <summary>The enclosing group's identity, or -1 for a top-level group.</summary>
+    public int ParentGroupId { get; }
+
+    /// <summary>The 1-based physical line carrying the opening <c>#if</c>.</summary>
+    public int IfDirectiveLine { get; }
+
+    /// <summary>The 1-based physical line carrying the closing <c>#endif</c>.</summary>
+    public int EndIfDirectiveLine { get; }
+
+    /// <summary>The group's branches in source order.</summary>
+    public ImmutableArray<ConditionalBranchSpan> Branches { get; }
+}
+
+/// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
 /// All line numbers are <b>1-based physical lines of the file that was indexed</b>, so a caller
@@ -337,13 +414,20 @@ public sealed record DeclarationSpan(
 public sealed class DeclarationIndex
 {
     private const int MaxLineCount = 500_000;
+    private readonly ImmutableArray<string> sourceLines;
 
     private DeclarationIndex(
+        ImmutableArray<string> sourceLines,
         ImmutableArray<DeclarationSpan> declarations,
-        ImmutableArray<TransparentScopeSpan> transparentScopes)
+        ImmutableArray<TransparentScopeSpan> transparentScopes,
+        ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        bool hasLineDirectives)
     {
+        this.sourceLines = sourceLines;
         Declarations = declarations;
         TransparentScopes = transparentScopes;
+        ConditionalGroups = conditionalGroups;
+        HasLineDirectives = hasLineDirectives;
     }
 
     /// <summary>
@@ -362,6 +446,21 @@ public sealed class DeclarationIndex
     /// </remarks>
     public ImmutableArray<TransparentScopeSpan> TransparentScopes { get; }
 
+    /// <summary>
+    /// Complete conditional groups whose directive nesting the lexer can vouch for, in source
+    /// order. Groups at or after ambiguous conditional topology are withheld rather than guessed.
+    /// </summary>
+    public ImmutableArray<ConditionalGroupSpan> ConditionalGroups { get; }
+
+    /// <summary>
+    /// Whether the indexed file contains a lexically recognized <c>#line</c> directive.
+    /// Physical source lines cannot safely be correlated with portable-PDB lines when this is true.
+    /// </summary>
+    public bool HasLineDirectives { get; }
+
+    /// <summary>The number of physical source lines indexed.</summary>
+    public int LineCount => sourceLines.Length;
+
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
         Build(CSharpSourceText.SplitLines(sourceText, MaxLineCount));
@@ -372,11 +471,98 @@ public sealed class DeclarationIndex
         if (lines.Count > MaxLineCount)
             throw new CSharpTextComplexityException(MaxLineCount, "lines");
 
+        ImmutableArray<string> sourceLines = [.. lines];
         ImmutableArray<DeclarationSpan> declarations =
             DeclarationIndexBuilder.Build(
-                lines,
-                out ImmutableArray<TransparentScopeSpan> transparentScopes);
-        return new DeclarationIndex(declarations, transparentScopes);
+                sourceLines,
+                out ImmutableArray<TransparentScopeSpan> transparentScopes,
+                out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+                out bool hasLineDirectives);
+        return new DeclarationIndex(
+            sourceLines,
+            declarations,
+            transparentScopes,
+            conditionalGroups,
+            hasLineDirectives);
+    }
+
+    /// <summary>
+    /// Rebuilds the index after removing the unselected content of each caller-selected
+    /// conditional group. Directive and removed-content lines become empty strings, preserving
+    /// every 1-based physical line coordinate.
+    /// <para>
+    /// A branch object is valid only for the index that produced it. Passing a branch from another
+    /// index is rejected even when its integer IDs happen to match.
+    /// </para>
+    /// </summary>
+    public DeclarationIndex WithSelectedConditionalBranches(
+        IReadOnlyCollection<ConditionalBranchSpan> selectedBranches)
+    {
+        ArgumentNullException.ThrowIfNull(selectedBranches);
+        if (selectedBranches.Count == 0)
+            return this;
+        if (selectedBranches.Count > ConditionalGroups.Length)
+            throw new ArgumentException("At most one branch may be selected per group.", nameof(selectedBranches));
+
+        var owners = new Dictionary<ConditionalBranchSpan, ConditionalGroupSpan>(
+            ReferenceEqualityComparer.Instance);
+        foreach (var group in ConditionalGroups)
+        {
+            foreach (var branch in group.Branches)
+                owners.Add(branch, group);
+        }
+
+        var selectedByGroup = new Dictionary<int, ConditionalBranchSpan>();
+        foreach (var branch in selectedBranches)
+        {
+            if (branch is null || !owners.TryGetValue(branch, out var group))
+            {
+                throw new ArgumentException(
+                    "Every selected branch must belong to this declaration index.",
+                    nameof(selectedBranches));
+            }
+
+            if (!selectedByGroup.TryAdd(group.Id, branch))
+            {
+                throw new ArgumentException(
+                    "At most one branch may be selected per group.",
+                    nameof(selectedBranches));
+            }
+        }
+
+        int[] blankingDelta = new int[sourceLines.Length + 1];
+        foreach (var (groupId, selected) in selectedByGroup)
+        {
+            var group = owners[selected];
+            MarkLine(group.EndIfDirectiveLine);
+            foreach (var branch in group.Branches)
+            {
+                MarkLine(branch.DirectiveLine);
+                if (!ReferenceEquals(branch, selected))
+                    MarkRange(branch.ContentStartLine, branch.ContentEndLineExclusive);
+            }
+        }
+
+        string[] projected = [.. sourceLines];
+        int blankingDepth = 0;
+        for (int i = 0; i < projected.Length; i++)
+        {
+            blankingDepth += blankingDelta[i];
+            if (blankingDepth > 0)
+                projected[i] = string.Empty;
+        }
+
+        return Build(projected);
+
+        void MarkLine(int line) => MarkRange(line, line + 1);
+
+        void MarkRange(int startLine, int endLineExclusive)
+        {
+            int start = startLine - 1;
+            int end = endLineExclusive - 1;
+            blankingDelta[start]++;
+            blankingDelta[end]--;
+        }
     }
 
     /// <summary>

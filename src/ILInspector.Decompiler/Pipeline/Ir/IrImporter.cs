@@ -51,14 +51,17 @@ public static class IrImporter
     /// <summary>
     /// Imports a method body addressed by a <see cref="MethodRef"/> — the
     /// reference form a pass already holds (e.g. a delegate creation's target
-    /// method). Resolves the declaring type's metadata full name from the ref
-    /// (<see cref="TypeRef.Name"/> spells nesting with <c>+</c>; the importer
-    /// matches the <c>.</c> form) and forwards to the by-name front door. The
-    /// synthesized lambda/local-function methods this serves have unique names,
+    /// method). A compiler-verified local-function reference may name its generic
+    /// host's self-instantiation; its body still lives on the metadata type
+    /// definition, so that one proven shape resolves through
+    /// <see cref="TypeRef.ElementType"/>. Other generic cross-method consumers
+    /// remain declined until their own reconstruction contracts admit the shape.
+    /// <see cref="TypeRef.Name"/> spells nesting with <c>+</c>, while the importer
+    /// matches the <c>.</c> form. Synthesized companion methods have unique names,
     /// so overload index 0 is exact.
     /// </summary>
     public static IrFunction? Import(MetadataSource source, MethodRef method)
-        => Import(source, ImporterTypeName(method.DeclaringType), method.Name);
+        => Import(source, ImporterTypeName(method), method.Name);
 
     /// <summary>
     /// Typed evidence for the interfaces a type declares in its own assembly: the
@@ -88,8 +91,14 @@ public static class IrImporter
         return builder.ToImmutable();
     }
 
-    static string ImporterTypeName(TypeRef type)
+    static string ImporterTypeName(MethodRef method)
     {
+        var type = method.DeclaringType;
+        if (type.Kind == TypeRefKind.GenericInstance
+            && GeneratedCodeIdentity.IsLocalFunctionMethod(method))
+        {
+            type = type.ElementType!;
+        }
         string name = type.Name.Replace('+', '.');
         return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
     }

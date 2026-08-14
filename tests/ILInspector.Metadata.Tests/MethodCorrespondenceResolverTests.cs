@@ -301,6 +301,42 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation()
+    {
+        // Many parameters each naming the same long TypeRef: per-name caps alone
+        // still allow O(params × name) amplification because EnsureAnchorSignatureBudget
+        // runs only after the full type tree is built. The cumulative work budget must
+        // reject during construction. Gated by MaxAnchorSignatureWorkChars.
+        const int parameterCount = 1_000;
+        const int typeNameLength = 20_000;
+        byte[] image = BuildRepeatedTypeReferenceNameImage(
+            parameterCount,
+            typeNameLength);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Repeated type-name anchor rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -835,6 +871,44 @@ public sealed class MethodCorrespondenceResolverTests
         signature.WriteByte(0x01);
         signature.WriteByte(0x12);
         signature.WriteCompressedInteger((1 << 2) | 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedTypeReferenceNameImage(
+        int parameterCount,
+        int typeNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata(
+            "RepeatedTypeReferenceName");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(
+                new string('T', typeNameLength)));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger((1 << 2) | 1);
+        }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
