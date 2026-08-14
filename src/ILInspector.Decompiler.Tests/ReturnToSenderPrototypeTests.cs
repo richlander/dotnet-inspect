@@ -6917,6 +6917,76 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsExplicitSetterOnlyProperties()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ISetOnly
+            {
+                int Value { set; }
+                int this[int index] { set; }
+            }
+
+            public interface IInitOnly
+            {
+                int Value { init; }
+            }
+
+            public sealed class Holder : ISetOnly, IInitOnly
+            {
+                private static int _value;
+
+                int ISetOnly.Value
+                {
+                    set { _value = value; }
+                }
+
+                int ISetOnly.this[int index]
+                {
+                    set { _value = index + value; }
+                }
+
+                int IInitOnly.Value
+                {
+                    init { _value = value; }
+                }
+            }
+            """);
+        try
+        {
+            var targets = new[]
+            {
+                new ReturnToSender.RequestedTarget("Holder", "ISetOnly.set_Value", 0),
+                new ReturnToSender.RequestedTarget("Holder", "ISetOnly.set_Item", 0),
+                new ReturnToSender.RequestedTarget("Holder", "IInitOnly.set_Value", 0),
+            };
+
+            foreach (var target in targets)
+            {
+                var selected = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [target]));
+                var full = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [target],
+                    RoundTripScope.All,
+                    RoundTripBodyPolicy.Full));
+
+                Assert.All(
+                    [selected, full],
+                    result =>
+                    {
+                        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                        Assert.False(result.UsedCompileBackFloor, result.Detail);
+                    });
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RendersRefReadonlyReturnShell()
     {
         var assemblyPath = CompileFixture("""

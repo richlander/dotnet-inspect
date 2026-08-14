@@ -17,6 +17,7 @@ public enum CSharpShellBodyKind
 {
     None,
     Throw,
+    ThrowInit,
     ThrowGetSet,
     ThrowGetInit,
     TargetBody,
@@ -29,6 +30,7 @@ public enum CSharpShellBodyKind
     AutoProperty,
     AutoPropertyGetSet,
     AutoPropertyGetInit,
+    InitOnlyProperty,
     FieldInitializer,
 }
 
@@ -105,8 +107,9 @@ public static class CSharpMemberShellProducer
                 or CSharpShellBodyKind.AutoProperty
                 or CSharpShellBodyKind.AutoPropertyGetSet
                 or CSharpShellBodyKind.AutoPropertyGetInit
+                or CSharpShellBodyKind.InitOnlyProperty
                 => new(member, CSharpBodyPolicy.Skeleton),
-            CSharpShellBodyKind.Throw
+            CSharpShellBodyKind.Throw or CSharpShellBodyKind.ThrowInit
                 when spec.Kind is CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet
                 => new(member, CSharpBodyPolicy.Stub, PropertyBody(spec, CSharpAccessorBody.Throw)),
             CSharpShellBodyKind.Throw
@@ -360,13 +363,10 @@ public static class CSharpMemberShellProducer
                 nameof(spec));
         }
 
-        int separator = name.LastIndexOf('.');
-        if (string.IsNullOrWhiteSpace(name)
-            || name.Length != name.Trim().Length
-            || separator <= 0
-            || separator == name.Length - 1
-            || char.IsWhiteSpace(name[separator - 1])
-            || char.IsWhiteSpace(name[separator + 1]))
+        string[] segments = name.Split('.');
+        if (segments.Length < 2
+            || segments.Any(string.IsNullOrEmpty)
+            || name.Any(char.IsWhiteSpace))
         {
             throw new ArgumentException(
                 "Explicit-interface member names must be qualified as 'Interface.Member'.",
@@ -382,14 +382,20 @@ public static class CSharpMemberShellProducer
             or CSharpShellMemberKind.EventRemove;
         bool isValid = spec.BodyKind switch
         {
-            CSharpShellBodyKind.None => true,
+            CSharpShellBodyKind.None
+                => spec.Kind != CSharpShellMemberKind.Method
+                    || spec.ExplicitInterfaceMemberName is null,
             CSharpShellBodyKind.Throw => spec.Kind != CSharpShellMemberKind.Field,
+            CSharpShellBodyKind.ThrowInit
+                or CSharpShellBodyKind.InitOnlyProperty
+                => spec.Kind == CSharpShellMemberKind.PropertySet,
             CSharpShellBodyKind.ThrowGetSet
                 or CSharpShellBodyKind.ThrowGetInit
-                or CSharpShellBodyKind.AutoProperty
                 or CSharpShellBodyKind.AutoPropertyGetSet
                 or CSharpShellBodyKind.AutoPropertyGetInit
                 => isProperty,
+            CSharpShellBodyKind.AutoProperty
+                => spec.Kind == CSharpShellMemberKind.PropertyGet,
             CSharpShellBodyKind.TargetBody => true,
             CSharpShellBodyKind.TargetGetterWithSetter
                 or CSharpShellBodyKind.TargetGetterWithInitSetter
@@ -416,7 +422,9 @@ public static class CSharpMemberShellProducer
         bool setterIsInit = spec.BodyKind is CSharpShellBodyKind.TargetGetterWithInitSetter
             or CSharpShellBodyKind.TargetInitSetterWithGetter
             or CSharpShellBodyKind.TargetInitBody
-            or CSharpShellBodyKind.ThrowGetInit;
+            or CSharpShellBodyKind.ThrowGetInit
+            or CSharpShellBodyKind.ThrowInit
+            or CSharpShellBodyKind.InitOnlyProperty;
         bool hasGetter = isAutoGetInit
             || spec.Kind == CSharpShellMemberKind.PropertyGet
             || spec.BodyKind is CSharpShellBodyKind.AutoPropertyGetSet

@@ -307,9 +307,45 @@ public sealed class TypeShellProducerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MemberShellProducer_PreservesInitOnlyPropertyShapes()
+    {
+        var skeleton = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertySet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.InitOnlyProperty,
+            Body: null));
+        var stub = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertySet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.ThrowInit,
+            Body: null));
+
+        Assert.Equal(CSharpBodyPolicy.Skeleton, skeleton.BodyPolicy);
+        Assert.Equal(CSharpBodyPolicy.Stub, stub.BodyPolicy);
+        Assert.All(
+            [skeleton, stub],
+            policy => Assert.Collection(
+                policy.Member.SignatureModel!.Accessors,
+                accessor => Assert.Equal("init", accessor.Kind)));
+        var body = Assert.IsType<CSharpPropertyBody>(stub.Body);
+        Assert.Null(body.Getter);
+        Assert.Equal(CSharpAccessorBody.Throw, body.Setter);
+    }
+
     [Theory]
     [InlineData(CSharpShellMemberKind.Method, "Run")]
     [InlineData(CSharpShellMemberKind.Method, " IRunner.Run")]
+    [InlineData(CSharpShellMemberKind.Method, "IRunner..Run")]
+    [InlineData(CSharpShellMemberKind.Method, "I Runner.Run")]
     public void MemberShellProducer_RejectsUnqualifiedExplicitInterfaceName(
         CSharpShellMemberKind memberKind,
         string explicitInterfaceMemberName)
@@ -328,6 +364,27 @@ public sealed class TypeShellProducerTests
 
         Assert.Contains(
             "must be qualified as 'Interface.Member'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_RejectsBodylessExplicitInterfaceMethod()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Run",
+                Kind: CSharpShellMemberKind.Method,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "void",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.None,
+                Body: null,
+                ExplicitInterfaceMemberName: "IRunner.Run")));
+
+        Assert.Contains(
+            "body shape 'None' is not valid for member kind 'Method'",
             exception.Message,
             StringComparison.Ordinal);
     }
@@ -364,6 +421,7 @@ public sealed class TypeShellProducerTests
     [InlineData(CSharpShellMemberKind.EventAdd, CSharpShellBodyKind.AutoProperty)]
     [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.FieldInitializer)]
     [InlineData(CSharpShellMemberKind.Field, CSharpShellBodyKind.Throw)]
+    [InlineData(CSharpShellMemberKind.PropertySet, CSharpShellBodyKind.AutoProperty)]
     public void MemberShellProducer_RejectsBodyKindForDifferentMemberShape(
         CSharpShellMemberKind memberKind,
         CSharpShellBodyKind bodyKind)
