@@ -546,6 +546,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "ilroundtrip",
         "packaging",
         "shipped",
+        "web",
         "skills",
     ];
     if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
