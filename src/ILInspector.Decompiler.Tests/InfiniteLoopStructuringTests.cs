@@ -225,7 +225,7 @@ public class InfiniteLoopStructuringTests
 
         var condition = new Block(0x20);
         condition.Add(new ConditionalBranch(
-            new LoadArgument(0, "repeat", TypeRef.CoreLib("System", "Boolean")),
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
             0x10));
         loopBody.Add(condition);
 
