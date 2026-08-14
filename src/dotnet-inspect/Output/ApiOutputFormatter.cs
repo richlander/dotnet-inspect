@@ -1447,6 +1447,17 @@ public static class ApiOutputFormatter
             methods = methods
                 .Where(member => member.MetadataToken is { } token && tokens.Contains(token))
                 .ToList();
+            var methodTokens = methods
+                .Select(member => member.MetadataToken)
+                .OfType<int>()
+                .ToHashSet();
+            methods.AddRange(type.Members
+                .Where(ApiMemberSectionDescriptors.HasAccessorTokens)
+                .SelectMany(member => AccessorMethods(member, type))
+                .Where(member => (!member.IsAbstract || includeAbstract)
+                    && member.MetadataToken is { } token
+                    && tokens.Contains(token)
+                    && methodTokens.Add(token)));
         }
 
         if (methods.Count == 0

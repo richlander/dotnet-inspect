@@ -239,14 +239,12 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            if (TryResolveExactGenericPlatformType(target) is { } exactType)
+            if (TryResolveExactGenericPlatformType(target) is not null)
             {
                 return
                 [
                     "type",
                     target,
-                    "--platform",
-                    exactType.Candidate.Assembly.Identity.Name,
                     .. tail
                 ];
             }

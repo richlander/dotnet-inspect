@@ -132,3 +132,16 @@ public static class MemberCallsFixture
         return value + 1;
     }
 }
+
+public sealed class MemberPropertyCallsFixture
+{
+    public int this[int index] => index;
+    public int this[string key] => key.Length;
+
+    public static void CallsIndexers()
+    {
+        var fixture = new MemberPropertyCallsFixture();
+        _ = fixture[1];
+        _ = fixture["one"];
+    }
+}

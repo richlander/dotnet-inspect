@@ -1853,6 +1853,19 @@ public partial class CommandExecutionTests
         Assert.Contains("AlternateLookup", output);
     }
 
+    [Fact]
+    public async Task BareForwardedNestedGenericPlatformType_RoutesToDeclaringType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List`1.Enumerator",
+            "--markdown", "-v", "m", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(".Enumerator", output);
+        Assert.Contains("Kind: struct", output);
+    }
+
     /// <summary>
     /// A dotted prefix that does not resolve to a type enters the preamble looking like a single
     /// type -- so its sections are validated against the single-type pipeline -- but renders a
@@ -8001,6 +8014,54 @@ public partial class CommandExecutionTests
         Assert.Contains("## Callers", output);
         Assert.Contains("No callers found", output);
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_BarePropertyNameCallerScope_AggregatesAccessorOverloads()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberPropertyCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "Item", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            output.Split(
+                nameof(MemberPropertyCallsFixture.CallsIndexers),
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("## Callers", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_ForwardedTypeCallerScope_UsesImplementationAssembly()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "IndexOf", "--platform", "System.Runtime",
+            "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Callers", output);
+        Assert.Contains("| `System.", output);
+        Assert.DoesNotContain("No callers found", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_DocumentJsonWithCallerScope_PreservesOverloadInventory()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory,
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetProperty("members").GetArrayLength());
     }
 
     [Fact]
@@ -15856,6 +15917,18 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.List<T>.ConvertAll<TOutput>",
             "-S", "Signature", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_SourcelessGenericShiftOperator_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Numerics.Vector<T>.operator<<",
+            "-S", SectionNames.Signature, "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());

@@ -277,8 +277,7 @@ public static class MemberCommand
                     {
                         ImplicitCallerMemberTokens = overloads
                             .Where(ApiMemberSectionDescriptors.IsBodyBacked)
-                            .Select(member => member.MetadataToken)
-                            .OfType<int>()
+                            .SelectMany(member => BodyMethodTokens(apiType, member))
                             .ToHashSet()
                     };
                 }
@@ -400,9 +399,12 @@ public static class MemberCommand
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
             // open the member's own assembly index for aggregated callers across all overloads.
-            if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
+            var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
+            if (effectiveOptions.HasCallerScope
+                && effectiveOptions.DllPath == null
+                && callerTargetAssembly != null)
             {
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                effectiveOptions = effectiveOptions with { DllPath = callerTargetAssembly };
             }
 
             // Expand --bin/--directory, --project, and --caller-package into assemblies
@@ -607,6 +609,7 @@ public static class MemberCommand
     private static bool ShouldImplicitlySelectCallers(MemberOptions options)
         => options.HasCallerScope
            && options.IncludeSections?.Contains(SectionNames.Callers) != true
+           && (!options.JsonOutput || options.IncludeSections is { Count: > 0 })
            && !options.Tree
            && !IsStandaloneMermaid(options)
            && (options.IncludeSections is null || !UsesSingleSectionOutput(options));
@@ -626,6 +629,27 @@ public static class MemberCommand
            && (options.FormatFlagExplicitlySet
                || options.IncludeSections is { Count: 1 } sections
                && sections.Contains(SectionNames.CallGraph));
+
+    private static IEnumerable<int> BodyMethodTokens(
+        ApiType type,
+        ApiMember member)
+    {
+        if (ApiMemberSectionDescriptors.IsMethodLike(member))
+        {
+            if (member.MetadataToken is { } token)
+                yield return token;
+            yield break;
+        }
+
+        if (!ApiMemberSectionDescriptors.HasAccessorTokens(member))
+            yield break;
+
+        foreach (var accessor in ApiOutputFormatter.AccessorMethods(member, type))
+        {
+            if (!accessor.IsAbstract && accessor.MetadataToken is { } token)
+                yield return token;
+        }
+    }
 
     private static readonly string[] SingleOverloadSectionNames =
     [
