@@ -715,9 +715,8 @@ Research overlay bridge, and the application layer:
   classification, and the private path-context/confidence/post-dominance indexes
   that produce its multiplicity reading. It receives metadata and raw-IL
   judgments through the narrow `IMethodAllocationResolver` contract the assembly
-  reader implements, and returns one `MethodAllocationFacts` bundle binding the
-  canonical context, discovered and escape-refined occurrences, and Layer-1
-  queries from a single interpretation.
+  reader implements, and binds the canonical context, discovered and
+  escape-refined occurrences, and Layer-1 queries in one object.
   `FactsBundlesBindContextOccurrencesAndQueries` gates that coherence.
   `OptimizationOpportunityAnalysis` owns its per-method instruction walk,
   optimization-shape classification, lazy memoized reaching-definitions use,

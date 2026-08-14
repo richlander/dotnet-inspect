@@ -265,7 +265,8 @@ query methods
 (`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
 `FactsBundlesBindContextOccurrencesAndQueries` gates the bundle's context,
 occurrence, and query coherence.
-That service owns the per-method optimization instruction walk, shape
+`OptimizationOpportunityAnalysis` owns the per-method optimization instruction
+walk, shape
 classification, lazy memoized reaching-definitions use, and allocation metadata
 projection without opening another allocation or decode path. Its traversal may
 repeat member and type resolution. It retains opportunity ordering and deferred
