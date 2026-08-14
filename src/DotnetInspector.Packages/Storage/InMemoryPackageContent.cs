@@ -10,9 +10,12 @@ namespace DotnetInspector.Packages;
 /// and <see cref="NupkgPath"/> are always <c>null</c> because nothing is
 /// materialized on disk.
 /// </summary>
-public sealed class InMemoryPackageContent : IPackageContent
+public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEntryManifest
 {
+    const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
+
     private readonly byte[] _nupkgBytes;
+    private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
 
     public InMemoryPackageContent(
         byte[] nupkgBytes,
@@ -22,12 +25,15 @@ public sealed class InMemoryPackageContent : IPackageContent
         ArgumentNullException.ThrowIfNull(nupkgBytes);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
         _nupkgBytes = nupkgBytes;
+        _entries = new(ReadEntries);
         FromCache = fromCache;
         ProducerKey = producerKey;
     }
 
     /// <summary>The raw nupkg bytes backing this content.</summary>
     public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes;
+
+    internal byte[] RetainedArchive => _nupkgBytes;
 
     /// <inheritdoc />
     public string? RootPath => null;
@@ -57,131 +63,118 @@ public sealed class InMemoryPackageContent : IPackageContent
 
     /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)
+        => TryOpenEntry(relativePath, MaxEntryMaterializationBytes, out stream);
+
+    /// <summary>
+    /// Opens one expanded entry only when its declared and observed lengths fit within
+    /// <paramref name="maxExpandedBytes"/>.
+    /// </summary>
+    public bool TryOpenEntry(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
     {
         ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
 
         using var archive = OpenArchive();
-        // Zip entries are stored with '/' separators; match by full name.
-        // Prefer an exact match, then fall back to a case-insensitive one so a
-        // WASM host mirrors the case-insensitive filesystem lookup on Windows
-        // and macOS rather than the strict-ordinal ZipArchive.GetEntry default.
-        var entry = archive.GetEntry(relativePath)
-            ?? archive.Entries.FirstOrDefault(e =>
-                string.Equals(e.FullName, relativePath, StringComparison.OrdinalIgnoreCase));
+        ZipArchiveEntry? entry = FindEntry(archive, relativePath);
         if (entry is null)
         {
             stream = null;
             return false;
         }
 
-        // Materialize under the same order of host memory budget the workspace
-        // retained-image path uses (512 MiB). Unbounded CopyTo would let a
-        // single declared entry force ~MaxExpandedBytes into RAM before any
-        // group budget applies — especially painful on browser/WASM hosts.
-        const long maxEntryMaterializationBytes = 512L * 1024 * 1024;
-        if (entry.Length < 0 || entry.Length > maxEntryMaterializationBytes)
+        long effectiveLimit = Math.Min(
+            maxExpandedBytes,
+            MaxEntryMaterializationBytes);
+        if (entry.Length < 0
+            || entry.Length > effectiveLimit
+            || entry.Length > Array.MaxLength)
         {
-            stream = null;
-            return false;
+            throw new InvalidDataException("Package entry exceeds the configured byte limit.");
         }
 
+        byte[] bytes = GC.AllocateUninitializedArray<byte>((int)entry.Length);
         using var entryStream = entry.Open();
-        if (!TryReadBounded(
-                entryStream,
-                maxEntryMaterializationBytes,
-                out byte[] bytes))
+        int offset = 0;
+        while (offset < bytes.Length)
         {
-            stream = null;
-            return false;
+            int read = entryStream.Read(bytes, offset, bytes.Length - offset);
+            if (read == 0)
+                throw new InvalidDataException("Package entry ended before its declared length.");
+            offset += read;
         }
+        if (entryStream.ReadByte() != -1)
+            throw new InvalidDataException("Package entry exceeds its declared length.");
 
-        stream = new MemoryStream(bytes, writable: false);
+        stream = new MemoryStream(
+            bytes,
+            index: 0,
+            count: bytes.Length,
+            writable: false,
+            publiclyVisible: true);
         return true;
     }
 
-    /// <summary>
-    /// Synchronous counterpart of admission's bounded reader for the sync
-    /// <see cref="TryOpenEntry"/> contract. Probe-before-grow; null/false when
-    /// the stream exceeds <paramref name="maxBytes"/>.
-    /// </summary>
-    static bool TryReadBounded(Stream source, long maxBytes, out byte[] bytes)
+    /// <summary>Gets an entry's declared expanded length without expanding its body.</summary>
+    public bool TryGetEntryLength(string relativePath, out long length)
     {
-        int max = maxBytes > int.MaxValue ? int.MaxValue : (int)maxBytes;
-        int initial = max == 0 ? 0 : Math.Min(81920, max);
-        if (source.CanSeek)
-        {
-            long remaining = source.Length - source.Position;
-            if (remaining < 0)
-                remaining = 0;
-            if (remaining > max)
-            {
-                bytes = [];
-                return false;
-            }
-
-            if (remaining > initial)
-                initial = (int)remaining;
-        }
-
-        byte[] buffer = initial == 0 ? [] : new byte[initial];
-        int total = 0;
-        Span<byte> probe = stackalloc byte[1];
-        while (true)
-        {
-            if (total == buffer.Length)
-            {
-                int extra = source.Read(probe);
-                if (extra == 0)
-                {
-                    bytes = total == 0 ? [] : buffer;
-                    return true;
-                }
-
-                if (total == max)
-                {
-                    bytes = [];
-                    return false;
-                }
-
-                int growTo = (int)Math.Min(max, Math.Max((long)buffer.Length * 2, 81920));
-                if (growTo <= buffer.Length)
-                    growTo = max;
-                Array.Resize(ref buffer, growTo);
-                buffer[total++] = probe[0];
-                continue;
-            }
-
-            int read = source.Read(buffer.AsSpan(total, buffer.Length - total));
-            if (read == 0)
-            {
-                if (total == 0)
-                {
-                    bytes = [];
-                    return true;
-                }
-
-                if (total != buffer.Length)
-                    Array.Resize(ref buffer, total);
-                bytes = buffer;
-                return true;
-            }
-
-            total += read;
-        }
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        PackageContentEntry? entry = FindEntry(
+            EnumerateEntriesWithLengths(),
+            relativePath);
+        length = entry?.Length ?? 0;
+        return entry is not null;
     }
 
+    /// <summary>
+    /// Returns one cached snapshot of package entry paths and declared expanded lengths.
+    /// Directory placeholders are omitted.
+    /// </summary>
+    public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
+        => _entries.Value;
     /// <inheritdoc />
-    public IEnumerable<string> EnumerateEntries()
+    public IEnumerable<string> EnumerateEntries() =>
+        EnumerateEntriesWithLengths().Select(entry => entry.Path);
+
+    private IReadOnlyList<PackageContentEntry> ReadEntries()
     {
         using var archive = OpenArchive();
-        // Materialize before the archive is disposed. Directory placeholder
-        // entries (trailing '/') carry no content and are skipped.
         return archive.Entries
             .Where(entry => !string.IsNullOrEmpty(entry.Name))
-            .Select(entry => entry.FullName)
-            .ToList();
+            .Select(entry => new PackageContentEntry(entry.FullName, entry.Length))
+            .ToList()
+            .AsReadOnly();
     }
 
     private ZipArchive OpenArchive()
         => new(new MemoryStream(_nupkgBytes, writable: false), ZipArchiveMode.Read);
+
+    static ZipArchiveEntry? FindEntry(ZipArchive archive, string relativePath)
+        // Zip entries are stored with '/' separators. Prefer an exact match, then mirror the
+        // case-insensitive filesystem lookup on Windows and macOS.
+        => archive.GetEntry(relativePath)
+            ?? archive.Entries.FirstOrDefault(entry =>
+                string.Equals(
+                    entry.FullName,
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
+
+    static PackageContentEntry? FindEntry(
+        IReadOnlyList<PackageContentEntry> entries,
+        string relativePath)
+    {
+        foreach (PackageContentEntry entry in entries)
+        {
+            if (entry.Path.Equals(relativePath, StringComparison.Ordinal))
+                return entry;
+        }
+        foreach (PackageContentEntry entry in entries)
+        {
+            if (entry.Path.Equals(relativePath, StringComparison.OrdinalIgnoreCase))
+                return entry;
+        }
+        return null;
+    }
 }

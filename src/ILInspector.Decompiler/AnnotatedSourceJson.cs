@@ -182,24 +182,6 @@ public static class AnnotatedSourceJson
 }
 
 [JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    GenerationMode = JsonSourceGenerationMode.Serialization,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-public sealed partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext;
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    GenerationMode = JsonSourceGenerationMode.Serialization,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-public sealed partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext;
-
-[JsonSourceGenerationOptions(
     AllowDuplicateProperties = false,
     Converters =
     [

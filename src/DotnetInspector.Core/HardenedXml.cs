@@ -31,6 +31,26 @@ public static class HardenedXml
         return XDocument.Load(reader);
     }
 
+    /// <summary>
+    /// Loads an <see cref="XDocument"/> from a stream with DTD processing prohibited and an
+    /// explicit decoded-character budget.
+    /// </summary>
+    public static XDocument LoadXDocument(
+        Stream stream,
+        long maxCharactersInDocument)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxCharactersInDocument);
+        var settings = new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            MaxCharactersInDocument = maxCharactersInDocument,
+        };
+        using var reader = XmlReader.Create(stream, settings);
+        return XDocument.Load(reader);
+    }
+
     /// <summary>Loads an <see cref="XmlDocument"/> from a file with DTD processing prohibited.</summary>
     public static XmlDocument LoadXmlDocument(string path)
     {

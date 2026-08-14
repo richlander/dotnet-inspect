@@ -124,6 +124,10 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
+// The AnnotatedSourceDocument wire shape is owned by ILInspector.Decompiler
+// (AnnotatedSourceDocumentJsonContext / AnnotatedSourceDocumentCompactJsonContext), because the
+// document has more than one producer and one consumer contract.
+
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,

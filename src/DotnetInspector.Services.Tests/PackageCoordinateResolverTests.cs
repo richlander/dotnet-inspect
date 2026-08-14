@@ -1044,6 +1044,56 @@ public sealed class PackageCoordinateResolverTests
         Assert.Equal("1.0.0-beta", resolved.Coordinate.Version);
     }
 
+    [Fact]
+    public async Task ListVersions_UsesAuthorizedSourcesWithoutPersistentCaching()
+    {
+        var handler = new ListedVersionsHandler(
+            "1.0.0",
+            "2.0.0-preview.1");
+        using var client = new HttpClient(handler);
+
+        var first = Assert.IsType<PackageVersionListingResult.Available>(
+            await PackageCoordinateResolver.ListVersionsAsync(
+                client,
+                ListedVersionsHandler.PackageId,
+                [NuGetOrg],
+                useVersionCache: false,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        int firstRequestCount = handler.RequestCount;
+        var second = Assert.IsType<PackageVersionListingResult.Available>(
+            await PackageCoordinateResolver.ListVersionsAsync(
+                client,
+                ListedVersionsHandler.PackageId,
+                [NuGetOrg],
+                useVersionCache: false,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            ["1.0.0", "2.0.0-preview.1"],
+            first.Versions);
+        Assert.Equal(first.Versions, second.Versions);
+        Assert.True(handler.RequestCount > firstRequestCount);
+    }
+
+    [Fact]
+    public async Task ListVersions_RequiresAnAuthorizedSource()
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageVersionListingResult result =
+            await PackageCoordinateResolver.ListVersionsAsync(
+                client,
+                "Example",
+                [],
+                useVersionCache: false,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackageVersionListingResult.Unavailable>(result);
+    }
+
     /// <summary>
     /// Serves nuget.org's flat-container index and registration page for one
     /// package, with every version listed.
@@ -1052,11 +1102,15 @@ public sealed class PackageCoordinateResolverTests
         : HttpMessageHandler
     {
         internal const string PackageId = "listed.package";
+        int _requestCount;
+
+        internal int RequestCount => Volatile.Read(ref _requestCount);
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref _requestCount);
             string url = request.RequestUri!.ToString();
             if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json",

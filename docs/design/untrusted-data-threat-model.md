@@ -309,10 +309,32 @@ into product caches (`FileSystemPackageStore.CommitAsync`).
 Symbol-package (`.snupkg`) PDB acquisition does not extract the archive to disk.
 `SnupkgPdbReader` opens the archive in memory, matches candidate entries by file
 name only (never by attacker-controlled directory paths), validates each
-candidate's PDB header and debug GUID, and returns the matching bytes. Those
+candidate's PDB header and complete Portable PDB content id (GUID plus stamp),
+and returns the matching bytes. Those
 bytes are then persisted through `IPdbStore`; the filesystem implementation
 (`FileSystemPdbStore`) maps only store-composed, per-segment-validated keys onto
-disk, so no archive-entry name is ever used as an output path.
+disk, so no archive-entry name is ever used as an output path. It publishes
+through a unique sibling staging file and atomically replaces the final entry,
+so a concurrent reader never accepts a partially written PDB. Symbol-server
+keys include the canonical provider host and complete Portable PDB content
+identity, preserving both provider and payload identity on cache reuse. A
+pathless host reads the same validated store entry through
+`AcquiredPortablePdb`; its explicit-capability service overload requires both
+the store and an already authorized package-source policy, while the legacy
+desktop overload remains path-bound instead of permitting a pathless caller to
+discover ambient NuGet configuration. Store failures while opening or reading
+that acquired entry propagate rather than becoming ordinary symbol absence.
+These properties are gated by
+`PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
+`PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_MsdlCachePreservesProvider`,
+`SymbolPackageDownloaderTests.AcquiredPortablePdb_DifferentStampsRemainRepeatable`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches`,
+`PdbAcquisitionServiceTests.DescriptorAcquisition_RequiresExplicitHostCapabilities`,
+`PdbAcquisitionServiceTests.PathlessParticipant_DesktopOverloadDoesNotAcquire`,
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible`,
+and
+`PdbStoreTests.FileSystemPdbStore_FailedReplacementPreservesPublishedContent`.
 
 Package identifiers and versions used as cache path components pass
 `NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
@@ -329,8 +351,49 @@ file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
 cache entries use SHA-256-derived keys through `CoreCache`.
 
-Archive containment does not itself bound expanded bytes, entry count, or disk
-consumption. Resource budgets remain an open requirement below.
+The Browser-Wasm package path is filesystem-free but uses the shared
+`PackageCoordinateResolver`, `PackagePayloadAcquisition`,
+`PackageArchiveValidator`, and `PackageResourceUrl` owners. Host policy supplies
+the narrower bounds: the shared 16 MB text-response cap for a version listing,
+128 MB for a downloaded nupkg, 512 MB for aggregate declared archive expansion,
+64 MB for one expanded assembly entry, and 16 MB for one expanded Markdown or
+XML entry. It also rejects more than 4,096 archive entries. The shared archive
+validator selects the same highest-offset end record as `ZipArchive` and scans
+its central directory without allocating entry objects before `ZipArchive` can
+materialize them, then applies its path, directory, compression, CRC, and
+observed-expansion checks.
+`InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
+the caller's limit before allocating that length, then verifies the observed
+expansion against the declaration. `InMemoryPackageContentTests` gates the
+pre-expansion rejection and bounded declared/unknown-length stream reads.
+The host's 128 MB package-cache budget is aggregate: an open inspection scope's
+nupkg remains represented in the same LRU, and evicting that package disposes
+every retaining scope before removing the cache entry. Scope reuse therefore
+cannot keep an evicted archive alive outside the advertised budget.
+Package downloads must declare their content length. The Browser implements
+`IPackagePayloadTransferPolicy`, which reserves that length and evicts unleased
+entries after shared transport receives the headers but before it reads the
+body. The reservation becomes a cache entry only after shared archive validation,
+store commit, and re-admission complete.
+Composite workspace construction temporarily leases each resolved coordinate,
+so a later acquisition cannot evict an earlier pending coordinate. In-flight
+reservations and retained cache entries share the same 12-package/128 MB limit.
+Before assembly identity decoding, each workspace role also rejects more than
+256 selected assemblies or a declared expanded total above that role's 32/64 MB
+retained-image budget.
+`BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
+gates aggregate ownership and eviction; its oversized-role case gates
+pre-decoding rejection.
+`PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the
+host-specific central-directory entry limit.
+`PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
+`TransferPolicy_RejectedPayloadDisposesWithoutCompleting`, and
+`TransferPolicy_CanRequireContentLengthBeforeBodyRead` gate the capacity seam.
+
+Those controls are specific to the Browser-Wasm acquisition host. Archive
+containment in the broader product does not itself bound expanded bytes, entry
+count, or disk consumption, and symbol-package expansion has its own path.
+Product-wide resource budgets remain an open requirement below.
 
 ### Untrusted JSON rejects duplicate properties
 
@@ -1113,7 +1176,7 @@ only ordinary compiler output.
 | Surface | Required evidence |
 | --- | --- |
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
-| Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
+| Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; product-wide expanded-size and entry-count policy tests once those budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
 | SourceLink | Private/loopback targets rejected per hop; attributed redirects must preserve the complete repository/revision origin; rendered network source requires the portable-PDB checksum; pre-origin-validation caches are ignored; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
@@ -1128,8 +1191,10 @@ only ordinary compiler output.
    source-generated feed contexts, and `runfaster` trace parsing. Add a gate
    asserting no product JSON entry point parses outside the guard, so the set
    cannot silently regrow.
-2. Define package, symbol, source-download, and decompressed-archive byte and
-   entry-count budgets.
+2. Define product-wide package, symbol, source-download, and
+   decompressed-archive byte and entry-count budgets. The Browser-Wasm package
+   host now has byte and entry-count limits, but that host-specific policy does not settle the
+   extraction, symbol, or entry-count contracts for other consumers.
 3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
 4. Continue auditing Markdown, plain-text, and stderr rendering for terminal
