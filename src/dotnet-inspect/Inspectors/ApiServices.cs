@@ -82,8 +82,7 @@ internal static class ApiServices
             includeAll: false,
             isPlatformAssembly: true,
             targetFramework: selectedTfm,
-            summaryOnly: true,
-            summaryRuntimeAssemblyPath: runtimeAssemblyPath);
+            summaryOnly: true);
 
         api.Name = Path.GetFileNameWithoutExtension(searchPath);
         api.Tfm = selectedTfm;
@@ -200,8 +199,7 @@ internal static class ApiServices
         bool isPlatformAssembly = false,
         ApiOptions? options = null,
         string? targetFramework = null,
-        bool summaryOnly = false,
-        string? summaryRuntimeAssemblyPath = null)
+        bool summaryOnly = false)
     {
         if (api.TypeForwarders.Count == 0)
             return;
@@ -244,22 +242,6 @@ internal static class ApiServices
                         adjacentSummaries,
                         [],
                         out added);
-                if (!handledAdjacent
-                    && adjacentSummaries is not null
-                    && summaryRuntimeAssemblyPath is not null
-                    && !string.Equals(
-                        summaryRuntimeAssemblyPath,
-                        dllPath,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    handledAdjacent = TryResolveAdjacentSummaryForwarder(
-                        api,
-                        summaryRuntimeAssemblyPath,
-                        forwarder,
-                        adjacentSummaries,
-                        [],
-                        out added);
-                }
                 if (handledAdjacent)
                 {
                     if (added)
@@ -378,7 +360,7 @@ internal static class ApiServices
         out bool added)
     {
         added = false;
-        if (string.IsNullOrEmpty(forwarder.TargetAssembly))
+        if (!IsSafeAdjacentAssemblyName(forwarder.TargetAssembly))
             return false;
 
         string? directory = Path.GetDirectoryName(dllPath);
@@ -438,6 +420,12 @@ internal static class ApiServices
         // hop. The full extractor would not add this forwarded type to the public surface either.
         return true;
     }
+
+    private static bool IsSafeAdjacentAssemblyName(string assemblyName) =>
+        !string.IsNullOrEmpty(assemblyName)
+        && assemblyName is not "." and not ".."
+        && assemblyName.IndexOfAny(['/', '\\']) < 0
+        && !Path.IsPathRooted(assemblyName);
 
     private static void AddForwardedType(
         ApiSurface api,

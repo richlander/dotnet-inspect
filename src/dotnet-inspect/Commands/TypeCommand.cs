@@ -83,6 +83,7 @@ public static class TypeCommand
                 // No type specified - list all types
                 var loaded = CanUsePlatformSummary(
                     options,
+                    searchPath,
                     runtimeAssemblyPath,
                     platformFramework)
                     ? ApiServices.LoadPlatformApiSummary(
@@ -445,9 +446,11 @@ public static class TypeCommand
 
     private static bool CanUsePlatformSummary(
         TypeOptions options,
+        string searchPath,
         string? runtimeAssemblyPath,
         string? platformFramework) =>
         runtimeAssemblyPath is not null
+        && string.Equals(searchPath, runtimeAssemblyPath, StringComparison.OrdinalIgnoreCase)
         && string.Equals(platformFramework, "runtime", StringComparison.OrdinalIgnoreCase)
         && options.Verbosity == Verbosity.Quiet
         && !options.IsRawOutput
