@@ -18930,9 +18930,7 @@ public partial class CommandExecutionTests
                     "Test.FileProjection.One",
                     "Test.FileProjection.Two",
                 ],
-                rows.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+                SplitOutputLines(rows.Output));
         }
         finally
         {
