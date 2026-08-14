@@ -195,7 +195,7 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
-    public async Task SearchAsync_MetadataLimitFailures_AreAttributedPerSource()
+    public async Task SearchAsync_BodyFailures_AreAttributedPerSource()
     {
         const string goodIndex = "https://good.example/v3/index.json";
         const string goodSearch = "https://good.example/v3/query";
@@ -203,6 +203,8 @@ public class NuGetSearchSourcesTests
         const string oversizeSearch = "https://oversize.example/v3/query";
         const string timeoutIndex = "https://timeout.example/v3/index.json";
         const string timeoutSearch = "https://timeout.example/v3/query";
+        const string resetIndex = "https://reset.example/v3/index.json";
+        const string resetSearch = "https://reset.example/v3/query";
 
         var handler = new RouteHandler
         {
@@ -210,6 +212,7 @@ public class NuGetSearchSourcesTests
             [goodSearch] = """{"data":[{"id":"Good.Package","version":"1.0.0"}]}""",
             [oversizeIndex] = ServiceIndex(oversizeSearch),
             [timeoutIndex] = ServiceIndex(timeoutSearch),
+            [resetIndex] = ServiceIndex(resetSearch),
         };
         handler.RespondWithContent(
             oversizeSearch,
@@ -218,12 +221,16 @@ public class NuGetSearchSourcesTests
         handler.Throw(
             timeoutSearch,
             new TimeoutException("test transport timeout"));
+        handler.RespondWithContent(
+            resetSearch,
+            () => new FailingBodyContent());
         using var client = new HttpClient(handler);
         using var config = new TempNuGetConfig(
             [
                 ("good", goodIndex),
                 ("oversize", oversizeIndex),
                 ("timeout", timeoutIndex),
+                ("reset", resetIndex),
             ]);
 
         NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
@@ -232,7 +239,7 @@ public class NuGetSearchSourcesTests
             sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
 
         Assert.Equal("Good.Package", Assert.Single(outcome.Results).PackageId);
-        Assert.Equal(2, outcome.Failures.Count);
+        Assert.Equal(3, outcome.Failures.Count);
         Assert.Contains(
             outcome.Failures,
             failure => failure.Contains(
@@ -242,6 +249,11 @@ public class NuGetSearchSourcesTests
             outcome.Failures,
             failure => failure.Contains(
                 nameof(TimeoutException),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            outcome.Failures,
+            failure => failure.Contains(
+                nameof(IOException),
                 StringComparison.Ordinal));
     }
 
@@ -1539,6 +1551,87 @@ public class NuGetSearchSourcesTests
             length = Headers.ContentLength!.Value;
             return true;
         }
+    }
+
+    private sealed class FailingBodyContent : HttpContent
+    {
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new PrefixThenFailStream());
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            Task.FromException(
+                new InvalidOperationException(
+                    "Headers-first metadata must read the response stream."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class PrefixThenFailStream : Stream
+    {
+        private static readonly byte[] Prefix =
+            """{"data":"""u8.ToArray();
+        private int _offset;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            if (_offset == Prefix.Length)
+                throw new IOException("Simulated response reset.");
+
+            int count = Math.Min(buffer.Length, Prefix.Length - _offset);
+            Prefix.AsSpan(_offset, count).CopyTo(buffer);
+            _offset += count;
+            return count;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return ValueTask.FromResult(Read(buffer.Span));
+            }
+            catch (IOException ex)
+            {
+                return ValueTask.FromException<int>(ex);
+            }
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class PrefixPagingHandler(
