@@ -990,6 +990,9 @@ public sealed class LibraryBodyIndex
             plan.Includes(
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities)
+            || plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .OwnershipFlow)
                 ? resolver
                 : null;
         using var builder = new LibraryBodyAnalysisBuilder(
