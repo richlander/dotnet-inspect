@@ -275,7 +275,8 @@ public static class AuthoredSourceAcquisition
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
-                methodName);
+                methodName,
+                mapping.SequencePointStartLines);
             if (memberText is null)
             {
                 // The source range does not identify a vouched declaration for this member.

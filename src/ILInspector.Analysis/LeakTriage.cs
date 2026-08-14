@@ -604,7 +604,7 @@ public static class LeakTriageAnalyzer
     static bool ContainsOffset(int start, int length, int offset)
         => offset >= start && offset < start + length;
 
-    static IEnumerable<RentedLocal> FindRents(
+    internal static IEnumerable<RentedLocal> FindRents(
         MethodIdentity method,
         ImmutableArray<DecodedInstruction> instructions,
         BlockGraph graph,
@@ -690,15 +690,16 @@ public static class LeakTriageAnalyzer
         return false;
     }
 
-    static UseClassification ClassifyUse(
+    internal static UseClassification ClassifyUse(
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyDictionary<int, MemberRef> calls,
         int loadOffset,
         int slot,
-        TypeRef? valueType = null)
+        TypeRef? valueType = null,
+        bool isArgument = false)
     {
         if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
-            || !IsLoadLocalOrAddress(load, slot))
+            || !IsLoadSlotOrAddress(load, slot, isArgument))
             return UseClassification.OwnershipTransfer("Rented array use could not be classified.");
 
         int extra = 0;
@@ -717,14 +718,27 @@ public static class LeakTriageAnalyzer
                 return extra == 1 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array element read is ambiguous.");
             if (IsElementStore(opcode))
                 return extra == 2 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array element store is ambiguous.");
-            if (IsFieldStore(opcode) || IsLocalStore(opcode))
-                return UseClassification.AliasOrField("Rented array is stored into another location.");
+            if (IsFieldStore(opcode))
+                return UseClassification.StoreAt(instruction.Offset);
+            if (IsLocalStore(opcode))
+                return UseClassification.AliasOrField("Rented array is stored into another local.");
             if (opcode == ILOpCode.Ret)
-                return UseClassification.OwnershipTransfer("Rented array escapes through the return value.");
+            {
+                return extra == 0
+                    ? UseClassification.ReturnAt(instruction.Offset)
+                    : UseClassification.OwnershipTransfer(
+                        "Rented array return shape is ambiguous.");
+            }
             if (calls.TryGetValue(instruction.Offset, out var callee))
             {
-                if (IsArrayPoolReturn(callee) && extra < callee.ParameterTypes.Length)
-                    return UseClassification.Release;
+                int parameterIndex =
+                    callee.ParameterTypes.Length - extra - 1;
+                if (IsArrayPoolReturn(callee)
+                    && parameterIndex == 0)
+                {
+                    return UseClassification.ReleaseAt(
+                        instruction.Offset);
+                }
                 int consumedArguments =
                     callee.ParameterTypes.Length
                     + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis
@@ -746,7 +760,8 @@ public static class LeakTriageAnalyzer
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
                     IsNonThrowingSetupBoundary(callee, valueType),
-                    new ArrayPoolExceptionBoundary(instruction.Offset, callee));
+                    new ArrayPoolExceptionBoundary(instruction.Offset, callee),
+                    parameterIndex);
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
         }
@@ -1273,6 +1288,24 @@ public static class LeakTriageAnalyzer
         return slot >= 0;
     }
 
+    static bool IsLoadSlotOrAddress(
+        DecodedInstruction instruction,
+        int slot,
+        bool isArgument)
+        => isArgument
+            ? instruction.OpCode switch
+            {
+                ILOpCode.Ldarg_0 => slot == 0,
+                ILOpCode.Ldarg_1 => slot == 1,
+                ILOpCode.Ldarg_2 => slot == 2,
+                ILOpCode.Ldarg_3 => slot == 3,
+                ILOpCode.Ldarg_s or ILOpCode.Ldarg
+                    or ILOpCode.Ldarga_s or ILOpCode.Ldarga
+                    => instruction.OperandValue == slot,
+                _ => false,
+            }
+            : IsLoadLocalOrAddress(instruction, slot);
+
     static bool IsSimpleArgumentPush(ILOpCode opcode)
         => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
             or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
@@ -1310,7 +1343,7 @@ public static class LeakTriageAnalyzer
         => opcode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
             or ILOpCode.Stloc_s or ILOpCode.Stloc;
 
-    static bool IsArrayPoolRent(MemberRef member)
+    internal static bool IsArrayPoolRent(MemberRef member)
         => member.Kind != MemberKind.Unsupported
            && member.Name == "Rent"
            && member.HasThis
@@ -1443,7 +1476,7 @@ public static class LeakTriageAnalyzer
     internal static bool IsRecoverable(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException;
 
-    sealed record RentedLocal(
+    internal sealed record RentedLocal(
         int RentOffset,
         int StoreOffset,
         int Slot,
@@ -1452,34 +1485,47 @@ public static class LeakTriageAnalyzer
 
     sealed record AmbiguousUse(int Offset, string Shape);
 
-    enum UseKind
+    internal enum UseKind
     {
         Release,
         LocalUse,
-        Ambiguous,
+        Store,
+        Return,
+        Forward,
+        Unknown,
     }
 
-    readonly record struct UseClassification(
+    internal readonly record struct UseClassification(
         UseKind Kind,
         string CandidateShape,
         string Evidence,
         bool NonThrowingSetupBoundary = false,
-        ArrayPoolExceptionBoundary? Boundary = null)
+        ArrayPoolExceptionBoundary? Boundary = null,
+        int OperationOffset = -1,
+        int ParameterIndex = -1)
     {
-        public static UseClassification Release { get; } = new(UseKind.Release, "", "");
+        public static UseClassification ReleaseAt(int offset) =>
+            new(UseKind.Release, "", "", OperationOffset: offset);
         public static UseClassification LocalUse { get; } = new(UseKind.LocalUse, "", "");
-        public static UseClassification AliasOrField(string evidence) => new(UseKind.Ambiguous, "alias-or-field-suppressed", evidence);
+        public static UseClassification StoreAt(int offset) =>
+            new(UseKind.Store, "alias-or-field-suppressed", "Rented array is stored into a field.", OperationOffset: offset);
+        public static UseClassification ReturnAt(int offset) =>
+            new(UseKind.Return, "ownership-transfer-suppressed", "Rented array escapes through the return value.", OperationOffset: offset);
+        public static UseClassification AliasOrField(string evidence) => new(UseKind.Unknown, "alias-or-field-suppressed", evidence);
         public static UseClassification CrossMethod(
             string evidence,
             bool nonThrowingSetupBoundary,
-            ArrayPoolExceptionBoundary boundary)
+            ArrayPoolExceptionBoundary boundary,
+            int parameterIndex)
             => new(
-                UseKind.Ambiguous,
+                UseKind.Forward,
                 "cross-method-suppressed",
                 evidence,
                 nonThrowingSetupBoundary,
-                boundary);
-        public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Ambiguous, "ownership-transfer-suppressed", evidence);
+                boundary,
+                boundary.ILOffset,
+                parameterIndex);
+        public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Unknown, "ownership-transfer-suppressed", evidence);
     }
 
     enum LeakExitKind

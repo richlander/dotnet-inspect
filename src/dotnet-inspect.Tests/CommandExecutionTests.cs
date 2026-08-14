@@ -683,7 +683,6 @@ public partial class CommandExecutionTests
             $"{JsonString($"{package.Id}/{package.Version}")}: {{}}"));
         var libraryEntries = string.Join(",\n", packages.Select(package =>
         {
-            var packageRoot = Path.Combine(tempDir, "packages", package.Id.ToLowerInvariant(), package.Version.ToLowerInvariant());
             var files = new List<string> { $"{package.Id.ToLowerInvariant()}.nuspec" };
             if (!package.OmitReadme)
                 files.Add(package.ReadmeFile.Replace('\\', '/'));
@@ -694,7 +693,9 @@ public partial class CommandExecutionTests
             files.AddRange((package.Skills ?? []).Select(skill => skill.Path.Replace('\\', '/')));
 
             var fileEntries = string.Join(", ", files.Select(JsonString));
-            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(packageRoot.Replace('\\', '/'))}, \"files\": [ {fileEntries} ] }}";
+            var packagePath =
+                $"{package.Id.ToLowerInvariant()}/{package.Version.ToLowerInvariant()}";
+            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(packagePath)}, \"files\": [ {fileEntries} ] }}";
         }));
         var dependencyEntries = string.Join(",\n", packages.Select(package =>
             $"{JsonString(package.Id)}: {{ \"target\": \"Package\", \"version\": {JsonString($"[{package.Version}, )")} }}"));
@@ -833,6 +834,37 @@ public partial class CommandExecutionTests
                 return 1;
             }
         });
+    }
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunProjectFixtureAsync(
+            string projectPath,
+            params string[] args)
+    {
+        string projectDirectory = Path.GetDirectoryName(projectPath)
+            ?? throw new InvalidOperationException(
+                "The project fixture has no containing directory.");
+        string packagesRoot = Path.Combine(
+            Directory.GetParent(projectDirectory)?.FullName
+                ?? throw new InvalidOperationException(
+                    "The project fixture has no package root."),
+            "packages");
+        string? original =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable(
+            "NUGET_PACKAGES",
+            packagesRoot);
+        try
+        {
+            return await RunAppAsync(
+                ["project", projectPath, .. args]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                original);
+        }
     }
 
     private static IEnumerable<string> JsonStrings(JsonElement element)
@@ -3549,6 +3581,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareQualifiedAspNetCoreType_RoutesPastNonOwningAssemblyPrefix()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpContext", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("# Microsoft.AspNetCore.Http.HttpContext", output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Http.Abstractions", output);
+        Assert.Contains("Source: Platform", output);
+    }
+
+    [Fact]
     public async Task BareQualifiedAspNetCoreMember_RoutesAcrossPlatformFrameworks()
     {
         SkipUnlessAspNetCoreAvailable();
@@ -5233,6 +5280,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void OriginalSource_ForwardsConditionalBranchEvidenceToTheSlicer()
+    {
+        const string source = """
+            class C
+            {
+            #if FIRST
+                void Dead() { }
+            #else
+                void Live() { }
+            #endif
+            }
+            """;
+
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            source,
+            startLine: 6,
+            endLine: 6,
+            methodName: "Live",
+            sourceLocation: "fixture.cs",
+            pdbPath: null,
+            visibleSequencePointStartLines: [6]);
+
+        Assert.Equal("void Live() { }", resolved.Source?.SourceCode);
+    }
+
+    [Fact]
     public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
     {
         string source = "class C { void M() { "
@@ -5254,6 +5327,76 @@ public partial class CommandExecutionTests
             ApiCommand.OriginalSourceUnavailableNote(
                 new MemberOptions { MemberSourceTooComplex = true }),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OriginalSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
+    {
+        const string source = "class C\n{\n    void M() { }\n}";
+
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            source,
+            startLine: 3,
+            endLine: 6,
+            methodName: "M",
+            sourceLocation: "fixture.cs",
+            pdbPath: "fixture.pdb",
+            visibleSequencePointStartLines: [3]);
+
+        Assert.True(resolved.MemberSourceCoordinatesInvalid);
+        Assert.Null(resolved.Source);
+        Assert.Equal("fixture.pdb", resolved.PdbPath);
+        Assert.Contains(
+            "sequence-point coordinates",
+            ApiCommand.OriginalSourceUnavailableNote(
+                new MemberOptions { MemberSourceCoordinatesInvalid = true }),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.OriginalSource, "## Original Source")]
+    [InlineData(SectionNames.SourceDiff, "## Source Diff")]
+    public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
+        string section,
+        string heading)
+    {
+        using var stream = File.OpenRead(TestAssemblyPath);
+        using var peReader = new PEReader(stream);
+        var api = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            api.Types,
+            candidate => candidate.FullName == typeof(CommandExecutionSourceDiffFixture).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(CommandExecutionSourceDiffFixture.AddOne));
+        type.Members = [member];
+
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            DllPath = TestAssemblyPath,
+            TypeName = type.FullName,
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { nameof(CommandExecutionSourceDiffFixture.AddOne) },
+            OverloadIndex = member.DeclaringOverloadIndex ?? 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+            MemberSourceCoordinatesInvalid = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: "dotnet-inspect.Tests",
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(heading, output);
+        Assert.Contains("sequence-point coordinates", output);
     }
 
     [Fact]
@@ -5335,9 +5478,14 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource)]
-    [InlineData(SectionNames.SourceDiff)]
-    public async Task Member_ComplexSourceInNonCodeFormatsFailsVisibly(string section)
+    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
+    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    public async Task Member_SourceFailureInNonCodeFormatsFailsVisibly(
+        string section,
+        bool coordinatesInvalid,
+        string expectedFailure)
     {
         var type = new ApiType
         {
@@ -5352,13 +5500,15 @@ public partial class CommandExecutionTests
             new MemberOptions { Tabular = true },
             new MemberOptions { Tabular = true, Tsv = true },
             new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
         };
 
         foreach (var candidate in cases)
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = true,
+                MemberSourceTooComplex = !coordinatesInvalid,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };
@@ -5375,15 +5525,20 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains(expectedFailure, error);
             Assert.Contains("cannot represent this code-section failure", error);
         }
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource)]
-    [InlineData(SectionNames.SourceDiff)]
-    public async Task Member_ComplexSourceUnderBareWithEarlierRendererFailsVisibly(string section)
+    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
+    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    public async Task Member_SourceFailureUnderBareWithEarlierRendererFailsVisibly(
+        string section,
+        bool coordinatesInvalid,
+        string expectedFailure)
     {
         var type = new ApiType
         {
@@ -5402,7 +5557,8 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = true,
+                MemberSourceTooComplex = !coordinatesInvalid,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };
@@ -5419,7 +5575,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains(expectedFailure, error);
             Assert.Contains("cannot represent this code-section failure", error);
         }
     }
@@ -12501,6 +12657,25 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(
             occurrences,
             occurrence => occurrence.Switch == "DotnetInspector.Fixtures.Lookalike");
+        Assert.Contains(
+            occurrences,
+            occurrence => occurrence.Switch == "TestSwitch.Ignored");
+
+        var inventory =
+            AppContextSwitchProjectionProducer.ProduceInventory(
+                session.MethodBodies);
+        Assert.Single(
+            inventory,
+            occurrence => occurrence.Switch == "DotnetInspector.Fixtures.Duplicate");
+        Assert.DoesNotContain(
+            inventory,
+            occurrence => occurrence.Switch.StartsWith(
+                "TestSwitch.",
+                StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith("Switch.", StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith(
+                    "System.Resources.UseSystemResourceKeys",
+                    StringComparison.Ordinal));
 
         var (exit, output, error) = await RunAppAsync(
             "library", assemblyPath, "-S", "Switches", "--rows", "20");
@@ -17465,8 +17640,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--agents-index", "--jsonl");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17507,8 +17682,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--agents-index", "--jsonl");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17549,8 +17724,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--jsonl");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17583,8 +17758,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--paths");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--paths");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -17605,8 +17780,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--fields", "Version", "--value");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--fields", "Version", "--value");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -17633,8 +17808,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print", "--body");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17658,8 +17833,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17679,8 +17854,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17823,8 +17998,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print", "--jsonl");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17850,8 +18025,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -17874,8 +18049,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print", "--row", "2");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--row", "2");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -17899,8 +18074,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print", "--row", "1");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--row", "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -17923,8 +18098,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--print-all");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print-all");
 
             Assert.NotEqual(0, exit);
             Assert.DoesNotContain("--- Test.Project.PrintAll.One", output);
@@ -17945,8 +18120,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--bare");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--bare");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -17970,8 +18145,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--bare");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -17992,8 +18167,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--columns", "Package");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--columns", "Package");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -18013,8 +18188,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--print");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--print");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -18039,8 +18214,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--count");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--count");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -18077,8 +18252,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--readme", "Test.Project.Readme");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--readme", "Test.Project.Readme");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -18100,8 +18275,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--readme", "Test.Project.Readme.Jsonl", "--jsonl");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--readme", "Test.Project.Readme.Jsonl", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -18150,10 +18325,10 @@ public partial class CommandExecutionTests
             var skillsOutput = Path.Combine(projectTempDir, "skills.jsonl");
             var contentOutput = Path.Combine(packageTempDir, "content.jsonl");
 
-            var (agentsExit, agentsStdout, agentsError) = await RunAppAsync(
-                "project", projectPath, "--agents-index", "--jsonl", "--out", agentsOutput);
-            var (skillsExit, skillsStdout, skillsError) = await RunAppAsync(
-                "project", projectPath, "-S", "Skills", "--jsonl", "--out", skillsOutput);
+            var (agentsExit, agentsStdout, agentsError) = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "--jsonl", "--out", agentsOutput);
+            var (skillsExit, skillsStdout, skillsError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl", "--out", skillsOutput);
             var (contentExit, contentStdout, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "@agents", "--content", "--jsonl", "--out", contentOutput);
 
@@ -18191,8 +18366,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--readme", "Test.Project.ProjectMd");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--readme", "Test.Project.ProjectMd");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -18213,8 +18388,8 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--readme", "Test.Project.RawLinks");
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "--readme", "Test.Project.RawLinks");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);

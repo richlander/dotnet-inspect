@@ -33,7 +33,8 @@ full zero-network evidence set:
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
 `-S @Source` is broader and may fetch network `Original Source` content when
-SourceLink is available; that network body is not checksum-verified by default.
+SourceLink is available; the fetch verifies the final redirect origin and PDB
+checksum before returning the body.
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 

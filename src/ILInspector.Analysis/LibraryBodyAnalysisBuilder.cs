@@ -410,6 +410,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        bool includeOwnershipFlow = plan.Includes(
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         if (includeOpportunities
             && bodyScope is not null)
@@ -449,6 +451,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
         var exceptionPathCandidates =
             ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
+        var ownershipFlow =
+            ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var exceptionTypeNames = includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -495,7 +499,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 var w = workItems[i];
                 results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
                     includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, bodyScope, bodyTypeScope);
+                    includeLeakTriage, includeOwnershipFlow,
+                    bodyScope, bodyTypeScope);
             });
         }
         else
@@ -505,7 +510,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 var w = workItems[i];
                 results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
                     includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, bodyScope, bodyTypeScope);
+                    includeLeakTriage, includeOwnershipFlow,
+                    bodyScope, bodyTypeScope);
             }
         }
 
@@ -521,6 +527,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 leakCandidates.AddRange(leakTriage.Candidates);
                 exceptionPathCandidates.AddRange(
                     leakTriage.ExceptionPathCandidates);
+            }
+            if (r.OwnershipFlow is { } methodOwnership
+                && (!methodOwnership.Rents.IsEmpty
+                    || !methodOwnership.Parameters.IsEmpty
+                    || !methodOwnership.IsComplete))
+            {
+                ownershipFlow.Add(methodOwnership);
             }
             if (!r.HasCaller)
             {
@@ -595,6 +608,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 Opportunities: optimizationOpportunities.ToImmutable(),
                 SuppressedMethodTokens: suppressedOpportunityTokens,
                 ExceptionTypeNames: exceptionTypeNames),
+            OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
     }
@@ -626,6 +640,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         public bool HasSignals;
         public BodySignals Signals;
         public LeakTriageResult? LeakTriage;
+        public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
         public AnalysisDiagnostic? Diagnostic;
     }
 
@@ -637,6 +652,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
     MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
         MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
         bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
+        bool includeOwnershipFlow,
         IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
     {
         if (!includeMethodEvidence)
@@ -718,11 +734,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 body.ExceptionRegions,
                 loopRegions,
                 localTypes);
-            // One allocation interpretation per decoded body. It owns the path,
-            // confidence, post-dominance, and multiplicity reading of the shared
-            // control flow, which call-site acquisition and optimization-opportunity
-            // collection query rather than rebuild.
-            var allocationAnalysis = new MethodAllocationAnalysis(context);
+            // Build allocation's Layer-1 indexes before other topic producers,
+            // then keep every result and query bound to this exact context.
+            var allocationFacts = MethodAllocationFacts.Create(context);
             var methodAnalysisResolver = new MethodAnalysisResolver(
                 this,
                 scope,
@@ -738,18 +752,29 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             // reuses the same discovered occurrences (it keys them by IL offset and does not read escape
             // state). Refining once and sharing the discovery scan avoids a second full instruction/
             // token scan per method whenever opportunities are computed.
-            var allocations = includeAllocations
-                ? allocationAnalysis.Collect(
-                    methodAnalysisResolver)
-                : MethodAllocationResult.Empty;
-            result.Allocations = allocations.ClassifiedOccurrences;
+            if (includeAllocations)
+            {
+                allocationFacts.Collect(methodAnalysisResolver);
+            }
+            result.Allocations =
+                allocationFacts.ClassifiedOccurrences;
             result.Unsafety = MethodSafetyAnalysis.CollectOccurrences(
                 context,
                 token => CalliReturnDetail(token, scope));
+            var signals = BodySignalAnalysis.Collect(
+                context,
+                token => IsAllocatingValueTypeBox(
+                    token,
+                    ResolveTypeToken(token, scope)));
+            if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
+            {
+                result.Signals = signals;
+                result.HasSignals = true;
+            }
             MethodCallAnalysis.Collect(
                 context,
                 new CallResolver(this, scope),
-                offset => allocationAnalysis.MultiplicityAt(offset),
+                offset => allocationFacts.MultiplicityAt(offset),
                 calls,
                 evidence,
                 includeIndirectOpcodes: hasUnsafeApiMember
@@ -770,10 +795,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 {
                     opportunities.AddRange(
                         OptimizationOpportunityAnalysis.Collect(
-                            context,
-                            allocations.DiscoveredOccurrences,
-                            allocationAnalysis,
-                            methodAnalysisResolver));
+                            allocationFacts,
+                            methodAnalysisResolver);
                 }
                 else
                 {
@@ -810,15 +833,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 }
                 result.Opportunities = opportunities.ToImmutable();
             }
-            var signals = BodySignalAnalysis.Collect(
-                context,
-                token => IsAllocatingValueTypeBox(
-                    token,
-                    ResolveTypeToken(token, scope)));
-            if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
+            if (includeOwnershipFlow)
             {
-                result.Signals = signals;
-                result.HasSignals = true;
+                result.OwnershipFlow = ArrayPoolOwnershipFlow.Analyze(
+                    context,
+                    calls.ToImmutable());
             }
         }
         catch (Exception ex) when (IsRecoverableMethodFailure(ex))

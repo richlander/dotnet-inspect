@@ -210,11 +210,10 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            HashSet<SwitchInfo> appContextSwitches = [];
-            AddAppContextSwitches(
-                appContextSwitches,
-                AppContextSwitchProjectionProducer.Produce(pdbContext.MethodBodies));
-            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
+            var appContextSwitches =
+                AppContextSwitchProjectionProducer.ProduceInventory(
+                    pdbContext.MethodBodies);
+            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Length;
             inspection.HasSwitches = inspection.SwitchCount > 0;
 
             if (integrationsEntry is not null)
@@ -1664,76 +1663,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<SwitchInfo> ScanSwitches(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanSwitches(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
-            return FailedInspection<SwitchInfo>(
-                path, MetadataFindings.SwitchDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<SwitchInfo> ScanSwitches(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            HashSet<SwitchInfo> switches = [.. session.Switches()];
-            if (session.HasMetadata)
-            {
-                AddAppContextSwitches(
-                    switches,
-                    AppContextSwitchProjectionProducer.Produce(
-                        session.MethodBodies));
-            }
-
-            var orderedSwitches = switches
-                .OrderBy(s => s.Kind, StringComparer.Ordinal)
-                .ThenBy(s => s.Switch, StringComparer.Ordinal)
-                .ThenBy(s => s.Api, StringComparer.Ordinal)
-                .ToList();
-            return MetadataFindings.InspectSwitches(
-                orderedSwitches,
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                $"Error scanning switches in {path}: {ex.Message}");
-            return FailedInspection<SwitchInfo>(
-                path,
-                MetadataFindings.SwitchDescriptor,
-                ex);
-        }
-    }
-
-    static void AddAppContextSwitches(
-        HashSet<SwitchInfo> switches,
-        IEnumerable<AppContextSwitchOccurrence> occurrences)
-    {
-        foreach (var occurrence in occurrences)
-        {
-            if (occurrence.Switch.StartsWith("System.Resources.UseSystemResourceKeys", StringComparison.Ordinal)
-                || occurrence.Switch.StartsWith("TestSwitch.", StringComparison.Ordinal)
-                || occurrence.Switch.StartsWith("Switch.", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            switches.Add(new SwitchInfo("AppContext", occurrence.Switch, occurrence.Api));
-        }
-    }
-
     private static void ApplyQueryResults(
         string path,
         LibraryInspection inspection,
@@ -1779,6 +1708,13 @@ internal static class LibraryMetadataService
                 out ResourcesResult? resources))
         {
             ApplyResourcesResult(path, inspection, logger, resources);
+        }
+
+        if (results.TryGet(
+                SwitchesQuery.Definition,
+                out SwitchesResult? switches))
+        {
+            ApplySwitchesResult(path, inspection, logger, switches);
         }
 
         if (results.TryGet(
@@ -2080,6 +2016,37 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown union-types result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplySwitchesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        SwitchesResult result)
+    {
+        switch (result)
+        {
+            case SwitchesResult.Available available:
+                inspection.SwitchInspection =
+                    MetadataFindings.InspectSwitches(
+                        available.Switches,
+                        FindingSubjectFor(path));
+                break;
+
+            case SwitchesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning switches in {path}: {failed.Error.Message}");
+                inspection.SwitchInspection =
+                    FailedInspection<SwitchInfo>(
+                        path,
+                        MetadataFindings.SwitchDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown switches result '{result.GetType().Name}'.");
         }
     }
 

@@ -31,10 +31,14 @@ public enum LibraryBodyAnalysisFeatures
     OptimizationOpportunities = 1 << 2,
     /// <summary>Produce the whole-assembly ArrayPool lifecycle census.</summary>
     LeakTriage = 1 << 3,
+    /// <summary>
+    /// Produce compact body-scoped ArrayPool ownership-flow summaries.
+    /// </summary>
+    OwnershipFlow = 1 << 4,
     /// <summary>The body-analysis features used by the general index.</summary>
     Default = MethodEvidence | Allocations | OptimizationOpportunities,
     /// <summary>All available body-analysis producers.</summary>
-    All = Default | LeakTriage,
+    All = Default | LeakTriage | OwnershipFlow,
 }
 
 /// <summary>
@@ -80,6 +84,7 @@ public sealed class LibraryBodyIndex
             analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
         _leakTriage = analysis.Resources.LeakTriage;
+        ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
     }
 
     public string Path { get; }
@@ -98,6 +103,13 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
     public LibraryBodyAnalysisFeatures Features { get; }
+
+    /// <summary>
+    /// Compact per-method ArrayPool ownership summaries produced during the
+    /// body walk. No IL or control-flow state is retained.
+    /// </summary>
+    public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
+        ArrayPoolOwnership { get; }
 
     readonly LeakTriageResult? _leakTriage;
 
@@ -860,6 +872,7 @@ public sealed class LibraryBodyIndex
                     SuppressedMethodTokens: new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
+                OwnershipFlow: new(Methods: []),
                 Resources: new(LeakTriage: null),
                 Diagnostics: []),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
