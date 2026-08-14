@@ -28,7 +28,10 @@ internal static class GuardedDecode
             : UnsupportedMethodSignature("member-reference");
 
     public static MethodSignature<TypeRef> MethodSignature(MetadataReader reader, StandaloneSignature signature, GenericScope scope)
-        => SignatureBlobGuard.IsSafeToDecode(reader, signature.Signature, SignatureBlobGuard.Kind.Method)
+        => SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                signature.Signature,
+                SignatureBlobGuard.Kind.StandaloneMethod)
             ? signature.DecodeMethodSignature(TypeRefDecoder.Instance, scope)
             : UnsupportedMethodSignature("standalone");
 

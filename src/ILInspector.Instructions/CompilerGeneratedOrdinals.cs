@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
-using System.Text;
 
 using ILInspector.Metadata;
 
@@ -72,17 +71,12 @@ namespace ILInspector.Instructions;
 /// in anything but the member ordinal. Do not read this gate as authenticating provenance.
 /// </para>
 /// <para>
-/// That bound is only real because the key's flattening is injective. When the separator
-/// was spellable it was not, and a forged attribute could equate members of two different
-/// types. The gate for this paragraph's claim is
-/// <c>KeySeparatorCannotBeSpelledByAMetadataName</c>, which drives the assertion from
-/// <see cref="KeySeparator"/> itself and so fails for <em>any</em> spellable separator.
-/// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> exhibits the concrete
-/// historical shape but does not gate the general claim: its forged name is written
-/// against the old <c>.</c>/<c>+</c>/<c>::</c> joining, so changing the separator to an
-/// arbitrary spellable character leaves it passing. Measured, not assumed — with the
-/// separator set to <c>'@'</c>, <c>KeySeparatorCannotBeSpelledByAMetadataName</c> is the
-/// only test in this assembly that fails.
+/// The correspondence keys are produced by <see cref="MethodStructuralSignature"/> and
+/// <see cref="TypeStructuralSignature"/>. Their tagged, length-prefixed grammar preserves
+/// segment boundaries even when metadata names contain punctuation that was significant
+/// to the former display-shaped key. Gated by
+/// <c>Build_LengthPrefixesEveryNameSegmentation</c> and
+/// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>.
 /// </para>
 /// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
@@ -114,27 +108,19 @@ namespace ILInspector.Instructions;
 /// criteria include the generic fixture this assembly cannot currently build.
 /// </para>
 /// <para>
-/// <b>Three branches in the type-key construction are likewise unverified.</b> The null
-/// prefix returned when the declaring chain cannot be walked, the <c>consumed == 0</c>
-/// rejection, and the placement of the namespace on the outermost segment only all need a
-/// <em>nested</em> type — and, for the first two, one nested more deeply than
-/// <c>MetadataSafetyPolicy.MaxRelationshipNodes</c> allows. The synthetic images here
-/// declare only top-level types, so every control passes through those branches
-/// identically whether or not they are present. Tracked by issue #3588. Accepting an
-/// empty prefix in place of the null one would be a soundness loss, not a completeness
-/// one: two types whose chains could not be walked would key alike.
+/// A generated method whose signature itself names another ordinal-bearing generated
+/// TypeDef does not fold that referenced name. Name substitutions are intentionally
+/// limited to the method and its declaring chain; substituting a parameter or constraint
+/// type independently on each side would bypass the two-sided type correspondence. An
+/// unverified probe shows the operand renderer exposing the same referenced-type ordinal
+/// today, making this a missed fold rather than a hidden difference; no test gates that
+/// renderer dependency yet.
 /// </para>
 /// <para>
-/// <b>Three further branches are unverified because another branch masks them, not
-/// because no fixture reaches them.</b> Type eligibility is computed once when indexing a
-/// type and again when that type appears in a key prefix, and the second call keeps an
-/// unattributed name raw on its own; the cached enclosing-type elision is duplicated by
-/// the fallback beside it; and the constructor-kind default arm needs an attribute
-/// constructor that is neither a member reference nor a method definition. Each is
-/// redundant with a covered branch <em>today</em>, so deleting one changes nothing
-/// observable — which is exactly why a later edit could remove the survivor without any
-/// control noticing. Distinguishing the first two needs the same nested-type fixture as
-/// the branches above; all three are tracked by issue #3588.
+/// Nested generated-type correspondence still needs a dedicated end-to-end fixture. The
+/// shared structural codec walks and encodes the complete declaring chain, but this
+/// suite's synthetic generated types are top-level. Nested override and malformed-chain
+/// integration coverage remains tracked by #3588.
 /// </para>
 /// </remarks>
 public sealed class CompilerGeneratedOrdinalCorrespondence
@@ -146,30 +132,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             new Dictionary<FieldDefinitionHandle, string>());
 
     /// <summary>
-    /// The separator between key segments. It is NUL for the same reason the ordinal
-    /// placeholder ends in one: no metadata name can contain it.
+    /// The separator in the synthetic cache-field comparison name.
     /// </summary>
     /// <remarks>
-    /// A key is a sequence of segments — namespace, each enclosing type, the member name —
-    /// flattened to a string. With a spellable separator that flattening is not injective:
-    /// a method named <c>&lt;M&gt;g__L::&lt;N&gt;g__X|3_0</c> on type <c>C</c> and a method
-    /// named <c>&lt;N&gt;g__X|7_0</c> on a type named <c>C::&lt;M&gt;g__L</c> produce the
-    /// same key from different segmentations. Both are unique on their own side, so both
-    /// pass the two-sided ambiguity check and fold onto each other — and because the
-    /// rendered operand concatenates the same way, the two genuinely different targets
-    /// render identically and a real difference is hidden. Separating with NUL makes the
-    /// flattening injective, because no segment can contain the separator. That general
-    /// property is pinned by <c>KeySeparatorCannotBeSpelledByAMetadataName</c>, which
-    /// drives its assertion from this constant and so fails for any spellable value.
-    /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> pins only the concrete
-    /// historical <c>.</c>/<c>+</c>/<c>::</c> shape and does not fire for an arbitrary
-    /// spellable separator.
-    /// <para>
-    /// Keys are never rendered — only <c>MethodNames</c> and <c>TypeNames</c> reach the
-    /// compared text — so this costs nothing in output.
-    /// </para>
+    /// A cache field takes its sibling method's comparison name. NUL keeps that
+    /// composition distinct from every raw metadata field name.
     /// </remarks>
-    internal const char KeySeparator = '\0';
+    internal const char CacheFieldNameSeparator = '\0';
 
     /// <summary>
     /// The text standing in for an elided member ordinal. It ends in NUL, which no
@@ -254,7 +223,8 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// key resolves to exactly one eligible member on <b>both</b> sides.
     /// </summary>
     /// <remarks>
-    /// The safety of <see cref="OrdinalPlaceholder"/> and <see cref="KeySeparator"/> rests
+    /// The safety of <see cref="OrdinalPlaceholder"/> and
+    /// <see cref="CacheFieldNameSeparator"/> rests
     /// on a name never containing NUL, which follows from the <c>#Strings</c> heap being
     /// NUL-terminated — but only for the default string decoder. A custom
     /// <c>MetadataStringDecoder</c> may return whatever it likes, including a name that
@@ -293,17 +263,39 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         var oldMethods = new Dictionary<MethodDefinitionHandle, string>();
         var newMethods = new Dictionary<MethodDefinitionHandle, string>();
-        foreach (var (key, handle) in oldIndex.Methods)
+        foreach (var (declaringType, oldGroup) in oldIndex.MethodGroups)
         {
-            if (oldIndex.AmbiguousMethods.Contains(key)
-                || newIndex.AmbiguousMethods.Contains(key)
-                || !newIndex.Methods.TryGetValue(key, out var counterpart))
+            if (!newIndex.MethodGroups.TryGetValue(
+                    declaringType,
+                    out var newGroup))
             {
                 continue;
             }
 
-            oldMethods[handle] = oldIndex.MethodNames[handle];
-            newMethods[counterpart] = newIndex.MethodNames[counterpart];
+            foreach (var (signature, oldSignatureGroup) in oldGroup.Signatures)
+            {
+                if (!newGroup.Signatures.TryGetValue(
+                        signature,
+                        out var newSignatureGroup))
+                {
+                    continue;
+                }
+
+                foreach (var (localKey, handle) in oldSignatureGroup.Methods)
+                {
+                    if (oldSignatureGroup.AmbiguousMethods.Contains(localKey)
+                        || newSignatureGroup.AmbiguousMethods.Contains(localKey)
+                        || !newSignatureGroup.Methods.TryGetValue(
+                            localKey,
+                            out var counterpart))
+                    {
+                        continue;
+                    }
+
+                    oldMethods[handle] = oldIndex.MethodNames[handle];
+                    newMethods[counterpart] = newIndex.MethodNames[counterpart];
+                }
+            }
         }
 
         var oldTypes = new Dictionary<TypeDefinitionHandle, string>();
@@ -346,13 +338,30 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             Dictionary<MethodDefinitionHandle, string> resolvedMethods)
         {
             var named = new Dictionary<FieldDefinitionHandle, string>();
+            var siblingNames =
+                new Dictionary<MethodDefinitionHandle, string>();
             foreach (var (fieldHandle, sibling) in index.FieldSiblings)
             {
-                string siblingName = resolvedMethods.TryGetValue(sibling, out var elided)
-                    ? elided
-                    : reader.GetString(reader.GetMethodDefinition(sibling).Name);
+                if (!siblingNames.TryGetValue(
+                        sibling,
+                        out string? composedName))
+                {
+                    string siblingName =
+                        resolvedMethods.TryGetValue(
+                            sibling,
+                            out var elided)
+                            ? elided
+                            : MetadataSafetyPolicy.ReadStructuralString(
+                                reader,
+                                reader.GetMethodDefinition(sibling).Name);
+                    composedName =
+                        LambdaCacheFieldPrefix
+                        + CacheFieldNameSeparator
+                        + siblingName;
+                    siblingNames.Add(sibling, composedName);
+                }
 
-                // KeySeparator, not bare concatenation, and for the reason spelled out on
+                // CacheFieldNameSeparator, not bare concatenation, and for the reason spelled out on
                 // OrdinalPlaceholder: this string is substituted into the compared operand
                 // text, so it shares a namespace with every raw name that text can carry.
                 // Without an unspellable mark the composition is forgeable -- a field
@@ -365,11 +374,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 // LambdaCacheFieldName_CannotBeForgedByARawFieldName pins that *this*
                 // composition is not bare concatenation, and fails if the separator is
                 // dropped. It does not pin that the separator is unspellable -- give
-                // KeySeparator a spellable value and that test still passes, because its
+                // CacheFieldNameSeparator a spellable value and that test still passes, because its
                 // forged name is written against NUL. The unspellability itself is
-                // KeySeparatorCannotBeSpelledByAMetadataName, which drives its assertion
+                // CacheFieldNameSeparatorCannotBeSpelledByAMetadataName, which drives its assertion
                 // from the constant and so fails for any spellable value.
-                named[fieldHandle] = LambdaCacheFieldPrefix + KeySeparator + siblingName;
+                named[fieldHandle] = composedName;
             }
 
             return named;
@@ -446,6 +455,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     }
 
     internal static string? TryElideOrdinal(string name, GeneratedNameKind kind)
+        => TryElideOrdinal(name, kind, workBudget: null);
+
+    static string? TryElideOrdinal(
+        string name,
+        GeneratedNameKind kind,
+        StructuralSignatureWorkBudget? workBudget)
     {
         if (name.Length < 4 || name[0] != '<')
             return null;
@@ -468,9 +483,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         if (rest.StartsWith("d__", StringComparison.Ordinal))
         {
-            return kind == GeneratedNameKind.Type && IsCanonicalOrdinal(rest[3..])
-                ? $"{containing}d__{OrdinalPlaceholder}"
-                : null;
+            if (kind != GeneratedNameKind.Type
+                || !IsCanonicalOrdinal(rest[3..]))
+            {
+                return null;
+            }
+            workBudget?.Charge(name.Length);
+            return $"{containing}d__{OrdinalPlaceholder}";
         }
 
         if (kind == GeneratedNameKind.Type)
@@ -482,9 +501,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         // member index, which the harness's rebuilt type skeleton renumbers.
         if (rest.StartsWith("b__", StringComparison.Ordinal))
         {
-            return ElideScopeOrdinal(rest[3..]) is { } lambdaOrdinals
-                ? $"{containing}b__{lambdaOrdinals}"
-                : null;
+            if (ElideScopeOrdinal(rest[3..]) is not { } lambdaOrdinals)
+                return null;
+            workBudget?.Charge(name.Length);
+            return $"{containing}b__{lambdaOrdinals}";
         }
 
         if (!rest.StartsWith("g__", StringComparison.Ordinal))
@@ -503,9 +523,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         if (local.IsEmpty)
             return null;
 
-        return ElideScopeOrdinal(rest[(bar + 1)..]) is { } localOrdinals
-            ? $"{containing}g__{local}|{localOrdinals}"
-            : null;
+        if (ElideScopeOrdinal(
+                rest[(bar + 1)..]) is not { } localOrdinals)
+        {
+            return null;
+        }
+        workBudget?.Charge(name.Length);
+        return $"{containing}g__{local}|{localOrdinals}";
     }
 
     internal const string LambdaCacheFieldPrefix = "<>9__";
@@ -647,15 +671,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     {
         static readonly ConditionalWeakTable<MetadataReader, SideIndex> s_cache = new();
 
-        public required Dictionary<string, MethodDefinitionHandle> Methods { get; init; }
-        public required HashSet<string> AmbiguousMethods { get; init; }
+        public required Dictionary<StructuralTypeKey, MethodGroup> MethodGroups { get; init; }
         public required Dictionary<MethodDefinitionHandle, string> MethodNames { get; init; }
-        public required Dictionary<string, TypeDefinitionHandle> Types { get; init; }
-        public required HashSet<string> AmbiguousTypes { get; init; }
+        public required Dictionary<StructuralTypeKey, TypeDefinitionHandle> Types { get; init; }
+        public required HashSet<StructuralTypeKey> AmbiguousTypes { get; init; }
         public required Dictionary<TypeDefinitionHandle, string> TypeNames { get; init; }
         public required Dictionary<FieldDefinitionHandle, MethodDefinitionHandle> FieldSiblings { get; init; }
 
-        public bool IsEmpty => Methods.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
+        public bool IsEmpty => MethodGroups.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
 
         public static SideIndex For(MetadataReader reader)
             => s_cache.GetValue(reader, static r => Create(r));
@@ -684,8 +707,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             {
                 return new SideIndex
                 {
-                    Methods = [],
-                    AmbiguousMethods = [],
+                    MethodGroups = [],
                     MethodNames = [],
                     Types = [],
                     AmbiguousTypes = [],
@@ -697,26 +719,76 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         static SideIndex CreateCore(MetadataReader reader)
         {
-            var methods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
-            var ambiguousMethods = new HashSet<string>(StringComparer.Ordinal);
+            var methodGroups = new Dictionary<StructuralTypeKey, MethodGroup>();
             var methodNames = new Dictionary<MethodDefinitionHandle, string>();
-            var types = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
-            var ambiguousTypes = new HashSet<string>(StringComparer.Ordinal);
+            var types = new Dictionary<StructuralTypeKey, TypeDefinitionHandle>();
+            var ambiguousTypes = new HashSet<StructuralTypeKey>();
             var typeNames = new Dictionary<TypeDefinitionHandle, string>();
             var fieldSiblings = new Dictionary<FieldDefinitionHandle, MethodDefinitionHandle>();
+            var workBudget = new StructuralSignatureWorkBudget();
+            var typeNameElisions = new Dictionary<StringHandle, string?>();
+            var methodNameElisions =
+                new Dictionary<StringHandle, (string? Elided, string? SiblingTail)>();
+            var fieldTails = new Dictionary<StringHandle, string?>();
 
+            string DecodeName(StringHandle handle)
+            {
+                string name =
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        handle);
+                workBudget.Charge(name.Length);
+                return name;
+            }
+
+            // Name discovery is separate because the shared key builder consumes a
+            // complete handle-to-name map rather than owning generated-name policy.
+            // Parsing and materializing an elision is work even when the definition
+            // ultimately lacks ownership, so it is charged before the attribute gate.
+            // Failing the optional normalization whole-side is the safe outcome when
+            // attacker-controlled name work exhausts the shared budget.
+            foreach (var typeHandle in reader.TypeDefinitions)
+            {
+                var type = reader.GetTypeDefinition(typeHandle);
+                if (!reader.StringComparer.StartsWith(type.Name, "<"))
+                    continue;
+                if (!typeNameElisions.TryGetValue(
+                        type.Name,
+                        out string? elidedType))
+                {
+                    elidedType = TryElideOrdinal(
+                        DecodeName(type.Name),
+                        GeneratedNameKind.Type,
+                        workBudget);
+                    typeNameElisions.Add(type.Name, elidedType);
+                }
+                if (TryEligibleName(
+                        reader,
+                        elidedType,
+                        type.GetCustomAttributes(),
+                        declaringTypeIsGenerated:
+                            false) is { } eligibleTypeName)
+                {
+                    typeNames[typeHandle] = eligibleTypeName;
+                }
+            }
+
+            var structuralKeys =
+                new StructuralSignatureBuilder(
+                    reader,
+                    typeNames,
+                    workBudget);
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);
 
-                string? typeKeyPrefix = TypeKeyPrefix(reader, typeHandle, typeNames);
-                if (typeKeyPrefix is null)
-                    continue;
-
-                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, declaringTypeIsGenerated: false) is { } elidedType)
+                if (typeNames.ContainsKey(typeHandle))
                 {
-                    typeNames[typeHandle] = elidedType;
-                    Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
+                    Add(
+                        types,
+                        ambiguousTypes,
+                        structuralKeys.BuildTypeKey(typeHandle),
+                        typeHandle);
                 }
 
                 // Computed on demand, and scoped to this type. Two separate properties,
@@ -754,45 +826,72 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    string methodName = reader.GetString(method.Name);
-                    if (TryElideOrdinal(methodName, GeneratedNameKind.Method) is null)
+                    if (!reader.StringComparer.StartsWith(method.Name, "<"))
+                        continue;
+                    if (!methodNameElisions.TryGetValue(
+                            method.Name,
+                            out var nameInfo))
+                    {
+                        string name = DecodeName(method.Name);
+                        string? candidateElision = TryElideOrdinal(
+                            name,
+                            GeneratedNameKind.Method,
+                            workBudget);
+                        nameInfo = (
+                            candidateElision,
+                            candidateElision is null
+                                ? null
+                                : TryLambdaMethodTail(name));
+                        methodNameElisions.Add(
+                            method.Name,
+                            nameInfo);
+                    }
+                    if (nameInfo.Elided is not { } elided)
                         continue;
 
                     typeIsGenerated ??= HasCompilerGeneratedAttribute(reader, type.GetCustomAttributes());
-                    if (TryEligibleName(reader, methodName, method.GetCustomAttributes(), GeneratedNameKind.Method, declaringTypeIsGenerated: typeIsGenerated.Value) is not { } elided)
+                    if (TryEligibleName(
+                            reader,
+                            elided,
+                            method.GetCustomAttributes(),
+                            declaringTypeIsGenerated:
+                                typeIsGenerated.Value) is null)
                         continue;
 
-                    // A generic method's own constraints; the declaring chain's are
-                    // refused in TypeKeyPrefix. Splitting the two keeps either check
-                    // observable when the other is removed.
-                    if (HasConstrainedGenericParameters(reader, method.GetGenericParameters()))
-                        continue;
-
+                    StructuralMethodKey key =
+                        structuralKeys.BuildMethodKey(method, elided);
                     methodNames[methodHandle] = elided;
 
                     // The pairing side of the lambda cache field. Recorded only for
                     // methods that were themselves found eligible, so a field can never
                     // borrow a name the method path refused to fold.
-                    if (TryLambdaMethodTail(methodName) is { } siblingTail)
+                    if (nameInfo.SiblingTail is { } siblingTail)
                     {
                         lambdaSiblings ??= new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
                         if (!lambdaSiblings.TryAdd(siblingTail, methodHandle))
                             (ambiguousSiblings ??= new HashSet<string>(StringComparer.Ordinal)).Add(siblingTail);
                     }
 
-                    // A method records its arity twice, in GenericParam and in its
-                    // signature, and nothing in the format ties the two together. The
-                    // operand renderer reads the signature, so a well-formed generic
-                    // method still differs after its name folds; this term carries the
-                    // case where the signature says non-generic and the renderer therefore
-                    // spells no arity tick. Gated by
-                    // MethodsWhoseSignatureHidesTheirArity_DoNotFold, not by the
-                    // Roslyn-shaped control next to it.
+                    if (!methodGroups.TryGetValue(
+                            key.DeclaringType,
+                            out var group))
+                    {
+                        group = new MethodGroup();
+                        methodGroups.Add(key.DeclaringType, group);
+                    }
+                    if (!group.Signatures.TryGetValue(
+                            key.Component.Signature,
+                            out var signatureGroup))
+                    {
+                        signatureGroup = new SignatureGroup();
+                        group.Signatures.Add(
+                            key.Component.Signature,
+                            signatureGroup);
+                    }
                     Add(
-                        methods,
-                        ambiguousMethods,
-                        typeKeyPrefix + KeySeparator + elided + KeySeparator +
-                            method.GetGenericParameters().Count,
+                        signatureGroup.Methods,
+                        signatureGroup.AmbiguousMethods,
+                        key.Component.LocalKey,
                         methodHandle);
                 }
 
@@ -802,7 +901,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var fieldHandle in type.GetFields())
                 {
                     var field = reader.GetFieldDefinition(fieldHandle);
-                    if (TryLambdaCacheFieldTail(reader.GetString(field.Name)) is not { } tail)
+                    if (!reader.StringComparer.StartsWith(
+                            field.Name,
+                            LambdaCacheFieldPrefix))
+                    {
+                        continue;
+                    }
+                    if (!fieldTails.TryGetValue(
+                            field.Name,
+                            out string? tail))
+                    {
+                        tail = TryLambdaCacheFieldTail(
+                            DecodeName(field.Name));
+                        fieldTails.Add(field.Name, tail);
+                    }
+                    if (tail is null)
                         continue;
 
                     // Fail closed on an ambiguous pairing. Roslyn does not emit two lambda
@@ -833,8 +946,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
             return new SideIndex
             {
-                Methods = methods,
-                AmbiguousMethods = ambiguousMethods,
+                MethodGroups = methodGroups,
                 MethodNames = methodNames,
                 Types = types,
                 AmbiguousTypes = ambiguousTypes,
@@ -843,82 +955,29 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             };
         }
 
-        static void Add<THandle>(
-            Dictionary<string, THandle> index,
-            HashSet<string> ambiguous,
-            string key,
+        static void Add<TKey, THandle>(
+            Dictionary<TKey, THandle> index,
+            HashSet<TKey> ambiguous,
+            TKey key,
             THandle handle)
+            where TKey : notnull
         {
             if (!index.TryAdd(key, handle))
                 ambiguous.Add(key);
         }
 
-        /// <summary>
-        /// The declaring-type path a member is keyed under, with each enclosing segment
-        /// itself elided when it is an eligible generated name — otherwise a state machine
-        /// nested in a renumbered type would key differently on the two sides.
-        /// </summary>
-        /// <remarks>
-        /// The nesting chain comes from the shared bounded traversal rather than a local
-        /// recursion, so a cyclic or pathologically deep declaring-type chain in an
-        /// untrusted assembly is rejected under the same policy the rest of the metadata
-        /// layer applies. A rejected chain yields no key, so the type and its methods are
-        /// simply not folded.
-        /// </remarks>
-        static string? TypeKeyPrefix(
-            MetadataReader reader,
-            TypeDefinitionHandle handle,
-            Dictionary<TypeDefinitionHandle, string> typeNames)
+        internal sealed class MethodGroup
         {
-            Span<TypeDefinitionHandle> chain =
-                stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
-            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                    reader,
-                    handle,
-                    chain,
-                    out int consumed,
-                    out _,
-                    out _)
-                || consumed == 0)
-            {
-                return null;
-            }
+            internal Dictionary<StructuralEncodedSignature, SignatureGroup>
+                Signatures { get; } = [];
+        }
 
-            var builder = new StringBuilder();
-            for (int i = 0; i < consumed; i++)
-            {
-                var type = reader.GetTypeDefinition(chain[i]);
+        internal sealed class SignatureGroup
+        {
+            internal Dictionary<StructuralMethodLocalKey, MethodDefinitionHandle>
+                Methods { get; } = [];
 
-                // A generic constraint anywhere in the declaring chain distinguishes the
-                // members below it, and neither this key nor the rendered operand carries
-                // it: the operand spells a call target as `C::<M>g__L|#_0()`, which names
-                // the declaring type but none of its constraints. A local function is not
-                // itself generic, so checking only the member's own generic parameters
-                // leaves it folding across a `where T : class` / `where T : struct`
-                // difference on the type that declares it. Refusing the whole prefix
-                // refuses the type and every method keyed beneath it in one place.
-                // Gated by LocalFunctionsInsideDifferentlyConstrainedTypes_DoNotFold.
-                if (HasConstrainedGenericParameters(reader, type.GetGenericParameters()))
-                    return null;
-
-                string name = typeNames.TryGetValue(chain[i], out var elided)
-                    ? elided
-                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, declaringTypeIsGenerated: false)
-                        ?? reader.GetString(type.Name);
-
-                if (i == 0)
-                    builder.Append(reader.GetString(type.Namespace));
-
-                // Generic arity is part of a type's identity but is not reliably part of
-                // its name. The `N suffix is a language convention, not a runtime rule, so
-                // an untrusted assembly may declare a generic type whose name omits it and
-                // whose elided form therefore collides with a different arity's. Key on the
-                // declared count so two arities can never share a slot.
-                builder.Append(KeySeparator).Append(name)
-                    .Append(KeySeparator).Append(type.GetGenericParameters().Count);
-            }
-
-            return builder.ToString();
+            internal HashSet<StructuralMethodLocalKey> AmbiguousMethods { get; } = [];
         }
 
         /// <summary>
@@ -954,63 +1013,15 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         /// </remarks>
         static string? TryEligibleName(
             MetadataReader reader,
-            string name,
+            string? elidedName,
             CustomAttributeHandleCollection attributes,
-            GeneratedNameKind kind,
             bool declaringTypeIsGenerated)
         {
-            if (TryElideOrdinal(name, kind) is not { } elided)
+            if (elidedName is null)
                 return null;
             return declaringTypeIsGenerated || HasCompilerGeneratedAttribute(reader, attributes)
-                ? elided
+                ? elidedName
                 : null;
-        }
-
-        /// <summary>
-        /// Reports whether any generic parameter carries a constraint, either as a
-        /// <see cref="GenericParameterAttributes"/> flag or as a
-        /// <c>GenericParamConstraint</c> row.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Constraints distinguish two otherwise identical members, and neither the
-        /// correspondence key nor the rendered operand carries them: the key is a name
-        /// and an arity, and the operand spells a call target as
-        /// <c>call void C::&lt;M&gt;g__L|#_0`1()</c>, which has no syntax for
-        /// <c>where T : class</c>. Folding a <c>class</c>-constrained member onto a
-        /// <c>struct</c>-constrained one would therefore report <c>Exact</c> for a
-        /// genuine difference.
-        /// </para>
-        /// <para>
-        /// This declines the fold rather than extending the key, because enumerating
-        /// discriminators by hand is what left arity, the instance bit and the module
-        /// scope out of it in turn (#3681). Refusing is fail-closed and costs nothing
-        /// measurable — the fidelity corpus retires the same 68 rows with and without
-        /// this check.
-        /// </para>
-        /// <para>
-        /// It has exactly two callers, owning disjoint halves of the question, so that
-        /// neither can mask the other's removal: <see cref="TypeKeyPrefix"/> asks it of
-        /// every type in a declaring chain, and the method loop asks it of a method's
-        /// own generic parameters. A local function is not itself generic, so the method
-        /// check alone would leave it folding across a constraint difference on the type
-        /// that declares it; a generated type reaches only the chain check, because a
-        /// null prefix skips the type before its name is ever considered.
-        /// </para>
-        /// </remarks>
-        static bool HasConstrainedGenericParameters(
-            MetadataReader reader,
-            GenericParameterHandleCollection genericParameters)
-        {
-            foreach (var handle in genericParameters)
-            {
-                var parameter = reader.GetGenericParameter(handle);
-                if (parameter.Attributes != GenericParameterAttributes.None)
-                    return true;
-                if (parameter.GetConstraints().Count > 0)
-                    return true;
-            }
-            return false;
         }
 
         static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
@@ -1032,18 +1043,31 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     if (member.Parent.Kind != HandleKind.TypeReference)
                         return false;
                     var typeRef = reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                    return Matches(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+                    return Matches(
+                        reader,
+                        typeRef.Namespace,
+                        typeRef.Name);
                 case HandleKind.MethodDefinition:
                     var ctor = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
                     var typeDef = reader.GetTypeDefinition(ctor.GetDeclaringType());
-                    return Matches(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+                    return Matches(
+                        reader,
+                        typeDef.Namespace,
+                        typeDef.Name);
                 default:
                     return false;
             }
 
-            static bool Matches(string ns, string name)
-                => name == "CompilerGeneratedAttribute"
-                    && ns == "System.Runtime.CompilerServices";
+            static bool Matches(
+                MetadataReader reader,
+                StringHandle namespaceHandle,
+                StringHandle nameHandle)
+                => reader.StringComparer.Equals(
+                        nameHandle,
+                        "CompilerGeneratedAttribute")
+                    && reader.StringComparer.Equals(
+                        namespaceHandle,
+                        "System.Runtime.CompilerServices");
         }
     }
 }
