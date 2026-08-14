@@ -30,7 +30,8 @@ internal static class SignatureFuzzer
 
         for (int i = 0; i < iterations; i++)
         {
-            var kind = (SignatureBlobGuard.Kind)rng.Next(0, 5);
+            var kind = (SignatureBlobGuard.Kind)rng.Next(
+                Enum.GetValues<SignatureBlobGuard.Kind>().Length);
             byte[] blob = GenerateSignature(rng, kind);
 
             // Log before every decode so a process abort leaves the culprit as the last line.

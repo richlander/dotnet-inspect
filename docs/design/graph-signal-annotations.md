@@ -5,6 +5,8 @@ mechanism extends to exception-risk triage.
 
 Related docs:
 
+- [Call-graph characteristics](call-graph-characteristics.md) — migration of
+  these current node fields into the inspection-graph descriptor model
 - [Output shapes](output-shapes.md) — the projection/shape model these fields plug into
 - [Hidden-fact annotations](hidden-fact-annotations.md) — the per-method evidence model
 

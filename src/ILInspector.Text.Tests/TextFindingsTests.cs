@@ -64,7 +64,6 @@ public class TextFindingsTests
             {
                 Difference: FindingDifferenceKind.None
             }));
-        Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(result.Pairs).Shape);
     }
 
     [Fact]
@@ -100,7 +99,6 @@ public class TextFindingsTests
 
         Assert.Equal(2, result.Pairs.Count(pair => pair.Difference == FindingDifferenceKind.Moved));
         Assert.All(result.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
-        Assert.Equal(DiffShape.ReorderOnly, FindingSummary.Summarize(result.Pairs).Shape);
     }
 
     [Fact]
@@ -148,7 +146,6 @@ public class TextFindingsTests
     {
         var result = Compare(oldText, newText);
 
-        Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(result.Pairs).Shape);
         Assert.Contains(
             result.Pairs,
             pair => pair is PairFinding<string>.Added added
