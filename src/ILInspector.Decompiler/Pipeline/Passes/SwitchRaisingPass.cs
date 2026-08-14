@@ -1869,6 +1869,14 @@ public sealed class SwitchRaisingPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
+        if (RegionContainsCycle(
+            blocks,
+            Enumerable.Range(s, dispatchEnd - s + 1).ToList(),
+            offsetToIndex))
+        {
+            return false;
+        }
+
         if (!offsetToIndex.TryGetValue(defaultOffset, out int defaultIndex) || defaultIndex <= dispatchEnd)
             return false;
 
@@ -1935,7 +1943,8 @@ public sealed class SwitchRaisingPass : IIrPass
         value = null!;
         replaceFromChild = -1;
 
-        for (int i = 0; i < block.Children.Count - 1; i++)
+        int i = block.Children.Count - 2;
+        if (i >= 0)
         {
             if (block.Children[i] is StoreLocal
                 {

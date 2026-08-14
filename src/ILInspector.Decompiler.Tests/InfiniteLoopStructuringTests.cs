@@ -244,6 +244,122 @@ public class InfiniteLoopStructuringTests
         Assert.NotEmpty(function.Descendants.OfType<Branch>());
     }
 
+    [Fact]
+    public void PastRegionCloneContainingOuterContinue_StaysFlat()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var candidate = new BlockContainer();
+
+        var head = new Block(0x00);
+        head.Add(new ConditionalBranch(
+            new LoadArgument(0, "takeTail", boolType),
+            0x40));
+        candidate.Add(head);
+
+        var latch = new Block(0x10);
+        latch.Add(new Branch(0x00));
+        candidate.Add(latch);
+
+        var interveningExit = new Block(0x20);
+        interveningExit.Add(new Return(null));
+        candidate.Add(interveningExit);
+
+        var continueArm = new Block();
+        continueArm.Add(new Continue());
+        var clonedTail = new Block(0x40);
+        clonedTail.Add(new IfStatement(
+            new LoadArgument(1, "again", boolType),
+            continueArm,
+            elseArm: null));
+        clonedTail.Add(new Return(null));
+        candidate.Add(clonedTail);
+
+        var root = new BlockContainer();
+        var outerLoopHolder = new Block(0x100);
+        outerLoopHolder.Add(new DoWhileLoop(
+            candidate,
+            new Constant(false, boolType)));
+        outerLoopHolder.Add(new Return(null));
+        root.Add(outerLoopHolder);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                voidType,
+                [
+                    new Parameter("takeTail", boolType),
+                    new Parameter("again", boolType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            root);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.Contains(
+            function.Descendants.OfType<ConditionalBranch>(),
+            branch => branch.TargetOffset == 0x40);
+    }
+
+    [Fact]
+    public void RetryLeaveInsideExistingLoop_StaysFlat()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var tryBody = new BlockContainer();
+        var retry = new Block(0x110);
+        retry.Add(new Leave(0x00));
+        tryBody.Add(retry);
+
+        var finallyBody = new BlockContainer();
+        var finallyExit = new Block(0x120);
+        finallyExit.Add(new EndFinally());
+        finallyBody.Add(finallyExit);
+
+        var innerLoopBody = new BlockContainer();
+        var protectedBody = new Block(0x100);
+        protectedBody.Add(new TryFinally(tryBody, finallyBody));
+        innerLoopBody.Add(protectedBody);
+
+        var body = new BlockContainer();
+        var retryHead = new Block(0x00);
+        retryHead.Add(new DoWhileLoop(
+            innerLoopBody,
+            new Constant(false, boolType)));
+        body.Add(retryHead);
+
+        var exit = new Block(0x10);
+        exit.Add(new Return(null));
+        body.Add(exit);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                voidType,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<Leave>());
+        Assert.Empty(function.Descendants.OfType<Continue>());
+    }
+
     static IrFunction InOuterLoop(BlockContainer loopBody)
     {
         var body = new BlockContainer();

@@ -158,6 +158,93 @@ public class SparseIntSwitchRaisingTests
         Assert.Single(function.Descendants.OfType<ConditionalBranch>());
     }
 
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void CyclicComparisonDispatchWithTerminalContinues_DeclinesSwitchRaise()
+    {
+        var function = ComparisonDispatchWithTerminalContinues(pivotTarget: 0x10);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(3, function.Descendants.OfType<ConditionalBranch>().Count());
+        Assert.Equal(3, function.Descendants.OfType<Continue>().Count());
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void AcyclicComparisonDispatchWithTerminalContinues_RaisesSwitch()
+    {
+        var function = ComparisonDispatchWithTerminalContinues(pivotTarget: 0x20);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(3, function.Descendants.OfType<Continue>().Count());
+    }
+
+    static IrFunction ComparisonDispatchWithTerminalContinues(int pivotTarget)
+    {
+        var loopBody = new BlockContainer();
+
+        void AddTest(int offset, ComparisonKind kind, int constant, int target)
+        {
+            var block = new Block(offset);
+            block.Add(new ConditionalBranch(
+                new Comparison(
+                    kind,
+                    isUnsigned: false,
+                    new LoadArgument(0, "value", s_int),
+                    new Constant(constant, s_int)),
+                target));
+            loopBody.Add(block);
+        }
+
+        AddTest(0x00, ComparisonKind.Equal, 1, 0x40);
+        AddTest(0x10, ComparisonKind.GreaterThan, 0, pivotTarget);
+        AddTest(0x20, ComparisonKind.Equal, 2, 0x50);
+
+        var dispatchDefault = new Block(0x30);
+        dispatchDefault.Add(new Branch(0x60));
+        loopBody.Add(dispatchDefault);
+
+        foreach (int offset in new[] { 0x40, 0x50, 0x60 })
+        {
+            var section = new Block(offset);
+            section.Add(new Continue());
+            loopBody.Add(section);
+        }
+
+        return InOuterLoop(loopBody);
+    }
+
+    static IrFunction InOuterLoop(BlockContainer loopBody)
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0x00);
+        entry.Add(new DoWhileLoop(
+            loopBody,
+            new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
+        entry.Add(new Return(null));
+        body.Add(entry);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [new Parameter("value", s_int)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static IrFunction NestedOwnedTransferFunction(int nestedTarget)
     {
         var body = new BlockContainer();
