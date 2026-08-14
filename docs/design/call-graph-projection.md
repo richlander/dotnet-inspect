@@ -86,7 +86,9 @@ The projection owns everything a host must not re-invent in JavaScript:
   correspondence is removed. Detached trees from separate scopes can therefore
   join the same exact physical definition without collapsing different versions
   or artifacts, while repeated unresolved occurrences remain joined within
-  their original scope. These boundaries are gated by
+  their original scope. `CallGraphNode.Identity` exposes the exact identity the
+  projection used; adapters retain that currency rather than reconstructing it
+  from `MemberRef`. These boundaries are gated by
   `DetachedVersionSkewedDefinitionsRemainDistinct`,
   `DetachedRepeatedExternalOccurrencesStayJoined`, and
   `DetachedArtifactIdentityIgnoresAcquisitionRegistration`.

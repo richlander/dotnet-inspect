@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 using SLF = SourceLinkFetch;
 
@@ -57,7 +58,10 @@ public sealed class SourceLinkResolver
         int StartLine,
         int EndLine,
         byte[]? Checksum = null,
-        string? ChecksumAlgorithm = null);
+        string? ChecksumAlgorithm = null)
+    {
+        public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+    }
 
     public record ILOffsetSourceInfo(
         string? MethodName,
@@ -156,7 +160,10 @@ public sealed class SourceLinkResolver
                 raw.StartLine,
                 raw.EndLine,
                 raw.Checksum,
-                raw.ChecksumAlgorithm);
+                raw.ChecksumAlgorithm)
+            {
+                SequencePointStartLines = raw.SequencePointStartLines,
+            };
     }
 
     public string? ApplySourceLinkMapping(string filePath)
