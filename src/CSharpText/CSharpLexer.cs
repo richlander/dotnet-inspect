@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace CSharpText;
 
 /// <summary>
@@ -44,7 +46,11 @@ internal static class CSharpLexer
         /// Conditional groups currently open, innermost last. Each records the brace depth at its
         /// <c>#if</c> and whether any branch has failed to return to it.
         /// </summary>
-        private readonly List<Conditional> conditionals = [];
+        private readonly List<ConditionalFrame> conditionals = [];
+        private readonly List<ConditionalGroupSpan> completedConditionalGroups = [];
+        private int nextConditionalGroupId;
+        private int nextConditionalBranchId;
+        private bool conditionalTopologyLost;
 
         /// <summary>
         /// Set when a conditional group's branches did not balance. Never cleared, which is what
@@ -129,6 +135,9 @@ internal static class CSharpLexer
         /// <summary>Whether a conditional group is currently open.</summary>
         public bool InConditional => conditionals.Count > 0;
 
+        /// <summary>Whether a lexically recognized <c>#line</c> directive was seen.</summary>
+        public bool HasLineDirectives { get; private set; }
+
         /// <summary>
         /// Gives up on the depth for a conditional reason that no <c>#endif</c> can repair, which
         /// is sticky exactly as an unbalanced group is because it sets the same field. Gated by
@@ -150,10 +159,22 @@ internal static class CSharpLexer
         public int Section { get; private set; }
 
         /// <summary>Opens a conditional group at brace depth <paramref name="depth"/>.</summary>
-        public void OpenConditional(int depth)
+        public void OpenConditional(int depth, int directiveLine)
         {
             Section++;
-            conditionals.Add(new Conditional(depth));
+            int groupId = nextConditionalGroupId++;
+            int parentGroupId = conditionals.Count == 0 ? -1 : conditionals[^1].Id;
+            conditionals.Add(new ConditionalFrame(
+                groupId,
+                parentGroupId,
+                depth,
+                directiveLine,
+                new BranchBuilder(
+                    nextConditionalBranchId++,
+                    directiveLine,
+                    directiveLine + 1),
+                completedConditionalGroups.Count,
+                topologyKnown: !conditionalTopologyLost));
         }
 
         /// <summary>
@@ -168,7 +189,7 @@ internal static class CSharpLexer
         /// unbalanced flag itself is gated by
         /// <c>DeclarationIndexTests.ABranchThatDoesNotReturnToTheOpeningDepth_UnbalancesTheGroup</c>.
         /// </summary>
-        public int NextBranch(int depth)
+        public int NextBranch(int depth, int directiveLine, bool isElse)
         {
             Section++;
 
@@ -176,10 +197,20 @@ internal static class CSharpLexer
             {
                 // An #elif or #else with no open group is malformed source. Refuse to guess.
                 conditionalDepthLost = true;
+                conditionalTopologyLost = true;
                 return depth;
             }
 
             var group = conditionals[^1];
+            group.CloseCurrentBranch(directiveLine);
+            if (group.SawElse)
+                group.TopologyKnown = false;
+            if (isElse)
+                group.SawElse = true;
+            group.CurrentBranch = new BranchBuilder(
+                nextConditionalBranchId++,
+                directiveLine,
+                directiveLine + 1);
 
             // The flag is what decides. It is raised here rather than at the #endif because the
             // reset below erases the evidence: by the time the group closes, a branch that left a
@@ -200,7 +231,7 @@ internal static class CSharpLexer
         /// judged over the last branch as well, and an unbalanced inner group is propagated
         /// outward: an enclosing group cannot be balanced if something inside it was not.
         /// </summary>
-        public int CloseConditional(int depth)
+        public int CloseConditional(int depth, int directiveLine)
         {
             // Unlike the increments at #if and #elif/#else, this one is UNVERIFIED AND UNGATED, and
             // recorded as conservative rather than load-bearing: it is an equivalent mutation for
@@ -216,11 +247,35 @@ internal static class CSharpLexer
             if (conditionals.Count == 0)
             {
                 conditionalDepthLost = true;
+                conditionalTopologyLost = true;
                 return depth;
             }
 
             var group = conditionals[^1];
             conditionals.RemoveAt(conditionals.Count - 1);
+            group.CloseCurrentBranch(directiveLine);
+
+            if (group.TopologyKnown)
+            {
+                var materialized = new ConditionalGroupSpan(
+                    group.Id,
+                    group.ParentGroupId,
+                    group.IfDirectiveLine,
+                    directiveLine,
+                    [.. group.Branches.Select(branch => new ConditionalBranchSpan(
+                        branch.Id,
+                        group.Id,
+                        branch.DirectiveLine,
+                        branch.ContentStartLine,
+                        branch.ContentEndLineExclusive))]);
+                completedConditionalGroups.Add(materialized);
+            }
+            else if (completedConditionalGroups.Count > group.CompletedGroupStartIndex)
+            {
+                completedConditionalGroups.RemoveRange(
+                    group.CompletedGroupStartIndex,
+                    completedConditionalGroups.Count - group.CompletedGroupStartIndex);
+            }
 
             // An enclosing group cannot balance if something inside it did not, so an inner
             // failure propagates outward rather than being forgiven by the outer #endif. Gated by
@@ -236,10 +291,67 @@ internal static class CSharpLexer
             return group.BaseDepth;
         }
 
-        private sealed class Conditional(int baseDepth)
+        public void LoseConditionalTopology()
         {
+            conditionalTopologyLost = true;
+            foreach (var group in conditionals)
+                group.TopologyKnown = false;
+        }
+
+        public void NoteLineDirective()
+        {
+            HasLineDirectives = true;
+        }
+
+        public ImmutableArray<ConditionalGroupSpan> GetConditionalGroups()
+        {
+            int trustedCount = conditionals.Count == 0
+                ? completedConditionalGroups.Count
+                : conditionals.Min(static group => group.CompletedGroupStartIndex);
+            return
+            [
+                .. completedConditionalGroups
+                    .Take(trustedCount)
+                    .OrderBy(static group => group.IfDirectiveLine),
+            ];
+        }
+
+        private sealed class ConditionalFrame(
+            int id,
+            int parentGroupId,
+            int baseDepth,
+            int ifDirectiveLine,
+            BranchBuilder currentBranch,
+            int completedGroupStartIndex,
+            bool topologyKnown)
+        {
+            public readonly int Id = id;
+            public readonly int ParentGroupId = parentGroupId;
             public readonly int BaseDepth = baseDepth;
+            public readonly int IfDirectiveLine = ifDirectiveLine;
+            public readonly List<BranchBuilder> Branches = [];
+            public readonly int CompletedGroupStartIndex = completedGroupStartIndex;
+            public BranchBuilder CurrentBranch = currentBranch;
             public bool Unbalanced;
+            public bool SawElse;
+            public bool TopologyKnown = topologyKnown;
+
+            public void CloseCurrentBranch(int endLineExclusive)
+            {
+                CurrentBranch.ContentEndLineExclusive = endLineExclusive;
+                Branches.Add(CurrentBranch);
+            }
+        }
+
+        private sealed class BranchBuilder(
+            int id,
+            int directiveLine,
+            int contentStartLine)
+        {
+            public readonly int Id = id;
+            public readonly int DirectiveLine = directiveLine;
+            public readonly int ContentStartLine = contentStartLine;
+            public int ContentEndLineExclusive;
         }
 
         public bool InLiteral => frames.Count > 0;
@@ -320,7 +432,7 @@ internal static class CSharpLexer
     /// non-conditional directive and a line that is not a directive at all; callers distinguish
     /// those by <c>IsDirective</c>'s return value.
     /// </summary>
-    private enum Conditional { None, If, NextBranch, EndIf }
+    private enum Conditional { None, If, Elif, Else, EndIf }
 
     /// <summary>Whether <paramref name="c"/> can continue a C# identifier.</summary>
     /// <summary>
@@ -366,8 +478,8 @@ internal static class CSharpLexer
         // comment as in "#endif//note" -- Roslyn still recognizes as the directive, so accepting
         // those matches it (adversarial review round 3, Gemini 3.1 Pro).
         foreach (var (candidate, kind) in (ReadOnlySpan<(string, Conditional)>)
-                 [("if", Conditional.If), ("elif", Conditional.NextBranch),
-                  ("else", Conditional.NextBranch), ("endif", Conditional.EndIf)])
+                 [("if", Conditional.If), ("elif", Conditional.Elif),
+                  ("else", Conditional.Else), ("endif", Conditional.EndIf)])
         {
             if (name.StartsWith(candidate, StringComparison.Ordinal) &&
                 (name.Length == candidate.Length || !IsIdentifierPart(name[candidate.Length])))
@@ -378,6 +490,20 @@ internal static class CSharpLexer
         }
 
         return true;
+    }
+
+    private static bool IsLineDirective(string line)
+    {
+        var trimmed = line.AsSpan().TrimStart();
+        if (!trimmed.IsEmpty && trimmed[0] == '\uFEFF')
+            trimmed = trimmed[1..].TrimStart();
+        if (trimmed.IsEmpty || trimmed[0] != '#')
+            return false;
+
+        var name = trimmed[1..].TrimStart();
+        const string Line = "line";
+        return name.StartsWith(Line, StringComparison.Ordinal)
+            && (name.Length == Line.Length || !IsIdentifierPart(name[Line.Length]));
     }
 
     private static int RunLength(string line, int start, char c)
@@ -400,6 +526,13 @@ internal static class CSharpLexer
     internal static List<ScanToken> ScanTokens(
         IReadOnlyList<string> lines,
         int maxTokenCount = MaxTokenCount)
+        => ScanTokens(lines, out _, out _, maxTokenCount);
+
+    internal static List<ScanToken> ScanTokens(
+        IReadOnlyList<string> lines,
+        out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        out bool hasLineDirectives,
+        int maxTokenCount = MaxTokenCount)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTokenCount);
 
@@ -410,6 +543,8 @@ internal static class CSharpLexer
         for (int i = 0; i < lines.Count; i++)
             Scan(lines[i], state, ref depth, out _, tokens, i, maxTokenCount);
 
+        conditionalGroups = state.GetConditionalGroups();
+        hasLineDirectives = state.HasLineDirectives;
         return tokens;
     }
 
@@ -533,10 +668,14 @@ internal static class CSharpLexer
             && hidden != Conditional.None)
         {
             state.LoseConditionalDepth();
+            state.LoseConditionalTopology();
         }
 
         if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out Conditional conditional))
         {
+            if (IsLineDirective(line))
+                state.NoteLineDirective();
+
             // A preprocessor directive is not code, so nothing on the line is scanned. A
             // conditional directive additionally means the braces around it may belong to a
             // branch the compiler discards. That is only true *inside* the group: a group whose
@@ -547,9 +686,16 @@ internal static class CSharpLexer
             // the answer. See NextBranch.
             switch (conditional)
             {
-                case Conditional.If: state.OpenConditional(depth); break;
-                case Conditional.NextBranch: depth = state.NextBranch(depth); break;
-                case Conditional.EndIf: depth = state.CloseConditional(depth); break;
+                case Conditional.If: state.OpenConditional(depth, lineIndex + 1); break;
+                case Conditional.Elif:
+                    depth = state.NextBranch(depth, lineIndex + 1, isElse: false);
+                    break;
+                case Conditional.Else:
+                    depth = state.NextBranch(depth, lineIndex + 1, isElse: true);
+                    break;
+                case Conditional.EndIf:
+                    depth = state.CloseConditional(depth, lineIndex + 1);
+                    break;
             }
 
             Emit(depth, ScanTokenKind.Directive, i, line.Length - i);

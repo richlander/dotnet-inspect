@@ -32,14 +32,36 @@ public static class BodySlicer
     /// all source boundaries; <paramref name="methodName"/> is used only to recognize metadata's
     /// constructor identities, never to match a source spelling.
     /// </para>
+    /// <para>
+    /// When <paramref name="visibleSequencePointStartLines"/> is supplied, each complete
+    /// conditional group with points in exactly one branch is projected to that branch before
+    /// selecting the declaration. Zero or multiple matching branches retain the lexical fallback.
+    /// The lines must be positive, sorted, distinct, and within the physical source; a recognized
+    /// <c>#line</c> directive refuses correlation because PDB coordinates may then be remapped.
+    /// Gated by <c>AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch</c>,
+    /// <c>ExtractMethodBodyTests.PointsInMultipleBranches_DoNotGuessWhichBranchIsLive</c>, and
+    /// <c>ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided</c>.
+    /// </para>
     /// </summary>
     public static string? ExtractMethodBody(
         string sourceText,
         int startLine,
         int endLine,
-        string methodName)
+        string methodName,
+        IReadOnlyList<int>? visibleSequencePointStartLines = null)
     {
         var index = DeclarationIndex.Build(sourceText);
+        if (visibleSequencePointStartLines is { Count: > 0 } points)
+        {
+            if (index.HasLineDirectives)
+                return null;
+
+            ValidateSequencePointLines(points, index.LineCount);
+            var selectedBranches = SelectUniquelyEvidencedBranches(index, points);
+            if (selectedBranches.Count > 0)
+                index = index.WithSelectedConditionalBranches(selectedBranches);
+        }
+
         bool constructorRequest = IsConstructorRequest(methodName);
         var row = constructorRequest
             ? FindConstructorAtRangeBoundary(
@@ -90,6 +112,76 @@ public static class BodySlicer
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    private static void ValidateSequencePointLines(
+        IReadOnlyList<int> points,
+        int lineCount)
+    {
+        int previous = 0;
+        for (int i = 0; i < points.Count; i++)
+        {
+            int line = points[i];
+            if (line <= previous)
+            {
+                throw new ArgumentException(
+                    "Visible sequence-point start lines must be positive, sorted, and distinct.",
+                    nameof(points));
+            }
+            if (line > lineCount)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(points),
+                    line,
+                    "A visible sequence-point start line lies beyond the verified source text.");
+            }
+            previous = line;
+        }
+    }
+
+    private static IReadOnlyCollection<ConditionalBranchSpan> SelectUniquelyEvidencedBranches(
+        DeclarationIndex index,
+        IReadOnlyList<int> points)
+    {
+        var selected = new List<ConditionalBranchSpan>();
+        foreach (var group in index.ConditionalGroups)
+        {
+            ConditionalBranchSpan? match = null;
+            bool ambiguous = false;
+            foreach (var branch in group.Branches)
+            {
+                if (!ContainsPoint(branch, points))
+                    continue;
+                if (match is not null)
+                {
+                    ambiguous = true;
+                    break;
+                }
+                match = branch;
+            }
+
+            if (!ambiguous && match is not null)
+                selected.Add(match);
+        }
+        return selected;
+    }
+
+    private static bool ContainsPoint(
+        ConditionalBranchSpan branch,
+        IReadOnlyList<int> points)
+    {
+        int low = 0;
+        int high = points.Count;
+        while (low < high)
+        {
+            int middle = low + ((high - low) / 2);
+            if (points[middle] < branch.ContentStartLine)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+
+        return low < points.Count && points[low] < branch.ContentEndLineExclusive;
     }
 
     private static bool IsTypeOrNamespace(DeclarationKind kind) =>

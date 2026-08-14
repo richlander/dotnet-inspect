@@ -726,6 +726,25 @@ follow the same physical-line accounting.
 `BodySlicer` consumes that bounded token stream once rather than tokenizing the
 same untrusted file again.
 
+Conditional branch projection remains within those bounds. Metadata partitions
+visible sequence-point start lines by PDB document and sorts and deduplicates
+each set. `BodySlicer` accepts only positive, strictly increasing physical
+lines within the verified source, uses binary range queries rather than a
+group-by-point cross product, and refuses PDB correlation when a recognized
+`#line` directive can remap the coordinates. CSharpText applies only
+caller-selected branch objects produced by the same index; it blanks
+unselected half-open ranges with one difference array and rebuilds over the
+line-preserving projection. The source returned to the user is still sliced
+from the checksum-verified original text. These boundaries are gated by
+`DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
+`DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
+`ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
+`ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
+and
+`AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch`.
+The binary-search complexity itself is unverified by a dedicated performance
+gate.
+
 Uncertain transparent scopes record row ranges during the lexical pass and
 apply all overlapping ranges in one linear finalization pass. They do not
 rescan and rewrite the declaration suffix once per scope.

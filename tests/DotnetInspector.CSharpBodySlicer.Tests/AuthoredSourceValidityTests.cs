@@ -679,6 +679,96 @@ public class AuthoredSourceValidityTests
     }
 
     [Fact]
+    public void RealPortablePdb_SelectsTheCompiledConditionalBranch()
+    {
+        const string source = """
+            class C
+            {
+            #if FEATURE
+                public int Value() => 1;
+            #elif OTHER
+                public int Value() => 2;
+            #else
+                public int Value() => 3;
+            #endif
+            }
+            """;
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-conditional-liveness-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string sourcePath = Path.Combine(directory, "Conditional.cs");
+            File.WriteAllText(sourcePath, source, Encoding.UTF8);
+
+            foreach (var (symbols, expectedLine, expectedText) in new[]
+            {
+                (Symbols: new[] { "FEATURE" }, Line: 4, Text: "public int Value() => 1;"),
+                (Symbols: new[] { "OTHER" }, Line: 6, Text: "public int Value() => 2;"),
+                (Symbols: Array.Empty<string>(), Line: 8, Text: "public int Value() => 3;"),
+            })
+            {
+                string suffix = symbols.FirstOrDefault() ?? "Default";
+                string assemblyPath = Path.Combine(directory, $"Conditional.{suffix}.dll");
+                string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+                var cancellationToken = TestContext.Current.CancellationToken;
+                var tree = CSharpSyntaxTree.ParseText(
+                    source,
+                    new CSharpParseOptions(
+                        LanguageVersion.Preview,
+                        preprocessorSymbols: symbols),
+                    path: sourcePath,
+                    encoding: Encoding.UTF8,
+                    cancellationToken: cancellationToken);
+                var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(File.Exists)
+                    .Select(path => MetadataReference.CreateFromFile(path));
+                var compilation = CSharpCompilation.Create(
+                    $"Conditional{suffix}",
+                    [tree],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel: OptimizationLevel.Release,
+                        deterministic: true));
+
+                using (var assembly = File.Create(assemblyPath))
+                using (var pdb = File.Create(pdbPath))
+                {
+                    var result = compilation.Emit(
+                        assembly,
+                        pdb,
+                        options: new EmitOptions(
+                            debugInformationFormat: DebugInformationFormat.PortablePdb,
+                            pdbFilePath: pdbPath),
+                        cancellationToken: cancellationToken);
+                    Assert.True(result.Success, string.Join("\n", result.Diagnostics));
+                }
+
+                using var context = PdbContext.Open(assemblyPath);
+                var method = Assert.Single(
+                    context.EnumerateMemberDocuments(),
+                    member => member.Anchor.MemberName == "Value");
+                Assert.Equal([expectedLine], method.SequencePointStartLines);
+                Assert.Equal(
+                    expectedText,
+                    BodySlicer.ExtractMethodBody(
+                        source,
+                        method.StartLine,
+                        method.EndLine,
+                        method.Anchor.MemberName,
+                        method.SequencePointStartLines));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SameLineSiblings_RealPdbRangesReportAbsent()
     {
         var slices = SliceCorpus()

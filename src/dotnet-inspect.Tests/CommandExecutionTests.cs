@@ -5155,6 +5155,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void OriginalSource_ForwardsConditionalBranchEvidenceToTheSlicer()
+    {
+        const string source = """
+            class C
+            {
+            #if FIRST
+                void Dead() { }
+            #else
+                void Live() { }
+            #endif
+            }
+            """;
+
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            source,
+            startLine: 6,
+            endLine: 6,
+            methodName: "Live",
+            sourceLocation: "fixture.cs",
+            pdbPath: null,
+            visibleSequencePointStartLines: [6]);
+
+        Assert.Equal("void Live() { }", resolved.Source?.SourceCode);
+    }
+
+    [Fact]
     public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
     {
         string source = "class C { void M() { "

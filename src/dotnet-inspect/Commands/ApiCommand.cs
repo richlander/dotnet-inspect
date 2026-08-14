@@ -1112,7 +1112,8 @@ public class ApiCommand
                 methodInfo.EndLine,
                 methodName,
                 methodInfo.SourceUrl ?? methodInfo.FilePath,
-                pdbPath);
+                pdbPath,
+                methodInfo.SequencePointStartLines);
         }
         catch (Exception ex)
         {
@@ -1132,7 +1133,8 @@ public class ApiCommand
         int endLine,
         string methodName,
         string sourceLocation,
-        string? pdbPath)
+        string? pdbPath,
+        IReadOnlyList<int>? visibleSequencePointStartLines = null)
     {
         try
         {
@@ -1140,7 +1142,8 @@ public class ApiCommand
                 content,
                 startLine,
                 endLine,
-                methodName);
+                methodName,
+                visibleSequencePointStartLines);
 
             // The range does not identify one authored declaration: report no source rather than
             // a type header, initializer, or structurally unknown span.

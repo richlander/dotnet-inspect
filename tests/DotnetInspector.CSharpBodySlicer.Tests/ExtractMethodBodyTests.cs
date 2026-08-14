@@ -1901,4 +1901,121 @@ public class ExtractMethodBodyTests
             BodySlicer.ExtractMethodBody(source, 4, 4, "M"));
     }
 
+    [Fact]
+    public void SequencePointInOneBranch_SelectsThatWholeConditionalMember()
+    {
+        var source = Lines(
+            "class C",                   // 1
+            "{",                         // 2
+            "#if FIRST",                 // 3
+            "    void Dead() { Use(); }",// 4
+            "#else",                     // 5
+            "    void Live() { Use(); }",// 6
+            "#endif",                    // 7
+            "}");                        // 8
+
+        Assert.Equal(
+            "void Live() { Use(); }",
+            BodySlicer.ExtractMethodBody(source, 6, 6, "Live", [6]));
+    }
+
+    [Fact]
+    public void SequencePoints_SelectNestedAndElifBranches()
+    {
+        var source = Lines(
+            "class C",                      // 1
+            "{",                            // 2
+            "#if OUTER",                    // 3
+            "#if FIRST",                    // 4
+            "    void First() { Use(); }",  // 5
+            "#elif SECOND",                 // 6
+            "    void Second() { Use(); }", // 7
+            "#else",                        // 8
+            "    void Third() { Use(); }",  // 9
+            "#endif",                       // 10
+            "#else",                        // 11
+            "    void Outer() { Use(); }",  // 12
+            "#endif",                       // 13
+            "}");                           // 14
+
+        Assert.Equal(
+            "void Second() { Use(); }",
+            BodySlicer.ExtractMethodBody(source, 7, 7, "Second", [7]));
+    }
+
+    [Fact]
+    public void PointsInMultipleBranches_DoNotGuessWhichBranchIsLive()
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            "#if X",                    // 3
+            "    void A() { Use(); }",  // 4
+            "#else",                    // 5
+            "    void B() { Use(); }",  // 6
+            "#endif",                   // 7
+            "}");                       // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 4, 4, "A", [4, 6]));
+    }
+
+    [Fact]
+    public void PointOnADirective_DoesNotSelectEitherAdjacentBranch()
+    {
+        var source = Lines(
+            "class C",                 // 1
+            "{",                       // 2
+            "#if X",                   // 3
+            "#else",                   // 4
+            "    void B() { Use(); }", // 5
+            "#endif",                  // 6
+            "}");                      // 7
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 5, "B", [4]));
+    }
+
+    [Fact]
+    public void SignatureOnlyConditional_HasNoBranchEvidenceAndRemainsAbsent()
+    {
+        var source = Lines(
+            "class C",            // 1
+            "{",                  // 2
+            "    public",         // 3
+            "#if LONG",           // 4
+            "    long",           // 5
+            "#else",              // 6
+            "    int",            // 7
+            "#endif",             // 8
+            "    M() => 1;",      // 9
+            "}");                 // 10
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 9, "M", [9]));
+    }
+
+    [Fact]
+    public void LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided()
+    {
+        var source = Lines(
+            "class C",        // 1
+            "{",              // 2
+            "#line 3",        // 3
+            "    void M() { }",// 4
+            "}");             // 5
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M", [3]));
+    }
+
+    [Theory]
+    [InlineData(new[] { 0 })]
+    [InlineData(new[] { 4, 3 })]
+    [InlineData(new[] { 3, 3 })]
+    [InlineData(new[] { 6 })]
+    public void InvalidSequencePointCoordinates_FailVisibly(int[] points)
+    {
+        const string source = "class C\n{\n    void M() { }\n}";
+
+        Assert.ThrowsAny<ArgumentException>(
+            () => BodySlicer.ExtractMethodBody(source, 3, 3, "M", points));
+    }
+
 }
