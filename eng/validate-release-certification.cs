@@ -4,6 +4,9 @@ using System.Text.Json;
 const string CertificationWorkflow = ".github/workflows/deep-inspect.yml";
 const string TargetWorkflow = ".github/workflows/ci.yml";
 const string CertificationJob = "Release certification";
+const string TestJob = "Test lane";
+const string CorpusJob = "Decompiler corpus lane";
+const string TargetCiJob = "ci-required";
 
 try
 {
@@ -17,6 +20,7 @@ try
     RunInfo certification = ReadRun(Required(options, "--certification-run"));
     JobInfo[] certificationJobs = ReadJobs(Required(options, "--certification-jobs"));
     RunInfo target = ReadRun(Required(options, "--target-run"));
+    JobInfo[] targetJobs = ReadJobs(Required(options, "--target-jobs"));
     ComparisonInfo comparison = ReadComparison(Required(options, "--comparison"));
     bool allowLaterCommit = bool.Parse(Required(options, "--allow-later-commit"));
     double maxAgeHours = double.Parse(
@@ -28,6 +32,7 @@ try
         certification,
         certificationJobs,
         target,
+        targetJobs,
         comparison,
         allowLaterCommit,
         TimeSpan.FromHours(maxAgeHours),
@@ -54,6 +59,7 @@ static ValidationResult Validate(
     RunInfo certification,
     IReadOnlyList<JobInfo> certificationJobs,
     RunInfo target,
+    IReadOnlyList<JobInfo> targetJobs,
     ComparisonInfo comparison,
     bool allowLaterCommit,
     TimeSpan maxAge,
@@ -66,28 +72,23 @@ static ValidationResult Validate(
         "certification");
     RequireRun(target, TargetWorkflow, ["push"], "target CI");
 
-    JobInfo[] matchingJobs = certificationJobs
-        .Where(job => job.Name == CertificationJob)
-        .ToArray();
-    if (matchingJobs.Length != 1)
-    {
-        throw new InvalidOperationException(
-            $"Certification run contains {matchingJobs.Length} '{CertificationJob}' jobs; expected one.");
-    }
-    JobInfo certificationJob = matchingJobs[0];
-    if (certificationJob.Status != "completed" || certificationJob.Conclusion != "success")
-    {
-        throw new InvalidOperationException(
-            $"Certification job is {certificationJob.Status}/{certificationJob.Conclusion}, not completed/success.");
-    }
+    JobInfo certificationJob = RequireSuccessfulJob(certificationJobs, CertificationJob);
+    JobInfo testJob = RequireSuccessfulJob(certificationJobs, TestJob);
+    JobInfo corpusJob = RequireSuccessfulJob(certificationJobs, CorpusJob);
+    JobInfo targetCiJob = RequireSuccessfulJob(targetJobs, TargetCiJob);
 
-    TimeSpan age = now - certificationJob.CompletedAt;
-    if (age < TimeSpan.FromMinutes(-5))
-        throw new InvalidOperationException("Certification completion time is in the future.");
-    if (age > maxAge)
+    RequireFresh(testJob, maxAge, now);
+    RequireFresh(corpusJob, maxAge, now);
+    if (certificationJob.CompletedAt < testJob.CompletedAt ||
+        certificationJob.CompletedAt < corpusJob.CompletedAt)
     {
         throw new InvalidOperationException(
-            $"Certification is {age.TotalHours:F1} hours old; maximum age is {maxAge.TotalHours:F1} hours.");
+            "Release certification predates a slow validation job; rerun the complete test lane.");
+    }
+    if (targetCiJob.CompletedAt < target.UpdatedAt.AddMinutes(-5))
+    {
+        throw new InvalidOperationException(
+            "Target ci-required completion predates the target workflow update.");
     }
 
     bool isLaterCommit = target.HeadSha != certification.HeadSha;
@@ -107,6 +108,38 @@ static ValidationResult Validate(
     }
 
     return new ValidationResult(certification.HeadSha, target.HeadSha, isLaterCommit);
+}
+
+static JobInfo RequireSuccessfulJob(IReadOnlyList<JobInfo> jobs, string name)
+{
+    JobInfo[] matchingJobs = jobs.Where(job => job.Name == name).ToArray();
+    if (matchingJobs.Length != 1)
+    {
+        throw new InvalidOperationException(
+            $"Run contains {matchingJobs.Length} '{name}' jobs; expected one.");
+    }
+
+    JobInfo job = matchingJobs[0];
+    if (job.Status != "completed" || job.Conclusion != "success")
+    {
+        throw new InvalidOperationException(
+            $"Job '{name}' is {job.Status}/{job.Conclusion}, not completed/success.");
+    }
+
+    return job;
+}
+
+static void RequireFresh(JobInfo job, TimeSpan maxAge, DateTimeOffset now)
+{
+    TimeSpan age = now - job.CompletedAt;
+    if (age < TimeSpan.FromMinutes(-5))
+        throw new InvalidOperationException($"Job '{job.Name}' completion time is in the future.");
+    if (age > maxAge)
+    {
+        throw new InvalidOperationException(
+            $"Job '{job.Name}' is {age.TotalHours:F1} hours old; " +
+            $"maximum age is {maxAge.TotalHours:F1} hours.");
+    }
 }
 
 static void RequireRun(
@@ -140,7 +173,11 @@ static RunInfo ReadRun(string path)
         RequiredString(root, "head_branch"),
         RequiredString(root, "head_sha"),
         RequiredString(root, "status"),
-        RequiredString(root, "conclusion"));
+        RequiredString(root, "conclusion"),
+        DateTimeOffset.Parse(
+            RequiredString(root, "updated_at"),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal));
 }
 
 static JobInfo[] ReadJobs(string path)
@@ -224,21 +261,33 @@ static void RunSelfTest()
         "main",
         certifiedSha,
         "completed",
-        "success");
+        "success",
+        now.AddHours(-1));
     RunInfo exactTarget = new(
         TargetWorkflow,
         "push",
         "main",
         certifiedSha,
         "completed",
-        "success");
+        "success",
+        now);
     RunInfo laterTarget = exactTarget with { HeadSha = laterSha };
-    JobInfo[] successfulJobs = [new(CertificationJob, "completed", "success", now.AddHours(-1))];
+    JobInfo[] successfulJobs =
+    [
+        new(TestJob, "completed", "success", now.AddHours(-1)),
+        new(CorpusJob, "completed", "success", now.AddMinutes(-50)),
+        new(CertificationJob, "completed", "success", now.AddMinutes(-49)),
+    ];
+    JobInfo[] successfulTargetJobs =
+    [
+        new(TargetCiJob, "completed", "success", now.AddMinutes(1)),
+    ];
 
     ValidationResult exact = Validate(
         certification,
         successfulJobs,
         exactTarget,
+        successfulTargetJobs,
         new("identical", certifiedSha),
         false,
         TimeSpan.FromHours(36),
@@ -250,6 +299,7 @@ static void RunSelfTest()
             certification,
             successfulJobs,
             laterTarget,
+            successfulTargetJobs,
             new("ahead", certifiedSha),
             false,
             TimeSpan.FromHours(36),
@@ -260,6 +310,7 @@ static void RunSelfTest()
         certification,
         successfulJobs,
         laterTarget,
+        successfulTargetJobs,
         new("ahead", certifiedSha),
         true,
         TimeSpan.FromHours(36),
@@ -269,8 +320,13 @@ static void RunSelfTest()
     ExpectFailure(
         () => Validate(
             certification,
-            [new(CertificationJob, "completed", "success", now.AddHours(-37))],
+            [
+                new(TestJob, "completed", "success", now.AddHours(-37)),
+                new(CorpusJob, "completed", "success", now.AddMinutes(-50)),
+                new(CertificationJob, "completed", "success", now.AddMinutes(-49)),
+            ],
             exactTarget,
+            successfulTargetJobs,
             new("identical", certifiedSha),
             false,
             TimeSpan.FromHours(36),
@@ -279,8 +335,24 @@ static void RunSelfTest()
     ExpectFailure(
         () => Validate(
             certification,
+            [
+                new(TestJob, "completed", "success", now.AddMinutes(-10)),
+                new(CorpusJob, "completed", "success", now.AddMinutes(-9)),
+                new(CertificationJob, "completed", "success", now.AddHours(-1)),
+            ],
+            exactTarget,
+            successfulTargetJobs,
+            new("identical", certifiedSha),
+            false,
+            TimeSpan.FromHours(36),
+            now),
+        "predates a slow validation job");
+    ExpectFailure(
+        () => Validate(
+            certification,
             successfulJobs,
             laterTarget,
+            successfulTargetJobs,
             new("diverged", "3333333333333333333333333333333333333333"),
             true,
             TimeSpan.FromHours(36),
@@ -289,8 +361,13 @@ static void RunSelfTest()
     ExpectFailure(
         () => Validate(
             certification,
-            [new(CertificationJob, "completed", "failure", now.AddHours(-1))],
+            [
+                new(TestJob, "completed", "failure", now.AddHours(-1)),
+                new(CorpusJob, "completed", "success", now.AddMinutes(-50)),
+                new(CertificationJob, "completed", "success", now.AddMinutes(-49)),
+            ],
             exactTarget,
+            successfulTargetJobs,
             new("identical", certifiedSha),
             false,
             TimeSpan.FromHours(36),
@@ -301,11 +378,23 @@ static void RunSelfTest()
             certification,
             successfulJobs,
             exactTarget with { WorkflowPath = ".github/workflows/release.yml" },
+            successfulTargetJobs,
             new("identical", certifiedSha),
             false,
             TimeSpan.FromHours(36),
             now),
         "not .github/workflows/ci.yml");
+    ExpectFailure(
+        () => Validate(
+            certification,
+            successfulJobs,
+            exactTarget,
+            [new(TargetCiJob, "completed", "failure", now.AddMinutes(1))],
+            new("identical", certifiedSha),
+            false,
+            TimeSpan.FromHours(36),
+            now),
+        "ci-required");
 
     string scratch = Path.Combine(
         Path.GetTempPath(),
@@ -322,24 +411,32 @@ static void RunSelfTest()
         File.WriteAllText(
             certificationRunPath,
             """
-            {"path":"$WORKFLOW$","event":"schedule","head_branch":"main","head_sha":"$SHA$","status":"completed","conclusion":"success"}
+            {"path":"$WORKFLOW$","event":"schedule","head_branch":"main","head_sha":"$SHA$","status":"completed","conclusion":"success","updated_at":"$UPDATED_AT$"}
             """
             .Replace("$WORKFLOW$", CertificationWorkflow, StringComparison.Ordinal)
-            .Replace("$SHA$", certifiedSha, StringComparison.Ordinal));
+            .Replace("$SHA$", certifiedSha, StringComparison.Ordinal)
+            .Replace("$UPDATED_AT$", completedAt, StringComparison.Ordinal));
         File.WriteAllText(
             certificationJobsPath,
             """
-            {"total_count":1,"jobs":[{"name":"$JOB$","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"}]}
+            {"total_count":3,"jobs":[{"name":"Test lane","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Decompiler corpus lane","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Release certification","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"}]}
             """
-            .Replace("$JOB$", CertificationJob, StringComparison.Ordinal)
             .Replace("$COMPLETED_AT$", completedAt, StringComparison.Ordinal));
         File.WriteAllText(
             targetRunPath,
             """
-            {"path":"$WORKFLOW$","event":"push","head_branch":"main","head_sha":"$SHA$","status":"completed","conclusion":"success"}
+            {"path":"$WORKFLOW$","event":"push","head_branch":"main","head_sha":"$SHA$","status":"completed","conclusion":"success","updated_at":"$UPDATED_AT$"}
             """
             .Replace("$WORKFLOW$", TargetWorkflow, StringComparison.Ordinal)
-            .Replace("$SHA$", laterSha, StringComparison.Ordinal));
+            .Replace("$SHA$", laterSha, StringComparison.Ordinal)
+            .Replace("$UPDATED_AT$", completedAt, StringComparison.Ordinal));
+        string targetJobsPath = Path.Combine(scratch, "target-jobs.json");
+        File.WriteAllText(
+            targetJobsPath,
+            """
+            {"total_count":1,"jobs":[{"name":"ci-required","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"}]}
+            """
+            .Replace("$COMPLETED_AT$", completedAt, StringComparison.Ordinal));
         File.WriteAllText(
             comparisonPath,
             """
@@ -351,6 +448,7 @@ static void RunSelfTest()
             ReadRun(certificationRunPath),
             ReadJobs(certificationJobsPath),
             ReadRun(targetRunPath),
+            ReadJobs(targetJobsPath),
             ReadComparison(comparisonPath),
             true,
             TimeSpan.FromHours(36),
@@ -392,7 +490,8 @@ sealed record RunInfo(
     string HeadBranch,
     string HeadSha,
     string Status,
-    string Conclusion);
+    string Conclusion,
+    DateTimeOffset UpdatedAt);
 
 sealed record JobInfo(string Name, string Status, string Conclusion, DateTimeOffset CompletedAt);
 

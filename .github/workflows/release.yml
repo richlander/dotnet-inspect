@@ -45,21 +45,39 @@ jobs:
       - name: Validate certification and resolve commit
         id: sha
         shell: bash
+        env:
+          CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
+          TARGET_RUN_ID: ${{ inputs.run_id }}
+          ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
           certification_run="$RUNNER_TEMP/certification-run.json"
           certification_jobs="$RUNNER_TEMP/certification-jobs.json"
           target_run="$RUNNER_TEMP/target-run.json"
+          target_jobs="$RUNNER_TEMP/target-jobs.json"
           comparison="$RUNNER_TEMP/comparison.json"
 
-          gh api "repos/${{ github.repository }}/actions/runs/${{ inputs.certification_run_id }}" \
+          if [[ ! "$CERTIFICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::certification_run_id must be a positive decimal run ID."
+            exit 1
+          fi
+          if [[ ! "$TARGET_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::run_id must be a positive decimal run ID."
+            exit 1
+          fi
+
+          gh api "repos/${{ github.repository }}/actions/runs/$CERTIFICATION_RUN_ID" \
             > "$certification_run"
           gh api \
-            "repos/${{ github.repository }}/actions/runs/${{ inputs.certification_run_id }}/jobs?filter=latest&per_page=100" \
+            "repos/${{ github.repository }}/actions/runs/$CERTIFICATION_RUN_ID/jobs?filter=latest&per_page=100" \
             > "$certification_jobs"
-          gh api "repos/${{ github.repository }}/actions/runs/${{ inputs.run_id }}" \
+          gh api "repos/${{ github.repository }}/actions/runs/$TARGET_RUN_ID" \
             > "$target_run"
+          gh api \
+            "repos/${{ github.repository }}/actions/runs/$TARGET_RUN_ID/jobs?filter=latest&per_page=100" \
+            > "$target_jobs"
 
           certified_sha=$(jq -r .head_sha "$certification_run")
           target_sha=$(jq -r .head_sha "$target_run")
@@ -70,12 +88,11 @@ jobs:
             --certification-run "$certification_run" \
             --certification-jobs "$certification_jobs" \
             --target-run "$target_run" \
+            --target-jobs "$target_jobs" \
             --comparison "$comparison" \
-            --allow-later-commit "${{ inputs.allow_later_commit }}" \
+            --allow-later-commit "$ALLOW_LATER_COMMIT" \
             --max-age-hours 36 \
             --github-output "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-native:
     needs: resolve

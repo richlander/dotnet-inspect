@@ -27,7 +27,7 @@ env:
   DOTNET_INSPECT_TIPS: q
 
 concurrency:
-  group: deep-inspect-${{ github.ref }}-${{ inputs.lane }}
+  group: deep-inspect-${{ github.ref }}-${{ github.event.schedule || inputs.lane }}
   cancel-in-progress: true
 
 jobs:

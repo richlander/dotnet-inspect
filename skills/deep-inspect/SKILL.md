@@ -63,8 +63,10 @@ complete dispatched `test` lane.
 
 A successful daily or manually dispatched `test` run certifies its exact
 `main` SHA for 36 hours. Publish requires the certification run ID. Publishing
-a later descendant remains an explicit operator decision; the certification
-does not claim to cover intervening changes.
+a later descendant remains an explicit operator decision. Its exact main-push
+`ci-required` result must succeed, but main-push CI does not run the PR-only
+substantive test jobs, and the certification does not claim to cover
+intervening changes.
 
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the

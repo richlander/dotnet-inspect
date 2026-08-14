@@ -28,10 +28,12 @@ day. Certification remains valid for 36 hours.
 
 By default, the certified and published commits must be identical. An operator
 may explicitly enable `allow_later_commit` to publish a later `main` commit
-with successful CI. The workflow proves that the target descends from the
-certified commit, but the operator owns the decision that the intervening
-changes do not require another slow run. Divergent and older commits are never
-accepted.
+whose exact main-push `ci-required` result succeeded. Main-push CI identifies
+the integrated target and runs lightweight repository checks; its substantive
+test jobs are PR-only, so it does not certify the intervening changes. The
+workflow proves that the target descends from the certified commit, but the
+operator owns the decision that those changes do not require another slow run.
+Divergent and older commits are never accepted.
 
 ## Packages
 

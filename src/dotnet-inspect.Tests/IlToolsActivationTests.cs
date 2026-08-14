@@ -696,6 +696,9 @@ public class IlToolsActivationTests
             StringComparison.Ordinal);
 
         Assert.Contains("- cron: '0 6 * * *'", workflow);
+        Assert.Contains(
+            "group: deep-inspect-${{ github.ref }}-${{ github.event.schedule || inputs.lane }}",
+            workflow);
         Assert.True(certification >= 0);
         Assert.True(certification < nextJob);
         string job = workflow[certification..nextJob];
@@ -759,9 +762,18 @@ public class IlToolsActivationTests
         Assert.Contains("certification_run_id:", workflow);
         Assert.Contains("allow_later_commit:", workflow);
         Assert.Contains("--max-age-hours 36", workflow);
+        Assert.Contains("CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}", workflow);
+        Assert.Contains("TARGET_RUN_ID: ${{ inputs.run_id }}", workflow);
         Assert.Contains(
-            "--allow-later-commit \"${{ inputs.allow_later_commit }}\"",
+            "if [[ ! \"$CERTIFICATION_RUN_ID\" =~ ^[1-9][0-9]*$ ]]",
             workflow);
+        Assert.Contains(
+            "if [[ ! \"$TARGET_RUN_ID\" =~ ^[1-9][0-9]*$ ]]",
+            workflow);
+        Assert.Contains(
+            "--allow-later-commit \"$ALLOW_LATER_COMMIT\"",
+            workflow);
+        Assert.Contains("--target-jobs \"$target_jobs\"", workflow);
         Assert.Contains("dotnet run eng/validate-release-certification.cs", workflow);
         Assert.Contains("\n  build-native:\n    needs: resolve\n", workflow);
         Assert.Contains("\n  build-portable:\n    needs: resolve\n", workflow);
