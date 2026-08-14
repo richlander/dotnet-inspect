@@ -894,7 +894,7 @@ public static class MemberBodyProducer
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, genericContext);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 sb.AppendLf($"    // field {reader.GetString(field.Name)}: {DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
                 any = true;
@@ -1181,7 +1181,7 @@ public static class MemberBodyProducer
                 var signature = GuardedSignatureText.PropertyText(reader, property, genericContext);
                 hasObjectValueGetter = signature.ReturnType is "object" or "System.Object";
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return null;
             }
@@ -1209,7 +1209,7 @@ public static class MemberBodyProducer
             {
                 signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return null;
             }
@@ -1597,7 +1597,7 @@ public static class MemberBodyProducer
         {
             method = reader.GetMethodDefinition(methodHandle);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return null;
         }

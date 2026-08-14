@@ -160,7 +160,7 @@ static class FidelityCheck
                 break;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(path)); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             using (pe)
             {
                 if (!pe.HasMetadata)
@@ -169,7 +169,7 @@ static class FidelityCheck
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(path, context: metadata); }
-                catch { continue; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
                 var references = RuntimeReferences(path);
                 using (source)
@@ -592,7 +592,7 @@ static class FidelityCheck
 
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             using (pe)
             {
                 if (!pe.HasMetadata)
@@ -601,7 +601,7 @@ static class FidelityCheck
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(assemblyPath, context: metadata); }
-                catch { continue; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)
                 {
@@ -926,7 +926,7 @@ static class FidelityCheck
                 break;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             using (pe)
             {
                 if (!pe.HasMetadata)
@@ -941,7 +941,7 @@ static class FidelityCheck
                         ? MetadataSource.Open(assemblyPath, context: metadata)
                         : MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata);
                 }
-                catch { continue; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)
                 {
@@ -1241,7 +1241,7 @@ static class FidelityCheck
             string? chain;
             IReadOnlyList<(string Field, string Value)> fieldInits;
             try { var printed = render(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             if (body is null)
                 continue;
             var requiredNamespaces = MemberBodyFacts.ReferencedNamespaces(function);
@@ -2949,7 +2949,7 @@ static class FidelityCheck
     {
         TypeRef type;
         try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)handle, 0); }
-        catch { return ""; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return ""; }
 
         if (type is not
             {
@@ -3041,7 +3041,7 @@ static class FidelityCheck
 
         TypeRef type;
         try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)handle, 0); }
-        catch { return null; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
 
         if (type is not
             {
@@ -3384,7 +3384,7 @@ static class FidelityCheck
                 ret = Clean(sig.ReturnType);
                 parameters = Parameters(reader, m, sig);
             }
-            catch { }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
             break;
         }
         sb.AppendLine($"{pad}public unsafe delegate {ret} {Identifier(name)}{genParams}({parameters}){whereClauses};");
@@ -3422,7 +3422,7 @@ static class FidelityCheck
                 string body = (!pa.Getter.IsNil ? " get;" : "") + (!pa.Setter.IsNil ? " set;" : "");
                 sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(pname)} {{{body} }}");
             }
-            catch { }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
         }
 
         foreach (var mh in typeDef.GetMethods())
@@ -3436,7 +3436,7 @@ static class FidelityCheck
                 continue;
             MethodSignature<string> sig;
             try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             string mGen = GenericParamList(reader, method.GetGenericParameters());
             string mWhere = WhereClauses(reader, method.GetGenericParameters());
             sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(mn)}{mGen}({Parameters(reader, method, sig)}){mWhere};");
@@ -3576,7 +3576,7 @@ static class FidelityCheck
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
             }
-            catch { }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
         }
     }
 
@@ -3628,7 +3628,7 @@ static class FidelityCheck
             {
                 return Clean(field.DecodeSignature(SignatureDecoder.Instance, context)) == propertyType;
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return false;
             }
@@ -3743,7 +3743,7 @@ static class FidelityCheck
             return; // compiler-generated backing field
         string type;
         try { type = field.DecodeSignature(SignatureDecoder.Instance, context); }
-        catch { return; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return; }
         if (!accessibility.CanSpellField(reader, field, context)
             && !fieldInits.Any(init => string.Equals(init.Field, name, StringComparison.Ordinal)))
             return;
@@ -3772,7 +3772,7 @@ static class FidelityCheck
         string suffix = initializer is not null && !isStatic ? $" = {initializer}" : "";
         bool isVolatile = false;
         try { isVolatile = MetadataDeclarationQuery.IsVolatileField(reader, field, context); }
-        catch { /* signature already decoded above; treat as non-volatile */ }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { /* signature already decoded above; treat as non-volatile */ }
         string fieldType = Clean(type);
         string unsafeModifier = RequiresUnsafeSignature(fieldType) ? "unsafe " : "";
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{(isVolatile ? "volatile " : "")}{fieldType} {Identifier(name)}{suffix};");
@@ -4019,7 +4019,7 @@ static class FidelityCheck
             return;
         MethodSignature<string> sig;
         try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
-        catch { return; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return; }
 
         bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
         bool isAbstractStub = method.RelativeVirtualAddress == 0
@@ -4173,7 +4173,7 @@ static class FidelityCheck
                 if (method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method)).ParameterTypes.Length == 0)
                     return true;
             }
-            catch { return true; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { return true; }
         }
         return false;
     }
@@ -4448,7 +4448,7 @@ static class FidelityCheck
             case HandleKind.TypeSpecification:
                 TypeRef type;
                 try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, genericScope, (TypeSpecificationHandle)handle, 0); }
-                catch { return null; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
                 return IsProtobufIMessageConstraint(type)
                     ? (Clean(FullyQualifiedTypeName(type)), true)
                     : null;
@@ -4685,7 +4685,7 @@ static class FidelityCheck
                 _ => null,
             };
         }
-        catch { return null; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
     }
 
     static string Invariant(double d) => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);

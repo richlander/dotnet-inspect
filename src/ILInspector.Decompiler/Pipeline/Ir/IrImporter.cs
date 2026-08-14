@@ -242,13 +242,13 @@ public static class IrImporter
     static string SafeName(MetadataReader reader, MethodDefinitionHandle handle)
     {
         try { return reader.GetString(reader.GetMethodDefinition(handle).Name); }
-        catch { return "<method>"; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return "<method>"; }
     }
 
     static string SafeTypeName(MetadataReader reader, MethodDefinitionHandle handle)
     {
         try { return reader.GetFullTypeName(reader.GetTypeDefinition(reader.GetMethodDefinition(handle).GetDeclaringType())); }
-        catch { return "<type>"; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return "<type>"; }
     }
 
     /// <summary>
@@ -2717,7 +2717,7 @@ public static class IrImporter
                 return null;
             return block.GetContent(0, size).ToArray();
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return null;
         }
