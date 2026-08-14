@@ -162,6 +162,38 @@ public static class LocalFunctionInGenericMethodSamples
     }
 }
 
+// Non-generic local functions inside a generic TYPE. Calls to their synthesized
+// methods use a MemberRef whose declaring type is the host's self-instantiation
+// (GenericTypeLocalFunctionSamples<T>), while the method body lives on the generic
+// type definition. Cross-method import must address that definition without losing
+// the type parameters that are already in scope at the recovered declaration site.
+public static class GenericTypeLocalFunctionSamples<T>
+{
+    public static int NoTypeParameter(int value)
+    {
+        static int Own(int input) => input + 1;
+        return Own(value);
+    }
+
+    public static T TypeParameterOnly(T value)
+    {
+        static T Own(T input) => input;
+        return Own(value);
+    }
+
+    public static U TypeAndMethodParameters<U>(T typeValue, U methodValue)
+    {
+        static U Own(T _, U value) => value;
+        return Own(typeValue, methodValue);
+    }
+
+    public static int OwnMethodParameter(T value)
+    {
+        static int Own<U>(U input) => 2;
+        return Own<T>(value);
+    }
+}
+
 // A local function with its OWN generic parameter, inside a generic method, called
 // only with the host's type argument. Every call-site type argument is then a method
 // generic parameter, so judging genericity from the CALL SITE raised it and declared

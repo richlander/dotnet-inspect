@@ -1901,4 +1901,246 @@ public class ExtractMethodBodyTests
             BodySlicer.ExtractMethodBody(source, 4, 4, "M"));
     }
 
+    [Fact]
+    public void SequencePointInOneBranch_SelectsThatWholeConditionalMember()
+    {
+        var source = Lines(
+            "class C",                   // 1
+            "{",                         // 2
+            "#if FIRST",                 // 3
+            "    void Dead() { Use(); }",// 4
+            "#else",                     // 5
+            "    void Live() { Use(); }",// 6
+            "#endif",                    // 7
+            "}");                        // 8
+
+        Assert.Equal(
+            "void Live() { Use(); }",
+            BodySlicer.ExtractMethodBody(source, 6, 6, "Live", [6]));
+    }
+
+    [Fact]
+    public void SequencePoints_SelectNestedAndElifBranches()
+    {
+        var source = Lines(
+            "class C",                      // 1
+            "{",                            // 2
+            "#if OUTER",                    // 3
+            "#if FIRST",                    // 4
+            "    void First() { Use(); }",  // 5
+            "#elif SECOND",                 // 6
+            "    void Second() { Use(); }", // 7
+            "#else",                        // 8
+            "    void Third() { Use(); }",  // 9
+            "#endif",                       // 10
+            "#else",                        // 11
+            "    void Outer() { Use(); }",  // 12
+            "#endif",                       // 13
+            "}");                           // 14
+
+        Assert.Equal(
+            "void Second() { Use(); }",
+            BodySlicer.ExtractMethodBody(source, 7, 7, "Second", [7]));
+    }
+
+    [Fact]
+    public void NestedInternalConditionalThatPreservesTheDeclaration_ReturnsOriginalSource()
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            "#if OUTER",                // 3
+            "    void M()",             // 4
+            "    {",                    // 5
+            "#if INNER",                // 6
+            "        Use(1);",          // 7
+            "#else",                    // 8
+            "        Use(2);",          // 9
+            "#endif",                   // 10
+            "    }",                    // 11
+            "#else",                    // 12
+            "    void N() { }",         // 13
+            "#endif",                   // 14
+            "}");                       // 15
+
+        Assert.Equal(
+            Lines(
+                "    void M()",
+                "    {",
+                "#if INNER",
+                "        Use(1);",
+                "#else",
+                "        Use(2);",
+                "#endif",
+                "    }"),
+            BodySlicer.ExtractMethodBody(source, 7, 11, "M", [7, 11]));
+    }
+
+    [Fact]
+    public void PointsInMultipleBranches_DoNotGuessWhichBranchIsLive()
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            "#if X",                    // 3
+            "    void A() { Use(); }",  // 4
+            "#else",                    // 5
+            "    void B() { Use(); }",  // 6
+            "#endif",                   // 7
+            "}");                       // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 4, 4, "A", [4, 6]));
+    }
+
+    [Fact]
+    public void PointOnADirective_DoesNotSelectEitherAdjacentBranch()
+    {
+        var source = Lines(
+            "class C",                 // 1
+            "{",                       // 2
+            "#if X",                   // 3
+            "#else",                   // 4
+            "    void B() { Use(); }", // 5
+            "#endif",                  // 6
+            "}");                      // 7
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 5, "B", [4]));
+    }
+
+    [Fact]
+    public void SignatureOnlyConditional_HasNoBranchEvidenceAndRemainsAbsent()
+    {
+        var source = Lines(
+            "class C",            // 1
+            "{",                  // 2
+            "    public",         // 3
+            "#if LONG",           // 4
+            "    long",           // 5
+            "#else",              // 6
+            "    int",            // 7
+            "#endif",             // 8
+            "    M() => 1;",      // 9
+            "}");                 // 10
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 9, "M", [9]));
+    }
+
+    [Fact]
+    public void ConditionalGroupStraddlingTheProjectedSignature_StaysAbsent()
+    {
+        var source = Lines(
+            "class C",                            // 1
+            "{",                                  // 2
+            "#if A",                              // 3
+            "    public void M(int x)",           // 4
+            "    {",                              // 5
+            "        System.Console.WriteLine(x);",// 6
+            "#else",                              // 7
+            "    public void M()",                // 8
+            "    {",                              // 9
+            "        System.Console.WriteLine();",// 10
+            "#endif",                             // 11
+            "    }",                              // 12
+            "}");                                 // 13
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 6, 12, "M", [6, 12]));
+    }
+
+    [Fact]
+    public void ConditionalGroupStraddlingTheProjectedEnd_DoesNotLeakADeadSibling()
+    {
+        var source = Lines(
+            "class C",                                          // 1
+            "{",                                                // 2
+            "    public void M() {",                            // 3
+            "        System.Console.WriteLine(1);",             // 4
+            "#if A",                                            // 5
+            "    }",                                            // 6
+            "    public void N() { System.Console.WriteLine(2); }",// 7
+            "#else",                                            // 8
+            "    }",                                            // 9
+            "#endif",                                           // 10
+            "}");                                               // 11
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 9, "M", [3, 9]));
+    }
+
+    [Fact]
+    public void UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling()
+    {
+        var source = Lines(
+            "class C",                          // 1
+            "{",                                // 2
+            "    public void M()",              // 3
+            "    {",                            // 4
+            "#if A",                            // 5
+            "    }",                            // 6
+            "    public void N() { }",          // 7
+            "#else",                            // 8
+            "        System.Console.WriteLine(1);",// 9
+            "#endif",                           // 10
+            "    }",                            // 11
+            "}");                               // 12
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 11, "M", [9, 11]));
+    }
+
+    [Fact]
+    public void TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings()
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            "    public int M()",       // 3
+            "#if A",                    // 4
+            "        => 1 +",           // 5
+            "#else",                    // 6
+            "        => 2;",            // 7
+            "    public void N() { }",  // 8
+            "    public int X =",       // 9
+            "#endif",                   // 10
+            "        3;",               // 11
+            "}");                       // 12
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 11, "M", [5]));
+    }
+
+    [Fact]
+    public void LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided()
+    {
+        var source = Lines(
+            "class C",        // 1
+            "{",              // 2
+            "#line 3",        // 3
+            "    void M() { }",// 4
+            "}");             // 5
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M", [3]));
+    }
+
+    [Theory]
+    [InlineData(new[] { 0 })]
+    [InlineData(new[] { 4, 3 })]
+    [InlineData(new[] { 3, 3 })]
+    [InlineData(new[] { 6 })]
+    public void InvalidSequencePointCoordinates_FailVisibly(int[] points)
+    {
+        const string source = "class C\n{\n    void M() { }\n}";
+
+        Assert.ThrowsAny<ArgumentException>(
+            () => BodySlicer.ExtractMethodBody(source, 3, 3, "M", points));
+    }
+
+    [Theory]
+    [InlineData(0, 3)]
+    [InlineData(3, 2)]
+    [InlineData(3, 6)]
+    public void InvalidSequencePointRange_FailsVisibly(int startLine, int endLine)
+    {
+        const string source = "class C\n{\n    void M() { }\n}";
+
+        Assert.Throws<InvalidSequencePointCoordinatesException>(
+            () => BodySlicer.ExtractMethodBody(source, startLine, endLine, "M", [3]));
+    }
+
 }

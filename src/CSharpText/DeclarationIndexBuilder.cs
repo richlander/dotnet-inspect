@@ -69,9 +69,14 @@ internal static class DeclarationIndexBuilder
 
     public static ImmutableArray<DeclarationSpan> Build(
         IReadOnlyList<string> lines,
-        out ImmutableArray<TransparentScopeSpan> transparentScopes)
+        out ImmutableArray<TransparentScopeSpan> transparentScopes,
+        out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        out bool hasLineDirectives)
     {
-        var tokens = CSharpLexer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(
+            lines,
+            out conditionalGroups,
+            out hasLineDirectives);
         var rows = new List<Row>();
         int rootLastChildIndex = -1;
         int rootLastRefusedChildIndex = -1;
