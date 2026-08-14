@@ -433,7 +433,9 @@ public static class HttpClientFactory
             if (HasPrefix(address, [0x20, 0x02], 16))
                 return IsNonPublic(new IPAddress(address.AsSpan(2, 4)));
 
-            return false;
+            // Public IPv6 unicast is allocated from 2000::/3. Explicit public
+            // exceptions outside that range, such as NAT64, returned above.
+            return !HasPrefix(address, [0x20], 3);
         }
 
         byte[] b = ip.GetAddressBytes();

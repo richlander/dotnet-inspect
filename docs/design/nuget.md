@@ -29,8 +29,12 @@ address check. Cross-origin URLs discovered from service-index, catalog, or vuln
 never receive feed credentials.
 
 Equivalent endpoints at the selected capability version are tried in service-index order,
-including after malformed successful responses. Failed vulnerability endpoints do not create a
-clean cache entry; the next request retries them.
+including after malformed successful responses. Search failover tries at most four equivalent
+endpoints within one source-level timeout;
+`NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_IsBounded` and
+`NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_SharesSourceTimeout` gate those
+bounds. Failed vulnerability endpoints do not create a clean cache entry; the next request
+retries them.
 
 ## APIs Used
 

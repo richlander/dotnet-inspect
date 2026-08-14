@@ -105,6 +105,75 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_EquivalentEndpointFailover_IsBounded()
+    {
+        string[] searchUrls =
+        [
+            "https://feed.example/v3/query-0",
+            "https://feed.example/v3/query-1",
+            "https://feed.example/v3/query-2",
+            "https://feed.example/v3/query-3",
+            "https://feed.example/v3/query-4",
+            "https://feed.example/v3/query-5",
+        ];
+        string resources = string.Join(
+            ",",
+            searchUrls.Select(
+                url => $$"""{"@id":"{{url}}","@type":"SearchQueryService/3.5.0"}"""));
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""{"resources":[{{resources}}]}""",
+            [searchUrls[0]] = "<html>failure 0</html>",
+            [searchUrls[1]] = "<html>failure 1</html>",
+            [searchUrls[2]] = "<html>failure 2</html>",
+            [searchUrls[3]] = "<html>failure 3</html>",
+            [searchUrls[4]] = """{"data":[{"id":"Too.Late","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.StartsWith(searchUrls[0] + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(searchUrls[1] + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(searchUrls[2] + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(searchUrls[3] + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_EquivalentEndpointFailover_SharesSourceTimeout()
+    {
+        const string firstSearch = "https://feed.example/v3/query-fast-failure";
+        const string secondSearch = "https://feed.example/v3/query-stalled";
+        const string thirdSearch = "https://feed.example/v3/query-too-late";
+        var handler = new SearchBudgetHandler(
+            IndexUrl,
+            firstSearch,
+            secondSearch,
+            thirdSearch);
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(500),
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        Assert.Equal(
+            [IndexUrl, firstSearch, secondSearch],
+            handler.Requested.Select(RouteHandler.WithoutQuery));
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_FeedWithoutSearchResource_ReturnsNull()
     {
         const string flatContainerOnly = """
@@ -1563,10 +1632,61 @@ public class NuGetSearchSourcesTests
             return Task.FromResult(response);
         }
 
-        private static string WithoutQuery(string url)
+        public static string WithoutQuery(string url)
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class SearchBudgetHandler(
+        string indexUrl,
+        string firstSearch,
+        string secondSearch,
+        string thirdSearch) : HttpMessageHandler
+    {
+        private readonly List<string> _requested = [];
+
+        public IReadOnlyList<string> Requested => _requested;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            _requested.Add(url);
+
+            string body;
+            if (url.Equals(indexUrl, StringComparison.Ordinal))
+            {
+                body = $$"""
+                    {"resources":[
+                      {"@id":"{{firstSearch}}","@type":"SearchQueryService/3.5.0"},
+                      {"@id":"{{secondSearch}}","@type":"SearchQueryService/3.5.0"},
+                      {"@id":"{{thirdSearch}}","@type":"SearchQueryService/3.5.0"}
+                    ]}
+                    """;
+            }
+            else if (url.StartsWith(firstSearch, StringComparison.Ordinal))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+                body = "<html>failure</html>";
+            }
+            else if (url.StartsWith(secondSearch, StringComparison.Ordinal))
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("Unreachable after infinite delay.");
+            }
+            else
+            {
+                body = """{"data":[{"id":"Too.Late","version":"1.0.0"}]}""";
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request,
+            };
         }
     }
 

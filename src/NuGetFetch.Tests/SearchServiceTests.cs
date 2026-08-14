@@ -113,6 +113,8 @@ public class SearchServiceTests
     [InlineData("""{"data":[{"id":" Contoso.Package","version":"1.0.0"}]}""")]
     [InlineData("""{"data":[{"id":"Contoso..Package","version":"1.0.0"}]}""")]
     [InlineData("""{"data":[{"id":"Contoso/Package","version":"1.0.0"}]}""")]
+    [InlineData("{\"data\":[{\"id\":\"Contoso.P\\u0430ckage\",\"version\":\"1.0.0\"}]}")]
+    [InlineData("{\"data\":[{\"id\":\"Pkg\\u0301\",\"version\":\"1.0.0\"}]}")]
     [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""")]
     [InlineData("""{"data":[{"id":"Contoso.Package","version":" 1.0.0"}]}""")]
     [InlineData("{\"data\":[{\"id\":\"Contoso.Package\\n\",\"version\":\"1.0.0\"}]}")]

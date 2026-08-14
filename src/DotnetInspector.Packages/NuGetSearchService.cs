@@ -41,6 +41,8 @@ public record NuGetSearchOutcome(
 /// </summary>
 public static class NuGetSearchService
 {
+    private const int MaxEquivalentSearchEndpoints = 4;
+
     /// <summary>
     /// Searches the resolved NuGet sources. Resolution always runs, so a NuGet.config discovered
     /// from the working directory is honored even when no source option was passed. Each resolved
@@ -149,7 +151,9 @@ public static class NuGetSearchService
             IReadOnlyList<SearchResult>? found = null;
             Exception? lastFailure = null;
             string? lastSearchUrl = null;
-            foreach (string searchUrl in searchUrls)
+            using var sourceSearchTimeout = new CancellationTokenSource(
+                GetSearchSourceTimeout(sourceClient));
+            foreach (string searchUrl in searchUrls.Take(MaxEquivalentSearchEndpoints))
             {
                 lastSearchUrl = searchUrl;
                 var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
@@ -167,17 +171,25 @@ public static class NuGetSearchService
                 {
                     SearchService service = new(endpointClient, searchUrl);
                     found = resultFilter is null
-                        ? await service.SearchAsync(query, take, prerelease, auth)
+                        ? await service.SearchAsync(
+                            query,
+                            take,
+                            prerelease,
+                            auth,
+                            sourceSearchTimeout.Token)
                         : await service.SearchByPrefixAsync(
                             query,
                             take,
                             prerelease,
-                            auth);
+                            auth,
+                            sourceSearchTimeout.Token);
                     break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
                 {
                     lastFailure = ex;
+                    if (sourceSearchTimeout.IsCancellationRequested)
+                        break;
                 }
             }
 
@@ -247,6 +259,12 @@ public static class NuGetSearchService
         error is TaskCanceledException or TimeoutException
             ? $"{error.GetType().Name}: {error.Message}"
             : error.GetType().Name;
+
+    private static TimeSpan GetSearchSourceTimeout(HttpClient client) =>
+        client.Timeout == Timeout.InfiniteTimeSpan
+            || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                ? HttpClientFactoryOptions.BaselineTimeout
+                : client.Timeout;
 
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
