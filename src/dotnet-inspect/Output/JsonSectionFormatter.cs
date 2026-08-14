@@ -130,6 +130,31 @@ internal sealed class JsonSectionFormatter :
             Headers = headers.ToArray();
             _hasHeaders = true;
         }
+
+        public void AddRows(IList<string[]> rows)
+        {
+            foreach (var row in rows)
+                ValidateRowWidth(row.Length);
+
+            foreach (var row in rows)
+                Rows.Add(row);
+        }
+
+        public void AddRow(ReadOnlySpan<string> values)
+        {
+            ValidateRowWidth(values.Length);
+            Rows.Add(values.ToArray());
+        }
+
+        private void ValidateRowWidth(int width)
+        {
+            if (width > Headers.Length)
+            {
+                throw new NotSupportedException(
+                    $"Section '{(Name.Length == 0 ? "<unnamed>" : Name)}' has a row with {width} cells " +
+                    $"but only {Headers.Length} columns. The extra cells cannot be represented in JSON.");
+            }
+        }
     }
 
     private readonly List<MarkoutField> _rootFields = [];
@@ -160,6 +185,8 @@ internal sealed class JsonSectionFormatter :
 
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
     {
+        RequireNoActiveStreamingTable("format a heading");
+
         // Only the section level starts a new JSON property. A deeper heading is content within
         // the current section, and a shallower one is the document title, which the caller owns.
         if (level == _sectionLevel)
@@ -168,6 +195,8 @@ internal sealed class JsonSectionFormatter :
 
     public void FormatFieldName(TextWriter writer, string key, bool bold)
     {
+        RequireNoActiveStreamingTable("format a field name");
+
         // A bare field name carries no value; it is a label Markdown renders before a value block.
         // The value arrives through FormatFields, so nothing is recorded here.
     }
@@ -177,6 +206,8 @@ internal sealed class JsonSectionFormatter :
 
     public void FormatFields(TextWriter writer, ReadOnlySpan<MarkoutField> fields, bool bold)
     {
+        RequireNoActiveStreamingTable("format fields");
+
         // Fields emitted before any section heading are the document's own top-level fields.
         if (_current is null)
         {
@@ -197,10 +228,11 @@ internal sealed class JsonSectionFormatter :
         int skippedRows,
         MarkoutWriterOptions options)
     {
+        RequireNoActiveStreamingTable("format a table");
+
         var section = RequireSection(SectionKind.Table);
         section.SetHeaders(headers);
-        foreach (var row in rows)
-            section.Rows.Add(row);
+        section.AddRows(rows);
     }
 
     public void BeginTable(TextWriter writer, ReadOnlySpan<string> headers, MarkoutWriterOptions options)
@@ -218,7 +250,7 @@ internal sealed class JsonSectionFormatter :
         if (_streamingTable is null)
             throw new InvalidOperationException("Cannot write a row without an active streaming table.");
 
-        _streamingTable.Rows.Add(values.ToArray());
+        _streamingTable.AddRow(values);
     }
 
     public void EndTable(TextWriter writer, int skippedRows)
@@ -231,6 +263,8 @@ internal sealed class JsonSectionFormatter :
 
     public void FormatArray(TextWriter writer, string name, ReadOnlySpan<string> values, bool bold)
     {
+        RequireNoActiveStreamingTable("format an array");
+
         var section = RequireSection(SectionKind.List);
         foreach (var value in values)
             section.Items.Add(value);
@@ -238,12 +272,16 @@ internal sealed class JsonSectionFormatter :
 
     public void FormatListItem(TextWriter writer, string item)
     {
+        RequireNoActiveStreamingTable("format a list item");
+
         var section = RequireSection(SectionKind.List);
         section.Items.Add(item);
     }
 
     public void FormatTree(TextWriter writer, ReadOnlySpan<TreeNode> nodes, MarkoutWriterOptions options)
     {
+        RequireNoActiveStreamingTable("format a tree");
+
         var section = RequireSection(SectionKind.Tree);
         foreach (var node in nodes)
             section.Tree.Add(node);
@@ -251,6 +289,8 @@ internal sealed class JsonSectionFormatter :
 
     public void FormatTreeNode(TextWriter writer, string text, string badge)
     {
+        RequireNoActiveStreamingTable("format a tree node");
+
         var section = RequireSection(SectionKind.Tree);
         section.Tree.Add(new TreeNode(text) { Badge = badge });
     }
@@ -387,6 +427,12 @@ internal sealed class JsonSectionFormatter :
         var section = _current ??= GetOrAddSection(string.Empty, kind);
         section.Adopt(kind);
         return section;
+    }
+
+    private void RequireNoActiveStreamingTable(string operation)
+    {
+        if (_streamingTable is not null)
+            throw new InvalidOperationException($"Cannot {operation} while a streaming table is active.");
     }
 
     private Section GetOrAddSection(string name, SectionKind kind)

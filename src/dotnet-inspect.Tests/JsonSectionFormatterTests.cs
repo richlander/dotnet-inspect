@@ -246,6 +246,69 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void BatchTableDuringStreamingTable_FailsRatherThanMergingTheTables()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.FormatTable(
+                TextWriter.Null,
+                ["Type"],
+                [["batch"]],
+                0,
+                new MarkoutWriterOptions()));
+
+        Assert.Contains("streaming table is active", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HeadingDuringStreamingTable_FailsRatherThanChangingTheCurrentSection()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            formatter.FormatHeading(TextWriter.Null, 2, "Other", null));
+
+        Assert.Contains("streaming table is active", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverwideBatchRow_FailsRatherThanDroppingCells()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(
+                TextWriter.Null,
+                ["Type"],
+                [["MemoryCache", "lost"]],
+                0,
+                new MarkoutWriterOptions()));
+
+        Assert.Contains("2 cells", error.Message, StringComparison.Ordinal);
+        Assert.Contains("1 columns", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverwideStreamingRow_FailsRatherThanDroppingCells()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.BeginTable(TextWriter.Null, ["Type"], new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.WriteRow(TextWriter.Null, ["MemoryCache", "lost"]));
+
+        Assert.Contains("2 cells", error.Message, StringComparison.Ordinal);
+        Assert.Contains("1 columns", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RowWindow_IsAppliedToDataRatherThanRenderedLines()
     {
         // --rows must survive the change of Format. Applying it to the buffered rows (rather than
