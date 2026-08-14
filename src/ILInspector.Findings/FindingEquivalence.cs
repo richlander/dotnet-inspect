@@ -70,12 +70,4 @@ public sealed record FindingEquivalence(
     public static readonly FindingEquivalence Exact = new(
         [PairKind.Present],
         [FindingDifferenceKind.None]);
-
-    /// <summary>
-    /// "Same operations, order aside": moves are forgiven, but additions and removals are not.
-    /// Appropriate for a consumer that only cares whether the multiset of operations changed.
-    /// </summary>
-    public static readonly FindingEquivalence Multiset = new(
-        [PairKind.Present],
-        [FindingDifferenceKind.None, FindingDifferenceKind.Moved]);
 }
