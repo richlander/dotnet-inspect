@@ -1049,12 +1049,12 @@ public static class StructuralCloneAnalysis
         if (!SignatureBlobGuard.IsSafeToDecode(
                 reader,
                 signature.Signature,
-                SignatureBlobGuard.Kind.Method))
+                SignatureBlobGuard.Kind.StandaloneMethod))
         {
             return IsMalformedUnsafeSignature(
                 reader,
                 signature.Signature,
-                SignatureBlobGuard.Kind.Method)
+                SignatureBlobGuard.Kind.StandaloneMethod)
                 ? MetadataOperandValidity.Invalid
                 : MetadataOperandValidity.Unsupported;
         }
@@ -1068,7 +1068,7 @@ public static class StructuralCloneAnalysis
             if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                     reader,
                     signature.Signature,
-                    SignatureBlobGuard.Kind.Method))
+                    SignatureBlobGuard.Kind.StandaloneMethod))
             {
                 return MetadataOperandValidity.Invalid;
             }
@@ -1912,11 +1912,18 @@ public static class StructuralCloneAnalysis
         MetadataReader reader,
         BlobHandle signature,
         SignatureBlobGuard.Kind kind)
-        => !SignatureBlobGuard.IsSafeToDecode(
+    {
+        if (reader.GetBlobReader(signature).Length
+            > MetadataSafetyPolicy.MaxSignatureTypeNodes)
+        {
+            return false;
+        }
+        return !SignatureBlobGuard.IsSafeToDecode(
                 reader,
                 signature,
                 kind,
                 int.MaxValue);
+    }
 
     static bool SupportedType(TypeRef type)
     {

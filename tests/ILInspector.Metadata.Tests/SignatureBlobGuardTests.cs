@@ -102,6 +102,129 @@ public class SignatureBlobGuardTests
     }
 
     [Fact]
+    public void TrailingBytes_AreUnsafe()
+    {
+        Assert.False(GuardTypeSpec([I4, 0x0e]));
+
+        var method = new BlobBuilder();
+        method.WriteByte(0x00);
+        method.WriteByte(0x00);
+        method.WriteByte(0x01);
+        method.WriteByte(I4);
+        Assert.False(GuardMethodSig(method));
+
+        var defaultWithSentinel = new BlobBuilder();
+        defaultWithSentinel.WriteByte(0x00);
+        defaultWithSentinel.WriteByte(0x00);
+        defaultWithSentinel.WriteByte(0x01);
+        defaultWithSentinel.WriteByte(0x41);
+        Assert.False(GuardMethodSig(defaultWithSentinel));
+    }
+
+    [Theory]
+    [InlineData((int)SignatureCallingConvention.CDecl)]
+    [InlineData((int)SignatureCallingConvention.StdCall)]
+    [InlineData((int)SignatureCallingConvention.ThisCall)]
+    [InlineData((int)SignatureCallingConvention.FastCall)]
+    [InlineData((int)SignatureCallingConvention.VarArgs)]
+    public void TerminalSentinel_IsUnsafeForEveryCallingConvention(
+        int callingConvention)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte((byte)callingConvention);
+        signature.WriteByte(0x02);
+        signature.WriteByte(0x01);
+        signature.WriteByte(I4);
+        signature.WriteByte(I4);
+        signature.WriteByte(0x41);
+
+        Assert.False(GuardMethodSig(signature));
+        Assert.False(GuardStandaloneMethodSig(signature));
+    }
+
+    [Fact]
+    public void MidSignatureSentinel_RequiresApplicableVarArgConventionAndOccursOnce()
+    {
+        static BlobBuilder Signature(
+            SignatureCallingConvention convention,
+            bool repeatSentinel)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte((byte)convention);
+            signature.WriteByte(0x02);
+            signature.WriteByte(0x01);
+            signature.WriteByte(I4);
+            signature.WriteByte(0x41);
+            if (repeatSentinel)
+                signature.WriteByte(0x41);
+            signature.WriteByte(I4);
+            return signature;
+        }
+
+        Assert.True(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.VarArgs,
+                repeatSentinel: false)));
+        Assert.True(GuardStandaloneMethodSig(
+            Signature(
+                SignatureCallingConvention.CDecl,
+                repeatSentinel: false)));
+        Assert.False(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.CDecl,
+                repeatSentinel: false)));
+        Assert.False(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.Default,
+                repeatSentinel: false)));
+        Assert.False(GuardMethodSig(
+            Signature(
+                SignatureCallingConvention.VarArgs,
+                repeatSentinel: true)));
+        Assert.False(GuardStandaloneMethodSig(
+            Signature(
+                SignatureCallingConvention.CDecl,
+                repeatSentinel: true)));
+    }
+
+    [Fact]
+    public void OuterSentinelAfterFunctionPointer_DoesNotBelongToTheNestedMethod()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(
+            (byte)SignatureCallingConvention.VarArgs);
+        signature.WriteByte(0x02);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1b);
+        signature.WriteByte(
+            (byte)SignatureCallingConvention.VarArgs);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x01);
+        signature.WriteByte(I4);
+        signature.WriteByte(0x41);
+        signature.WriteByte(I4);
+
+        Assert.True(GuardMethodSig(signature));
+    }
+
+    [Fact]
+    public void NestedMethodCannotConsumeAnOuterTrailingSentinel()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1b);
+        signature.WriteByte(
+            (byte)SignatureCallingConvention.VarArgs);
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x41);
+
+        Assert.False(GuardMethodSig(signature));
+    }
+
+    [Fact]
     public void DeeplyNestedMethodParameter_IsUnsafe()
     {
         // void M(int[][]...[]) with a 2000-deep array parameter: shallow arity, deep structure.
@@ -227,6 +350,15 @@ public class SignatureBlobGuardTests
             reader,
             reader.GetStandaloneSignature(handle).Signature,
             SignatureBlobGuard.Kind.Method);
+    }
+
+    static bool GuardStandaloneMethodSig(BlobBuilder sig)
+    {
+        var (reader, handle) = BuildStandaloneSig(sig);
+        return SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            reader.GetStandaloneSignature(handle).Signature,
+            SignatureBlobGuard.Kind.StandaloneMethod);
     }
 
     static byte[] Nested(byte wrapper, int count)

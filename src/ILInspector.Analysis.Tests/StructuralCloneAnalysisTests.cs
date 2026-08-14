@@ -260,6 +260,10 @@ public class StructuralCloneAnalysisTests
             BuildCalliTwinAssembly(
                 calli,
                 signature: [0x00, 0x00, 0x1B, 0x00, 0x00, 0x01]));
+        using PEReader unmanagedImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x01, 0x00, 0x01]));
 
         StructuralCloneComparison invalid =
             StructuralCloneAnalysis.Compare(
@@ -302,6 +306,12 @@ public class StructuralCloneAnalysisTests
             StructuralCloneRelation.Exact,
             StructuralCloneAnalysis.Compare(
                 functionPointerImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2)).Relation);
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            StructuralCloneAnalysis.Compare(
+                unmanagedImage,
                 MetadataTokens.MethodDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(2)).Relation);
     }
