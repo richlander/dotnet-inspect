@@ -95,7 +95,10 @@ compound accessibilities retain distinct producer-owned facets. Public is the
 only default accessibility, while selections union within a facet axis and
 intersect across kind and accessibility. Unknown IDs and unclassified producer
 values fail visibly rather than becoming an empty inventory. The contract is
-gated by `ApiInventoryQueryTests`.
+gated by `ApiInventoryQueryTests`. An explicit interface implementation retains
+its metadata-private accessibility fact in the typed model and structured
+output; human-facing renderers suppress that prefix where C# syntax or a
+product-owned kind label already carries the same meaning.
 
 #### `ILInspector.Analysis`
 

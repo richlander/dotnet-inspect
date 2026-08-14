@@ -3417,7 +3417,9 @@ public static class ApiOutputFormatter
                 "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => MemberParameterTypes(m),
                 _ => ""
             };
-            var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
+            var kindLabel = m.Accessibility != null && e.kind != "explicit-interface-implementation"
+                ? $"{m.Accessibility} {e.kind}"
+                : e.kind;
             return new ApiTableRow(kindLabel, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
         }).ToList();
 

@@ -903,6 +903,31 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void TableView_ExplicitImplementation_SuppressesMetadataAccessibilityPrefix()
+    {
+        var type = new ApiType
+        {
+            Name = "Implementation",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "IFoo.Run",
+                    Kind = "explicit-interface-implementation",
+                    Signature = "void IFoo.Run()",
+                    Accessibility = "private"
+                },
+            ]
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("explicit-interface-implementation", row.Kind);
+    }
+
+    [Fact]
     public void ApiTypeJson_OmitsIsFinalizerOnNonFinalizers_KeepsItTrueOnFinalizer()
     {
         // Regression guard (adversarial review of #3168): the finalizer identity
