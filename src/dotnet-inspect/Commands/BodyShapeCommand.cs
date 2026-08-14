@@ -116,10 +116,17 @@ public static class BodyShapeCommand
 
             if (options.Count)
             {
-                var countedMatches = options.Rows is { } rows
-                    ? rows.Apply(result.Matches)
-                    : result.Matches;
-                CountOutput.WriteCount(countedMatches.Count);
+                var view = CreateView(result.Matches, options.Kind);
+                if (!CountOutput.TryWriteProjected(
+                        view,
+                        BodyShapeViewContext.Default,
+                        "Matches",
+                        options.Columns,
+                        options.Fields,
+                        options.Rows))
+                {
+                    return 1;
+                }
             }
             else if (options.JsonOutput)
             {
@@ -161,23 +168,7 @@ public static class BodyShapeCommand
 
     static void WriteOutput(IReadOnlyList<BodyShapeMatch> matches, BodyShapeOptions options)
     {
-        var rows = matches.Select(match => new BodyShapeRow(
-            match.Kind,
-            match.Member,
-            $"0x{match.MethodToken:X8}",
-            match.Extent.StartLine + 1,
-            match.Extent.StartColumn + 1,
-            match.Extent.EndLine + 1,
-            match.Extent.EndColumn + 1,
-            match.Text)).ToList();
-        var view = new BodyShapeResultView
-        {
-            Title = $"Body shape: {options.Kind}",
-            Description = rows.Count == 0
-                ? $"No {options.Kind} body shapes found."
-                : null,
-            Matches = rows.Count == 0 ? null : rows
-        };
+        var view = CreateView(matches, options.Kind);
 
         if (options.Tabular)
         {
@@ -209,5 +200,29 @@ public static class BodyShapeCommand
                 options.Columns,
                 options.Fields);
         }
+    }
+
+    private static BodyShapeResultView CreateView(
+        IReadOnlyList<BodyShapeMatch> matches,
+        string kind)
+    {
+        var rows = matches.Select(match => new BodyShapeRow(
+            match.Kind,
+            match.Member,
+            $"0x{match.MethodToken:X8}",
+            match.Extent.StartLine + 1,
+            match.Extent.StartColumn + 1,
+            match.Extent.EndLine + 1,
+            match.Extent.EndColumn + 1,
+            match.Text)).ToList();
+        var view = new BodyShapeResultView
+        {
+            Title = $"Body shape: {kind}",
+            Description = rows.Count == 0
+                ? $"No {kind} body shapes found."
+                : null,
+            Matches = rows.Count == 0 ? null : rows
+        };
+        return view;
     }
 }

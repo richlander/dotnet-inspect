@@ -58,7 +58,7 @@ public class DependsCommand
                 return 0;
             }
 
-            var visibleNodes = ApplyTreeWindow(
+            var visibleNodes = TreeRowWindow.Apply(
                 result.Tree,
                 options.Rows,
                 node => node.Children,
@@ -66,7 +66,9 @@ public class DependsCommand
             var treeNodes = ToTreeNodes(visibleNodes);
             if (options.Count)
             {
-                WriteCount(CountTypeNodes(result.Tree), options.Rows);
+                WriteCount(
+                    TreeRowWindow.Count(result.Tree, node => node.Children),
+                    options.Rows);
             }
             else if (options.JsonOutput)
             {
@@ -141,7 +143,7 @@ public class DependsCommand
 
             var graph = (LibraryDependencyGraphResult.Graph)result;
             var treeNodes = BuildNestedDependencyTree(graph.References);
-            var visibleTreeNodes = ApplyTreeWindow(
+            var visibleTreeNodes = TreeRowWindow.Apply(
                 treeNodes,
                 options.Rows,
                 node => node.Children ?? [],
@@ -209,7 +211,7 @@ public class DependsCommand
             }
 
             var graph = (PackageDependencyGraphResult.Graph)result;
-            var visibleDependencies = ApplyTreeWindow(
+            var visibleDependencies = TreeRowWindow.Apply(
                 graph.Dependencies,
                 options.Rows,
                 node => node.Children,
@@ -218,7 +220,9 @@ public class DependsCommand
 
             if (options.Count)
             {
-                WriteCount(CountDependencyNodes(graph.Dependencies), options.Rows);
+                WriteCount(
+                    TreeRowWindow.Count(graph.Dependencies, node => node.Children),
+                    options.Rows);
             }
             else if (options.MermaidOutput)
             {
@@ -273,60 +277,6 @@ public class DependsCommand
         }
 
         CountOutput.WriteCount(count);
-    }
-
-    private static int CountTypeNodes(List<TypeDependencyNode> nodes)
-        => nodes.Count + nodes.Sum(node => CountTypeNodes(node.Children));
-
-    private static int CountDependencyNodes(List<DependencyNode> nodes)
-        => nodes.Count + nodes.Sum(node => CountDependencyNodes(node.Children));
-
-    private static List<T> ApplyTreeWindow<T>(
-        IReadOnlyList<T> roots,
-        RowWindow? rows,
-        Func<T, IReadOnlyList<T>> getChildren,
-        Func<T, List<T>, T> withChildren)
-    {
-        if (rows is not { IsUnlimited: false } window)
-            return [.. roots];
-
-        var (start, end) = window.Resolve(CountNodes(roots, getChildren));
-        int index = 0;
-        var result = new List<T>();
-        foreach (var root in roots)
-        {
-            if (TryFilter(root, getChildren, withChildren, start, end, ref index, out var filtered))
-                result.Add(filtered);
-        }
-        return result;
-    }
-
-    private static int CountNodes<T>(
-        IReadOnlyList<T> nodes,
-        Func<T, IReadOnlyList<T>> getChildren)
-        => nodes.Count + nodes.Sum(node => CountNodes(getChildren(node), getChildren));
-
-    private static bool TryFilter<T>(
-        T node,
-        Func<T, IReadOnlyList<T>> getChildren,
-        Func<T, List<T>, T> withChildren,
-        int start,
-        int end,
-        ref int index,
-        out T filtered)
-    {
-        bool selected = index >= start && index < end;
-        index++;
-
-        var children = new List<T>();
-        foreach (var child in getChildren(node))
-        {
-            if (TryFilter(child, getChildren, withChildren, start, end, ref index, out var filteredChild))
-                children.Add(filteredChild);
-        }
-
-        filtered = withChildren(node, children);
-        return selected || children.Count > 0;
     }
 
     private static List<TreeNode> ToDependencyTreeNodes(List<DependencyNode> nodes)

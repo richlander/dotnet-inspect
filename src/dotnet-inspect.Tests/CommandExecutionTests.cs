@@ -1390,6 +1390,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_ImplicitCallerSection_CountRejectsTreePresentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Call Graph",
+            "--bin",
+            Path.GetDirectoryName(TestAssemblyPath)!,
+            "--count",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("exactly one selected shape", error);
+    }
+
+    [Fact]
     public async Task LibraryAndPackage_ScalarCount_IgnoreTreePresentation()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
@@ -6963,6 +6986,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DependenciesCount_OwnsItsTypedEmptyProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.EmptyDependencies",
+            "README.md",
+            "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--dependencies",
+                "--count",
+                "--rows",
+                "2..2",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("0", output.Trim());
+            Assert.DoesNotContain("unprojected output", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Content_Count_CountsMatchesNotAbsentPlaceholders()
     {
         // A package that matches nothing still renders a placeholder block, so the default
@@ -7457,6 +7509,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, invalid.Exit);
         Assert.Empty(invalid.Output);
         Assert.Contains("NoSuchColumn", invalid.Error);
+        Assert.DoesNotContain("Payload", invalid.Error);
     }
 
     [Fact]
@@ -7509,6 +7562,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, invalid.Exit);
             Assert.Empty(invalid.Output);
             Assert.Contains("NoSuchColumn", invalid.Error);
+            Assert.DoesNotContain("Payload", invalid.Error);
         }
         finally
         {

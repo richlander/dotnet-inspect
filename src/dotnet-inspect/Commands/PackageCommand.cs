@@ -95,7 +95,7 @@ public class PackageCommand
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
-                || options.ShowContent;
+                || options.ShowContent || options.ShowDependencies;
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -109,6 +109,7 @@ public class PackageCommand
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
+                    : options.ShowDependencies ? "--dependencies"
                     : "--content";
                 CommandError.Write(
                     $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
@@ -3987,6 +3988,15 @@ public class PackageCommand
             allowCompatibleFallbackForRequestedTfm: false);
         if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
         {
+            if (LensProjection.TryProject(
+                    options,
+                    "--dependencies",
+                    rowCount: 0,
+                    out var projectionExit,
+                    ["Package", "Version", "Author"]))
+            {
+                return projectionExit;
+            }
             CommandError.WriteLine("No dependencies declared in package.");
             return 0;
         }
@@ -4003,6 +4013,15 @@ public class PackageCommand
 
         if (group.Dependencies.Count == 0)
         {
+            if (LensProjection.TryProject(
+                    options,
+                    "--dependencies",
+                    rowCount: 0,
+                    out var projectionExit,
+                    ["Package", "Version", "Author"]))
+            {
+                return projectionExit;
+            }
             var emptyView = new EmptyDepsView
             {
                 Title = $"{result.PackageName} ({result.Version})",
@@ -4022,10 +4041,28 @@ public class PackageCommand
             logger.Log,
             options.SourceOptions);
 
+        var visibleCount = WindowedCount(
+            TreeRowWindow.Count(depNodes, node => node.Children),
+            options.Rows);
+        if (LensProjection.TryProject(
+                options,
+                "--dependencies",
+                visibleCount,
+                out var countExit,
+                ["Package", "Version", "Author"]))
+        {
+            return countExit;
+        }
+
+        var visibleNodes = TreeRowWindow.Apply(
+            depNodes,
+            options.Rows,
+            node => node.Children,
+            (node, children) => node with { Children = children });
         var view = new PackageDependenciesView
         {
             Title = CSharpIdentifier.ContainRenderedText($"{result.PackageName} {result.Version}"),
-            Dependencies = ToTreeNodes(depNodes)
+            Dependencies = ToTreeNodes(visibleNodes)
         };
 
         MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);

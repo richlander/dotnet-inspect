@@ -490,4 +490,21 @@ public sealed class BodyShapeCommandTests
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
     }
+
+    [Fact]
+    public async Task Command_CountValidatesTheRenderedColumnProjection()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            BodyShapeCommand.Execute(new BodyShapeOptions
+            {
+                Kind = "ObjectCreationExpression",
+                LibraryPath = FixturePath,
+                Columns = ["NoSuchColumn"],
+                Count = true
+            })));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection: NoSuchColumn", error);
+    }
 }

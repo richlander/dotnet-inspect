@@ -326,11 +326,22 @@ public class ApiCommand
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
+        var countMapSelectionSections = selectionSections;
+        if (selectionSections is { Count: > 0 }
+            && options is MemberOptions { HasCallerScope: true })
+        {
+            countMapSelectionSections = new HashSet<string>(
+                selectionSections,
+                StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.Callers
+            };
+        }
         var countMapSections = singleTypeMode
             ? OutputFormatter.ResolveCountMapSections(
-                memberPipeline, selectionSections, fixedOverview: false)
+                memberPipeline, countMapSelectionSections, fixedOverview: false)
             : OutputFormatter.ResolveCountMapSections(
-                typePipeline, selectionSections, fixedOverview: false);
+                typePipeline, countMapSelectionSections, fixedOverview: false);
         if (options.Discover == null && options.Count && !options.SelectDeferredToListing
             && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
                 || !CountOutput.ValidateMapFormat(
