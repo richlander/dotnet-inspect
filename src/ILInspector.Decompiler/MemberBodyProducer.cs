@@ -1417,17 +1417,38 @@ public static class MemberBodyProducer
         var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
         var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
 
-        var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext, bool SingleReturnExpression)>();
+        var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getSingleReturn, printerOptions, failOnDiagnostic), getRequiresUnsafe, getSingleReturn));
+                accessors.Add((
+                    "get",
+                    declarationFormatter.FormatAccessorHead(type, member, "get"),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    getRequiresUnsafe,
+                    getRequiresAsync,
+                    getSingleReturn));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setSingleReturn, printerOptions, failOnDiagnostic), setRequiresUnsafe, setSingleReturn));
+                accessors.Add((
+                    "set",
+                    declarationFormatter.FormatAccessorHead(type, member, "set"),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    setRequiresUnsafe,
+                    setRequiresAsync,
+                    setSingleReturn));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initSingleReturn, printerOptions, failOnDiagnostic), initRequiresUnsafe, initSingleReturn));
+                accessors.Add((
+                    "init",
+                    declarationFormatter.FormatAccessorHead(type, member, "init"),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    initRequiresUnsafe,
+                    initRequiresAsync,
+                    initSingleReturn));
         }
+
+        if (accessors.Any(accessor => accessor.RequiresAsyncContext))
+            throw new InvalidOperationException("C# properties cannot carry an async accessor modifier.");
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
@@ -1451,7 +1472,7 @@ public static class MemberBodyProducer
         // would recurse (a getter that returns the property itself).
         if (accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
         {
-            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Keyword};"))} }}");
+            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Head};"))} }}");
             return;
         }
 
@@ -1462,7 +1483,7 @@ public static class MemberBodyProducer
         // body is one multi-line 'return <expr>;' also folds to an expression
         // body (a raised switch return, issue #3088; a wrapped single expression,
         // issue #3084), gated on the printer's typed single-return signal.
-        if (accessors is [("get", { } loneGet, _, var loneGetSingleReturn)]
+        if (accessors is [("get", "get", { } loneGet, _, _, var loneGetSingleReturn)]
             && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {
             CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn, DisableSignatureWrapping(printerOptions));
@@ -1473,9 +1494,9 @@ public static class MemberBodyProducer
         sb.AppendLf("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
-            var (keyword, body, _, singleReturn) = accessors[i];
+            var (_, accessorHead, body, _, _, singleReturn) = accessors[i];
             if (i > 0) sb.AppendLf();
-            CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
+            CSharpMemberLayout.Append(sb, accessorHead, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
         sb.AppendLf("    }");
     }
@@ -1627,19 +1648,36 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
+        out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
+    {
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
         // special-name methods, counted across all visibilities — when no valid
         // handle is available.
-        => accessorHandle is { } handle
-            ? DecompileFunction(pipelineSource,
-                Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions, failOnDiagnostic)
-            : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions, failOnDiagnostic);
+        var function = accessorHandle is { } handle
+            ? Pipeline.IrImporter.Import(pipelineSource, handle)
+            : Pipeline.IrImporter.Import(
+                pipelineSource,
+                typeFullName,
+                accessorName,
+                overloadIndex: 0,
+                publicOnly: false);
+        requiresAsyncContext = function is not null
+            && (function.RequiresAsyncBodyModifier
+                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+        return DecompileFunction(
+            pipelineSource,
+            function,
+            bodyNamespaces,
+            out _,
+            out requiresUnsafeContext,
+            out bodyIsSingleExpressionBody,
+            out _,
+            printerOptions,
+            failOnDiagnostic);
+    }
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the

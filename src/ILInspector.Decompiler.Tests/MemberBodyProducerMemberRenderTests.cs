@@ -69,6 +69,23 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_PreservesAccessorSpecificAccessibility()
+    {
+        var type = Specimen();
+        var property = Assert.Single(type.Members, member => member.Name == "Name");
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            property,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains("private set", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProduceMembers_DelegatesMapEveryMemberToAbsent()
     {
         var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
@@ -432,7 +449,7 @@ public sealed class MemberRenderSpecimen
 
     public int Value { get; }
 
-    public string Name { get; set; } = "";
+    public string Name { get; private set; } = "";
 
     public int Increment(int n) => n + 1;
 

@@ -271,6 +271,152 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void Evaluate_UsesProductWholePropertyForAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.ComponentModel;
+
+            public sealed class PropertyWholeMemberFixture
+            {
+                private int _value;
+
+                [Description("marker")]
+                public int Value
+                {
+                    get => _value;
+                    private set => _value = value;
+                }
+
+                public int this[int offset]
+                {
+                    get => _value + offset;
+                    set => _value = value - offset;
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "PropertyWholeMemberFixture");
+            var type = reader.GetTypeDefinition(typeHandle);
+            var valueProperty = Assert.Single(
+                type.GetProperties(),
+                handle => reader.GetString(reader.GetPropertyDefinition(handle).Name) == "Value");
+            var valueAccessors = reader.GetPropertyDefinition(valueProperty).GetAccessors();
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                valueAccessors.Setter,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            Assert.Contains("public int Value", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("private set", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("[Description", wholeMember.Value.Text, StringComparison.Ordinal);
+
+            var results = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "PropertyWholeMemberFixture"
+                    && result.Method is "get_Value" or "set_Value" or "get_Item" or "set_Item")
+                .ToList();
+
+            Assert.Equal(4, results.Count);
+            foreach (var result in results)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
+            var targetedSetter = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "PropertyWholeMemberFixture",
+                    method => method.Method == "set_Value"));
+            Assert.True(targetedSetter.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedSetter.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void PropertyWholeMember_DeclinesExplicitImplementationsAndNonAutoStructs()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValue
+            {
+                int Value { get; }
+            }
+
+            public sealed class ExplicitValue : IValue
+            {
+                int IValue.Value => 42;
+            }
+
+            public readonly struct ComputedValue
+            {
+                private readonly int _value;
+
+                public ComputedValue(int value) => _value = value;
+
+                public int Value => _value + 1;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var explicitType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "ExplicitValue"));
+            var explicitAccessor = Assert.Single(
+                explicitType.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "IValue.get_Value");
+            var structType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "ComputedValue"));
+            var structAccessor = Assert.Single(
+                structType.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "get_Value");
+
+            using var source = MetadataSource.Open(assemblyPath);
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                explicitAccessor,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                structAccessor,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ComputedValue",
+                    method => method.Method == "get_Value"));
+            Assert.False(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_ReportsProductWholeMemberWhenConstructorRecompileFails()
     {
         var assemblyPath = CompileFixture("""
@@ -393,6 +539,7 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.True(ctor.Status == FidelityCheck.CompileBackStatus.Exact, ctor.Detail);
             Assert.True(getter.Status == FidelityCheck.CompileBackStatus.Exact, getter.Detail);
+            Assert.True(getter.UsedProductWholeMember);
             Assert.True(sum.Status == FidelityCheck.CompileBackStatus.Exact, sum.Detail);
         }
         finally
