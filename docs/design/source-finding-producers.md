@@ -114,16 +114,27 @@ folds, not additional Findings.
 token. `AuthoredSourceAcquisition` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
-`FindingInspection<string>`. Conditional branch liveness is composed only at
-that slicing boundary: Metadata reports point lines, CSharpText reports lexical
-branch ranges, and the body slicer selects a branch only when exactly one range
-contains point evidence. It validates both the PDB range endpoints and every
-point line against the verified physical source. Because output remains a slice
-of the original authored text rather than projected text, a selected group
-wholly inside that slice is omitted from a second, boundary-only projection.
-The resulting declaration must remain sliceable with identical boundaries;
+`FindingInspection<string>`. Its type operation resolves only the exact
+`MetadataTypeDefinitionName`, verifies the primary document through the same
+path, and returns the complete authored document with its typed mapping,
+document, and checksum verdict. It does not use SourceLink's simple-name
+compatibility fallback.
+
+Conditional branch liveness is composed only at the member slicing boundary:
+Metadata reports point lines, CSharpText reports lexical branch ranges, and the
+body slicer selects a branch only when exactly one range contains point
+evidence. It validates both the PDB range endpoints and every point line
+against the verified physical source. Because output remains a slice of the
+original authored text rather than projected text, a selected group wholly
+inside that slice is omitted from a second, boundary-only projection. The
+resulting declaration must remain sliceable with identical boundaries;
 otherwise the slicer refuses the result rather than include a sibling from an
 inactive branch.
+
+`SourceFetcher` delegates reusable verified bytes to an
+`ISourceContentStore`. Its compatibility constructor retains the desktop
+`CoreCache`; content-only hosts supply `InMemorySourceContentStore`, so source
+acquisition has no ambient filesystem requirement.
 
 The same checksum evidence is carried through type, member-location, and
 IL-offset projections when those views can print or derive output from source
@@ -141,4 +152,11 @@ The authored rebuild harness reports `Recorded`, `Incomplete`, `Drift`, or
 Product `ImplementationDiff` consumes acquired line envelopes for its `Source`
 mechanism; Research remains network-free. Decompiled `CSharp` and authored
 `Source` are peers, so Source absence never changes or suppresses decompiler
-evidence.
+evidence. `AssemblyContextSourceQuery` applies that rule to a selected
+workspace participant: verified authored text is the preferred result;
+otherwise Decompiler receives the retained assembly content and the same
+binding policy as the group. A failed authored integrity attempt remains typed
+beside a successful decompiled result, and neither producer succeeding yields
+`AuthoredAndDecompiledUnavailable`, not empty output. The pathless authored,
+fallback, integrity-failure, and neither-available cases are gated by
+`AssemblyContextSourceQueryTests`.

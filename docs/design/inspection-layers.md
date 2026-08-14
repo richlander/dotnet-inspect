@@ -57,12 +57,15 @@ direct-reference, extension-method, custom-attribute, manifest-resource,
 type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
 body-signal comparison, Implementation comparison, assembly-context
 Integrations, implementation relationships, type/member search, extension
-reachability, and progressive member call-graph slices. The API-comparison seam retains
+reachability, progressive member call-graph slices, and group-scoped
+authored-or-decompiled type/member source. The API-comparison seam retains
 Metadata-owned Finding correspondence and compatibility classification over
 two host-resolved surfaces. The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
-companion assembly avoids imposing Research and Decompiler dependencies on
-core query consumers. The call-graph and extension-reachability seams compose
+companion assembly avoids imposing Research on core query consumers. Core L1
+now intentionally references Decompiler for
+`AssemblyContextSourceQuery`, whose fallback is a product-owned whole-member or
+whole-type C# render. The call-graph and extension-reachability seams compose
 evidence over workspace-owned immutable snapshots; call graphs retain one
 catalog generation for both traversal directions. These queries return typed
 results without choosing a renderer or output format.
@@ -107,6 +110,14 @@ and IL producers; authored-source acquisition remains a separate explicit
 enrichment.
 `ImplementationComparisonQueryTests.Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence`
 gates the stream-backed target-content path.
+
+`AssemblyContextSourceQuery` accepts one participant, an exact typed target,
+and explicit host capabilities for symbol and source acquisition. It opens the
+workspace snapshot as content, acquires a matching PDB through the supplied
+store, prefers checksum-verified authored source, and otherwise decompiles
+through the participant's `IAssemblyBindingPolicy`. It never accepts an
+assembly or PDB path. Its in-memory host path and typed failure behavior are
+gated by `AssemblyContextSourceQueryTests`.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,

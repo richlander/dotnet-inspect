@@ -80,6 +80,15 @@ public sealed class SourceLinkService : IDisposable
         Action<string>? log = null)
         => new(PdbContext.OpenMetadataOnly(assembly, log), DefaultCache, log);
 
+    public static SourceLinkService OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log,
+        ISourceLinkIndexCache? cache)
+        => new(
+            PdbContext.OpenMetadataOnly(assembly, log),
+            cache,
+            log);
+
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null,
@@ -209,6 +218,14 @@ public sealed class SourceLinkService : IDisposable
     {
         EnsureCurrentPdbState();
         return _resolver?.ResolveTypeSource(typeName);
+    }
+
+    public SourceLinkResolver.TypeSourceInfo? ResolveTypeSource(
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        EnsureCurrentPdbState();
+        return _resolver?.ResolveTypeSource(type);
     }
 
     public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(

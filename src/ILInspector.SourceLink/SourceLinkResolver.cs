@@ -76,10 +76,30 @@ public sealed class SourceLinkResolver
     public TypeSourceInfo? ResolveTypeSource(string typeName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeName);
+        return ResolveTypeSource(
+            typeName,
+            allowSimpleNameFallback: true);
+    }
 
+    public TypeSourceInfo? ResolveTypeSource(
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return ResolveTypeSource(
+            type.ToMetadataFullName(),
+            allowSimpleNameFallback: false);
+    }
+
+    TypeSourceInfo? ResolveTypeSource(
+        string typeName,
+        bool allowSimpleNameFallback)
+    {
         EnsureTypeIndexes();
         if (!_typesByFullName!.TryGetValue(typeName, out var type)
-            && !_typesBySimpleName!.TryGetValue(typeName, out type))
+            && (!allowSimpleNameFallback
+                || !_typesBySimpleName!.TryGetValue(
+                    typeName,
+                    out type)))
         {
             return null;
         }

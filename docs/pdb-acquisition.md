@@ -49,9 +49,12 @@ content id (GUID plus stamp), not the symbol-server GUID alone. The
 explicit-capability descriptor overload requires both its `IPdbStore` and
 `IPackageSourceAuthorization`; the legacy desktop descriptor overload remains
 path-bound and cannot make a pathless participant silently select the desktop
-filesystem or ambient NuGet policy. This is the content-shaped symbol
-capability for assembly-context participants; a group-scoped source query
-remains separate.
+filesystem or ambient NuGet policy. `AssemblyContextSourceQuery` consumes this
+content-shaped symbol capability for a selected group participant. Its query
+context requires the store and source authorization explicitly; an in-memory
+store lets browser/Wasm hosts acquire and validate the same PDB bytes without a
+path. `AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`
+gates the end-to-end query path.
 `PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
 `PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
 and

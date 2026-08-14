@@ -285,6 +285,28 @@ public sealed class AssemblyContextGroup : IDisposable
             });
     }
 
+    internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
+        ResolvedAssemblyReference assembly,
+        Func<
+            AssemblyInspectionSession,
+            ResolvedAssemblyReference,
+            TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        return UseSnapshot(
+            assembly,
+            snapshot =>
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(snapshot);
+                return callback(
+                    session,
+                    snapshot.RetainAssemblyReference(assembly));
+            });
+    }
+
     internal async Task<AssemblyImageAccessResult<TResult>>
         UseAndReleaseAssemblySessionAsync<TResult>(
             ResolvedAssemblyReference assembly,
