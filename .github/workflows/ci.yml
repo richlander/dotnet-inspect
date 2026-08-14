@@ -840,7 +840,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 30
+    # Raised 30 -> 35 after the full healthy lane reached services/cache cleanup
+    # at the old limit in exact-head runs 31808654508 and 31808761114.
+    timeout-minutes: 35
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
