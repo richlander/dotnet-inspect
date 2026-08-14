@@ -77,7 +77,10 @@ internal static class GuardedProviderDecode
         TContext context,
         out MethodSignature<T> decoded)
     {
-        var result = SignatureBlobGuard.IsSafeToDecode(reader, signature.Signature, SignatureBlobGuard.Kind.Method)
+        var result = SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                signature.Signature,
+                SignatureBlobGuard.Kind.StandaloneMethod)
             ? (Safe: true, Signature: signature.DecodeMethodSignature(provider, context))
             : (Safe: false, Signature: default(MethodSignature<T>));
         decoded = result.Signature;
