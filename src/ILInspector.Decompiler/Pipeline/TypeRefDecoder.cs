@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -99,7 +98,6 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 ? CanonicalSelf(reader)
                 : "";
             string ns = reader.GetString(root.Namespace);
-            string name = TypeDefinitionName(reader, chain);
             if (CreateDefinitionName(
                     reader,
                     ns,
@@ -114,7 +112,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             return TypeRef.DefinitionWithResolution(
                 assembly,
                 ns,
-                name,
+                definitionName.ToNestedMetadataName(),
                 HintFrom(rawTypeKind),
                 InlineArrayFact(reader, leaf),
                 EnclosingTypeFrom(reader, chain, assembly, ns),
@@ -151,7 +149,6 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             var chain = handles[..consumedNodes];
             var root = reader.GetTypeReference(chain[0]);
             string ns = reader.GetString(root.Namespace);
-            string name = TypeReferenceName(reader, chain);
             AssemblyReferenceIdentity? resolutionAssembly =
                 terminal.Kind == HandleKind.AssemblyReference
                     ? AssemblyReferenceIdentity.From(
@@ -175,7 +172,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             return TypeRef.DefinitionWithResolution(
                 assembly,
                 ns,
-                name,
+                definitionName.ToNestedMetadataName(),
                 HintFrom(rawTypeKind),
                 MetadataFactState.Unknown,
                 enclosingType: null,
@@ -188,23 +185,6 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 RelationshipProjectionFailure("type-reference resolution-scope", handle, ex),
                 RelationshipProjectionFailure(handle, ex));
         }
-    }
-
-    static string TypeDefinitionName(
-        MetadataReader reader,
-        ReadOnlySpan<TypeDefinitionHandle> handles)
-    {
-        // Accumulate into a StringBuilder so a deep nested chain costs a single
-        // linear pass; the earlier Concat-per-level reallocated the growing
-        // prefix and grew quadratically in nesting depth on untrusted metadata.
-        var name = new StringBuilder(
-            reader.GetString(reader.GetTypeDefinition(handles[0]).Name));
-        for (int i = 1; i < handles.Length; i++)
-        {
-            name.Append('+');
-            name.Append(reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
-        }
-        return name.ToString();
     }
 
     static MetadataTypeDefinitionName? CreateDefinitionName<THandle>(
@@ -250,7 +230,6 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (chain.Length <= 1)
             return null;
 
-        string name = TypeDefinitionName(reader, chain[..^1]);
         MetadataTypeDefinitionName? definitionName =
             CreateDefinitionName(
                 reader,
@@ -263,28 +242,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             : TypeRef.DefinitionWithResolution(
                 assembly,
                 ns,
-                name,
+                definitionName.ToNestedMetadataName(),
                 ValueTypeHint.Unknown,
                 MetadataFactState.Unknown,
                 enclosingType: null,
                 definitionName,
                 resolutionAssembly: null);
-    }
-
-    static string TypeReferenceName(
-        MetadataReader reader,
-        ReadOnlySpan<TypeReferenceHandle> handles)
-    {
-        string name = reader.GetString(
-            reader.GetTypeReference(handles[0]).Name);
-        for (int i = 1; i < handles.Length; i++)
-        {
-            name = string.Concat(
-                name,
-                "+",
-                reader.GetString(reader.GetTypeReference(handles[i]).Name));
-        }
-        return name;
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
