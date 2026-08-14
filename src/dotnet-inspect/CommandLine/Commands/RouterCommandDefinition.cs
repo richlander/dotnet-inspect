@@ -243,12 +243,7 @@ public static class RouterCommandDefinition
                 target,
                 sourceOptions,
                 allowPlatformPrefixFallback,
-                message => platformLookupFailure = message);
-            if (platformLookupFailure is not null)
-            {
-                CommandError.Write(platformLookupFailure);
-                return tokens;
-            }
+                message => platformLookupFailure ??= message);
             if (memberSplit != null)
             {
                 var probe = memberSplit.Value.Probe;
@@ -271,6 +266,8 @@ public static class RouterCommandDefinition
                     : ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
+            // Runtime-catalog fallback can be ambiguous for types owned by another
+            // shared framework, so let the all-framework resolvers establish identity first.
             var memberFind = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
                 target,
                 includeAll: false,
@@ -287,12 +284,7 @@ public static class RouterCommandDefinition
                 target,
                 sourceOptions,
                 allowPlatformPrefixFallback,
-                message => platformLookupFailure = message);
-            if (platformLookupFailure is not null)
-            {
-                CommandError.Write(platformLookupFailure);
-                return tokens;
-            }
+                message => platformLookupFailure ??= message);
             if (typeProbe != null)
             {
                 if (typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
@@ -321,6 +313,12 @@ public static class RouterCommandDefinition
                 var match = typeFind.Match!;
                 CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
                 return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
+            }
+
+            if (platformLookupFailure is not null)
+            {
+                CommandError.Write(platformLookupFailure);
+                return tokens;
             }
 
             if (PlatformResolver.IsPlatformCandidate(target))
