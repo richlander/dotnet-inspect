@@ -100,6 +100,95 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public void ReferenceTreePathIdentity_IsCaseSensitiveOutsideWindows()
+    {
+        Assert.False(
+            LibraryMetadataService.ReferenceTreePathComparer(isWindows: false)
+                .Equals("Bridge.dll", "bridge.dll"));
+        Assert.True(
+            LibraryMetadataService.ReferenceTreePathComparer(isWindows: true)
+                .Equals("Bridge.dll", "bridge.dll"));
+    }
+
+    [Fact]
+    public void CaseDistinctResolvedPaths_DoNotSuppressDistinctCultures()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            const string firstConcern = "Micr\u03BFsoft.One";
+            const string secondConcern = "Micr\u03BFsoft.Two";
+            string firstPath = Path.Combine(root, "Bridge.dll");
+            string secondPath = Path.Combine(root, "bridge.dll");
+            File.WriteAllBytes(
+                firstPath,
+                BuildAssembly(
+                    "Bridge",
+                    new Version(1, 0, 0, 0),
+                    "en-US",
+                    new AssemblyReferenceIdentity(
+                        firstConcern,
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                secondPath,
+                BuildAssembly(
+                    "Bridge",
+                    new Version(1, 0, 0, 0),
+                    "fr-FR",
+                    new AssemblyReferenceIdentity(
+                        secondConcern,
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            if (Directory.EnumerateFiles(root, "*.dll").Count() != 2)
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Bridge",
+                        new Version(1, 0, 0, 0),
+                        "en-US",
+                        null),
+                    new AssemblyReferenceIdentity(
+                        "Bridge",
+                        new Version(1, 0, 0, 0),
+                        "fr-FR",
+                        null)));
+
+            List<AssemblyReferenceNode> nodes =
+                BuildTree(ownerPath, maxDepth: 2);
+
+            Assert.Equal(
+                2,
+                nodes.Count(node => node.Name == "Bridge"));
+            Assert.Contains(
+                nodes,
+                node => node.Name == firstConcern
+                    && node.Depth == 1);
+            Assert.Contains(
+                nodes,
+                node => node.Name == secondConcern
+                    && node.Depth == 1);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DistinctSameNameReferences_DoNotSuppressResolvableIdentity()
     {
         string root = Directory.CreateTempSubdirectory(

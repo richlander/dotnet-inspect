@@ -719,16 +719,13 @@ internal static class LibraryMetadataService
         bool failOnReadError = false)
     {
         string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        StringComparer pathComparer = ReferenceTreePathComparer(
+            OperatingSystem.IsWindows());
         var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal);
+            pathComparer);
         IAssemblyBindingPolicy bindingPolicy =
             ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
-        var visitedPaths = new HashSet<string>(
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal)
+        var visitedPaths = new HashSet<string>(pathComparer)
         {
             fullAssemblyPath
         };
@@ -967,6 +964,11 @@ internal static class LibraryMetadataService
         return nodes;
     }
 
+    internal static StringComparer ReferenceTreePathComparer(bool isWindows) =>
+        isWindows
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
     private readonly record struct AssemblyReferenceTraversalKey(
         string? ResolvedPath,
         AssemblyReferenceIdentity? Reference,
@@ -986,9 +988,7 @@ internal static class LibraryMetadataService
         : IEqualityComparer<AssemblyReferenceTraversalKey>
     {
         private static readonly StringComparer PathComparer =
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal;
+            ReferenceTreePathComparer(OperatingSystem.IsWindows());
 
         public static AssemblyReferenceTraversalKeyComparer Instance
         {
