@@ -574,11 +574,16 @@ public static class ApiMemberSectionPipelines
     internal static bool ShouldAggregateImplicitCallers(
         ApiType type,
         ApiOptions options)
-        => options is MemberOptions { CallerScopeSectionImplicitlySelected: true }
+        => options is MemberOptions
+           {
+               CallerScopeSectionImplicitlySelected: true
+           } memberOptions
            && options.IncludeSections?.Contains(
                SectionNames.Callers,
                StringComparer.OrdinalIgnoreCase) == true
-           && type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+           && (memberOptions.ImplicitCallerMemberTokens is { } tokens
+               ? tokens.Count > 0
+               : type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked));
 }
 
 /// <summary>

@@ -425,7 +425,8 @@ public static class SourceResolver
                     : null;
                 bool mightBeTypeDotMember =
                     containingTypeLookup is PlatformTypeLookupOutcome.Resolved
-                        or PlatformTypeLookupOutcome.Ambiguous;
+                        or PlatformTypeLookupOutcome.Ambiguous
+                    || lastDot > packagePath.LastIndexOf('`');
                 PlatformTypeLookupOutcome lookup =
                     PlatformResolver.LookupType(packagePath);
                 if (lookup is PlatformTypeLookupOutcome.Resolved resolved)

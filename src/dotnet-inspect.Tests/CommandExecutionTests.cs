@@ -3613,6 +3613,20 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareQualifiedAspNetCoreGenericMember_RoutesAcrossPlatformFrameworks()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Microsoft.AspNetCore.Components.EventCallback<T>.InvokeAsync",
+            "-S", "Methods", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task BareQualifiedPlatformType_TrueAmbiguityStillFails()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -8814,6 +8828,21 @@ public partial class CommandExecutionTests
                 nameof(MemberAbstractPropertyCallsFixture.CallsIndexers),
                 StringSplitOptions.None).Length - 1);
         Assert.Contains("## Callers", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_FilteredSolePropertyCallerScope_DoesNotReintroduceItsAccessors()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberOnlyPropertyCallsFixture).FullName!,
+            "--library", TestAssemblyPath,
+            "Solo", "-k", "method", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("## Callers", output);
+        Assert.DoesNotContain(nameof(MemberOnlyPropertyCallerFixture.CallsSolo), output);
         Assert.Empty(error);
     }
 

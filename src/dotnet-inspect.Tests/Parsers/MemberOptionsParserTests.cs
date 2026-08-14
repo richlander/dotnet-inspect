@@ -828,6 +828,21 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task GenericArityWithMultipleMemberNames_IsRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["member", "MemoryExtensions", "--platform", "System.Memory",
+             "-m", "AsSpan`1", "-m", "Contains"]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
+        Assert.Contains("requires exactly one member name", error.Error.Message);
+    }
+
+    [Fact]
     public async Task DigestShorthand_SetsMemberDigest()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize~abc123");

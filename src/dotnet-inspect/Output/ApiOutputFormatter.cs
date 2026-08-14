@@ -1439,8 +1439,9 @@ public static class ApiOutputFormatter
         ApiOptions? options = null)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
+        var implicitCallerTokens = (options as MemberOptions)?.ImplicitCallerMemberTokens;
         List<ApiMember> methods;
-        if (options is MemberOptions { ImplicitCallerMemberTokens: { } tokens })
+        if (implicitCallerTokens is { } tokens)
         {
             methods = type.Members
                 .Where(ApiMemberSectionDescriptors.IsMethodLike)
@@ -1465,7 +1466,8 @@ public static class ApiOutputFormatter
                 .ToList();
         }
 
-        if (methods.Count == 0
+        if (implicitCallerTokens is null
+            && methods.Count == 0
             && type.Members is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {

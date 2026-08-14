@@ -259,6 +259,8 @@ public static class MemberOptionsParser
         var (memberFilter, memberLimit) = BuildMemberFilter(allMembers, ctorOnly, out var clearShorthand);
         if (clearShorthand)
             shorthandIndex = null;
+        if (memberGenericArity.HasValue && memberFilter.Count != 1)
+            return new VersionError("A generic arity selector requires exactly one member name.");
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);

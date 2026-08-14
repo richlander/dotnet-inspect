@@ -1,6 +1,8 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -59,6 +61,53 @@ public class MemberCallsSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Calls\tsection", result.Output);
     }
+
+    [Fact]
+    public void EmptyImplicitCallerTokenScope_DoesNotResolveSolePropertyAccessor()
+    {
+        var type = SolePropertyType();
+        var options = ImplicitCallerOptions();
+
+        var methods = ApiOutputFormatter.ResolveBodyMethods(
+            type, new HashSet<string> { SectionNames.Callers }, options);
+
+        Assert.Empty(methods);
+    }
+
+    [Fact]
+    public void EmptyImplicitCallerTokenScope_DoesNotMakeCallersEffective()
+    {
+        var type = SolePropertyType();
+        var options = ImplicitCallerOptions();
+
+        Assert.False(ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options));
+    }
+
+    static ApiType SolePropertyType()
+        => new()
+        {
+            Namespace = "Samples",
+            Name = "Properties",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Solo",
+                    Kind = "property",
+                    ReturnType = "int",
+                    GetterToken = 0x06000001
+                }
+            ]
+        };
+
+    static MemberOptions ImplicitCallerOptions()
+        => new()
+        {
+            CallerScopeSectionImplicitlySelected = true,
+            IncludeSections = [SectionNames.Callers],
+            ImplicitCallerMemberTokens = new HashSet<int>()
+        };
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false, bool discover = false, int? overloadIndex = null)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -168,4 +217,14 @@ public abstract class MemberAbstractPropertyCallsFixture
         _ = fixture[1];
         _ = fixture["one"];
     }
+}
+
+public static class MemberOnlyPropertyCallsFixture
+{
+    public static int Solo => 1;
+}
+
+public static class MemberOnlyPropertyCallerFixture
+{
+    public static int CallsSolo() => MemberOnlyPropertyCallsFixture.Solo;
 }

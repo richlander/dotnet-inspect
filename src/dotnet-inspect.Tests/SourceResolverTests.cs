@@ -111,6 +111,21 @@ public class SourceResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_GenericMemberOnPackageShapedContainingType_FallsThroughForMemberPeeling()
+    {
+        const string target =
+            "Newtonsoft.Json.Linq.JEnumerable<T>.GetEnumerator";
+
+        var source = await SourceResolver.ResolveAsync(
+            [target], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.False(source.VersionError);
+        Assert.Equal("Newtonsoft.Json.Linq.JEnumerable`1.GetEnumerator", source.PackagePath);
+        Assert.Null(source.TypeName);
+    }
+
+    [Fact]
     public async Task ResolveAsync_UnknownBareName_KeepsPackageFallback()
     {
         SkipIfCoreLibUnavailable();
