@@ -479,6 +479,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             scope);
     }
 
+    // Razor-generated render methods lack generated-code attributes. Trust-gate
+    // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.
     static bool IsBlazorRenderMethod(
         MethodIdentity caller)
     {

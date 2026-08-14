@@ -647,32 +647,6 @@ internal sealed class LibraryBodyAnalysisBuilder :
     bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
         => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
-    // True when the method is Razor/Blazor-generated render plumbing: any method that
-    // takes a Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder parameter
-    // (the component BuildRenderTree override and the Create*_N render-fragment helpers
-    // the Razor compiler emits). These are emitted from .razor markup, carry no
-    // [GeneratedCode]/[CompilerGenerated] attribute, and their allocations (event-handler
-    // delegates, EventCallback boxing, RenderFragment closures) are intrinsic to the
-    // component model — not user-actionable source-shape fixes. Hand-written code
-    // essentially never takes a RenderTreeBuilder, so the parameter is a precise signal.
-    //
-    // The match is trust-gated (public-key-token, #1708): only the real framework
-    // RenderTreeBuilder counts, so a user-defined type that merely reuses the namespace and
-    // name does not silently suppress that method's genuine allocation findings.
-    static bool IsBlazorRenderMethod(MethodIdentity caller)
-    {
-        foreach (var parameter in caller.ParameterTypes)
-        {
-            if (FrameworkIdentity.IsKnownFrameworkType(
-                    parameter,
-                    "Microsoft.AspNetCore.Components",
-                    "Microsoft.AspNetCore.Components.Rendering",
-                    "RenderTreeBuilder"))
-                return true;
-        }
-        return false;
-    }
-
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference
