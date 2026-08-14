@@ -729,6 +729,14 @@ Research overlay bridge, and the application layer:
   scope creation, metadata and raw-IL ownership through the shared narrow
   method-analysis resolver, orchestration and diagnostics, resource/leak
   analysis, and result aggregation.
+  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the
+  `sync-call-in-async` opportunity because sibling discovery and recursive-slot
+  suppression require reader-relative MethodDef, MethodImpl, type hierarchy,
+  exact assembly identity, and workspace-resolution evidence. It consumes the
+  canonical direct-call rows after ordinary opportunity collection and appends
+  only this metadata-bound shape; recoverable sibling-classification failures
+  remain diagnostic without discarding independent ordinary opportunities or
+  body signals.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation
