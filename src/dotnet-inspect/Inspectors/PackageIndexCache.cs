@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v13";
+    internal const string Category = "pkg-index-v14";
     private static ReadOnlySpan<byte> DescriptionLengthPrefix => "description-bytes: "u8;
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);

@@ -623,6 +623,62 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Null(probe.Xml);
     }
 
+    [Fact]
+    public async Task ProbeNuspecXmlAsync_UsesValidLowerPrecedenceCachedReplica()
+    {
+        string packageName = $"Nuspec.Replica.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string sourceA = "https://a.example/v3/index.json";
+        string sourceB = "https://b.example/v3/index.json";
+        string sourceAKey = NuGetCache.GetSourceKey(sourceA);
+        string sourceBKey = NuGetCache.GetSourceKey(sourceB);
+
+        string invalidSource = Path.Combine(_testRoot, "replica-a");
+        Directory.CreateDirectory(invalidSource);
+        File.WriteAllText(
+            Path.Combine(invalidSource, $"{packageName}.nuspec"),
+            """<package><metadata><id>Other.Package</id><version>1.0.0</version></metadata></package>""");
+        NuGetCache.CommitPackage(
+            invalidSource,
+            nupkgPath: null,
+            packageName,
+            version,
+            sourceAKey);
+
+        string validSource = Path.Combine(_testRoot, "replica-b");
+        Directory.CreateDirectory(validSource);
+        File.WriteAllText(
+            Path.Combine(validSource, $"{packageName}.nuspec"),
+            $"""
+            <package>
+              <metadata>
+                <id>{packageName}</id>
+                <version>{version}</version>
+              </metadata>
+            </package>
+            """);
+        NuGetCache.CommitPackage(
+            validSource,
+            nupkgPath: null,
+            packageName,
+            version,
+            sourceBKey);
+
+        using var client = new HttpClient(new FailingHandler());
+        NuspecProbeResult probe =
+            await PackageExtractor.ProbeNuspecXmlAsync(
+                client,
+                packageName,
+                version,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [sourceA, sourceB],
+                });
+
+        Assert.Equal(NuspecProbeStatus.Present, probe.Status);
+        Assert.Contains($"<id>{packageName}</id>", probe.Xml);
+    }
+
     /// <summary>
     /// Direct file helper rejects oversize without loading the body as text.
     /// </summary>

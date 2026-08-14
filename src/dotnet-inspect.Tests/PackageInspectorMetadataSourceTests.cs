@@ -260,6 +260,62 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     producerKey)!.RuntimeIdentifierPackages!).Exists);
     }
 
+    [Fact]
+    public void MarkAcquiredRidPackages_UsesResolutionCoordinatesAndRedirectChain()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Spoofed.By.Payload.Nuspec",
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "middle",
+                    PackageId = "Wrapper.Package.middle",
+                },
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "any",
+                    PackageId = "Wrapper.Package.any",
+                },
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "spoofed",
+                    PackageId = "Spoofed.By.Payload.Nuspec",
+                },
+            ],
+        };
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0")
+        {
+            ToolWrapperChain =
+            [
+                new ToolWrapperPackage(
+                    Path.Combine(_root, "wrapper"),
+                    "Wrapper.Package",
+                    "1.0.0",
+                    ProducerKey: "wrapper-source"),
+                new ToolWrapperPackage(
+                    Path.Combine(_root, "middle"),
+                    "Wrapper.Package.middle",
+                    "1.0.0",
+                    ProducerKey: "middle-source"),
+            ],
+        };
+
+        PackageInspector.MarkAcquiredRidPackages(
+            result,
+            resolution,
+            wrapperVersion: "1.0.0");
+
+        Assert.True(result.RuntimeIdentifierPackages[0].Exists);
+        Assert.True(result.RuntimeIdentifierPackages[1].Exists);
+        Assert.Null(result.RuntimeIdentifierPackages[2].Exists);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

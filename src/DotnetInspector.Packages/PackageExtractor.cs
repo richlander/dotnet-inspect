@@ -957,14 +957,23 @@ public static class PackageExtractor
         // Cache hit: read the nuspec straight from the already-extracted package,
         // under the same byte ceiling as the remote path. Marker presence alone
         // is not a size admission gate.
-        var cachedPath = NuGetCache.TryGetCachedPackage(
-            normalizedName,
-            normalizedVersion,
+        IReadOnlyList<string> sourceKeys =
             NuGetSourceResolver.ResolveSourceKeysForPackage(
                 sourceOptions,
-                packageId));
-        if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+                packageId);
+        foreach (CachedPackage cached in
+                 NuGetCache.EnumerateCachedPackageContent(
+                     normalizedName,
+                     normalizedVersion,
+                     sourceKeys))
         {
+            string cachedPath = cached.ExtractPath;
+            if (!NuGetCache.IsCachedPackageValid(cachedPath))
+            {
+                sawIndeterminateSource = true;
+                continue;
+            }
+
             var cachedNuspec = Directory
                 .GetFiles(cachedPath, "*.nuspec", SearchOption.TopDirectoryOnly)
                 .FirstOrDefault();
@@ -1063,7 +1072,10 @@ public static class PackageExtractor
     {
         try
         {
-            using var textReader = new StringReader(xml);
+            string parseableXml = xml.Length > 0 && xml[0] == '\uFEFF'
+                ? xml[1..]
+                : xml;
+            using var textReader = new StringReader(parseableXml);
             using XmlReader reader = XmlReader.Create(
                 textReader,
                 new XmlReaderSettings
@@ -1073,7 +1085,16 @@ public static class PackageExtractor
                     MaxCharactersInDocument = MaxNuspecBytes,
                 });
             XDocument document = XDocument.Load(reader, LoadOptions.None);
-            XElement? metadata = document.Root?
+            XElement? root = document.Root;
+            if (root is null
+                || !root.Name.LocalName.Equals(
+                    "package",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            XElement? metadata = root
                 .Elements()
                 .FirstOrDefault(element =>
                     element.Name.LocalName.Equals(

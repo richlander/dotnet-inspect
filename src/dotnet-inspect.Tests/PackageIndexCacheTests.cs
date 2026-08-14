@@ -156,6 +156,54 @@ public sealed class PackageIndexCacheTests
                 "producer-a")!.Authors);
     }
 
+    [Fact]
+    public void LegacyRidAvailabilityCacheIsIgnored()
+    {
+        string donorPackage = $"Legacy.Rid.Donor.{Guid.NewGuid():N}";
+        string legacyPackage = $"Legacy.Rid.Target.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        PackageIndexCache.Set(
+            donorPackage,
+            version,
+            ProducerKey,
+            new InspectionResult
+            {
+                PackageName = donorPackage,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = $"{donorPackage}.linux-x64",
+                        Exists = false,
+                    }
+                ],
+            });
+        byte[] bytes = CoreCache.TryGetBytes(
+            PackageIndexCache.Category,
+            PackageIndexCache.CacheKey(
+                donorPackage,
+                version,
+                ProducerKey),
+            extension: "md")!;
+        CoreCache.SetBytes(
+            "pkg-index-v13",
+            PackageIndexCache.CacheKey(
+                legacyPackage,
+                version,
+                ProducerKey),
+            bytes,
+            extension: "md");
+
+        Assert.Null(
+            PackageIndexCache.TryGet(
+                legacyPackage,
+                version,
+                ProducerKey));
+    }
+
     [Theory]
     [InlineData("[1.0.0,2.0.0)")]
     [InlineData("[3.0.0,)")]

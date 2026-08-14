@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Inspectors;
 
@@ -262,20 +263,10 @@ internal static class PackageInspector
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
         result.SupportedRids = wrapperTool.SupportedRids;
 
-        if (result.PackageName is { } payloadPackage
-            && result.RuntimeIdentifierPackages is { Count: > 0 })
-        {
-            foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
-            {
-                if (string.Equals(
-                    package.PackageId,
-                    payloadPackage,
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    package.Exists = true;
-                }
-            }
-        }
+        MarkAcquiredRidPackages(
+            result,
+            resolution,
+            wrapper.Version ?? result.Version);
 
         if (verifyRidPackageAvailability
             && result.IsRidSpecificPointerPackage
@@ -293,6 +284,46 @@ internal static class PackageInspector
                 sourceOptions);
         }
     }
+
+    internal static void MarkAcquiredRidPackages(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        string? wrapperVersion)
+    {
+        if (result.RuntimeIdentifierPackages is not { Count: > 0 })
+            return;
+
+        IEnumerable<(string? PackageName, string? Version)> acquiredPackages =
+            resolution.ToolWrapperChain
+                .Skip(1)
+                .Select(package => (
+                    (string?)package.PackageName,
+                    package.Version))
+                .Append((
+                    resolution.PackageName,
+                    resolution.Version));
+        foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
+        {
+            if (acquiredPackages.Any(acquired =>
+                string.Equals(
+                    package.PackageId,
+                    acquired.PackageName,
+                    StringComparison.OrdinalIgnoreCase)
+                && VersionsEqual(
+                    wrapperVersion,
+                    acquired.Version)))
+            {
+                package.Exists = true;
+            }
+        }
+    }
+
+    private static bool VersionsEqual(string? left, string? right)
+        => NuGetVersion.TryParse(left, out NuGetVersion? leftVersion)
+           && NuGetVersion.TryParse(right, out NuGetVersion? rightVersion)
+           && VersionComparer.VersionReleaseMetadata.Equals(
+               leftVersion,
+               rightVersion);
 
     private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
     {
