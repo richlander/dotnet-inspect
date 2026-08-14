@@ -119,18 +119,20 @@ public static class MetadataDeclarationQuery
             if (!declaration.Setter.IsNil)
                 accessorMethods.Add(declaration.Setter);
 
+            var signatureText = PropertySignatureText(declaration);
             type.Members.Add(new ApiMember
             {
                 Name = declaration.MetadataName,
                 Kind = "property",
                 SignatureModel = declaration.Signature,
-                Signature = PropertySignatureText(declaration),
+                Signature = signatureText,
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
                 IsVirtual = declaration.IsVirtual,
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(signatureText),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
                 GetterToken = declaration.Getter.IsNil ? null : MetadataTokens.GetToken(declaration.Getter),
@@ -154,12 +156,13 @@ public static class MetadataDeclarationQuery
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
                 continue;
 
+            var signatureText = MethodSignatureText(declaration);
             type.Members.Add(new ApiMember
             {
                 Name = declaration.MetadataName,
                 Kind = declaration.MetadataName == ".ctor" ? "constructor" : "method",
                 SignatureModel = declaration.Signature,
-                Signature = MethodSignatureText(declaration),
+                Signature = signatureText,
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
                 IsStatic = declaration.IsStatic,
@@ -168,6 +171,8 @@ public static class MetadataDeclarationQuery
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
                 HasMethodBody = method.RelativeVirtualAddress != 0,
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(signatureText)
+                    || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
             });

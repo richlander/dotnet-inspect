@@ -138,6 +138,19 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_RecordsUnsafeBodylessSignatures()
+    {
+        var surface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.IUnsafeSurface)));
+
+        var method = Assert.Single(surface.Members, member => member.Name == "Consume");
+
+        Assert.False(method.HasMethodBody);
+        Assert.True(method.IsUnsafe);
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
@@ -461,6 +474,11 @@ public class MetadataDeclarationQueryFixtures
     public abstract class AbstractBase
     {
         protected abstract string Name { get; set; }
+    }
+
+    public unsafe interface IUnsafeSurface
+    {
+        void Consume(int* pointer);
     }
 
     public class Container<T>

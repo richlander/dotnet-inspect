@@ -2177,7 +2177,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
     {
-        var rows = index
+        var findings = index
             .UnsafeEvidence
             .Where(evidence => ApiAnalysisInspection.SameType(evidence.Member.DeclaringType, type))
             .GroupBy(evidence => evidence.Member.MetadataToken)
@@ -2188,12 +2188,50 @@ public static class ApiOutputFormatter
                     group,
                     FindingSubject(method));
             })
+            .ToList();
+        var evidencedTokens = findings
+            .Select(finding => finding.Payload.Member.MetadataToken)
+            .ToHashSet();
+        var rows = findings
             .Select(static finding => finding.Payload)
-            .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
-            .ThenBy(evidence => evidence.ILOffset ?? -1)
-            .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
-            .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
-            .Select(evidence => ToUnsafeMemberRow(evidence, includeDeclaringType: false))
+            .Select(evidence => (
+                Name: evidence.Member.Name,
+                ILOffset: evidence.ILOffset ?? -1,
+                evidence.Reason,
+                evidence.Detail,
+                Row: ToUnsafeMemberRow(evidence, includeDeclaringType: false)))
+            .Concat(type.Members
+                .Where(member => member.IsUnsafe
+                    || member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
+                .Where(member => member.MetadataToken is not { } token || !evidencedTokens.Contains(token))
+                .Select(member =>
+                {
+                    bool degraded = member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded;
+                    string reason = degraded ? "Signature decode degraded" : "Unsafe declaration";
+                    string detail = GetMemberDisplaySignature(type, member);
+                    string parameters = MemberParameterTypes(member);
+                    if (ApiMemberSectionDescriptors.IsMethodLike(member) && parameters.Length == 0)
+                        parameters = "()";
+                    var row = new UnsafeMemberRow(
+                        MarkoutInline.Code(
+                            $"{OperatorNames.FormatDisplayName(member.Name)}{parameters}"),
+                        reason,
+                        MarkoutInline.Code(detail),
+                        "metadata",
+                        IL: null,
+                        Token: null);
+                    return (
+                        Name: member.Name,
+                        ILOffset: -1,
+                        Reason: reason,
+                        Detail: detail,
+                        Row: row);
+                }))
+            .OrderBy(entry => entry.Name, StringComparer.Ordinal)
+            .ThenBy(entry => entry.ILOffset)
+            .ThenBy(entry => entry.Reason, StringComparer.Ordinal)
+            .ThenBy(entry => entry.Detail, StringComparer.Ordinal)
+            .Select(entry => entry.Row)
             .ToList();
         if (rows.Count > 0)
             view.UnsafeMemberRows = rows;

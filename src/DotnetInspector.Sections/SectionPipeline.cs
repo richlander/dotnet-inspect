@@ -498,10 +498,12 @@ public sealed class SectionPipeline<TModel>
         Dictionary<string, InspectionViewDescriptor> byId = catalog.ToDictionary(
             view => view.Id,
             StringComparer.OrdinalIgnoreCase);
-        string[] requestedIds = viewIds?
-            .Where(id => !string.IsNullOrWhiteSpace(id))
+        string[] requestedIds = viewIds?.ToArray() ?? [];
+        if (requestedIds.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Inspection view IDs cannot be empty or whitespace.", nameof(viewIds));
+        requestedIds = requestedIds
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray() ?? [];
+            .ToArray();
 
         InspectionViewDescriptor[] selected;
         if (requestedIds.Length == 0)

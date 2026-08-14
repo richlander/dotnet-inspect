@@ -2981,7 +2981,7 @@ public static class ApiSurfaceExtractor
     /// <c>unsafe</c> with no pointer in the signature are detected separately via
     /// <see cref="AttributeReader.HasRequiresUnsafeAttribute"/>.
     /// </summary>
-    private static bool HasUnsafeSignature(string? signature)
+    internal static bool HasUnsafeSignature(string? signature)
     {
         if (string.IsNullOrEmpty(signature))
             return false;

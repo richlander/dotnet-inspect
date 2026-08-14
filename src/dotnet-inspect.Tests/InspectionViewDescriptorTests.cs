@@ -393,6 +393,10 @@ public class InspectionViewDescriptorTests
 
         Assert.Throws<ArgumentException>(
             () => pipeline.ResolveInspectionViews(field, ["missing-view"]));
+        Assert.Throws<ArgumentException>(
+            () => pipeline.ResolveInspectionViews(field, [""]));
+        Assert.Throws<ArgumentException>(
+            () => pipeline.ResolveInspectionViews(field, [" ", SectionNames.Signature]));
         Assert.Throws<InvalidOperationException>(
             () => pipeline.ResolveInspectionViews(field, [SectionNames.IL]));
         InspectionViewDescriptor abstractIl = Assert.Single(

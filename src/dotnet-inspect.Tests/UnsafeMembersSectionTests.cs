@@ -1,6 +1,10 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using DotnetInspector.Views;
+using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -173,6 +177,38 @@ public class UnsafeMembersSectionTests
         Assert.Contains("`UnsafePointerMethod(int*)`", result.Output);
         Assert.Contains("`CallsUnsafeAs(ref int)`", result.Output);
         Assert.DoesNotContain("SamplePInvokeClass", result.Output);
+    }
+
+    [Fact]
+    public void TypeUnsafeMembers_RendersDeclarationWhenAnalysisHasNoEvidence()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "OnlyUnsafe",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Risky",
+                    Kind = "method",
+                    Signature = "int Risky()",
+                    MetadataToken = 0x0600FFFF,
+                    IsUnsafe = true
+                }
+            ]
+        };
+        var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateUnsafeMembers(view, type, index);
+
+        var row = Assert.Single(view.UnsafeMemberRows!);
+        Assert.Equal("<code>Risky()</code>", row.Member);
+        Assert.Equal("Unsafe declaration", row.Reason);
+        Assert.Equal("<code>int Risky()</code>", row.Detail);
+        Assert.Equal("metadata", row.Kind);
     }
 
     [Fact]
