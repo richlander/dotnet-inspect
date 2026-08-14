@@ -85,15 +85,12 @@ public static class SourceResolver
             return true;
         }
 
-        string withoutCredentials = new UriBuilder(uri)
-        {
-            UserName = "",
-            Password = "",
-        }.Uri.ToString();
-
+        // Same redaction leaf as Core/package diagnostics (InertText.UrlRedaction):
+        // strip user-info, query, fragment, and path auth tokens so the rejection
+        // message never prints the credential that made the source unusable.
         problem = InertString.Format(
             TextPolicy.Field,
-            $"Source URL '{withoutCredentials}' embeds <user>:<password>, which NuGet does not "
+            $"Source URL '{UrlRedaction.ForDiagnostics(url)}' embeds <user>:<password>, which NuGet does not "
             + $"support. Configure the credentials in a nuget.config, or use a credential provider.");
         return false;
     }
