@@ -100,7 +100,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 assembly,
                 ns,
                 name,
-                new TypeReferenceOrigin.CurrentAssembly(),
+                new TypeReferenceOrigin.CurrentAssembly(
+                    reader.IsAssembly
+                        ? AssemblyReferenceIdentity
+                            .FromAssemblyDefinition(reader)
+                        : null),
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
         }
@@ -153,7 +157,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             TypeReferenceOrigin origin;
             if (terminal.IsNil || terminal.Kind == HandleKind.ModuleDefinition)
             {
-                origin = new TypeReferenceOrigin.CurrentAssembly();
+                origin = new TypeReferenceOrigin.CurrentAssembly(
+                    reader.IsAssembly
+                        ? AssemblyReferenceIdentity
+                            .FromAssemblyDefinition(reader)
+                        : null);
             }
             else if (terminal.Kind == HandleKind.ModuleReference)
             {

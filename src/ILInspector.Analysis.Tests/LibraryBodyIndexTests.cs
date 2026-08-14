@@ -179,6 +179,62 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void AsyncSiblingTypeMatching_RejectsMixedNonCoreOrigins()
+    {
+        MetadataTypeDefinitionName typeName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Value"]))
+            .Name;
+        var currentIdentity =
+            new AssemblyReferenceIdentity(
+                "Collision",
+                new Version(1, 0),
+                null,
+                null);
+        TypeRef current = TypeRef.Definition(
+            "Collision",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(
+                    currentIdentity),
+                typeName));
+        TypeRef same = TypeRef.Definition(
+            "Collision",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    currentIdentity),
+                typeName));
+        TypeRef different = TypeRef.Definition(
+            "Collision",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    new AssemblyReferenceIdentity(
+                        "Collision",
+                        new Version(2, 0),
+                        null,
+                        null)),
+                typeName));
+
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    current,
+                    same));
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    current,
+                    different));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_PrefetchedImageDoesNotReopenRootPath()
     {
         string sourcePath = typeof(OptimizationOpportunityFixtures)
@@ -568,6 +624,45 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicGenericMethodSelfSiblingFixture
                             .ReadAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicGenericInterfaceSelfSiblingFixture
+                            .LoadAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name.EndsWith(
+                    ".FetchAsync",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicGenericVirtualSelfSiblingFixture
+                            .LookupAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .CallsRefWithOutSiblingAsync));
+        Assert.Single(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .CallsCompatibleRefSiblingAsync));
 
         var collision = Assert.Single(
             index.OptimizationOpportunities,
@@ -699,6 +794,24 @@ public class LibraryBodyIndexTests
                     && opportunity.Method.Name
                         == "AnalyzeAsync");
             Assert.Empty(index.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    methodImplBodyAsMemberReference:
+                        true));
+            var memberReferenceBody =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                memberReferenceBody
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                memberReferenceBody.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -921,7 +1034,8 @@ public class LibraryBodyIndexTests
 
     static byte[] BuildMethodImplAsyncSourceAssembly(
         bool includeMethodImpl,
-        byte siblingSignatureHeader = 0x20)
+        byte siblingSignatureHeader = 0x20,
+        bool methodImplBodyAsMemberReference = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1101,9 +1215,19 @@ public class LibraryBodyIndexTests
             MetadataTokens.ParameterHandle(1));
         if (includeMethodImpl)
         {
+            EntityHandle methodBody = source;
+            if (methodImplBodyAsMemberReference)
+            {
+                methodBody =
+                    metadata.AddMemberReference(
+                        sourceType,
+                        metadata.GetOrAddString(
+                            "AnalyzeAsync"),
+                        taskSignature);
+            }
             metadata.AddMethodImplementation(
                 sourceType,
-                source,
+                methodBody,
                 readAsync);
         }
 
@@ -1175,8 +1299,29 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Fact]
+    public void OptimizationOpportunities_MalformedParallelStateMapPreservesCalls()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                malformedMoveNextMethodImpl: true,
+                extraMethodCount: 200);
+
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedParallelStateMap.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.Default);
+
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Callee.Name == "Read");
+    }
+
     static byte[] BuildMalformedAsyncSourceAssembly(
-        bool ambiguousSource = false)
+        bool ambiguousSource = false,
+        bool malformedMoveNextMethodImpl = false,
+        int extraMethodCount = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1384,7 +1529,8 @@ public class LibraryBodyIndexTests
         int moveNextBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(moveNextIl),
             maxStack: 0);
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle moveNext =
+            metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | MethodAttributes.Virtual,
             MethodImplAttributes.IL,
@@ -1404,6 +1550,35 @@ public class LibraryBodyIndexTests
                 }),
             moveNextBody,
             MetadataTokens.ParameterHandle(1));
+
+        if (malformedMoveNextMethodImpl)
+        {
+            MemberReferenceHandle moveNextDeclaration =
+                metadata.AddMemberReference(
+                    asyncStateMachine,
+                    metadata.GetOrAddString("MoveNext"),
+                    metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0x20, 0x00, 0x01,
+                        }));
+            metadata.AddMethodImplementation(
+                stateMachineType,
+                moveNext,
+                moveNextDeclaration);
+        }
+        for (int i = 0; i < extraMethodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    $"Dummy{i}"),
+                voidSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        }
 
         MemberReferenceHandle attributeConstructor =
             metadata.AddMemberReference(
@@ -1472,6 +1647,19 @@ public class LibraryBodyIndexTests
         using var peReader = new PEReader(
             new MemoryStream(bytes, writable: false));
         MetadataReader reader = peReader.GetMetadataReader();
+        if (malformedMoveNextMethodImpl)
+        {
+            int methodImplBodyOffset =
+                peReader.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.MethodImpl)
+                + sizeof(ushort);
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                bytes.AsSpan(
+                    methodImplBodyOffset,
+                    sizeof(ushort)),
+                0x7FFE);
+        }
         int constructorOffset =
             peReader.PEHeaders.MetadataStartOffset
             + reader.GetTableMetadataOffset(
@@ -1882,20 +2070,55 @@ public class LibraryBodyIndexTests
     {
         string targetPath = typeof(CallSiteFixtures).Assembly.Location;
         var resolver = new CountingResolver();
+        string paddedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"MethodEvidencePadded-{Guid.NewGuid():N}.dll");
 
-        var oneArg = LibraryBodyIndex.Open(
-            targetPath,
-            LibraryBodyAnalysisFeatures.MethodEvidence);
-        var withResolver = LibraryBodyIndex.Open(
-            targetPath,
-            LibraryBodyAnalysisFeatures.MethodEvidence,
-            resolver);
+        try
+        {
+            var oneArg = LibraryBodyIndex.Open(
+                targetPath,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+            var withResolver = LibraryBodyIndex.Open(
+                targetPath,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                resolver);
 
-        Assert.Equal(oneArg.Methods.Length, withResolver.Methods.Length);
-        Assert.Equal(oneArg.DirectCalls.Length, withResolver.DirectCalls.Length);
-        Assert.Equal(oneArg.UnsafeEvidence.Length, withResolver.UnsafeEvidence.Length);
-        Assert.Equal(oneArg.Diagnostics.Length, withResolver.Diagnostics.Length);
-        Assert.Equal(0, resolver.ResolveCalls);
+            Assert.Equal(oneArg.Methods.Length, withResolver.Methods.Length);
+            Assert.Equal(oneArg.DirectCalls.Length, withResolver.DirectCalls.Length);
+            Assert.Equal(oneArg.UnsafeEvidence.Length, withResolver.UnsafeEvidence.Length);
+            Assert.Equal(oneArg.Diagnostics.Length, withResolver.Diagnostics.Length);
+            Assert.Equal(0, resolver.ResolveCalls);
+
+            File.Copy(targetPath, paddedPath);
+            const int OverlaySize = 32 * 1024 * 1024;
+            using (var stream = new FileStream(
+                paddedPath,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.Read))
+            {
+                stream.SetLength(
+                    stream.Length + OverlaySize);
+            }
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            _ = LibraryBodyIndex.Open(
+                paddedPath,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                resolver);
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                - before;
+
+            Assert.True(
+                allocated < OverlaySize / 2,
+                $"Method-evidence acquisition allocated {allocated:N0} bytes for an unused resolver.");
+        }
+        finally
+        {
+            File.Delete(paddedPath);
+        }
     }
 
     static TypeReferenceHandle FirstExternalTypeReference(MetadataReader reader)

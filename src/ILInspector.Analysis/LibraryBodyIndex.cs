@@ -892,7 +892,10 @@ public sealed class LibraryBodyIndex
                 bodyScope,
                 bodyTypeScope);
 
-        if (resolver is not null)
+        if (resolver is not null
+            && plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities))
         {
             byte[] bytes = File.ReadAllBytes(path);
             ImmutableArray<byte> image =
@@ -970,12 +973,20 @@ public sealed class LibraryBodyIndex
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
+        IAssemblyReferenceResolver? analysisResolver =
+            plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities)
+                ? resolver
+                : null;
         using var builder = new LibraryBodyAnalysisBuilder(
             path,
             reader,
             peReader,
-            resolver,
-            rootImage);
+            analysisResolver,
+            analysisResolver is null
+                ? default
+                : rootImage);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyIndex(path, analysis, plan.Features);

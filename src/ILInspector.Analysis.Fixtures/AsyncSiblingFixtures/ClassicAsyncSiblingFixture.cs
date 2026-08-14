@@ -19,6 +19,38 @@ public static class ClassicAsyncSiblingFixture
         await Task.Yield();
         return ReadValue(value);
     }
+
+    public static void ReadByRef(ref int value)
+        => value++;
+
+    public static Task ReadByRefAsync(out int value)
+    {
+        value = 42;
+        return Task.CompletedTask;
+    }
+
+    public static async Task CallsRefWithOutSiblingAsync()
+    {
+        await Task.Yield();
+        int value = 0;
+        ReadByRef(ref value);
+    }
+
+    public static void ReadCompatibleByRef(ref int value)
+        => value++;
+
+    public static Task ReadCompatibleByRefAsync(ref int value)
+    {
+        value++;
+        return Task.CompletedTask;
+    }
+
+    public static async Task CallsCompatibleRefSiblingAsync()
+    {
+        await Task.Yield();
+        int value = 0;
+        ReadCompatibleByRef(ref value);
+    }
 }
 
 public sealed class ClassicGenericSelfSiblingFixture<T>
@@ -40,6 +72,69 @@ public static class ClassicGenericMethodSelfSiblingFixture
     {
         await Task.Yield();
         return Read(value);
+    }
+}
+
+public interface IClassicGenericInterfaceSelfSiblingFixture
+{
+    T Load<T>(T key);
+    Task<T> LoadAsync<T>(T key);
+}
+
+public sealed class ClassicGenericInterfaceSelfSiblingFixture
+    : IClassicGenericInterfaceSelfSiblingFixture
+{
+    public T Load<T>(T key) => key;
+
+    public async Task<T> LoadAsync<T>(T key)
+    {
+        await Task.Yield();
+        return ((IClassicGenericInterfaceSelfSiblingFixture)this)
+            .Load(key);
+    }
+}
+
+public interface IClassicGenericExplicitSelfSiblingFixture
+{
+    T Fetch<T>(T key);
+    Task<T> FetchAsync<T>(T key);
+}
+
+public sealed class ClassicGenericExplicitSelfSiblingFixture
+    : IClassicGenericExplicitSelfSiblingFixture
+{
+    T IClassicGenericExplicitSelfSiblingFixture.Fetch<T>(
+        T key)
+        => key;
+
+    async Task<T>
+        IClassicGenericExplicitSelfSiblingFixture.FetchAsync<T>(
+            T key)
+    {
+        await Task.Yield();
+        return ((IClassicGenericExplicitSelfSiblingFixture)this)
+            .Fetch(key);
+    }
+}
+
+public class ClassicGenericVirtualSelfSiblingFixture
+{
+    public virtual T Lookup<T>(T key) => key;
+
+    public virtual async Task<T> LookupAsync<T>(T key)
+    {
+        await Task.Yield();
+        return Lookup(key);
+    }
+}
+
+public sealed class ClassicGenericVirtualDerivedSelfSiblingFixture
+    : ClassicGenericVirtualSelfSiblingFixture
+{
+    public override async Task<T> LookupAsync<T>(T key)
+    {
+        await Task.Yield();
+        return base.Lookup(key);
     }
 }
 

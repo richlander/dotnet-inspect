@@ -416,8 +416,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         bool parallel = bodyScope is null && bodyTypeScope is null && workItems.Count >= ParallelBuildMethodThreshold;
         if (parallel)
         {
-            // Prewarm the async-state-machine set so it is fully computed before the parallel
-            // pass reads it read-only.
+            // Prewarm the reader-bound lookup maps so the parallel pass only
+            // reads their completed snapshots.
             if (includeMethodEvidence)
                 _ = AsyncStateMachineTypes();
             if (includeOpportunities)
@@ -567,8 +567,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // Analyze a single method into a MethodBuildResult. Mirrors the original per-method loop body
     // statement-for-statement, writing to method-local builders instead of the shared Build()
     // builders. Safe to run concurrently: metadata/PE reads are thread-safe on the prefetched
-    // image, and the only lazily-populated shared caches it can touch are AsyncStateMachineTypes
-    // (prewarmed) and _referencedAssemblyCache (lock-guarded).
+    // image. Reader-bound lookup maps are prewarmed, and the referenced-assembly
+    // cache is lock-guarded.
     MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
         MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
         bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
@@ -1587,25 +1587,33 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             MetadataTypeDefinitionName stateMachineType,
             MethodIdentity source) in methodsByType)
         {
-            if (!LocalTypeDefinitions().TryGetValue(
-                    stateMachineType,
-                    out TypeDefinitionHandle typeHandle)
-                || typeHandle.IsNil
-                || !TryGetAsyncStateMachineMoveNext(
-                    typeHandle,
-                    out MethodDefinitionHandle moveNext))
+            try
             {
-                ambiguous.Add(stateMachineType);
-                continue;
-            }
+                if (!LocalTypeDefinitions().TryGetValue(
+                        stateMachineType,
+                        out TypeDefinitionHandle typeHandle)
+                    || typeHandle.IsNil
+                    || !TryGetAsyncStateMachineMoveNext(
+                        typeHandle,
+                        out MethodDefinitionHandle moveNext))
+                {
+                    ambiguous.Add(stateMachineType);
+                    continue;
+                }
 
-            if (!methods.TryAdd(
-                    MetadataTokens.GetToken(moveNext),
-                    source))
+                if (!methods.TryAdd(
+                        MetadataTokens.GetToken(moveNext),
+                        source))
+                {
+                    ambiguous.Add(stateMachineType);
+                    methods.Remove(
+                        MetadataTokens.GetToken(moveNext));
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
             {
                 ambiguous.Add(stateMachineType);
-                methods.Remove(
-                    MetadataTokens.GetToken(moveNext));
             }
         }
 
@@ -2768,10 +2776,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             : asyncSource.Name[(separator + 1)..];
         if (candidate.Name != sourceName
             || !AsyncSiblingTypesMatch(
-                candidate.ParameterTypes,
+                SourceFrameParameters(candidate),
                 asyncSource.ParameterTypes)
             || !AsyncSiblingTypesMatch(
-                candidate.ReturnType,
+                SourceFrameReturn(candidate),
                 asyncSource.ReturnType)
             || candidate.HasThis != !asyncSource.IsStatic
             || candidate.GenericArity != asyncSource.GenericArity
@@ -3174,8 +3182,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             {
                 var implementation =
                     _reader.GetMethodImplementation(handle);
-                if (implementation.MethodBody
-                        != sourceHandle)
+                if (!MethodImplBodyMatchesSource(
+                        implementation.MethodBody,
+                        sourceHandle,
+                        scope))
                 {
                     continue;
                 }
@@ -3185,7 +3195,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         _reader,
                         implementation.MethodDeclaration,
                         scope);
-                if (AsyncSiblingMethodsMatch(
+                if (AsyncSiblingDeclarationsMatch(
                         declaration,
                         candidate))
                     return true;
@@ -3197,6 +3207,31 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             return true;
         }
+    }
+
+    bool MethodImplBodyMatchesSource(
+        EntityHandle body,
+        EntityHandle sourceHandle,
+        GenericScope scope)
+    {
+        if (body == sourceHandle)
+            return true;
+        if (body.Kind != HandleKind.MemberReference)
+            return false;
+
+        MemberRef bodyMember =
+            MemberResolver.ResolveMethod(
+                _reader,
+                body,
+                scope);
+        MemberRef sourceMember =
+            MemberResolver.ResolveMethod(
+                _reader,
+                sourceHandle,
+                scope);
+        return AsyncSiblingMethodsMatch(
+            bodyMember,
+            sourceMember);
     }
 
     static bool HasSupportedAsyncSiblingSignature(MemberRef method)
@@ -3308,6 +3343,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     reader,
                     methodDefinition,
                     signature.ParameterTypes.Length),
+            ParameterDirections =
+                MemberResolver.ParameterDirections(
+                    reader,
+                    methodDefinition,
+                    signature.ParameterTypes),
             GenericArity = signature.GenericParameterCount,
         };
         return candidate.HasThis == callee.HasThis
@@ -3355,7 +3395,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         {
             if (!AsyncSiblingTypesMatch(
                     synchronous.ParameterTypes[i],
-                    asynchronous.ParameterTypes[i]))
+                    asynchronous.ParameterTypes[i])
+                || !ParameterDirectionsMatch(
+                    synchronous,
+                    asynchronous,
+                    i))
             {
                 return false;
             }
@@ -3367,6 +3411,37 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     .TrailingParameterCanBeOmitted;
     }
 
+    static bool ParameterDirectionsMatch(
+        MemberRef left,
+        MemberRef right,
+        int index)
+    {
+        ParameterDirection leftDirection =
+            ParameterDirectionAt(left, index);
+        ParameterDirection rightDirection =
+            ParameterDirectionAt(right, index);
+        return leftDirection
+                != ParameterDirection.UnknownByRef
+            && rightDirection
+                != ParameterDirection.UnknownByRef
+            && leftDirection == rightDirection;
+    }
+
+    static ParameterDirection ParameterDirectionAt(
+        MemberRef member,
+        int index)
+    {
+        if (member.ParameterTypes[index].Kind
+            != TypeRefKind.ByRef)
+        {
+            return ParameterDirection.Value;
+        }
+        return member.ParameterDirections.Length
+                == member.ParameterTypes.Length
+            ? member.ParameterDirections[index]
+            : ParameterDirection.UnknownByRef;
+    }
+
     internal static bool AsyncSiblingMethodMatchesSource(
         MemberRef candidate,
         MethodIdentity method)
@@ -3375,16 +3450,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 method.DeclaringType)
             && candidate.Name == method.Name
             && AsyncSiblingTypesMatch(
-                candidate.ParameterTypes,
+                SourceFrameParameters(candidate),
                 method.ParameterTypes)
             && AsyncSiblingTypesMatch(
-                candidate.ReturnType,
-                method.ReturnType)
-            && AsyncSiblingTypesMatch(
-                candidate.OpenSignatureParameters,
-                method.ParameterTypes)
-            && AsyncSiblingTypesMatch(
-                candidate.OpenSignatureReturn,
+                SourceFrameReturn(candidate),
                 method.ReturnType)
             && candidate.HasThis == !method.IsStatic
             && candidate.GenericArity
@@ -3393,6 +3462,55 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 == method.SignatureHeader
             && candidate.RequiredParameterCount
                 == method.RequiredParameterCount;
+
+    static bool AsyncSiblingDeclarationsMatch(
+        MemberRef left,
+        MemberRef right)
+        => SameTypeDefinition(
+                left.DeclaringType,
+                right.DeclaringType)
+            && left.Name == right.Name
+            && AsyncSiblingTypesMatch(
+                SourceFrameParameters(left),
+                SourceFrameParameters(right))
+            && AsyncSiblingTypesMatch(
+                SourceFrameReturn(left),
+                SourceFrameReturn(right))
+            && left.HasThis == right.HasThis
+            && left.GenericArity == right.GenericArity
+            && left.SignatureHeader
+                == right.SignatureHeader
+            && left.RequiredParameterCount
+                == right.RequiredParameterCount;
+
+    static ImmutableArray<TypeRef>
+        SourceFrameParameters(MemberRef member)
+    {
+        ImmutableArray<TypeRef> typeArguments =
+            member.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? member.DeclaringType.TypeArguments
+                    : [];
+        return
+        [
+            .. member.OpenSignatureParameters.Select(
+                parameter => parameter.Instantiate(
+                    typeArguments,
+                    [])),
+        ];
+    }
+
+    static TypeRef SourceFrameReturn(MemberRef member)
+    {
+        ImmutableArray<TypeRef> typeArguments =
+            member.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? member.DeclaringType.TypeArguments
+                    : [];
+        return member.OpenSignatureReturn.Instantiate(
+            typeArguments,
+            []);
+    }
 
     internal static bool AsyncSiblingMethodsMatch(
         MemberRef left,
@@ -3519,6 +3637,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             identity.Append('|');
             AppendAsyncSiblingTypeIdentity(identity, type);
         }
+        foreach (ParameterDirection direction
+            in member.ParameterDirections)
+        {
+            identity.Append('|')
+                .Append((int)direction);
+        }
         return identity.ToString();
     }
 
@@ -3564,8 +3688,22 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         identity,
                         assembly.Assembly.PublicKeyToken);
                     break;
-                case TypeReferenceOrigin.CurrentAssembly:
+                case TypeReferenceOrigin.CurrentAssembly current:
                     identity.Append("@C");
+                    AppendIdentityField(
+                        identity,
+                        current.Assembly?.Name);
+                    AppendIdentityField(
+                        identity,
+                        current.Assembly?.Version
+                            ?.ToString());
+                    AppendIdentityField(
+                        identity,
+                        current.Assembly?.Culture);
+                    AppendIdentityField(
+                        identity,
+                        current.Assembly
+                            ?.PublicKeyToken);
                     break;
                 case TypeReferenceOrigin.IntrinsicCoreLibrary:
                     identity.Append("@I");
@@ -3646,14 +3784,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return false;
         }
 
-        if (DefinitionResolution(left)?.Origin
-                is TypeReferenceOrigin.AssemblyReference
-                    leftAssembly
-            && DefinitionResolution(right)?.Origin
-                is TypeReferenceOrigin.AssemblyReference
-                    rightAssembly
-            && leftAssembly.Assembly != rightAssembly.Assembly
-            && !AreTrustedCoreLibraryFacades(left, right))
+        if (!coreLibraryType
+            && !ExactNonCoreOriginsMatch(
+                DefinitionResolution(left),
+                DefinitionResolution(right)))
         {
             return false;
         }
@@ -3670,6 +3804,37 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return AsyncSiblingTypesMatch(
             left.TypeArguments,
             right.TypeArguments);
+    }
+
+    static bool ExactNonCoreOriginsMatch(
+        ResolvableTypeReference? left,
+        ResolvableTypeReference? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        return (left.Origin, right.Origin) switch
+        {
+            (TypeReferenceOrigin.AssemblyReference l,
+                TypeReferenceOrigin.AssemblyReference r) =>
+                l.Assembly == r.Assembly,
+            (TypeReferenceOrigin.CurrentAssembly l,
+                TypeReferenceOrigin.CurrentAssembly r) =>
+                l.Assembly is not null
+                && l.Assembly == r.Assembly,
+            (TypeReferenceOrigin.CurrentAssembly l,
+                TypeReferenceOrigin.AssemblyReference r) =>
+                l.Assembly is not null
+                && l.Assembly == r.Assembly,
+            (TypeReferenceOrigin.AssemblyReference l,
+                TypeReferenceOrigin.CurrentAssembly r) =>
+                r.Assembly is not null
+                && l.Assembly == r.Assembly,
+            (TypeReferenceOrigin.ModuleReference l,
+                TypeReferenceOrigin.ModuleReference r) =>
+                l.ModuleName == r.ModuleName,
+            _ => false,
+        };
     }
 
     static bool AreTrustedCoreLibraryFacades(

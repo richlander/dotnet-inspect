@@ -20,6 +20,15 @@ public enum CallKind
     CallIndirect,
 }
 
+internal enum ParameterDirection
+{
+    Value,
+    Ref,
+    Out,
+    In,
+    UnknownByRef,
+}
+
 /// <summary>
 /// A member's safety under the updated memory-safety rules, mirroring Roslyn's
 /// <c>CallerUnsafeMode</c> (see <c>PEMethodSymbol.CallerUnsafeMode</c>). A member
@@ -149,6 +158,8 @@ public sealed record MemberRef(
         = ImmutableArrayValueEquality.RequireInitialized(ParameterTypes, nameof(ParameterTypes));
     ImmutableArray<TypeRef> _typeArguments = [];
     ImmutableArray<TypeRef> _openParameterTypes = [];
+    ImmutableArray<ParameterDirection>
+        _parameterDirections = [];
 
     public ImmutableArray<TypeRef> ParameterTypes
     {
@@ -160,6 +171,17 @@ public sealed record MemberRef(
     {
         get => _typeArguments;
         init => _typeArguments = ImmutableArrayValueEquality.RequireInitialized(value, nameof(TypeArguments));
+    }
+
+    internal ImmutableArray<ParameterDirection>
+        ParameterDirections
+    {
+        get => _parameterDirections;
+        init => _parameterDirections =
+            ImmutableArrayValueEquality
+                .RequireInitialized(
+                    value,
+                    nameof(ParameterDirections));
     }
 
     /// <summary>
@@ -229,7 +251,10 @@ public sealed record MemberRef(
                     == other.RequiredParameterCount)
             && GenericArity == other.GenericArity
             && ImmutableArrayValueEquality.SequenceEqual(OpenParameterTypes, other.OpenParameterTypes)
-            && Equals(OpenReturnType, other.OpenReturnType);
+            && Equals(OpenReturnType, other.OpenReturnType)
+            && ImmutableArrayValueEquality.SequenceEqual(
+                ParameterDirections,
+                other.ParameterDirections);
 
     public override int GetHashCode()
     {
@@ -247,6 +272,9 @@ public sealed record MemberRef(
         hash.Add(GenericArity);
         ImmutableArrayValueEquality.AddToHash(ref hash, OpenParameterTypes);
         hash.Add(OpenReturnType);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            ParameterDirections);
         return hash.ToHashCode();
     }
 
