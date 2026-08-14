@@ -1,0 +1,132 @@
+using System.Reflection.PortableExecutable;
+
+using ILInspector.Metadata;
+
+namespace ILInspector.Metadata.Tests;
+
+/// <summary>
+/// Gates the bounded API-surface extraction: the bound is a hard retention budget the walk
+/// enforces on itself, not a total a caller checks after the fact.
+/// </summary>
+/// <remarks>
+/// The two claims that matter are that a bound is reachable — an image over budget is reported as
+/// <see cref="ApiSurfaceExtractionResult.Exceeded"/> and yields no surface at all — and that a
+/// bound is exact: budgets equal to the unbounded walk's own totals still extract the whole
+/// surface, and one less than the walk needs stops it. Exactness is what lets a caller spend one
+/// budget across several images and know the bounded accept set matches the unbounded one
+/// whenever the image fits.
+/// </remarks>
+public sealed class ApiSurfaceExtractorBoundsTests
+{
+    static readonly string SelfPath = typeof(ApiSurfaceExtractorBoundsTests).Assembly.Location;
+
+    [Fact]
+    public void GenerousBounds_ExtractTheSameSurfaceAsTheUnboundedWalk()
+    {
+        ApiSurface unbounded = Unbounded();
+        ApiSurface bounded = Extracted(
+            new ApiSurfaceExtractionBounds(int.MaxValue, int.MaxValue));
+
+        Assert.Equal(
+            unbounded.Types.Select(type => (type.FullName, type.Members.Count)),
+            bounded.Types.Select(type => (type.FullName, type.Members.Count)));
+        Assert.Equal(unbounded.TypeForwarders.Count, bounded.TypeForwarders.Count);
+        Assert.Equal(
+            unbounded.InspectionFailures.Count,
+            bounded.InspectionFailures.Count);
+    }
+
+    [Fact]
+    public void BoundsEqualToTheSurfaceSize_ExtractItWhole()
+    {
+        ApiSurface unbounded = Unbounded();
+        int types = unbounded.Types.Count;
+        int members = unbounded.Types.Sum(type => type.Members.Count);
+        Assert.True(types > 0);
+        Assert.True(members > 0);
+
+        ApiSurface exact = Extracted(new ApiSurfaceExtractionBounds(types, members));
+
+        Assert.Equal(types, exact.Types.Count);
+        Assert.Equal(members, exact.Types.Sum(type => type.Members.Count));
+    }
+
+    [Fact]
+    public void OneTypeShortOfTheSurfaceSize_IsAbandonedAtTheTypeBound()
+    {
+        ApiSurface unbounded = Unbounded();
+        int members = unbounded.Types.Sum(type => type.Members.Count);
+
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(
+                new ApiSurfaceExtractionBounds(unbounded.Types.Count - 1, members)));
+
+        Assert.Equal(ApiSurfaceExtractionBound.Types, exceeded.Bound);
+    }
+
+    [Fact]
+    public void OneMemberShortOfTheSurfaceSize_IsAbandonedAtTheMemberBound()
+    {
+        ApiSurface unbounded = Unbounded();
+        int members = unbounded.Types.Sum(type => type.Members.Count);
+
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(
+                new ApiSurfaceExtractionBounds(unbounded.Types.Count, members - 1)));
+
+        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+    }
+
+    // An exhausted budget is a legal input: a caller spending one budget across several images
+    // hands the next image nothing, and must get a refusal rather than an argument failure.
+    [Fact]
+    public void AnExhaustedBudget_RefusesWithoutWalkingTheImage()
+    {
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(new ApiSurfaceExtractionBounds(0, 0)));
+
+        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+    }
+
+    [Fact]
+    public void NegativeBounds_AreRejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceExtractionBounds(-1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceExtractionBounds(0, -1));
+    }
+
+    [Fact]
+    public void TypesOnlyExtraction_SpendsNoMemberBudget()
+    {
+        ApiSurfaceExtractionResult result = Extract(
+            new ApiSurfaceExtractionBounds(int.MaxValue, 0),
+            typesOnly: true);
+
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+    }
+
+    static ApiSurface Unbounded()
+    {
+        using var stream = File.OpenRead(SelfPath);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.Extract(peReader, ApiSurfaceExtractionScope.Public);
+    }
+
+    static ApiSurface Extracted(ApiSurfaceExtractionBounds bounds)
+        => Assert.IsType<ApiSurfaceExtractionResult.Extracted>(Extract(bounds)).Surface;
+
+    static ApiSurfaceExtractionResult Extract(
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false)
+    {
+        using var stream = File.OpenRead(SelfPath);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            bounds,
+            typesOnly);
+    }
+}

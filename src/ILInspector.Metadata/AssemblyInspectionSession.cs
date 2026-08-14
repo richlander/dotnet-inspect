@@ -104,6 +104,17 @@ public sealed class AssemblyInspectionSession : IDisposable
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
 
+    /// <summary>
+    /// The API surface at one explicit extraction scope under hard retention bounds. An image
+    /// that does not fit is abandoned before it is materialized, and reported as
+    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> rather than returned shortened.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedApiSurface(
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
+
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
     {

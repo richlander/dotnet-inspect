@@ -28,6 +28,64 @@ public enum ApiSurfaceExtractionScope
     PublicWithNonPublicTypes,
 }
 
+/// <summary>Which retention bound stopped a bounded API-surface extraction.</summary>
+public enum ApiSurfaceExtractionBound
+{
+    /// <summary>The extraction would have retained more types than the caller allows.</summary>
+    Types,
+
+    /// <summary>The extraction would have retained more members than the caller allows.</summary>
+    Members,
+}
+
+/// <summary>
+/// The hard retention bounds one bounded API-surface extraction runs under.
+/// </summary>
+/// <remarks>
+/// A bound is enforced <em>before</em> the row that would exceed it is retained, so a caller with
+/// a fixed output budget never materializes a surface larger than the budget it declared. Zero is
+/// a legal bound: it means "this extraction has no remaining budget", which is exactly what a
+/// caller spending one shared budget across several images has left when it is full.
+/// </remarks>
+public sealed record ApiSurfaceExtractionBounds
+{
+    public ApiSurfaceExtractionBounds(int maxTypes, int maxMembers)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
+        MaxTypes = maxTypes;
+        MaxMembers = maxMembers;
+    }
+
+    /// <summary>The most types the extraction may retain.</summary>
+    public int MaxTypes { get; }
+
+    /// <summary>The most members the extraction may retain across every retained type.</summary>
+    public int MaxMembers { get; }
+}
+
+/// <summary>The outcome of one bounded API-surface extraction.</summary>
+/// <remarks>
+/// The extraction is whole or absent. There is no partial case: an image that does not fit the
+/// declared bounds is reported as <see cref="Exceeded"/> and its partially built surface is
+/// discarded, so no consumer can mistake a shortened type or member list for the image's surface.
+/// </remarks>
+public abstract record ApiSurfaceExtractionResult
+{
+    private protected ApiSurfaceExtractionResult()
+    {
+    }
+
+    /// <summary>The image's whole surface fit the declared bounds.</summary>
+    public sealed record Extracted(ApiSurface Surface) : ApiSurfaceExtractionResult;
+
+    /// <summary>
+    /// The extraction was abandoned before retaining the row that would have exceeded
+    /// <see cref="Bound"/>. Nothing is returned for this image.
+    /// </summary>
+    public sealed record Exceeded(ApiSurfaceExtractionBound Bound) : ApiSurfaceExtractionResult;
+}
+
 /// <summary>
 /// Extracts public API surface from assemblies.
 /// </summary>
@@ -60,6 +118,54 @@ public static class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => Extract(peReader, scope, typesOnly, includeCompilerGenerated, budget: null);
+
+    /// <summary>
+    /// Extracts one API surface at an explicit scope under hard retention bounds, abandoning the
+    /// image before it retains the type or member that would exceed them.
+    /// </summary>
+    /// <remarks>
+    /// This is the bounded peer of <see cref="Extract(PEReader, ApiSurfaceExtractionScope, bool, bool)"/>,
+    /// and the only way to get a hard bound: checking an unbounded extraction's totals afterwards
+    /// proves nothing about what was materialized to produce them. A host with a fixed output
+    /// budget — Browser/Wasm is the motivating one — spends that budget image by image and gets
+    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> for the first image that does not fit,
+    /// rather than a surface it must then discard. Gated by
+    /// <c>ApiSurfaceExtractorBoundsTests</c>.
+    /// </remarks>
+    public static ApiSurfaceExtractionResult ExtractBounded(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+    {
+        ArgumentNullException.ThrowIfNull(bounds);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
+        try
+        {
+            return new ApiSurfaceExtractionResult.Extracted(
+                Extract(
+                    peReader,
+                    scope,
+                    typesOnly,
+                    includeCompilerGenerated,
+                    new ExtractionBudget(bounds)));
+        }
+        catch (ExtractionBoundExceededException exceeded)
+        {
+            return new ApiSurfaceExtractionResult.Exceeded(exceeded.Bound);
+        }
+    }
+
+    static ApiSurface Extract(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        ExtractionBudget? budget)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -69,6 +175,7 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
+            budget?.BeginType();
             int publicMethodCount = surface.PublicMethodCount;
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
@@ -325,6 +432,7 @@ public static class ApiSurfaceExtractor
                     member.DeclaringType = apiType.FullName;
                 }
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicMethodCount++;
             }
@@ -403,6 +511,7 @@ public static class ApiSurfaceExtractor
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicPropertyCount++;
             }
@@ -521,6 +630,7 @@ public static class ApiSurfaceExtractor
                     }
                 }
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicFieldCount++;
             }
@@ -614,11 +724,13 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Remover)
                 };
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicEventCount++;
             }
             } // end if (!typesOnly)
 
+            budget?.RetainType();
             surface.Types.Add(apiType);
             surface.PublicTypeCount++;
             }
@@ -648,7 +760,7 @@ public static class ApiSurfaceExtractor
             }
         }
 
-        AttachLocalExtensionMethods(surface);
+        AttachLocalExtensionMethods(surface, budget);
 
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         foreach (var exportedTypeHandle in reader.ExportedTypes)
@@ -1249,7 +1361,9 @@ public static class ApiSurfaceExtractor
     private static bool IsOperatorMethodName(string methodName) =>
         methodName.StartsWith("op_", StringComparison.Ordinal);
 
-    private static void AttachLocalExtensionMethods(ApiSurface surface)
+    private static void AttachLocalExtensionMethods(
+        ApiSurface surface,
+        ExtractionBudget? budget = null)
     {
         var targets = surface.Types
             .SelectMany(type => GetTypeMatchKeys(type).Select(key => (key, type)))
@@ -1277,6 +1391,7 @@ public static class ApiSurfaceExtractor
                     .ToList()
                     .IndexOf(extension) + 1;
 
+                budget?.RetainAttachedMember();
                 targetType.Members.Add(new ApiMember
                 {
                     Name = extension.Name,
@@ -2581,4 +2696,60 @@ public static class ApiSurfaceExtractor
         FieldAttributes.FamORAssem => "protected internal",
         _ => null // Public
     };
+
+    /// <summary>
+    /// The running retention count of one bounded extraction.
+    /// </summary>
+    /// <remarks>
+    /// Members are counted against the bound as they are built but committed only when their type
+    /// is, so a type the walk rejects mid-way does not spend budget on members no surface will
+    /// carry. That keeps a bounded extraction's accepted set identical to the unbounded one's
+    /// whenever the image fits, which is what lets a caller treat the bound as a budget rather
+    /// than as an approximation.
+    /// </remarks>
+    private sealed class ExtractionBudget(ApiSurfaceExtractionBounds bounds)
+    {
+        int _types;
+        int _members;
+        int _pendingMembers;
+
+        /// <summary>Starts a new type, abandoning any uncommitted member count.</summary>
+        public void BeginType() => _pendingMembers = 0;
+
+        /// <summary>Counts one member of the type currently being built.</summary>
+        public void RetainMember()
+        {
+            if (_members + _pendingMembers >= bounds.MaxMembers)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            _pendingMembers++;
+        }
+
+        /// <summary>Commits the type currently being built and its members.</summary>
+        public void RetainType()
+        {
+            if (_types >= bounds.MaxTypes)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            _types++;
+            _members += _pendingMembers;
+            _pendingMembers = 0;
+        }
+
+        /// <summary>Counts one member attached to a type that is already committed.</summary>
+        public void RetainAttachedMember()
+        {
+            if (_members >= bounds.MaxMembers)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            _members++;
+        }
+    }
+
+    /// <summary>
+    /// The abandonment signal of a bounded extraction. It is private to this extractor and caught
+    /// by <see cref="ExtractBounded"/>, so a bound never surfaces as an exception to a caller.
+    /// </summary>
+    private sealed class ExtractionBoundExceededException(ApiSurfaceExtractionBound bound)
+        : Exception("The API-surface extraction exceeded a declared retention bound.")
+    {
+        public ApiSurfaceExtractionBound Bound { get; } = bound;
+    }
 }

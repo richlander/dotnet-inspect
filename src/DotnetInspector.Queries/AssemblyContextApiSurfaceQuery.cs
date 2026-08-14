@@ -147,7 +147,9 @@ public enum ApiSurfaceProjectionLimit
 /// The bounds are on the projection, not on one image's metadata: a participant is projected
 /// whole or not at all, so no type is ever returned with a shortened member list. Exceeding a
 /// bound is reported as <see cref="ApiSurfaceProjectionTruncation"/>, never as a smaller
-/// success-shaped result.
+/// success-shaped result. The bounds are hard: they are enforced inside the extraction that
+/// retains the rows (<see cref="ApiSurfaceExtractionBounds"/>), so an over-budget participant is
+/// abandoned rather than materialized and then rejected.
 /// </remarks>
 public sealed record ApiSurfaceProjectionLimits
 {
@@ -279,14 +281,30 @@ public static class AssemblyContextApiSurfaceQuery
     /// </param>
     /// <remarks>
     /// <para>
-    /// A participant is projected whole or not at all: once the projected types or members reach
-    /// their bound, the remaining participants are not walked and the result carries an
-    /// <see cref="ApiSurfaceProjectionTruncation"/>. Nothing is silently trimmed, and no type is
-    /// ever returned with a shortened member list.
+    /// The bound is enforced inside the extraction, not checked after it: each participant is
+    /// extracted against the budget the earlier participants left, and one that would exceed it is
+    /// abandoned before its surface is materialized. Such a participant is <em>omitted</em> from
+    /// the result — a participant is projected whole or not at all — the remaining participants
+    /// are not walked, and the result carries an <see cref="ApiSurfaceProjectionTruncation"/>.
+    /// Nothing is silently trimmed, and no type is ever returned with a shortened member list.
+    /// </para>
+    /// <para>
+    /// So the projected rows always satisfy the declared bounds:
+    /// <see cref="ApiSurfaceProjectionTruncation.ProjectedTypes"/> never exceeds
+    /// <see cref="ApiSurfaceProjectionLimits.MaxTypes"/> and
+    /// <see cref="ApiSurfaceProjectionTruncation.ProjectedMembers"/> never exceeds
+    /// <see cref="ApiSurfaceProjectionLimits.MaxMembers"/>; both count exactly the rows the result
+    /// carries. A participant that was walked and abandoned is counted as omitted, because none of
+    /// its rows are returned.
     /// </para>
     /// <para>
     /// Accessibility buckets are computed over the participants that were actually projected, so
     /// a truncated result's buckets describe exactly the rows it carries.
+    /// </para>
+    /// <para>
+    /// Gated by <c>AssemblyContextApiSurfaceQueryTests.ExecuteBounded_*</c> — which asserts the
+    /// projected rows themselves, not the truncation report, satisfy both bounds — over the
+    /// extraction-side gate <c>ApiSurfaceExtractorBoundsTests</c>.
     /// </para>
     /// </remarks>
     public static AssemblyContextApiSurfaceResult ExecuteBounded(
@@ -322,31 +340,48 @@ public static class AssemblyContextApiSurfaceQuery
         int members = 0;
         foreach (AssemblyContextParticipant participant in selected)
         {
-            AssemblyContextEntry<AssemblyApiSurface> entry =
+            // Each participant gets the budget its predecessors left, so the extraction stops
+            // inside the image that would overflow it instead of after building it.
+            var bounds = new ApiSurfaceExtractionBounds(
+                limits.MaxTypes - types,
+                limits.MaxMembers - members);
+            AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
                     participant,
-                    session => Project(session, scope));
-            entries.Add(entry);
+                    session => ProjectBounded(session, scope, bounds));
             walked++;
-            if (entry is not AssemblyContextEntry<AssemblyApiSurface>.Available available)
+            if (entry is not AssemblyContextEntry<ApiSurfaceExtractionResult>.Available available)
+            {
+                entries.Add(Unavailable(entry));
                 continue;
+            }
 
-            types += available.Value.Surface.Types.Count;
-            members += available.Value.Surface.Types.Sum(type => type.Members.Count);
-            bool overTypes = types > limits.MaxTypes;
-            if (!overTypes && members <= limits.MaxMembers)
-                continue;
+            if (available.Value is ApiSurfaceExtractionResult.Exceeded exceeded)
+            {
+                truncation = new ApiSurfaceProjectionTruncation(
+                    exceeded.Bound == ApiSurfaceExtractionBound.Types
+                        ? ApiSurfaceProjectionLimit.Types
+                        : ApiSurfaceProjectionLimit.Members,
+                    exceeded.Bound == ApiSurfaceExtractionBound.Types
+                        ? limits.MaxTypes
+                        : limits.MaxMembers,
+                    ProjectedParticipants: entries.Count,
+                    OmittedParticipants: selected.Count - walked + 1
+                        + (truncation?.OmittedParticipants ?? 0),
+                    ProjectedTypes: types,
+                    ProjectedMembers: members);
+                break;
+            }
 
-            truncation = new ApiSurfaceProjectionTruncation(
-                overTypes ? ApiSurfaceProjectionLimit.Types : ApiSurfaceProjectionLimit.Members,
-                overTypes ? limits.MaxTypes : limits.MaxMembers,
-                ProjectedParticipants: walked,
-                OmittedParticipants: selected.Count - walked
-                    + (truncation?.OmittedParticipants ?? 0),
-                ProjectedTypes: types,
-                ProjectedMembers: members);
-            break;
+            ApiSurface surface =
+                ((ApiSurfaceExtractionResult.Extracted)available.Value).Surface;
+            entries.Add(
+                new AssemblyContextEntry<AssemblyApiSurface>.Available(
+                    available.Subject,
+                    new AssemblyApiSurface(surface, [.. surface.InspectionFailures])));
+            types += surface.Types.Count;
+            members += surface.Types.Sum(type => type.Members.Count);
         }
 
         var assemblies = new AssemblyContextResult<AssemblyApiSurface>(entries.DrainToImmutable());
@@ -373,6 +408,34 @@ public static class AssemblyContextApiSurfaceQuery
         ApiSurface surface = session.ApiSurface(ExtractionScope(scope));
         return new AssemblyApiSurface(surface, [.. surface.InspectionFailures]);
     }
+
+    /// <summary>Projects one participant under the remaining extraction budget.</summary>
+    static ApiSurfaceExtractionResult ProjectBounded(
+        AssemblyInspectionSession session,
+        ApiSurfaceScope scope,
+        ApiSurfaceExtractionBounds bounds)
+        => session.BoundedApiSurface(ExtractionScope(scope), bounds);
+
+    /// <summary>
+    /// Carries a participant outcome that produced no surface across to the projected result's
+    /// value type. Rejection and failure belong to the participant, not to the bound, so they are
+    /// reported exactly as an unbounded projection reports them.
+    /// </summary>
+    static AssemblyContextEntry<AssemblyApiSurface> Unavailable(
+        AssemblyContextEntry<ApiSurfaceExtractionResult> entry)
+        => entry switch
+        {
+            AssemblyContextEntry<ApiSurfaceExtractionResult>.Rejected rejected =>
+                new AssemblyContextEntry<AssemblyApiSurface>.Rejected(
+                    rejected.Subject,
+                    rejected.Failure),
+            AssemblyContextEntry<ApiSurfaceExtractionResult>.Failed failed =>
+                new AssemblyContextEntry<AssemblyApiSurface>.Failed(
+                    failed.Subject,
+                    failed.Error),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly context participant outcome."),
+        };
 
     static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
     {

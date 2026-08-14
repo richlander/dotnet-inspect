@@ -566,10 +566,69 @@ internal static class PackageContentAdmission
     }
 
     /// <summary>
+    /// Reads exactly <paramref name="length"/> bytes from <paramref name="source"/>,
+    /// returning null when the stream ends early or carries even one byte more.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the reader for a payload whose length the transport already
+    /// declared. <see cref="ReadBoundedAsync"/> cannot use that declaration as a
+    /// stop condition — it exists precisely for sources that advertise nothing
+    /// or under-report — so it grows a buffer as bytes arrive, transiently
+    /// holding the old and new arrays at once. A host that reserved capacity
+    /// from the advertised length would then be wrong about its own peak while
+    /// the payload lands. Here the declared length is allocated once and filled,
+    /// so the reservation and the allocation are the same number.
+    /// </para>
+    /// <para>
+    /// The declaration is not trusted as a description of the body: a short body
+    /// is a truncated transfer and a long one contradicts its own header, and
+    /// both are rejected rather than accepted at the declared prefix. The
+    /// caller's archive bound still applies — it is what admits the declared
+    /// length in the first place.
+    /// </para>
+    /// <para>
+    /// Gated by <c>PackagePayloadAcquisitionTests.ReadExactAsync_*</c> and
+    /// <c>AdvertisedLengthPayload_IsReadIntoExactlyOneBufferOfThatLength</c>.
+    /// </para>
+    /// </remarks>
+    internal static async Task<byte[]?> ReadExactAsync(
+        Stream source,
+        int length,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        byte[] buffer = length == 0 ? [] : new byte[length];
+        int total = 0;
+        while (total < length)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int read = await source
+                .ReadAsync(buffer.AsMemory(total, length - total), cancellationToken)
+                .ConfigureAwait(false);
+            if (read == 0)
+                return null;
+
+            total += read;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] probe = new byte[1];
+        int extra = await source
+            .ReadAsync(probe, cancellationToken)
+            .ConfigureAwait(false);
+        return extra == 0 ? buffer : null;
+    }
+
+    /// <summary>
     /// Reads at most <paramref name="maxBytes"/> from <paramref name="source"/>.
     /// Returns null when the stream exceeds the bound. Uses a single growable
     /// buffer (no <see cref="MemoryStream.ToArray"/> double-copy) so a payload
     /// at the configured archive ceiling does not transiently allocate ~2×.
+    /// This is the reader for a payload of unknown length; one whose length the
+    /// transport declared uses <see cref="ReadExactAsync"/> instead.
     /// </summary>
     internal static async Task<byte[]?> ReadBoundedAsync(
         Stream source,

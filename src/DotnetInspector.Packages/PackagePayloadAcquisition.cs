@@ -74,7 +74,10 @@ public abstract record PackagePayloadResult
 /// after. The response body is read into one buffer under
 /// <see cref="PackagePayloadLimits.MaxArchiveBytes"/>, counted as received so a
 /// feed that advertises no length or under-reports one is bounded by the same
-/// number, and then opened as an archive and checked against
+/// number — a response that <em>does</em> advertise a length is read into
+/// exactly one buffer of that length, so the host's reservation and the
+/// allocation agree and a body contradicting its own header fails the source —
+/// and then opened as an archive and checked against
 /// <see cref="PackagePayloadLimits.MaxEntryCount"/> and
 /// <see cref="PackagePayloadLimits.MaxExpandedBytes"/>. Only a payload that
 /// passes reaches <see cref="IPackageStore.CommitAsync"/>, so an unreadable,
@@ -275,7 +278,8 @@ public static class PackagePayloadAcquisition
         if (response is null)
             return null;
 
-        if (response.Content.Headers.ContentLength > limits.MaxArchiveBytes)
+        long? advertisedLength = response.Content.Headers.ContentLength;
+        if (advertisedLength > limits.MaxArchiveBytes)
         {
             log?.Invoke(
                 $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
@@ -287,7 +291,7 @@ public static class PackagePayloadAcquisition
             new PackagePayloadTransfer(
                 coordinate,
                 producerKey,
-                response.Content.Headers.ContentLength));
+                advertisedLength));
 
         byte[] archive;
         try
@@ -309,14 +313,33 @@ public static class PackagePayloadAcquisition
                 .ConfigureAwait(false);
             await using (payload.ConfigureAwait(false))
             {
-                if (await PackageContentAdmission.ReadBoundedAsync(
-                        payload,
-                        limits.MaxArchiveBytes,
-                        bodyTimeout.Token).ConfigureAwait(false)
-                    is not { } received)
+                // A declared length is read into exactly that many bytes, once:
+                // the advertised number is what the host reserved against above,
+                // and the generic bounded reader — which must serve sources that
+                // advertise nothing or under-report — would grow into it while
+                // still holding the previous array. A body that falls short of
+                // its own declaration is a truncated transfer, and one that
+                // overruns it contradicts its header; both fail this source
+                // rather than being accepted at the declared prefix.
+                byte[]? received = advertisedLength is { } declared
+                    && declared >= 0
+                    && declared <= int.MaxValue
+                    ? await PackageContentAdmission.ReadExactAsync(
+                            payload,
+                            (int)declared,
+                            bodyTimeout.Token)
+                        .ConfigureAwait(false)
+                    : await PackageContentAdmission.ReadBoundedAsync(
+                            payload,
+                            limits.MaxArchiveBytes,
+                            bodyTimeout.Token)
+                        .ConfigureAwait(false);
+                if (received is null)
                 {
                     log?.Invoke(
-                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} sent a package payload above the configured archive limit.");
+                        advertisedLength is null
+                            ? $"Source {PackageSourceDisplay.ForDiagnostics(source)} sent a package payload above the configured archive limit."
+                            : $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not send the package payload length it advertised.");
                     return null;
                 }
 

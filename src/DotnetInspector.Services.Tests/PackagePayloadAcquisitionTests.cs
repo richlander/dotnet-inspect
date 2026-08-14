@@ -1182,6 +1182,100 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task ReadExactAsync_FillsExactlyTheDeclaredLength()
+    {
+        byte[] payload = new byte[100_000];
+        for (int index = 0; index < payload.Length; index++)
+            payload[index] = (byte)index;
+        await using var stream = new MemoryStream(payload, writable: false);
+
+        byte[]? read = await PackageContentAdmission.ReadExactAsync(
+            stream,
+            payload.Length,
+            CancellationToken.None);
+
+        Assert.NotNull(read);
+        Assert.Equal(payload.Length, read!.Length);
+        Assert.Equal(payload, read);
+    }
+
+    // A body that arrives in fragments is normal for a network stream; only a body that never
+    // reaches the declared length is a truncated transfer.
+    [Fact]
+    public async Task ReadExactAsync_AssemblesAFragmentedBody()
+    {
+        byte[] payload = [.. Enumerable.Range(0, 5000).Select(value => (byte)value)];
+        await using var stream = new FragmentedStream(payload, fragment: 7);
+
+        byte[]? read = await PackageContentAdmission.ReadExactAsync(
+            stream,
+            payload.Length,
+            CancellationToken.None);
+
+        Assert.Equal(payload, read);
+    }
+
+    [Fact]
+    public async Task ReadExactAsync_RejectsABodyThatEndsBeforeTheDeclaredLength()
+    {
+        byte[] payload = new byte[64];
+        await using var stream = new MemoryStream(payload, writable: false);
+
+        byte[]? read = await PackageContentAdmission.ReadExactAsync(
+            stream,
+            payload.Length + 1,
+            CancellationToken.None);
+
+        Assert.Null(read);
+    }
+
+    [Fact]
+    public async Task ReadExactAsync_RejectsABodyCarryingMoreThanTheDeclaredLength()
+    {
+        byte[] payload = new byte[64];
+        await using var stream = new MemoryStream(payload, writable: false);
+
+        byte[]? read = await PackageContentAdmission.ReadExactAsync(
+            stream,
+            payload.Length - 1,
+            CancellationToken.None);
+
+        Assert.Null(read);
+    }
+
+    [Fact]
+    public async Task ReadExactAsync_AcceptsAnEmptyDeclaredLength()
+    {
+        await using var empty = new MemoryStream([], writable: false);
+        Assert.Empty(
+            (await PackageContentAdmission.ReadExactAsync(
+                empty,
+                length: 0,
+                CancellationToken.None))!);
+
+        await using var nonEmpty = new MemoryStream(new byte[1], writable: false);
+        Assert.Null(
+            await PackageContentAdmission.ReadExactAsync(
+                nonEmpty,
+                length: 0,
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ReadExactAsync_ObservesCancellation()
+    {
+        await using var stream = new FragmentedStream(new byte[4096], fragment: 16);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await PackageContentAdmission.ReadExactAsync(
+                stream,
+                4096,
+                cancellation.Token));
+    }
+
+    [Fact]
     public async Task ReadBoundedAsync_RejectsStreamOverMaxBytes()
     {
         byte[] payload = new byte[1024];
@@ -2290,6 +2384,126 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.True(policy.Reservation.Disposed);
     }
 
+    // The reservation the host makes from the advertised length is the allocation the body read
+    // performs, so a host accounting for its own memory is not told one number and handed another.
+    [Fact]
+    public async Task AdvertisedLengthPayload_IsReservedAndReadAtThatExactLength()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        long? reserved = null;
+        var policy = new RecordingTransferPolicy(
+            onReserve: transfer => reserved = transfer.AdvertisedLength);
+        var store = new InMemoryPackageStore();
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() =>
+            {
+                // Fragmented, so a reader that trusted one ReadAsync call would come up short.
+                var content = new StreamContent(new FragmentedStream(nupkg, fragment: 13));
+                content.Headers.ContentLength = nupkg.LongLength;
+                return content;
+            }));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken,
+                transferPolicy: policy);
+
+        var acquired = Assert.IsType<PackagePayloadResult.Acquired>(result);
+        Assert.Equal(nupkg.LongLength, reserved);
+        Assert.True(policy.Reservation.Completed);
+        Assert.True(acquired.Payload.Content.TryOpenArchive(out Stream? committed));
+        using (committed)
+        {
+            using var buffer = new MemoryStream();
+            await committed!.CopyToAsync(buffer, TestContext.Current.CancellationToken);
+            Assert.Equal(nupkg, buffer.ToArray());
+        }
+    }
+
+    // A body that stops short of its own declaration is a truncated transfer, not a shorter
+    // package: the source fails, nothing is committed, and the reservation is abandoned.
+    [Fact]
+    public async Task PayloadShorterThanItsAdvertisedLength_IsATypedSourceFailure()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        List<string> log = [];
+        var policy = new RecordingTransferPolicy();
+        var store = new InMemoryPackageStore();
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() =>
+            {
+                var content = new StreamContent(
+                    new MemoryStream(nupkg, writable: false));
+                content.Headers.ContentLength = nupkg.LongLength + 16;
+                return content;
+            }));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                log: log.Add,
+                cancellationToken: TestContext.Current.CancellationToken,
+                transferPolicy: policy);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.Contains(
+            log,
+            line => line.Contains(
+                "did not send the package payload length it advertised",
+                StringComparison.Ordinal));
+        Assert.False(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
+    }
+
+    // The overrun case is the one an "accept the declared prefix" reader would silently admit: the
+    // bytes up to the declaration are a valid archive, and the extra bytes would disappear.
+    [Fact]
+    public async Task PayloadLongerThanItsAdvertisedLength_IsATypedSourceFailure()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        byte[] overrun = [.. nupkg, 0x00, 0x01, 0x02, 0x03];
+        List<string> log = [];
+        var store = new InMemoryPackageStore();
+        using var client = new HttpClient(
+            new NuGetOrgHandler(() =>
+            {
+                var content = new StreamContent(
+                    new MemoryStream(overrun, writable: false));
+                content.Headers.ContentLength = nupkg.LongLength;
+                return content;
+            }));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                log: log.Add,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+        Assert.Contains(
+            log,
+            line => line.Contains(
+                "did not send the package payload length it advertised",
+                StringComparison.Ordinal));
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
+    }
+
     [Fact]
     public async Task TransferPolicy_RejectedPayloadDisposesWithoutCompleting()
     {
@@ -2664,6 +2878,60 @@ public sealed class PackagePayloadAcquisitionTests
             onRead();
             return base.ReadAsync(buffer, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// A non-seekable stream that hands out at most <c>fragment</c> bytes per read, the way a
+    /// network body arrives.
+    /// </summary>
+    sealed class FragmentedStream(byte[] body, int fragment) : Stream
+    {
+        int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            int available = Math.Min(Math.Min(fragment, buffer.Length), body.Length - _position);
+            if (available <= 0)
+                return 0;
+
+            body.AsSpan(_position, available).CopyTo(buffer);
+            _position += available;
+            return available;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(Read(buffer.Span));
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>

@@ -383,18 +383,71 @@ public sealed class AssemblyContextApiSurfaceQueryTests
 
         Assert.Null(bounded.Truncation);
         Assert.True(bounded.IsComplete);
+        ApiSurface unboundedSurface = Available(unbounded.Assemblies).Surface;
+        ApiSurface boundedSurface = Available(bounded.Assemblies).Surface;
+        Assert.Equal(unboundedSurface.Types.Count, boundedSurface.Types.Count);
+
+        // Identity, not just cardinality: an accounting error inside the bounded walk would drop
+        // or reorder rows the unbounded walk keeps.
         Assert.Equal(
-            Available(unbounded.Assemblies).Surface.Types.Count,
-            Available(bounded.Assemblies).Surface.Types.Count);
+            unboundedSurface.Types.Select(
+                type => (
+                    AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type),
+                    type.Members.Count)),
+            boundedSurface.Types.Select(
+                type => (
+                    AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type),
+                    type.Members.Count)));
         Assert.Equal(
             unbounded.Accessibility.Select(bucket => (bucket.Id, bucket.Count)),
             bounded.Accessibility.Select(bucket => (bucket.Id, bucket.Count)));
     }
 
-    // Non-vacuity: the bound is reachable and reported, and the reported result stays honest —
-    // IsComplete is false and the counts describe exactly the rows it carries.
+    // The exact-fit case: bounds equal to the unbounded projection's own totals must still project
+    // the whole surface. An off-by-one in the budget would truncate here.
     [Fact]
-    public void ExecuteBounded_ReportsTypeTruncationInsteadOfPartialSuccess()
+    public void ExecuteBounded_AtExactlyTheProjectionSizeIsNotTruncated()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+
+        ApiSurface unbounded =
+            Available(
+                    AssemblyContextApiSurfaceQuery.Execute(
+                            group,
+                            ApiSurfaceScope.PublicWithNonPublicTypes)
+                        .Assemblies)
+                .Surface;
+        int types = unbounded.Types.Count;
+        int members = unbounded.Types.Sum(type => type.Members.Count);
+
+        AssemblyContextApiSurfaceResult exact =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(64, types, members));
+
+        Assert.Null(exact.Truncation);
+        Assert.True(exact.IsComplete);
+        Assert.Equal(types, Available(exact.Assemblies).Surface.Types.Count);
+
+        // One less than it needs, and the participant is omitted rather than shortened.
+        AssemblyContextApiSurfaceResult short_ =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(64, types, members - 1));
+
+        Assert.NotNull(short_.Truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.Members, short_.Truncation!.Limit);
+        Assert.Empty(short_.Assemblies.Assemblies);
+    }
+
+    // Non-vacuity: the bound is reachable and reported, and the reported result stays honest —
+    // the only participant does not fit, so it is omitted rather than returned over the bound,
+    // IsComplete is false, and the counts describe exactly the rows the result carries.
+    [Fact]
+    public void ExecuteBounded_OmitsAParticipantThatCannotFitTheTypeBound()
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
@@ -409,18 +462,19 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         Assert.NotNull(truncation);
         Assert.Equal(ApiSurfaceProjectionLimit.Types, truncation.Limit);
         Assert.Equal(1, truncation.Bound);
-        Assert.Equal(1, truncation.ProjectedParticipants);
-        Assert.Equal(0, truncation.OmittedParticipants);
-        Assert.True(truncation.ProjectedTypes > 1);
+        Assert.Equal(0, truncation.ProjectedParticipants);
+        Assert.Equal(1, truncation.OmittedParticipants);
+        Assert.Equal(0, truncation.ProjectedTypes);
+        Assert.Equal(0, truncation.ProjectedMembers);
         Assert.False(bounded.IsComplete);
 
-        // The projected participant is whole: no type came back with a shortened member list.
-        AssemblyApiSurface surface = Available(bounded.Assemblies);
-        Assert.Equal(truncation.ProjectedTypes, surface.Surface.Types.Count);
+        // No partial participant surface: the over-budget participant contributes no rows at all.
+        Assert.Empty(bounded.Assemblies.Assemblies);
+        AssertWithinBounds(bounded, maxTypes: 1, maxMembers: 1_000_000);
     }
 
     [Fact]
-    public void ExecuteBounded_ReportsMemberTruncation()
+    public void ExecuteBounded_OmitsAParticipantThatCannotFitTheMemberBound()
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
@@ -434,7 +488,102 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
         Assert.NotNull(truncation);
         Assert.Equal(ApiSurfaceProjectionLimit.Members, truncation.Limit);
-        Assert.True(truncation.ProjectedMembers > 1);
+        Assert.Equal(1, truncation.Bound);
+        Assert.Equal(0, truncation.ProjectedTypes);
+        Assert.Equal(0, truncation.ProjectedMembers);
+        Assert.Empty(bounded.Assemblies.Assemblies);
+        AssertWithinBounds(bounded, maxTypes: 1_000_000, maxMembers: 1);
+    }
+
+    // The budget is spent across participants, so a participant that fits the remaining budget is
+    // projected whole and the one that would overflow it is omitted — the projected rows stay
+    // inside both bounds instead of overshooting by one image's worth of surface.
+    [Fact]
+    public void ExecuteBounded_ProjectsWhatFitsAndOmitsTheParticipantThatWouldOverflow()
+    {
+        byte[] small = BuildBoundedSurfaceImage(typeCount: 2);
+        byte[] self = File.ReadAllBytes(SelfPath);
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(small),
+                        path: null,
+                        () => new MemoryStream(small, writable: false),
+                        AssemblyResolutionProvenance.Local("small")),
+                    policy),
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        SelfPath,
+                        AssemblyResolutionProvenance.Local("self")),
+                    policy),
+            ]);
+
+        const int maxTypes = 3;
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(64, maxTypes, 1_000_000));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.Types, truncation.Limit);
+        Assert.Equal(maxTypes, truncation.Bound);
+        Assert.Equal(1, truncation.ProjectedParticipants);
+        Assert.Equal(1, truncation.OmittedParticipants);
+        Assert.False(bounded.IsComplete);
+
+        AssemblyApiSurface surface = Available(bounded.Assemblies);
+        Assert.Equal(2, surface.Surface.Types.Count);
+        Assert.Equal(truncation.ProjectedTypes, surface.Surface.Types.Count);
+        AssertWithinBounds(bounded, maxTypes, maxMembers: 1_000_000);
+        Assert.Equal(
+            IdentityOf(small).Name,
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                    Assert.Single(bounded.Assemblies.Assemblies))
+                .Subject.Identity.Name);
+    }
+
+    // The bound applies to members as well as types when the type bound is generous: the small
+    // image fits its members, the large one does not, and nothing partial is returned.
+    [Fact]
+    public void ExecuteBounded_KeepsProjectedMembersWithinTheMemberBound()
+    {
+        byte[] small = BuildBoundedSurfaceImage(typeCount: 2);
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(small),
+                        path: null,
+                        () => new MemoryStream(small, writable: false),
+                        AssemblyResolutionProvenance.Local("small")),
+                    policy),
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        SelfPath,
+                        AssemblyResolutionProvenance.Local("self")),
+                    policy),
+            ]);
+
+        const int maxMembers = 4;
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(64, 1_000_000, maxMembers));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.Members, truncation.Limit);
+        Assert.Equal(maxMembers, truncation.Bound);
+        Assert.Equal(1, truncation.OmittedParticipants);
+        AssertWithinBounds(bounded, maxTypes: 1_000_000, maxMembers);
     }
 
     [Fact]
@@ -559,6 +708,84 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     {
         using var reader = new PEReader(new MemoryStream(bytes, writable: false));
         return AssemblyReferenceIdentity.FromAssemblyDefinition(reader.GetMetadataReader());
+    }
+
+    /// <summary>
+    /// The rows a bounded projection actually carries must satisfy the bounds it declared. This
+    /// reads the returned surfaces rather than the truncation report, so a report that disagreed
+    /// with the projected rows would not satisfy it.
+    /// </summary>
+    static void AssertWithinBounds(
+        AssemblyContextApiSurfaceResult result,
+        int maxTypes,
+        int maxMembers)
+    {
+        ApiType[] types =
+        [
+            .. result.Assemblies.Assemblies
+                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(entry => entry.Value.Surface.Types),
+        ];
+        int members = types.Sum(type => type.Members.Count);
+        Assert.True(
+            types.Length <= maxTypes,
+            $"projected {types.Length} types over a bound of {maxTypes}");
+        Assert.True(
+            members <= maxMembers,
+            $"projected {members} members over a bound of {maxMembers}");
+        if (result.Truncation is { } truncation)
+        {
+            Assert.Equal(types.Length, truncation.ProjectedTypes);
+            Assert.Equal(members, truncation.ProjectedMembers);
+        }
+    }
+
+    /// <summary>
+    /// A synthetic image carrying exactly <paramref name="typeCount"/> public, member-less types,
+    /// so a bound can be set between it and a real assembly.
+    /// </summary>
+    static byte[] BuildBoundedSurfaceImage(int typeCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("BoundedSurface.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("BoundedSurface"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Bounded"),
+                metadata.GetOrAddString($"Type{index}"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static TValue Available<TValue>(AssemblyContextResult<TValue> result)

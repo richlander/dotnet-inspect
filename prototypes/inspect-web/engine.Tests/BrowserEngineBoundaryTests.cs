@@ -96,9 +96,16 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public async Task ReusedCompositeScope_PreservesTheCurrentRequestedRoot()
     {
-        byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
-        _ = Coordinate("Root.Order.A", Package(image, "lib/net11.0/Root.Order.A.dll"));
-        _ = Coordinate("Root.Order.B", Package(image, "lib/net11.0/Root.Order.B.dll"));
+        byte[] firstImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] secondImage =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        _ = Coordinate(
+            "Root.Order.A",
+            Package(firstImage, "lib/net11.0/Root.Order.A.dll"));
+        _ = Coordinate(
+            "Root.Order.B",
+            Package(secondImage, "lib/net11.0/Root.Order.B.dll"));
 
         BrowserScopeResolution first = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
         [
@@ -211,6 +218,26 @@ public sealed class BrowserEngineBoundaryTests
 
         Assert.NotNull(group.Resolve(identity, AssemblyResolutionScope.Any));
         Assert.Null(group.Resolve(identity, AssemblyResolutionScope.Platform));
+    }
+
+    [Fact]
+    public void WorkspaceBinding_RejectsEquivalentAssemblyIdentities()
+    {
+        byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate first = Coordinate(
+            "Identity.Collision.A",
+            Package(image, "lib/net11.0/Identity.Collision.A.dll"));
+        BrowserPackageCoordinate second = Coordinate(
+            "Identity.Collision.B",
+            Package(image, "lib/net11.0/Identity.Collision.B.dll"));
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => new BrowserInspectionScope([first, second]));
+
+        Assert.Contains(
+            "same assembly identity",
+            failure.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

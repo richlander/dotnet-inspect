@@ -83,24 +83,32 @@ internal sealed class BrowserInspectionScope : IDisposable
         BrowserWorkspaceGroup.ValidateAssets(surfaceAssets, groupBudget);
         if (hasSeparateImplementation)
             BrowserWorkspaceGroup.ValidateAssets(implementationAssets, groupBudget);
-        _surface = new BrowserWorkspaceGroup(_workspace, surfaceAssets, groupBudget);
-        _implementation = shared
-            ? _surface
-            : implementationAssets.Length == 0
-                ? null
-                : new BrowserWorkspaceGroup(
-                    _workspace,
-                    implementationAssets,
-                    groupBudget);
+
+        // Group construction itself refuses a role it cannot bind — an empty role, or one whose
+        // participants collide on assembly identity — so it is inside the cleanup, not before it:
+        // a refused scope must not leave its workspace holding retained images.
+        BrowserWorkspaceGroup? surface = null;
+        BrowserWorkspaceGroup? implementation = null;
         try
         {
+            surface = new BrowserWorkspaceGroup(_workspace, surfaceAssets, groupBudget);
+            implementation = shared
+                ? surface
+                : implementationAssets.Length == 0
+                    ? null
+                    : new BrowserWorkspaceGroup(
+                        _workspace,
+                        implementationAssets,
+                        groupBudget);
+            _surface = surface;
+            _implementation = implementation;
             ValidateImplementationPairs();
         }
         catch
         {
-            if (!ReferenceEquals(_implementation, _surface))
-                _implementation?.Dispose();
-            _surface.Dispose();
+            if (!ReferenceEquals(implementation, surface))
+                implementation?.Dispose();
+            surface?.Dispose();
             _workspace.Dispose();
             throw;
         }
@@ -308,6 +316,7 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
         }
 
         Participants = participants.ToImmutable();
+        RejectEquivalentIdentities(Participants);
         _group = workspace.CreateAssemblyContextGroup(
             Participants.Select(participant => participant.Participant),
             new AssemblyContextGroupOptions
@@ -318,6 +327,38 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
     }
 
     public ImmutableArray<BrowserWorkspaceParticipant> Participants { get; }
+
+    /// <summary>
+    /// Refuses a workspace role in which two participants carry equivalent assembly identities.
+    /// </summary>
+    /// <remarks>
+    /// This is the invariant <c>WorkspaceContextLoader.FirstIdentityCollision</c> holds for a
+    /// desktop workspace context, applied here for the same reason: <see cref="Resolve"/> answers
+    /// an in-context reference by matching <see cref="AssemblyReferenceIdentity.IsEquivalentTo"/>
+    /// against the role's participants, so two equivalent identities make the answer depend on
+    /// asset path or declaration order — the first request would bind the reference to one image
+    /// and a differently ordered workspace would bind it to the other. Assemblies with different
+    /// versions are not equivalent and still coexist. The identity is decoded out of a package
+    /// artifact, so the failure names neither it nor the asset that carried it.
+    /// </remarks>
+    static void RejectEquivalentIdentities(
+        ImmutableArray<BrowserWorkspaceParticipant> participants)
+    {
+        for (int index = 1; index < participants.Length; index++)
+        {
+            AssemblyReferenceIdentity identity = participants[index].Assembly.Identity;
+            for (int earlier = 0; earlier < index; earlier++)
+            {
+                if (!participants[earlier].Assembly.Identity.IsEquivalentTo(identity))
+                    continue;
+
+                throw new InvalidOperationException(
+                    "The selected packages contribute more than one assembly with the same "
+                    + "assembly identity to one workspace role, so a reference to it could not "
+                    + "bind to a single image.");
+            }
+        }
+    }
 
     internal static void ValidateAssets(
         IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> assets,
@@ -397,6 +438,10 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
         ArgumentNullException.ThrowIfNull(identity);
         if (scope == AssemblyResolutionScope.Platform)
             return null;
+
+        // At most one participant can match: RejectEquivalentIdentities refused the role
+        // otherwise, so this is the role's only image for that identity rather than the first one
+        // enumeration happened to reach.
         return Participants
             .FirstOrDefault(participant =>
                 participant.Assembly.Identity.IsEquivalentTo(identity))
