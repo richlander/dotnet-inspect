@@ -282,10 +282,13 @@ public static class ApiMemberIdentity
     /// <summary>
     /// Cumulative work budget for one member-anchor signature construction.
     /// Mirrors <c>StructuralSignatureWorkBudget</c>: charge every materialized
-    /// type-name occurrence so repeated long names cannot amplify past
+    /// type-name occurrence and every composite type node so repeated long
+    /// names and nested compositions cannot amplify past
     /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/> before
     /// rejection. Gated by
-    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
+    /// and
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>.
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
@@ -395,31 +398,37 @@ public static class ApiMemberIdentity
 
         public AnchorSignatureType GetSZArrayType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("", elementType, "[]");
+            => Composite(
+                new WrappedAnchorSignatureType("", elementType, "[]"));
 
         public AnchorSignatureType GetArrayType(
             AnchorSignatureType elementType,
             ArrayShape shape)
-            => new ArrayAnchorSignatureType(
-                elementType,
-                shape.Rank);
+            => Composite(
+                new ArrayAnchorSignatureType(
+                    elementType,
+                    shape.Rank));
 
         public AnchorSignatureType GetByReferenceType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("", elementType, "&");
+            => Composite(
+                new WrappedAnchorSignatureType("", elementType, "&"));
 
         public AnchorSignatureType GetPointerType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("", elementType, "*");
+            => Composite(
+                new WrappedAnchorSignatureType("", elementType, "*"));
 
         public AnchorSignatureType GetPinnedType(
             AnchorSignatureType elementType)
-            => new WrappedAnchorSignatureType("pinned ", elementType, "");
+            => Composite(
+                new WrappedAnchorSignatureType("pinned ", elementType, ""));
 
         public AnchorSignatureType GetGenericInstantiation(
             AnchorSignatureType genericType,
             ImmutableArray<AnchorSignatureType> typeArguments)
-            => new GenericAnchorSignatureType(genericType, typeArguments);
+            => Composite(
+                new GenericAnchorSignatureType(genericType, typeArguments));
 
         public AnchorSignatureType GetGenericTypeParameter(
             GenericContext? context,
@@ -443,17 +452,27 @@ public static class ApiMemberIdentity
 
         public AnchorSignatureType GetFunctionPointerType(
             MethodSignature<AnchorSignatureType> signature)
-            => new JoinedAnchorSignatureType(
-                "delegate*<",
-                signature.ParameterTypes.Add(signature.ReturnType),
-                ",",
-                ">");
+            => Composite(
+                new JoinedAnchorSignatureType(
+                    "delegate*<",
+                    signature.ParameterTypes.Add(signature.ReturnType),
+                    ",",
+                    ">"));
 
         public AnchorSignatureType GetModifiedType(
             AnchorSignatureType modifier,
             AnchorSignatureType unmodifiedType,
             bool isRequired)
-            => unmodifiedType;
+        {
+            // Custom modifiers are dropped from the rendered anchor, but the
+            // modifier subtree was already charged when it was constructed.
+            // Charge a unit of work for the discarded edge so a tree of only
+            // modifiers cannot be free.
+            _ = modifier;
+            _ = isRequired;
+            _workBudget.Charge(1);
+            return unmodifiedType;
+        }
 
         string FormatDefinitionTypeName(
             MetadataReader reader,
@@ -560,6 +579,24 @@ public static class ApiMemberIdentity
             _workBudget.Charge(text.Length);
             return new EncodedAnchorSignatureType(text);
         }
+
+        AnchorSignatureType Composite(AnchorSignatureType type)
+        {
+            // Charge a fixed per-node cost rather than type.Length. Charging the
+            // full composed length at every nesting level is quadratic in depth
+            // and rejects legitimate deep signatures (see
+            // Resolve_DeepAcceptedSignatureDoesNotExpandAnchorQuadratically).
+            // A constant still bounds O(params × depth) discarded modopt trees
+            // because each composite allocates a node. Gated by
+            // CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation.
+            _workBudget.Charge(CompositeNodeWorkUnits);
+            return type;
+        }
+
+        // Work units charged per composite anchor node (array/pointer/generic/
+        // fnptr). Sized so depth≈512 legal signatures stay far under the 4 MiB
+        // budget while 1000×500 discarded modopt trees exhaust it.
+        const int CompositeNodeWorkUnits = 64;
     }
 
     public static string GetMemberDigest(string canonicalSignature)

@@ -337,6 +337,42 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation()
+    {
+        // Many parameters each carry modopt(TypeSpec) where the TypeSpec is a
+        // deep SZARRAY nest. GetModifiedType discards the modifier from the
+        // rendered anchor, so EnsureAnchorSignatureBudget never sees the tree;
+        // composite-node charging must reject during construction.
+        const int parameterCount = 1_000;
+        const int arrayDepth = 500;
+        byte[] image = BuildNestedArrayModoptImage(
+            parameterCount,
+            arrayDepth);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Nested modopt array rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -908,6 +944,42 @@ public sealed class MethodCorrespondenceResolverTests
         {
             signature.WriteByte(0x12);
             signature.WriteCompressedInteger((1 << 2) | 1);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedArrayModoptImage(
+        int parameterCount,
+        int arrayDepth)
+    {
+        var metadata = CreateSingleTypeMetadata("NestedArrayModopt");
+        var typeSpecSignature = new BlobBuilder();
+        for (int i = 0; i < arrayDepth; i++)
+            typeSpecSignature.WriteByte(0x1d); // ELEMENT_TYPE_SZARRAY
+        typeSpecSignature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        // TypeDefOrRef coded index: TypeSpec tag = 2.
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01); // void
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x20); // ELEMENT_TYPE_CMOD_OPT
+            signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08); // I4
         }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,

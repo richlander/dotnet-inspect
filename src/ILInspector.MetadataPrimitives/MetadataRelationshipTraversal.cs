@@ -20,10 +20,15 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
-    /// Maximum encoded characters charged while constructing one member-anchor
-    /// signature tree. Each occurrence of a type name is charged, so repeated
-    /// references cannot amplify past this ceiling before rejection. Gated by
-    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// Maximum work charged while constructing one member-anchor signature
+    /// tree. Every materialized type-name occurrence is charged by character
+    /// length, and every composite type node (arrays, pointers, generics,
+    /// function pointers) is charged a fixed per-node unit, so discarded
+    /// modifier subtrees and nested compositions cannot amplify past this
+    /// ceiling before rejection. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
+    /// and
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>.
     /// </summary>
     public const int MaxAnchorSignatureWorkChars =
         MaxStructuralSignatureWorkChars;
