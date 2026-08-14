@@ -19191,13 +19191,9 @@ public partial class CommandExecutionTests
             Assert.Empty(valueOnly.Error);
             Assert.Equal(
                 ["value", "1.0.0", "1.0.0"],
-                valueOnly.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+                SplitOutputLines(valueOnly.Output));
             Assert.Equal("2", count.Output.Trim());
-            string[] rows = rendered.Output.Split(
-                '\n',
-                StringSplitOptions.RemoveEmptyEntries);
+            string[] rows = SplitOutputLines(rendered.Output);
             Assert.Equal(3, rows.Length);
             Assert.All(
                 rows.Skip(1),
@@ -19207,14 +19203,10 @@ public partial class CommandExecutionTests
                     StringComparison.Ordinal));
             Assert.Equal(
                 ["field", "Version"],
-                column.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+                SplitOutputLines(column.Output));
             Assert.Equal(
                 ["Authors", "Version", "Authors", "Version"],
-                ordered.Output.Split(
-                        '\n',
-                        StringSplitOptions.RemoveEmptyEntries)
+                SplitOutputLines(ordered.Output)
                     .Skip(1)
                     .Select(row => row.Split('\t')[1]));
         }
