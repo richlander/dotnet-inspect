@@ -121,6 +121,38 @@ public class FidelityCheckSelectionGuardTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void EvaluateTargets_CoreLibType_DoesNotInspectUnselectedTypes()
+    {
+        string assembly = typeof(Array).Assembly.Location;
+
+        Assert.Single(FidelityCheck.EvaluateTargets(
+            [assembly],
+            [new FidelityCheck.CompileBackTarget(
+                assembly,
+                typeof(Array).FullName!,
+                nameof(Array.Empty),
+                Overload: 0,
+                Signature: "() -> !!0[]")]));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void EvaluateTargets_RootTypeWithNoBaseType_DoesNotReadNilHandle()
+    {
+        string assembly = typeof(object).Assembly.Location;
+
+        Assert.Single(FidelityCheck.EvaluateTargets(
+            [assembly],
+            [new FidelityCheck.CompileBackTarget(
+                assembly,
+                typeof(object).FullName!,
+                nameof(object.GetType),
+                Overload: 0,
+                Signature: "() -> corelib:System.Type")]));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_MethodFilterDistinguishesOverloadsAndNoFilterPreservesRows()
     {
         string fixtureType = typeof(FidelityCheckMethodSelectionFixture).FullName!;
