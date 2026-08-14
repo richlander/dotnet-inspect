@@ -344,6 +344,40 @@ public sealed class TypeShellProducerTests
         Assert.Equal(CSharpAccessorBody.Throw, body.Setter);
     }
 
+    [Fact]
+    public void MemberShellProducer_PreservesTypedOperatorIdentity()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "op_Equality",
+            Kind: CSharpShellMemberKind.Operator,
+            IsStatic: true,
+            Parameters:
+            [
+                new CSharpShellParameter("left", "Row"),
+                new CSharpShellParameter("right", "Row"),
+            ],
+            ReturnType: "bool",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return true;"));
+
+        Assert.Equal("operator", policy.Member.Kind);
+        var type = new ApiType
+        {
+            Name = "Row",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+
+        Assert.Contains(
+            "public static bool operator ==(Row left, Row right)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(CSharpShellMemberKind.Method, "Run")]
     [InlineData(CSharpShellMemberKind.Method, " IRunner.Run")]

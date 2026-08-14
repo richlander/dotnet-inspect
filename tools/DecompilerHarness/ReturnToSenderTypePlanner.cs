@@ -264,6 +264,7 @@ public enum CompileBackMemberKind
     EventRemove,
     Constructor,
     Method,
+    Operator,
     Field,
 }
 
@@ -2844,7 +2845,7 @@ public static class CompileBackSourceComposer
         [
             new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
-                isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                MethodKind(reader, method, isConstructor),
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 targetParameters,
                 targetReturnType,
@@ -3084,6 +3085,7 @@ public static class CompileBackSourceComposer
                 CompileBackMemberKind.EventRemove => CSharpShellMemberKind.EventRemove,
                 CompileBackMemberKind.Constructor => CSharpShellMemberKind.Constructor,
                 CompileBackMemberKind.Method => CSharpShellMemberKind.Method,
+                CompileBackMemberKind.Operator => CSharpShellMemberKind.Operator,
                 CompileBackMemberKind.Field => CSharpShellMemberKind.Field,
                 _ => throw new NotSupportedException(
                     $"Unsupported member declaration kind '{requirement.Kind}'."),
@@ -3233,7 +3235,7 @@ public static class CompileBackSourceComposer
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
-                CompileBackMemberKind.Method,
+                CompileBackMemberKind.Operator,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 MethodParameters(reader, method, signature),
                 CompileBackTypeSignature.Display(signature.ReturnType),
@@ -3279,7 +3281,7 @@ public static class CompileBackSourceComposer
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
-                CompileBackMemberKind.Method,
+                CompileBackMemberKind.Operator,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 MethodParameters(reader, method, signature),
                 CompileBackTypeSignature.Display(signature.ReturnType),
@@ -4165,6 +4167,18 @@ public static class CompileBackSourceComposer
     internal static string MemberIdentifierName(string metadataName, bool isConstructor)
         => isConstructor ? metadataName : CSharpNaming.SourceMethodName(metadataName);
 
+    static CompileBackMemberKind MethodKind(
+        MetadataReader reader,
+        MethodDefinition method,
+        bool isConstructor)
+        => isConstructor
+            ? CompileBackMemberKind.Constructor
+            : method.Attributes.HasFlag(MethodAttributes.SpecialName)
+                && method.GetGenericParameters().Count == 0
+                && OperatorNames.IsOperatorMethodName(reader.GetString(method.Name))
+                    ? CompileBackMemberKind.Operator
+                    : CompileBackMemberKind.Method;
+
     sealed class TypeProducer
     {
         public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
@@ -4600,7 +4614,7 @@ public static class CompileBackSourceComposer
             string identifierName = MemberIdentifierName(name, isConstructor);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, identifierName, DeclaringOverloadIndex(reader, typeDef, methodHandle, name), MethodSignatureText(identifierName, signature)),
-                isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                MethodKind(reader, method, isConstructor),
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 parameters,
                 isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
@@ -5352,8 +5366,9 @@ public static class CompileBackSourceComposer
 
                 bool isConstructor = name == ".ctor";
                 string identifierName = MemberIdentifierName(name, isConstructor);
+                var memberKind = MethodKind(reader, method, isConstructor);
                 int existingMethodIndex = members.FindIndex(member =>
-                    member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
+                    member.Kind == memberKind
                     && member.Identity.Method == identifierName);
                 if (existingMethodIndex >= 0)
                 {
@@ -5406,7 +5421,7 @@ public static class CompileBackSourceComposer
                 }
                 members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(identifierName, signature)),
-                    isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                    memberKind,
                     IsStatic: method.Attributes.HasFlag(MethodAttributes.Static),
                     Parameters: parameters,
                     ReturnType: isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),

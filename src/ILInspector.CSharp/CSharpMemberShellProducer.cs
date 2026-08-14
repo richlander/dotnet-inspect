@@ -11,6 +11,7 @@ public enum CSharpShellMemberKind
     EventRemove,
     Constructor,
     Method,
+    Operator,
     Field,
 }
 
@@ -256,6 +257,7 @@ public static class CSharpMemberShellProducer
                     CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove => "event",
                     CSharpShellMemberKind.Constructor => "constructor",
                     CSharpShellMemberKind.Method => "method",
+                    CSharpShellMemberKind.Operator => "operator",
                     CSharpShellMemberKind.Field => "field",
                     _ => throw new NotSupportedException(
                         $"Unsupported C# shell member kind '{spec.Kind}'."),
@@ -292,7 +294,7 @@ public static class CSharpMemberShellProducer
             member.SignatureModel = new ApiSignature
             {
                 ReturnType = spec.ReturnType,
-                ReturnAttributes = spec.Kind == CSharpShellMemberKind.Method
+                ReturnAttributes = spec.Kind is CSharpShellMemberKind.Method or CSharpShellMemberKind.Operator
                     ? spec.ReturnAttributes?.ToList() ?? []
                     : [],
                 MemberName = spec.TypeParameters.Count == 0
