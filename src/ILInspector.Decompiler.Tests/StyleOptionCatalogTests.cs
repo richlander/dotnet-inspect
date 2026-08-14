@@ -153,6 +153,16 @@ public class StyleOptionCatalogTests
     }
 
     [Fact]
+    public void Choices_CannotBeMutatedThroughTheirRuntimeCollection()
+    {
+        var mutable = StyleOptionCatalog.Choices as IList<StyleOptionChoice>;
+
+        Assert.True(mutable is null || mutable.IsReadOnly);
+        if (mutable is not null)
+            Assert.Throws<NotSupportedException>(mutable.Clear);
+    }
+
+    [Fact]
     public void Choices_ProjectProductOwnedPresentationAndConflictSemantics()
     {
         foreach (var choice in StyleOptionCatalog.Choices)

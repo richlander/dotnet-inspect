@@ -747,7 +747,7 @@ public static class StyleOptionCatalog
             }
         }
 
-        return choices;
+        return choices.AsReadOnly();
     }
 
     // Builds a two-state (boolean) knob: a false/true value domain where the
