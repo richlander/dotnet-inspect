@@ -15,11 +15,12 @@ namespace ILInspector.Metadata;
 /// the descent before the first callback fires.
 ///
 /// This guard walks the blob *iteratively* (an explicit heap work-stack, never the native stack),
-/// computing the maximum type-nesting depth, and reports whether it exceeds a safe limit so the
-/// caller can fail closed with an explicit rejection instead of crashing.
-/// A raw blob-length cap is deliberately avoided: a legitimately <i>wide</i> method signature (many
-/// parameters or generic arguments) is long but structurally shallow, so length would false-reject
-/// real code. Depth does not.
+/// computing the maximum type-nesting depth, and reports whether it exceeds a safe limit or leaves
+/// unconsumed bytes so the caller can fail closed with an explicit rejection instead of crashing
+/// or accepting an unrecognized trailing suffix as part of the same shape.
+/// A raw blob-length cap is deliberately avoided: a legitimately <i>wide</i> method signature can
+/// be long but structurally shallow. A separate type-node ceiling bounds heap work without making
+/// byte length itself the discriminator.
 /// </summary>
 public static class SignatureBlobGuard
 {
@@ -37,6 +38,10 @@ public static class SignatureBlobGuard
         /// <summary>A MethodDefSig / MethodRefSig (also property signatures): header, [generic
         /// param count], param count, return type, parameters.</summary>
         Method,
+
+        /// <summary>A StandAloneMethodSig used by <c>calli</c>. Unlike other method signatures,
+        /// this permits a sentinel for both managed vararg and unmanaged cdecl conventions.</summary>
+        StandaloneMethod,
 
         /// <summary>A FieldSig: header, custom-mods, type.</summary>
         Field,
@@ -111,9 +116,15 @@ public static class SignatureBlobGuard
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
         // Every Type work item consumes at least one blob byte, and count-driven pushes are bounded
-        // by the remaining blob length (see PushTypes), so the stack size is O(blob length).
+        // by both the remaining blob length and the operation type-node budget.
         var work = new Stack<WorkItem>();
-        if (SeedRoots(ref blob, kind, work))
+        int remainingTypeNodes =
+            MetadataSafetyPolicy.MaxSignatureTypeNodes;
+        if (SeedRoots(
+                ref blob,
+                kind,
+                work,
+                ref remainingTypeNodes))
             return true;
 
         while (work.Count > 0)
@@ -124,7 +135,22 @@ public static class SignatureBlobGuard
                 case Op.Type:
                     if (item.Depth > maxDepth)
                         return true;
-                    if (ReadType(ref blob, item.Depth, work))
+                    if (ReadType(
+                            ref blob,
+                            item.Depth,
+                            work,
+                            ref remainingTypeNodes))
+                        return true;
+                    break;
+
+                case Op.MethodParameter:
+                    if (item.Depth > maxDepth)
+                        return true;
+                    if (ReadMethodParameter(
+                            ref blob,
+                            item,
+                            work,
+                            ref remainingTypeNodes))
                         return true;
                     break;
 
@@ -135,66 +161,146 @@ public static class SignatureBlobGuard
             }
         }
 
-        return false;
+        return blob.RemainingBytes != 0;
     }
 
     /// <summary>Pushes <paramref name="count"/> Type slots at <paramref name="depth"/>. Returns true
     /// (unsafe) if the count exceeds the bytes left in the blob: every Type consumes at least one
     /// byte, so a larger count is malformed and must not be materialized (a compressed integer can
     /// encode ~536M, which would otherwise OOM the work-stack before SRM ever sees the blob).</summary>
-    static bool PushTypes(Stack<WorkItem> work, int count, int depth, ref BlobReader blob)
+    static bool PushTypes(
+        Stack<WorkItem> work,
+        int count,
+        int depth,
+        ref BlobReader blob,
+        ref int remainingTypeNodes)
     {
-        if (count < 0 || count > blob.RemainingBytes)
+        if (count < 0
+            || count > blob.RemainingBytes
+            || count > remainingTypeNodes)
             return true;
+        remainingTypeNodes -= count;
         for (int i = 0; i < count; i++)
             work.Push(WorkItem.Type(depth));
         return false;
     }
 
-    static bool SeedRoots(ref BlobReader blob, Kind kind, Stack<WorkItem> work)
+    static bool PushType(
+        Stack<WorkItem> work,
+        int depth,
+        ref int remainingTypeNodes)
+    {
+        if (remainingTypeNodes == 0)
+            return true;
+        remainingTypeNodes--;
+        work.Push(WorkItem.Type(depth));
+        return false;
+    }
+
+    static bool SeedRoots(
+        ref BlobReader blob,
+        Kind kind,
+        Stack<WorkItem> work,
+        ref int remainingTypeNodes)
     {
         switch (kind)
         {
             case Kind.TypeSpecification:
-                work.Push(WorkItem.Type(1));
-                return false;
+                return PushType(
+                    work,
+                    1,
+                    ref remainingTypeNodes);
 
             case Kind.Field:
                 blob.ReadSignatureHeader();
-                work.Push(WorkItem.Type(1));
-                return false;
+                return PushType(
+                    work,
+                    1,
+                    ref remainingTypeNodes);
 
             case Kind.MethodSpecification:
             case Kind.LocalVariables:
             {
                 blob.ReadSignatureHeader();
                 int count = blob.ReadCompressedInteger();
-                return PushTypes(work, count, 1, ref blob);
+                return PushTypes(
+                    work,
+                    count,
+                    1,
+                    ref blob,
+                    ref remainingTypeNodes);
             }
 
             case Kind.Method:
-                return SeedMethodRoots(ref blob, work, depth: 1);
+            case Kind.StandaloneMethod:
+                return SeedMethodRoots(
+                    ref blob,
+                    work,
+                    depth: 1,
+                    allowCdeclSentinel: kind == Kind.StandaloneMethod,
+                    ref remainingTypeNodes);
 
             default:
                 return false;
         }
     }
 
-    static bool SeedMethodRoots(ref BlobReader blob, Stack<WorkItem> work, int depth)
+    static bool SeedMethodRoots(
+        ref BlobReader blob,
+        Stack<WorkItem> work,
+        int depth,
+        bool allowCdeclSentinel,
+        ref int remainingTypeNodes)
     {
         var header = blob.ReadSignatureHeader();
         if (header.IsGeneric)
             blob.ReadCompressedInteger(); // generic parameter count
         int paramCount = blob.ReadCompressedInteger();
-        // Return type + each parameter are Type slots (leading modifiers / by-ref / typedbyref /
-        // sentinel are handled inside ReadType). Ordering among siblings does not affect the maximum
-        // depth. Bound paramCount + 1 (the return type) against the remaining blob before pushing.
-        if (paramCount < 0 || (long)paramCount + 1 > blob.RemainingBytes)
+        if (paramCount < 0
+            || (long)paramCount + 1 > blob.RemainingBytes
+            || (long)paramCount + 1 > remainingTypeNodes)
             return true;
-        work.Push(WorkItem.Type(depth)); // return type
-        for (int i = 0; i < paramCount; i++)
-            work.Push(WorkItem.Type(depth));
+        remainingTypeNodes -= paramCount + 1;
+        var state = new MethodState(
+            header.CallingConvention
+                == SignatureCallingConvention.VarArgs
+            || (allowCdeclSentinel
+                && header.CallingConvention
+                    == SignatureCallingConvention.CDecl));
+        for (int i = paramCount - 1; i >= 0; i--)
+            work.Push(WorkItem.MethodParameter(depth, state));
+        work.Push(WorkItem.Type(depth));
         return false;
+    }
+
+    static bool ReadMethodParameter(
+        ref BlobReader blob,
+        WorkItem item,
+        Stack<WorkItem> work,
+        ref int remainingTypeNodes)
+    {
+        MethodState state = item.Method
+            ?? throw new InvalidOperationException(
+                "A method-parameter work item requires method state.");
+        if (blob.RemainingBytes > 0)
+        {
+            int offset = blob.Offset;
+            if (blob.ReadByte() == ElementTypeSentinel)
+            {
+                if (!state.AllowsSentinel || state.SentinelSeen)
+                    return true;
+                state.SentinelSeen = true;
+            }
+            else
+            {
+                blob.Offset = offset;
+            }
+        }
+        return ReadType(
+            ref blob,
+            item.Depth,
+            work,
+            ref remainingTypeNodes);
     }
 
     /// <summary>Reads one Type at <paramref name="depth"/>, consuming its own bytes and pushing its
@@ -202,7 +308,11 @@ public static class SignatureBlobGuard
     /// encountered. Every prefix that SRM recurses through (custom modifier, by-ref, pinned) pushes
     /// the modified type at <paramref name="depth"/> + 1 so a long prefix chain is bounded exactly
     /// like a chain of pointers.</summary>
-    static bool ReadType(ref BlobReader blob, int depth, Stack<WorkItem> work)
+    static bool ReadType(
+        ref BlobReader blob,
+        int depth,
+        Stack<WorkItem> work,
+        ref int remainingTypeNodes)
     {
         byte code = blob.ReadByte();
         switch (code)
@@ -210,26 +320,31 @@ public static class SignatureBlobGuard
             case ElementTypeCmodReqd:
             case ElementTypeCmodOpt:
                 blob.ReadTypeHandle();               // modifier's TypeDefOrRefOrSpec token
-                work.Push(WorkItem.Type(depth + 1)); // SRM recurses through the modified type
-                return false;
+                return PushType(
+                    work,
+                    depth + 1,
+                    ref remainingTypeNodes);
 
             case ElementTypeByRef:
             case ElementTypePinned:
-            case ElementTypeSentinel:
-                work.Push(WorkItem.Type(depth + 1)); // SRM recurses through the referenced type
-                return false;
-
             case ElementTypePtr:
             case ElementTypeSzArray:
-                work.Push(WorkItem.Type(depth + 1));
-                return false;
+                return PushType(
+                    work,
+                    depth + 1,
+                    ref remainingTypeNodes);
+
+            case ElementTypeSentinel:
+                return true;
 
             case ElementTypeArray:
                 // ELEMENT_TYPE_ARRAY: Type ArrayShape. The shape trails the element in the blob, so
                 // schedule it to be read *after* the element subtree (pushed first here, popped last).
                 work.Push(WorkItem.ArrayShape());
-                work.Push(WorkItem.Type(depth + 1));
-                return false;
+                return PushType(
+                    work,
+                    depth + 1,
+                    ref remainingTypeNodes);
 
             case ElementTypeGenericInst:
             {
@@ -237,12 +352,22 @@ public static class SignatureBlobGuard
                 blob.ReadByte();       // CLASS / VALUETYPE
                 blob.ReadTypeHandle(); // generic type token
                 int args = blob.ReadCompressedInteger();
-                return PushTypes(work, args, depth + 1, ref blob);
+                return PushTypes(
+                    work,
+                    args,
+                    depth + 1,
+                    ref blob,
+                    ref remainingTypeNodes);
             }
 
             case ElementTypeFnPtr:
                 // FNPTR MethodSig: its return type and parameters are the children.
-                return SeedMethodRoots(ref blob, work, depth + 1);
+                return SeedMethodRoots(
+                    ref blob,
+                    work,
+                    depth + 1,
+                    allowCdeclSentinel: false,
+                    ref remainingTypeNodes);
 
             case ElementTypeClass:
             case ElementTypeValueType:
@@ -259,6 +384,7 @@ public static class SignatureBlobGuard
                 // a leaf that consumes no further bytes here.
                 return false;
         }
+
     }
 
     /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
@@ -298,14 +424,33 @@ public static class SignatureBlobGuard
     const byte ElementTypeSentinel = 0x41;    // ELEMENT_TYPE_SENTINEL
     const byte ElementTypePinned = 0x45;      // ELEMENT_TYPE_PINNED
 
-    enum Op : byte { Type, ArrayShape }
+    enum Op : byte { Type, MethodParameter, ArrayShape }
+
+    sealed class MethodState(bool allowsSentinel)
+    {
+        public bool AllowsSentinel { get; } = allowsSentinel;
+        public bool SentinelSeen { get; set; }
+    }
 
     readonly struct WorkItem
     {
         public Op Op { get; }
         public int Depth { get; }
-        WorkItem(Op op, int depth) { Op = op; Depth = depth; }
+        public MethodState? Method { get; }
+        WorkItem(
+            Op op,
+            int depth,
+            MethodState? method = null)
+        {
+            Op = op;
+            Depth = depth;
+            Method = method;
+        }
         public static WorkItem Type(int depth) => new(Op.Type, depth);
+        public static WorkItem MethodParameter(
+            int depth,
+            MethodState method)
+            => new(Op.MethodParameter, depth, method);
         public static WorkItem ArrayShape() => new(Op.ArrayShape, 0);
     }
 }
