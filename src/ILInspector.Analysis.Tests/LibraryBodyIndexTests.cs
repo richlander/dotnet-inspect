@@ -1411,11 +1411,83 @@ public class LibraryBodyIndexTests
         Assert.Empty(index.Diagnostics);
     }
 
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void OptimizationOpportunities_AsyncSiblingStaticMetadataMustBeConsistent(
+        bool asynchronousMethodIsStatic,
+        int expected)
+    {
+        byte[] dependency =
+            BuildDirectionProbeDependency(
+                byRef: false,
+                ParameterAttributes.None,
+                ParameterAttributes.None,
+                asynchronousMethodIsStatic:
+                    asynchronousMethodIsStatic);
+        byte[] caller =
+            BuildDirectionProbeCaller(byRef: false);
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DirectionProbeCaller.dll",
+                [.. caller],
+                LibraryBodyAnalysisFeatures.Default,
+                new DirectionProbeResolver(dependency));
+
+        Assert.Equal(
+            expected,
+            index.OptimizationOpportunities.Count(
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync"));
+        Assert.Empty(index.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void OptimizationOpportunities_AsyncSiblingGenericCountMatchesRows(
+        bool addAsynchronousGenericParameter,
+        int expected)
+    {
+        byte[] dependency =
+            BuildDirectionProbeDependency(
+                byRef: false,
+                ParameterAttributes.None,
+                ParameterAttributes.None,
+                genericSignature: true,
+                addAsynchronousGenericParameter:
+                    addAsynchronousGenericParameter);
+        byte[] caller =
+            BuildDirectionProbeCaller(
+                byRef: false,
+                genericSignature: true);
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DirectionProbeCaller.dll",
+                [.. caller],
+                LibraryBodyAnalysisFeatures.Default,
+                new DirectionProbeResolver(dependency));
+
+        Assert.Equal(
+            expected,
+            index.OptimizationOpportunities.Count(
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync"));
+        Assert.Empty(index.Diagnostics);
+    }
+
     static byte[] BuildDirectionProbeDependency(
         bool byRef,
         ParameterAttributes synchronousDirection,
         ParameterAttributes asynchronousDirection,
-        bool duplicateSynchronous = false)
+        bool duplicateSynchronous = false,
+        bool asynchronousMethodIsStatic = true,
+        bool genericSignature = false,
+        bool addAsynchronousGenericParameter = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1494,7 +1566,8 @@ public class LibraryBodyIndexTests
             MethodAttributes.Public
             | MethodAttributes.Static;
 
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle read =
+            metadata.AddMethodDefinition(
             Attributes,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Read"),
@@ -1502,20 +1575,41 @@ public class LibraryBodyIndexTests
                 metadata,
                 asynchronous: false,
                 byRef,
-                task),
+                task,
+                genericSignature),
             readBody,
             readParameter);
-        metadata.AddMethodDefinition(
-            Attributes,
+        MethodDefinitionHandle readAsync =
+            metadata.AddMethodDefinition(
+            asynchronousMethodIsStatic
+                ? Attributes
+                : MethodAttributes.Public,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("ReadAsync"),
             AddDirectionProbeSignature(
                 metadata,
                 asynchronous: true,
                 byRef,
-                task),
+                task,
+                genericSignature),
             asyncBody,
             asyncParameter);
+        if (genericSignature)
+        {
+            metadata.AddGenericParameter(
+                read,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            if (addAsynchronousGenericParameter)
+            {
+                metadata.AddGenericParameter(
+                    readAsync,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    index: 0);
+            }
+        }
         if (duplicateSynchronous)
         {
             metadata.AddMethodDefinition(
@@ -1526,7 +1620,8 @@ public class LibraryBodyIndexTests
                     metadata,
                     asynchronous: false,
                     byRef,
-                    task),
+                    task,
+                    genericSignature),
                 readBody,
                 duplicateParameter);
         }
@@ -1535,7 +1630,9 @@ public class LibraryBodyIndexTests
             bodies);
     }
 
-    static byte[] BuildDirectionProbeCaller(bool byRef)
+    static byte[] BuildDirectionProbeCaller(
+        bool byRef,
+        bool genericSignature = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1591,7 +1688,7 @@ public class LibraryBodyIndexTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        MemberReferenceHandle read =
+        MemberReferenceHandle readReference =
             metadata.AddMemberReference(
                 api,
                 metadata.GetOrAddString("Read"),
@@ -1599,7 +1696,19 @@ public class LibraryBodyIndexTests
                     metadata,
                     asynchronous: false,
                     byRef,
-                    task));
+                    task,
+                    genericSignature));
+        EntityHandle read = readReference;
+        if (genericSignature)
+        {
+            read = metadata.AddMethodSpecification(
+                readReference,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x0A, 0x01, 0x08,
+                    }));
+        }
 
         var bodies = new BlobBuilder();
         var bodyEncoder =
@@ -1678,10 +1787,14 @@ public class LibraryBodyIndexTests
         MetadataBuilder metadata,
         bool asynchronous,
         bool byRef,
-        TypeReferenceHandle task)
+        TypeReferenceHandle task,
+        bool generic = false)
     {
         var signature = new BlobBuilder();
-        signature.WriteByte(0x00);
+        signature.WriteByte(
+            generic ? (byte)0x10 : (byte)0x00);
+        if (generic)
+            signature.WriteByte(0x01);
         signature.WriteByte(0x01);
         if (asynchronous)
         {
@@ -1707,6 +1820,338 @@ public class LibraryBodyIndexTests
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression()
+    {
+        Guid dependencyMvid = Guid.Parse(
+            "11111111-2222-3333-4444-555555555555");
+        byte[] dependency =
+            BuildMvidCollisionDependency(
+                dependencyMvid);
+        var resolver =
+            new MvidCollisionResolver(dependency);
+        var collision =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "CollisionRoot.dll",
+                [.. BuildMvidCollisionRoot(
+                    dependencyMvid)],
+                LibraryBodyAnalysisFeatures.Default,
+                resolver);
+        var distinct =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "CollisionRoot.dll",
+                [.. BuildMvidCollisionRoot(
+                    Guid.Parse(
+                        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"))],
+                LibraryBodyAnalysisFeatures.Default,
+                resolver);
+
+        Assert.Contains(
+            collision.DirectCalls,
+            call => call.Caller.Name
+                    == "ReadAsync"
+                && call.Callee.Name == "Read"
+                && call.Callee.DeclaringType.Name
+                    == "IReader");
+        Assert.Empty(collision.Diagnostics);
+        Assert.DoesNotContain(
+            distinct.OptimizationOpportunities,
+            IsRecursiveReadAsyncOpportunity);
+        Assert.DoesNotContain(
+            collision.OptimizationOpportunities,
+            IsRecursiveReadAsyncOpportunity);
+
+        static bool IsRecursiveReadAsyncOpportunity(
+            OptimizationOpportunity opportunity)
+            => opportunity.Shape == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "ReadAsync";
+    }
+
+    static byte[] BuildMvidCollisionDependency(
+        Guid mvid)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "CollisionDependency.dll"),
+            metadata.GetOrAddGuid(mvid),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "CollisionDependency"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            AddCollisionSystemRuntime(metadata);
+        TypeReferenceHandle systemObject =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle taskOfT =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                metadata.GetOrAddString("Task`1"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle reader =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("IReader"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle implementation =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("B"),
+                systemObject,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddInterfaceImplementation(
+            implementation,
+            reader);
+        BlobHandle intSignature =
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0x20, 0x00, 0x08,
+                });
+        BlobHandle taskSignature =
+            AddCollisionTaskSignature(
+                metadata,
+                taskOfT);
+        const MethodAttributes InterfaceMethod =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.Abstract
+            | MethodAttributes.NewSlot;
+        metadata.AddMethodDefinition(
+            InterfaceMethod,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Read"),
+            intSignature,
+            -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            InterfaceMethod,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadAsync"),
+            taskSignature,
+            -1,
+            MetadataTokens.ParameterHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder =
+            new MethodBodyStreamEncoder(bodies);
+        var readIl = new BlobBuilder();
+        readIl.WriteByte((byte)ILOpCode.Ldc_i4_1);
+        readIl.WriteByte((byte)ILOpCode.Ret);
+        int readBody = encoder.AddMethodBody(
+            new InstructionEncoder(readIl),
+            maxStack: 1);
+        var asyncIl = new BlobBuilder();
+        asyncIl.WriteByte((byte)ILOpCode.Ldnull);
+        asyncIl.WriteByte((byte)ILOpCode.Ret);
+        int asyncBody = encoder.AddMethodBody(
+            new InstructionEncoder(asyncIl),
+            maxStack: 1);
+        const MethodAttributes ImplementationMethod =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        metadata.AddMethodDefinition(
+            ImplementationMethod,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Read"),
+            intSignature,
+            readBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            ImplementationMethod,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadAsync"),
+            taskSignature,
+            asyncBody,
+            MetadataTokens.ParameterHandle(1));
+        return SerializeCollisionProbe(
+            metadata,
+            bodies);
+    }
+
+    static byte[] BuildMvidCollisionRoot(Guid mvid)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "CollisionRoot.dll"),
+            metadata.GetOrAddGuid(mvid),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("CollisionRoot"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            AddCollisionSystemRuntime(metadata);
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    "CollisionDependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle systemObject =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle taskOfT =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                metadata.GetOrAddString("Task`1"));
+        TypeReferenceHandle baseType =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("B"));
+        TypeReferenceHandle reader =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("IReader"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Padding"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("C"),
+            baseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        MemberReferenceHandle read =
+            metadata.AddMemberReference(
+                reader,
+                metadata.GetOrAddString("Read"),
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x20, 0x00, 0x08,
+                    }));
+        var bodies = new BlobBuilder();
+        var encoder =
+            new MethodBodyStreamEncoder(bodies);
+        var il = new BlobBuilder();
+        il.WriteByte((byte)ILOpCode.Ldarg_0);
+        il.WriteByte((byte)ILOpCode.Callvirt);
+        il.WriteInt32(MetadataTokens.GetToken(read));
+        il.WriteByte((byte)ILOpCode.Pop);
+        il.WriteByte((byte)ILOpCode.Ldnull);
+        il.WriteByte((byte)ILOpCode.Ret);
+        int body = encoder.AddMethodBody(
+            new InstructionEncoder(il),
+            maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL
+                | (MethodImplAttributes)0x2000,
+            metadata.GetOrAddString("ReadAsync"),
+            AddCollisionTaskSignature(
+                metadata,
+                taskOfT),
+            body,
+            MetadataTokens.ParameterHandle(1));
+        return SerializeCollisionProbe(
+            metadata,
+            bodies);
+    }
+
+    static AssemblyReferenceHandle
+        AddCollisionSystemRuntime(
+            MetadataBuilder metadata)
+        => metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xB0, 0x3F, 0x5F, 0x7F,
+                    0x11, 0xD5, 0x0A, 0x3A,
+                }),
+            default,
+            default);
+
+    static BlobHandle AddCollisionTaskSignature(
+        MetadataBuilder metadata,
+        TypeReferenceHandle taskOfT)
+        => metadata.GetOrAddBlob(
+            new byte[]
+            {
+                0x20,
+                0x00,
+                0x15,
+                0x12,
+                (byte)CodedIndex
+                    .TypeDefOrRefOrSpec(taskOfT),
+                0x01,
+                0x08,
+            });
+
+    static byte[] SerializeCollisionProbe(
+        MetadataBuilder metadata,
+        BlobBuilder bodies)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
             bodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
@@ -2876,6 +3321,38 @@ public class LibraryBodyIndexTests
             AssemblyResolutionScope scope)
             => identity.Name.Equals(
                     "DirectionProbeDependency",
+                    StringComparison.OrdinalIgnoreCase)
+                ? _dependency
+                : null;
+    }
+
+    sealed class MvidCollisionResolver
+        : IAssemblyReferenceResolver
+    {
+        readonly ResolvedAssemblyReference _dependency;
+
+        public MvidCollisionResolver(byte[] image)
+        {
+            _dependency =
+                ResolvedAssemblyReference.Create(
+                    new AssemblyReferenceIdentity(
+                        "CollisionDependency",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null),
+                    path: null,
+                    () => new MemoryStream(
+                        image,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local(
+                        "async sibling MVID collision probe"));
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name.Equals(
+                    "CollisionDependency",
                     StringComparison.OrdinalIgnoreCase)
                 ? _dependency
                 : null;

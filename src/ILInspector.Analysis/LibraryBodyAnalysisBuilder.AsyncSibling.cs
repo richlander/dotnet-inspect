@@ -463,15 +463,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         MetadataReader reader = _reader;
         TypeDefinitionHandle current = sourceType;
         ImmutableArray<TypeRef> currentTypeArguments = [];
-        var visited = new HashSet<(Guid Mvid, int Token)>();
-        while (visited.Count
+        var visited =
+            new Dictionary<MetadataReader, HashSet<int>>(
+                ReferenceEqualityComparer.Instance);
+        int visitedCount = 0;
+        while (visitedCount
             < MetadataSafetyPolicy.MaxRelationshipNodes)
         {
-            var key = (
-                reader.GetGuid(
-                    reader.GetModuleDefinition().Mvid),
-                MetadataTokens.GetToken(current));
-            if (!visited.Add(key))
+            if (!TryVisitTypeDefinition(
+                    visited,
+                    reader,
+                    current,
+                    ref visitedCount))
                 return TypeRelation.Unknown;
 
             var definition =
@@ -499,12 +502,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 return TypeRelation.Unknown;
             }
 
-            bool candidateDefinition =
-                SameTypeDefinition(
+            TypeRelation candidateDefinition =
+                TypeDefinitionRelation(
                     resolvedBase.DefiningReader,
                     resolvedBase.Definition,
                     candidateReader,
                     candidateType);
+            if (candidateDefinition
+                == TypeRelation.Unknown)
+            {
+                return TypeRelation.Unknown;
+            }
             MethodDefinitionHandle matching =
                 MatchingVirtualSlot(
                     resolvedBase.DefiningReader,
@@ -514,7 +522,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     out bool ambiguousSlot);
             if (ambiguousSlot)
                 return TypeRelation.Unknown;
-            if (candidateDefinition)
+            if (candidateDefinition == TypeRelation.Yes)
             {
                 return matching == candidateMethod
                     ? TypeRelation.Yes
@@ -633,22 +641,27 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         var pending = new Stack<(
             MetadataReader Reader,
             TypeDefinitionHandle Definition)>();
-        var visited = new HashSet<(Guid Mvid, int Token)>();
+        var visited =
+            new Dictionary<MetadataReader, HashSet<int>>(
+                ReferenceEqualityComparer.Instance);
+        int visitedCount = 0;
         bool incomplete = false;
         pending.Push((_reader, sourceType));
         while (pending.Count > 0
-            && visited.Count
+            && visitedCount
                 < MetadataSafetyPolicy.MaxRelationshipNodes)
         {
             (MetadataReader reader,
                 TypeDefinitionHandle current) =
                 pending.Pop();
-            var key = (
-                reader.GetGuid(
-                    reader.GetModuleDefinition().Mvid),
-                MetadataTokens.GetToken(current));
-            if (!visited.Add(key))
+            if (!TryVisitTypeDefinition(
+                    visited,
+                    reader,
+                    current,
+                    ref visitedCount))
+            {
                 continue;
+            }
 
             var definition =
                 reader.GetTypeDefinition(current);
@@ -667,14 +680,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     incomplete = true;
                     continue;
                 }
-                if (SameTypeDefinition(
+                TypeRelation relation =
+                    TypeDefinitionRelation(
                         resolvedInterface.DefiningReader,
                         resolvedInterface.Definition,
                         candidateReader,
-                        candidateType))
+                        candidateType);
+                if (relation == TypeRelation.Yes)
                 {
                     return TypeRelation.Yes;
                 }
+                if (relation == TypeRelation.Unknown)
+                    incomplete = true;
                 pending.Push(resolvedInterface);
             }
 
@@ -708,17 +725,49 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             : TypeRelation.No;
     }
 
-    static bool SameTypeDefinition(
+    static bool TryVisitTypeDefinition(
+        Dictionary<MetadataReader, HashSet<int>> visited,
+        MetadataReader reader,
+        TypeDefinitionHandle definition,
+        ref int visitedCount)
+    {
+        if (!visited.TryGetValue(
+                    reader,
+                    out HashSet<int>? tokens))
+        {
+            tokens = [];
+            visited.Add(reader, tokens);
+        }
+        if (!tokens.Add(
+                    MetadataTokens.GetToken(definition)))
+        {
+            return false;
+        }
+        visitedCount++;
+        return true;
+    }
+
+    static TypeRelation TypeDefinitionRelation(
         MetadataReader leftReader,
         TypeDefinitionHandle left,
         MetadataReader rightReader,
         TypeDefinitionHandle right)
-        => MetadataTokens.GetToken(left)
-                == MetadataTokens.GetToken(right)
-            && leftReader.GetGuid(
-                leftReader.GetModuleDefinition().Mvid)
-                == rightReader.GetGuid(
-                    rightReader.GetModuleDefinition().Mvid);
+    {
+        if (MetadataTokens.GetToken(left)
+            != MetadataTokens.GetToken(right))
+        {
+            return TypeRelation.No;
+        }
+        if (ReferenceEquals(leftReader, rightReader))
+            return TypeRelation.Yes;
+
+        return leftReader.GetGuid(
+                        leftReader.GetModuleDefinition().Mvid)
+                    == rightReader.GetGuid(
+                        rightReader.GetModuleDefinition().Mvid)
+            ? TypeRelation.Unknown
+            : TypeRelation.No;
+    }
 
     enum TypeRelation
     {
@@ -980,6 +1029,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         var signature = methodDefinition.DecodeSignature(
             TypeRefDecoder.Instance,
             scope);
+        bool metadataIsInstance =
+            (methodDefinition.Attributes
+                & MethodAttributes.Static) == 0;
+        if (signature.Header.IsInstance
+                != metadataIsInstance
+            || !HasExactGenericParameters(
+                reader,
+                methodDefinition.GetGenericParameters(),
+                signature.GenericParameterCount))
+        {
+            return null;
+        }
         ImmutableArray<TypeRef> typeArguments =
             callee.DeclaringType.Kind
                 == TypeRefKind.GenericInstance
@@ -1026,6 +1087,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     candidate.ReturnType))
                 ? candidate
                 : null;
+    }
+
+    static bool HasExactGenericParameters(
+        MetadataReader reader,
+        GenericParameterHandleCollection parameters,
+        int signatureCount)
+    {
+        if (parameters.Count != signatureCount)
+            return false;
+
+        int expectedIndex = 0;
+        foreach (var handle in parameters)
+        {
+            if (reader.GetGenericParameter(handle).Index
+                != expectedIndex++)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     static ImmutableArray<string> GenericParameterNames(
