@@ -8,10 +8,10 @@ description: Find SourceLink-mapped original source through PDB data — map fil
 
 Use this skill to get the original source mapped by the PDB. dotnet-inspect
 verifies local files and GitHub committed blobs read through `--repo` against
-the PDB checksum. A network `Original Source` fetch follows the SourceLink URL
-without performing that checksum check; use
-`library -S "SourceLink: Integrity"` for opt-in content verification of
-fetchable, non-embedded compiler-source documents. Without a usable PDB,
+the PDB checksum. A network `Original Source` fetch also verifies the checksum
+and requires the final redirect origin to match before returning the body. Use
+`library -S "SourceLink: Integrity"` for opt-in verification of every
+fetchable, non-embedded compiler-source document. Without a usable PDB,
 SourceLink map, or matching source, use the always-local `decompiler` skill.
 
 ```bash

@@ -290,11 +290,6 @@ public static class RouterCommandDefinition
                 bool isNonExactPlatformProbe =
                     typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
                     && !await IsExactPlatformTypeAsync(typeProbe, context);
-                if (isNonExactPlatformProbe && platformLookupFailure is null)
-                {
-                    return ["type", target, .. tail];
-                }
-
                 if (!isNonExactPlatformProbe)
                 {
                     RequestTelemetry.Breadcrumb(
