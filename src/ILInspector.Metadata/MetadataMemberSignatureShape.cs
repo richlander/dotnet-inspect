@@ -120,8 +120,13 @@ public static class MetadataMemberSignatureShape
         }
 
         MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-        IReadOnlyDictionary<int, string> typeParameters =
-            TypeParameterNames(reader, method.GetDeclaringType());
+        if (!TryTypeParameterNames(
+                reader,
+                method.GetDeclaringType(),
+                out IReadOnlyDictionary<int, string> typeParameters))
+        {
+            return false;
+        }
         IReadOnlyDictionary<int, string> methodParameters =
             ParameterNames(reader, method.GetGenericParameters());
 
@@ -270,28 +275,39 @@ public static class MetadataMemberSignatureShape
         return true;
     }
 
-    static IReadOnlyDictionary<int, string> TypeParameterNames(
+    static bool TryTypeParameterNames(
         MetadataReader reader,
-        TypeDefinitionHandle typeHandle)
+        TypeDefinitionHandle typeHandle,
+        out IReadOnlyDictionary<int, string> names)
     {
-        var hierarchy = new Stack<TypeDefinitionHandle>();
-        while (!typeHandle.IsNil)
+        Span<TypeDefinitionHandle> hierarchy =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                typeHandle,
+                hierarchy,
+                out int count,
+                out EntityHandle terminal,
+                out _)
+            || count == 0
+            || !terminal.IsNil)
         {
-            hierarchy.Push(typeHandle);
-            typeHandle = reader.GetTypeDefinition(typeHandle).GetDeclaringType();
+            names = new Dictionary<int, string>();
+            return false;
         }
 
-        var names = new Dictionary<int, string>();
-        while (hierarchy.TryPop(out TypeDefinitionHandle current))
+        var collected = new Dictionary<int, string>();
+        for (int i = 0; i < count; i++)
         {
             foreach (GenericParameterHandle handle in
-                reader.GetTypeDefinition(current).GetGenericParameters())
+                reader.GetTypeDefinition(hierarchy[i]).GetGenericParameters())
             {
                 GenericParameter parameter = reader.GetGenericParameter(handle);
-                names[parameter.Index] = reader.GetString(parameter.Name);
+                collected[parameter.Index] = reader.GetString(parameter.Name);
             }
         }
-        return names;
+        names = collected;
+        return true;
     }
 
     static IReadOnlyDictionary<int, string> ParameterNames(
@@ -384,7 +400,16 @@ public static class MetadataMemberSignatureShape
                 arguments[i] = typeArguments[i].Shape!;
             }
 
-            int expected = named.Segments.Sum(segment => segment.Arity);
+            int expected = 0;
+            foreach (NamedTypeSegment segment in named.Segments)
+            {
+                if (segment.Arity > arguments.Length - expected)
+                {
+                    return TypeResult.Unavailable(
+                        "The metadata generic arity does not match its type arguments.");
+                }
+                expected += segment.Arity;
+            }
             if (expected != arguments.Length)
             {
                 return TypeResult.Unavailable(
@@ -415,7 +440,9 @@ public static class MetadataMemberSignatureShape
                 && arguments.Length >= 2)
             {
                 return TypeResult.Available(
-                    new TupleTypeSignatureShape(new(FlattenValueTuple(arguments))));
+                    new TupleTypeSignatureShape(
+                        MemberSignatureShapeNormalization.NormalizeValueTupleElements(
+                            arguments)));
             }
 
             return TypeResult.Available(instantiated);
@@ -478,40 +505,73 @@ public static class MetadataMemberSignatureShape
             MetadataReader reader,
             TypeDefinitionHandle handle)
         {
-            var segments = new Stack<NamedTypeSegment>();
-            TypeDefinitionHandle current = handle;
-            string @namespace = "";
-            while (!current.IsNil)
+            Span<TypeDefinitionHandle> hierarchy =
+                stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    hierarchy,
+                    out int count,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || count == 0
+                || !terminal.IsNil)
             {
-                TypeDefinition definition = reader.GetTypeDefinition(current);
-                segments.Push(Segment(reader.GetString(definition.Name)));
-                string candidateNamespace = reader.GetString(definition.Namespace);
-                if (!string.IsNullOrEmpty(candidateNamespace))
-                    @namespace = candidateNamespace;
-                current = definition.GetDeclaringType();
+                return TypeResult.Unavailable(
+                    rejection?.Detail
+                    ?? "The metadata type has an invalid declaring-type chain.");
             }
-            return NormalizeNamed(@namespace, [.. segments]);
+
+            var segments = new NamedTypeSegment[count];
+            string @namespace = "";
+            for (int i = 0; i < count; i++)
+            {
+                TypeDefinition definition = reader.GetTypeDefinition(hierarchy[i]);
+                segments[i] = Segment(reader.GetString(definition.Name));
+                string candidateNamespace = reader.GetString(definition.Namespace);
+                if (string.IsNullOrEmpty(@namespace)
+                    && !string.IsNullOrEmpty(candidateNamespace))
+                {
+                    @namespace = candidateNamespace;
+                }
+            }
+            return NormalizeNamed(@namespace, segments);
         }
 
         static TypeResult NamedFromReference(
             MetadataReader reader,
             TypeReferenceHandle handle)
         {
-            var segments = new Stack<NamedTypeSegment>();
-            TypeReferenceHandle current = handle;
-            string @namespace = "";
-            while (!current.IsNil)
+            Span<TypeReferenceHandle> hierarchy =
+                stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    hierarchy,
+                    out int count,
+                    out _,
+                    out var rejection)
+                || count == 0)
             {
-                TypeReference reference = reader.GetTypeReference(current);
-                segments.Push(Segment(reader.GetString(reference.Name)));
-                string candidateNamespace = reader.GetString(reference.Namespace);
-                if (!string.IsNullOrEmpty(candidateNamespace))
-                    @namespace = candidateNamespace;
-                current = reference.ResolutionScope.Kind == HandleKind.TypeReference
-                    ? (TypeReferenceHandle)reference.ResolutionScope
-                    : default;
+                return TypeResult.Unavailable(
+                    rejection?.Detail
+                    ?? "The metadata type has an invalid resolution-scope chain.");
             }
-            return NormalizeNamed(@namespace, [.. segments]);
+
+            var segments = new NamedTypeSegment[count];
+            string @namespace = "";
+            for (int i = 0; i < count; i++)
+            {
+                TypeReference reference = reader.GetTypeReference(hierarchy[i]);
+                segments[i] = Segment(reader.GetString(reference.Name));
+                string candidateNamespace = reader.GetString(reference.Namespace);
+                if (string.IsNullOrEmpty(@namespace)
+                    && !string.IsNullOrEmpty(candidateNamespace))
+                {
+                    @namespace = candidateNamespace;
+                }
+            }
+            return NormalizeNamed(@namespace, segments);
         }
 
         static TypeResult NormalizeNamed(
@@ -558,28 +618,6 @@ public static class MetadataMemberSignatureShape
             => value.Shape is null
                 ? value
                 : TypeResult.Available(wrapper(value.Shape));
-
-        static IEnumerable<TypeSignatureShape> FlattenValueTuple(
-            IReadOnlyList<TypeSignatureShape> arguments)
-        {
-            if (arguments.Count != 8)
-                return arguments;
-
-            if (arguments[7] is TupleTypeSignatureShape rest)
-            {
-                return arguments.Take(7).Concat(rest.ElementTypes);
-            }
-            if (arguments[7] is NamedTypeSignatureShape namedRest
-                && FullName(namedRest) == "System.ValueTuple")
-            {
-                TypeSignatureShape[] restArguments = namedRest.Segments
-                    .SelectMany(segment => segment.TypeArguments)
-                    .ToArray();
-                if (restArguments.Length > 0)
-                    return arguments.Take(7).Concat(restArguments);
-            }
-            return arguments;
-        }
 
         static string FullName(NamedTypeSignatureShape named)
         {

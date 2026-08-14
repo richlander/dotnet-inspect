@@ -324,6 +324,48 @@ public class MemberSignatureShapeTests
     }
 
     [Fact]
+    public void SourceShape_RefusesSupplementalFunctionPointerConvention()
+    {
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            "unsafe void M(delegate* unmanaged[SuppressGCTransition]<int, void> callback);",
+            SourceMemberSignatureKind.Method);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains(
+            "cannot be represented consistently",
+            result.UnavailableReason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceShape_FlattensExplicitValueTupleRestChain()
+    {
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            """
+            void M(
+                global::System.ValueTuple<
+                    int, int, int, int, int, int, int, (short, byte)> value);
+            """,
+            SourceMemberSignatureKind.Method);
+
+        Assert.True(result.IsAvailable, result.UnavailableReason);
+        var tuple = Assert.IsType<TupleTypeSignatureShape>(
+            result.Shape!.Parameters[0].Type);
+        Assert.Equal(9, tuple.ElementTypes.Count);
+        Assert.All(
+            tuple.ElementTypes.Take(7),
+            element => Assert.Equal(
+                new PrimitiveTypeSignatureShape("System.Int32"),
+                element));
+        Assert.Equal(
+            new PrimitiveTypeSignatureShape("System.Int16"),
+            tuple.ElementTypes[7]);
+        Assert.Equal(
+            new PrimitiveTypeSignatureShape("System.Byte"),
+            tuple.ElementTypes[8]);
+    }
+
+    [Fact]
     public void Codec_RoundTripsCanonicalTextAndNormalizesLegacyInput()
     {
         MemberSignatureShapeResult source = SourceMemberSignatureShape.Create(

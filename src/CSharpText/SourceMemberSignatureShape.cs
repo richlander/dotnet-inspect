@@ -685,7 +685,9 @@ static class SourceTypeShapeParser
             if (fullName == "System.ValueTuple"
                 && segments[^1].TypeArguments.Count >= 2)
             {
-                return new TupleTypeSignatureShape(segments[^1].TypeArguments);
+                return new TupleTypeSignatureShape(
+                    MemberSignatureShapeNormalization.NormalizeValueTupleElements(
+                        segments[^1].TypeArguments));
             }
 
             return new NamedTypeSignatureShape(@namespace, new(segments));
@@ -753,9 +755,13 @@ static class SourceTypeShapeParser
                     do conventions.Add(TakeIdentifier());
                     while (TakeIf(","));
                     Take("]");
-                    convention = conventions.Count == 1
-                        ? NormalizeCallingConvention(conventions[0])
-                        : "unmanaged[" + string.Join(",", conventions) + "]";
+                    if (conventions.Count != 1
+                        || NormalizeCallingConvention(conventions[0]) is not { } normalized)
+                    {
+                        throw new InvalidOperationException(
+                            "The function-pointer calling conventions cannot be represented consistently from metadata.");
+                    }
+                    convention = normalized;
                 }
             }
 
@@ -780,14 +786,14 @@ static class SourceTypeShapeParser
                 new(values.Take(values.Count - 1)));
         }
 
-        static string NormalizeCallingConvention(string convention)
+        static string? NormalizeCallingConvention(string convention)
             => convention switch
             {
                 "Cdecl" => "CDecl",
                 "Stdcall" => "StdCall",
                 "Thiscall" => "ThisCall",
                 "Fastcall" => "FastCall",
-                _ => convention,
+                _ => null,
             };
 
         TypeSignatureShape ApplyNullable(TypeSignatureShape type)

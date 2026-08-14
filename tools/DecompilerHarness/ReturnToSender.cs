@@ -1150,6 +1150,9 @@ static class ReturnToSender
         string methodName,
         string signature)
     {
+        if (!signature.StartsWith("mss1:", StringComparison.Ordinal))
+            return null;
+
         MemberSignatureShapeResult target = MemberSignatureShapeCodec.Decode(signature);
         var candidates =
             new List<(MethodDefinitionHandle Candidate, MemberSignatureShapeResult Shape)>();

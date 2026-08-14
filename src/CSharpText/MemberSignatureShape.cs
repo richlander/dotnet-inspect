@@ -148,6 +148,39 @@ public sealed record MemberSignatureShape(
     SignatureShapeList<MemberParameterSignatureShape> Parameters,
     TypeSignatureShape? ConversionReturnType = null);
 
+/// <summary>Shared normalization rules for source and metadata shape adapters.</summary>
+public static class MemberSignatureShapeNormalization
+{
+    public static SignatureShapeList<TypeSignatureShape> NormalizeValueTupleElements(
+        IReadOnlyList<TypeSignatureShape> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        if (arguments.Count != 8)
+            return new(arguments);
+
+        if (arguments[7] is TupleTypeSignatureShape rest)
+            return new(arguments.Take(7).Concat(rest.ElementTypes));
+        if (arguments[7] is NamedTypeSignatureShape namedRest
+            && FullName(namedRest) == "System.ValueTuple")
+        {
+            TypeSignatureShape[] restArguments = namedRest.Segments
+                .SelectMany(segment => segment.TypeArguments)
+                .ToArray();
+            if (restArguments.Length > 0)
+                return new(arguments.Take(7).Concat(restArguments));
+        }
+        return new(arguments);
+    }
+
+    static string FullName(NamedTypeSignatureShape named)
+    {
+        string typeName = string.Join(".", named.Segments.Select(segment => segment.Name));
+        return string.IsNullOrEmpty(named.Namespace)
+            ? typeName
+            : named.Namespace + "." + typeName;
+    }
+}
+
 /// <summary>An available shape or an explicit reason that one could not be produced.</summary>
 public sealed record MemberSignatureShapeResult
 {

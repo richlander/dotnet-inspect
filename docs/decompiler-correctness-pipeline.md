@@ -62,10 +62,14 @@ operation. It may use `CSharpText.MemberSignatureShape` to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
 or unavailable and may fall back to the recorded ordinal. It cannot turn a
 shape match into fault-attribution identity; attribution still requires the
-exact MVID and MethodDef token. The close gates are
+exact MVID and MethodDef token. Only canonical `mss1:` shapes may select a
+candidate. A persisted legacy signature may validate an already selected exact
+MethodDef, but never participates in candidate selection. The close gates are
 `ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers`,
 `SourceSignatureCorrespondence_ReportsAmbiguousCandidates`, and
-`SourceSignatureCorrespondence_ReportsUnavailableCandidate`.
+`SourceSignatureCorrespondence_ReportsUnavailableCandidate`; legacy isolation is
+gated by `CompileBackTargets_LegacySignatureCannotOverrideOrdinal` and
+`SourceSignatureCorrespondence_RejectsLegacyCandidateSelection`.
 
 ## The gauntlet
 

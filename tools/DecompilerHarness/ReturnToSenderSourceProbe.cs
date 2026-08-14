@@ -907,6 +907,11 @@ internal sealed class ReturnToSenderSourceIndex
             return MemberSignatureCorrespondence<ReturnToSenderSourceMember>.Unavailable(
                 "The target carries no signature shape.");
         }
+        if (!target.Signature.StartsWith("mss1:", StringComparison.Ordinal))
+        {
+            return MemberSignatureCorrespondence<ReturnToSenderSourceMember>.Unavailable(
+                "Only canonical signature shapes may select source candidates.");
+        }
 
         MemberSignatureShapeResult targetShape =
             MemberSignatureShapeCodec.Decode(target.Signature);

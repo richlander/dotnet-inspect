@@ -1,5 +1,8 @@
 using CSharpText;
+using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata.Tests;
@@ -42,6 +45,16 @@ public unsafe class MetadataMemberSignatureShapeTests
     [InlineData(
         nameof(ShapeSpecimens.ByRefFunctionPointer),
         "unsafe void ByRefFunctionPointer(delegate*<ref int, void> callback);",
+        SourceMemberSignatureKind.Method)]
+    [InlineData(
+        nameof(ShapeSpecimens.ExplicitValueTupleRest),
+        """
+        unsafe void ExplicitValueTupleRest(
+            delegate* unmanaged<
+                global::System.ValueTuple<
+                    int, int, int, int, int, int, int, (short, byte)>,
+                void> callback);
+        """,
         SourceMemberSignatureKind.Method)]
     [InlineData(
         "op_Implicit",
@@ -91,6 +104,63 @@ public unsafe class MetadataMemberSignatureShapeTests
         Assert.Equal(source.Shape, metadata.Shape);
     }
 
+    [Fact]
+    public void SupplementalConventionAndExplicitTupleRest_CannotFalseUniquelyCrossMatch()
+    {
+        using var stream = File.OpenRead(typeof(MetadataMemberSignatureShapeTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MemberSignatureShapeResult metadataSupplemental =
+            MetadataMemberSignatureShape.Create(
+                reader,
+                FindMethod(
+                    reader,
+                    nameof(ShapeSpecimens),
+                    nameof(ShapeSpecimens.SupplementalTupleSyntax)));
+        MemberSignatureShapeResult metadataExplicit =
+            MetadataMemberSignatureShape.Create(
+                reader,
+                FindMethod(
+                    reader,
+                    nameof(ShapeSpecimens),
+                    nameof(ShapeSpecimens.ExplicitValueTupleRest)));
+        MemberSignatureShapeResult sourceSupplemental =
+            SourceMemberSignatureShape.Create(
+                """
+                unsafe void SupplementalTupleSyntax(
+                    delegate* unmanaged[SuppressGCTransition]<
+                        (int, int, int, int, int, int, int, (short, byte)),
+                        void> callback);
+                """,
+                SourceMemberSignatureKind.Method);
+        MemberSignatureShapeResult sourceExplicit =
+            SourceMemberSignatureShape.Create(
+                """
+                unsafe void ExplicitValueTupleRest(
+                    delegate* unmanaged<
+                        global::System.ValueTuple<
+                            int, int, int, int, int, int, int, (short, byte)>,
+                        void> callback);
+                """,
+                SourceMemberSignatureKind.Method);
+
+        Assert.True(metadataSupplemental.IsAvailable, metadataSupplemental.UnavailableReason);
+        Assert.True(metadataExplicit.IsAvailable, metadataExplicit.UnavailableReason);
+        Assert.False(sourceSupplemental.IsAvailable);
+        Assert.True(sourceExplicit.IsAvailable, sourceExplicit.UnavailableReason);
+        Assert.Equal(metadataExplicit.Shape, sourceExplicit.Shape);
+        Assert.NotEqual(metadataSupplemental.Shape, sourceExplicit.Shape);
+
+        MemberSignatureCorrespondence<string> correspondence =
+            MemberSignatureShapeMatcher.Match(
+                metadataSupplemental,
+                [
+                    ("supplemental", sourceSupplemental),
+                    ("explicit", sourceExplicit),
+                ]);
+        Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, correspondence.Kind);
+    }
+
     [Theory]
     [InlineData(nameof(ShapeSpecimens.LegacyNamed), "`0(IReadOnlyList<string>)", true)]
     [InlineData(nameof(ShapeSpecimens.LegacyNamed), "`0(List<string>)", false)]
@@ -133,6 +203,219 @@ public unsafe class MetadataMemberSignatureShapeTests
         Assert.Contains("transport safety limits", result.UnavailableReason);
     }
 
+    [Fact]
+    public void MetadataAdapter_RefusesCyclicTypeReference()
+    {
+        TypeReferenceHandle reference = default;
+        byte[] image = BuildOneParameterImage(
+            (_, type) => type.Type(reference, isValueType: false),
+            metadata =>
+            {
+                reference = metadata.AddTypeReference(
+                    MetadataTokens.TypeReferenceHandle(1),
+                    metadata.GetOrAddString("Cyclic"),
+                    metadata.GetOrAddString("Self"));
+            });
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("repeats handle", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesCyclicTypeDefinition()
+    {
+        TypeDefinitionHandle first = default;
+        byte[] image = BuildOneParameterImage(
+            (_, type) => type.Type(first, isValueType: false),
+            metadata =>
+            {
+                first = AddTypeDefinition(metadata, "First");
+                TypeDefinitionHandle second = AddTypeDefinition(metadata, "Second");
+                metadata.AddNestedType(first, second);
+                metadata.AddNestedType(second, first);
+            });
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("repeats handle", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesOverflowingNestedGenericArity()
+    {
+        TypeReferenceHandle inner = default;
+        byte[] image = BuildOneParameterImage(
+            (_, type) => type
+                .GenericInstantiation(inner, genericArgumentCount: 1, isValueType: false)
+                .AddArgument()
+                .Int32(),
+            metadata =>
+            {
+                AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Referenced"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    0,
+                    default);
+                TypeReferenceHandle outer = metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Outer`2147483647"));
+                inner = metadata.AddTypeReference(
+                    outer,
+                    default,
+                    metadata.GetOrAddString("Inner`2147483647"));
+            });
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("generic arity", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void LegacyCompatibility_RefusesCyclicDeclaringType()
+    {
+        byte[] image = BuildMethodOnCyclicDeclaringType();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        MemberSignatureShapeResult legacy = MemberSignatureShapeCodec.Decode("`0(int)");
+
+        Assert.True(legacy.IsAvailable, legacy.UnavailableReason);
+        Assert.False(MetadataMemberSignatureShape.LegacyShapeCanDescribe(
+            reader,
+            MetadataTokens.MethodDefinitionHandle(1),
+            legacy.Shape!));
+    }
+
+    static MemberSignatureShapeResult ReadCraftedShape(byte[] image)
+    {
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        return MetadataMemberSignatureShape.Create(
+            peReader.GetMetadataReader(),
+            MetadataTokens.MethodDefinitionHandle(1));
+    }
+
+    static byte[] BuildOneParameterImage(
+        Action<MetadataBuilder, SignatureTypeEncoder> encodeParameter,
+        Action<MetadataBuilder> prepare)
+    {
+        var metadata = CreateMetadataBuilder();
+        prepare(metadata);
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(SignatureCallingConvention.Default, genericParameterCount: 0, isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 1,
+                returnType => returnType.Void(),
+                parameters => encodeParameter(metadata, parameters.AddParameter().Type()));
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodOnCyclicDeclaringType()
+    {
+        var metadata = CreateMetadataBuilder();
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(SignatureCallingConvention.Default, genericParameterCount: 0, isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Int32());
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        TypeDefinitionHandle first = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("First"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        TypeDefinitionHandle second = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("Second"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddNestedType(first, second);
+        metadata.AddNestedType(second, first);
+        return Serialize(metadata);
+    }
+
+    static MetadataBuilder CreateMetadataBuilder()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Crafted"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            AssemblyHashAlgorithm.Sha1);
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("Crafted.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return metadata;
+    }
+
+    static TypeDefinitionHandle AddTypeDefinition(
+        MetadataBuilder metadata,
+        string name)
+        => metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString(name),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
+        var peBuilder = new ManagedPEBuilder(
+            new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder());
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
+    }
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         string typeName,
@@ -164,6 +447,14 @@ public unsafe class ShapeSpecimens
     public void Pointer(int* value) { }
     public void FunctionPointer(delegate* unmanaged[Cdecl]<int, string> callback) { }
     public void ByRefFunctionPointer(delegate*<ref int, void> callback) { }
+    public void SupplementalTupleSyntax(
+        delegate* unmanaged[SuppressGCTransition]<
+            (int, int, int, int, int, int, int, (short, byte)),
+            void> callback) { }
+    public void ExplicitValueTupleRest(
+        delegate* unmanaged<
+            ValueTuple<int, int, int, int, int, int, int, (short, byte)>,
+            void> callback) { }
     public void LegacyNamed(IReadOnlyList<string> values) { }
     public void LegacyGeneric<T>(T value) { }
     public void DeepArray(

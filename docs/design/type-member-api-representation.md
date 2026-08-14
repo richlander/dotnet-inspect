@@ -216,6 +216,10 @@ No generic converter should turn one `TypeRef` into the other, an address into
 correspondence, a display string into identity, or a `MemberAnchor` into body
 identity without the owning resolver and scope.
 
+Only canonical `mss1:` transport participates in candidate correspondence.
+Legacy signature text is accepted solely to validate an already selected
+exact-token record; it is not candidate-selection currency.
+
 ## Motivating scenarios
 
 Find your question here; the shape census below says what to use.

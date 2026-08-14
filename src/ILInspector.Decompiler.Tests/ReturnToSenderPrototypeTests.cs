@@ -5886,12 +5886,46 @@ public class ReturnToSenderPrototypeTests
             // ordinal position of same-name members.
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(string)")]));
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: CanonicalMethodSignature("void Pick(string value);")),
+                ]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Equal(1, result.Plan.TargetMethod.Overload);
             Assert.Contains("public int Pick(string value)", result.Source);
             Assert.DoesNotContain("public int Pick(int value)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_LegacySignatureCannotOverrideOrdinal()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+
+                public int Pick(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(string)")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(0, result.Plan.TargetMethod.Overload);
+            Assert.Contains("public int Pick(int value)", result.Source);
+            Assert.DoesNotContain("public int Pick(string value)", result.Source);
         }
         finally
         {
@@ -5929,7 +5963,13 @@ public class ReturnToSenderPrototypeTests
         {
             var withSignature = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(int)")],
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: CanonicalMethodSignature("void Pick(int value);")),
+                ],
                 [sourcePath]));
 
             Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, withSignature.Outcome);
@@ -5951,6 +5991,56 @@ public class ReturnToSenderPrototypeTests
             catch (IOException)
             {
             }
+        }
+    }
+
+    [Fact]
+    public void SourceSignatureCorrespondence_RefusesFunctionPointerTupleCrossMatch()
+    {
+        const string source = """
+            public unsafe class C
+            {
+                public static void M(
+                    delegate* unmanaged[SuppressGCTransition]<
+                        (int, int, int, int, int, int, int, (short, byte)),
+                        void> callback) { }
+
+                public static void M(
+                    delegate* unmanaged<
+                        global::System.ValueTuple<
+                            int, int, int, int, int, int, int, (short, byte)>,
+                        void> callback) { }
+            }
+            """;
+        string assemblyPath = CompileFixture(source, allowUnsafe: true);
+        string sourcePath = WriteTempSource(
+            "FunctionPointerTupleCollision.cs",
+            source,
+            out string sourceDirectory);
+        try
+        {
+            ReturnToSender.RequestedTarget target =
+                ReturnToSenderSourceProbe.DiscoverTargets(assemblyPath, int.MaxValue)
+                    .Select(row => row.Target)
+                    .Single(row => row is { Type: "C", Method: "M", Overload: 0 });
+            Assert.NotNull(target.Signature);
+            ReturnToSenderSourceIndex index =
+                ReturnToSenderSourceIndex.TryCreate([sourcePath])
+                ?? throw new InvalidOperationException("Expected a source index.");
+
+            MemberSignatureCorrespondence<ReturnToSenderSourceMember> result =
+                index.ResolveBySignature(target);
+
+            Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, result.Kind);
+            Assert.Contains(
+                "cannot be represented consistently",
+                result.UnavailableReason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
         }
     }
 
@@ -5981,7 +6071,7 @@ public class ReturnToSenderPrototypeTests
                         "Class1",
                         "Pick",
                         Overload: 0,
-                        Signature: "`0(int)"));
+                        Signature: CanonicalMethodSignature("void Pick(int value);")));
 
             Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, result.Kind);
             Assert.Contains(
@@ -6020,10 +6110,46 @@ public class ReturnToSenderPrototypeTests
                         "Class1",
                         "Pick",
                         Overload: 0,
-                        Signature: "`0(int)"));
+                        Signature: CanonicalMethodSignature("void Pick(int value);")));
 
             Assert.Equal(MemberSignatureCorrespondenceKind.Ambiguous, result.Kind);
             Assert.Equal(2, result.Candidates.Count);
+        }
+        finally
+        {
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SourceSignatureCorrespondence_RejectsLegacyCandidateSelection()
+    {
+        string sourcePath = WriteTempSource(
+            "LegacySignature.cs",
+            """
+            public class Class1
+            {
+                public int Pick(int value) => value;
+                public int Pick(string value) => value.Length;
+            }
+            """,
+            out string sourceDirectory);
+        try
+        {
+            ReturnToSenderSourceIndex index =
+                ReturnToSenderSourceIndex.TryCreate([sourcePath])
+                ?? throw new InvalidOperationException("Expected a source index.");
+
+            MemberSignatureCorrespondence<ReturnToSenderSourceMember> result =
+                index.ResolveBySignature(
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: "`0(int)"));
+
+            Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, result.Kind);
+            Assert.Contains("canonical", result.UnavailableReason, StringComparison.Ordinal);
         }
         finally
         {
@@ -6580,6 +6706,16 @@ public class ReturnToSenderPrototypeTests
         var path = Path.Combine(directory, fileName);
         File.WriteAllText(path, source);
         return path;
+    }
+
+    static string CanonicalMethodSignature(string declaration)
+    {
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            declaration,
+            SourceMemberSignatureKind.Method);
+        return result.Shape is { } shape
+            ? MemberSignatureShapeCodec.Encode(shape)
+            : throw new InvalidOperationException(result.UnavailableReason);
     }
 
     static void TryDeleteDirectory(string directory)
