@@ -6,7 +6,7 @@
 
 - Fixes fully qualified ASP.NET Core type and member routing when runtime
   catalogs span multiple shared frameworks or a namespace prefix names a
-  non-owning facade assembly, while retaining real ambiguity errors (#4135).
+  non-owning assembly, while retaining real ambiguity errors (#4135).
 - Uses a bounded declaration index for authored `Original Source` and `Source
   Diff` slicing. Accessors now select their enclosing property or event,
   constructors retain their exact identity, and ambiguous or overly complex
@@ -37,6 +37,9 @@
 - Separates package-source policy by acquisition owner so package, symbol,
   platform-pack, and related fetches retain their intended source boundaries
   (#4136).
+- Contains restored dependency-manifest paths beneath their target,
+  global-packages, and owning-package roots, rejecting hostile entries without
+  echoing them (#4132).
 
 ### Experimental analysis and decompilation fixes
 
@@ -49,6 +52,9 @@
 - Improves generated-member and authored-source correspondence, body-inspection
   session reuse, and full-body structural diagnostics used to find
   decompilation fidelity regressions (#3857, #3927, #4037, #4092).
+- Raises local functions inside generic types through their generic type
+  definitions while continuing to decline unsupported generic iterator imports
+  visibly (#4116).
 
 ## v0.17.0
 
