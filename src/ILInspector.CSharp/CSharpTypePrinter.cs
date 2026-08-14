@@ -1137,7 +1137,7 @@ public sealed class CSharpTypePrinter
         => member.Kind == "property"
             || member.Kind == "explicit-interface-implementation"
                 && member.Name.Contains('.', StringComparison.Ordinal)
-                && HasOnlyAccessors(member, "get", "set");
+                && HasOnlyAccessors(member, "get", "set", "init");
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event"
@@ -1148,9 +1148,9 @@ public sealed class CSharpTypePrinter
             && member.Name.Contains('.', StringComparison.Ordinal)
             && HasOnlyAccessors(member, "add", "remove");
 
-    static bool HasOnlyAccessors(ApiMember member, string first, string second)
+    static bool HasOnlyAccessors(ApiMember member, params string[] kinds)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors
-            && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
+            && accessors.All(accessor => kinds.Contains(accessor.Kind, StringComparer.Ordinal));
 
     static RenderedFragment Join(IEnumerable<RenderedFragment> fragments, string separator)
     {

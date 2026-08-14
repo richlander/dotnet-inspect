@@ -272,6 +272,41 @@ public sealed class TypeShellProducerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MemberShellProducer_PrintsExplicitInterfaceInitProperty()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetGetterWithInitSetter,
+            Body: "return 1;",
+            ExplicitInterfaceMemberName: "IValue.Value"));
+
+        var type = new ApiType
+        {
+            Name = "Holder",
+            Kind = "class",
+            Interfaces = ["IValue"],
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+
+        Assert.Contains(
+            "int IValue.Value",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "init",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(CSharpShellMemberKind.PropertyGet, CSharpShellBodyKind.TargetSetterWithGetter)]
     [InlineData(CSharpShellMemberKind.PropertySet, CSharpShellBodyKind.TargetGetterWithSetter)]
@@ -279,6 +314,7 @@ public sealed class TypeShellProducerTests
     [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.TargetEventAccessorWithSibling)]
     [InlineData(CSharpShellMemberKind.EventAdd, CSharpShellBodyKind.AutoProperty)]
     [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.FieldInitializer)]
+    [InlineData(CSharpShellMemberKind.Field, CSharpShellBodyKind.Throw)]
     public void MemberShellProducer_RejectsBodyKindForDifferentMemberShape(
         CSharpShellMemberKind memberKind,
         CSharpShellBodyKind bodyKind)

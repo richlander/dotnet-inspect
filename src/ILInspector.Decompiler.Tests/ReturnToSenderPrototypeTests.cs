@@ -519,6 +519,53 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesExplicitInterfaceInitProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValue
+            {
+                int Value { get; init; }
+            }
+
+            public sealed class Holder : IValue
+            {
+                int IValue.Value { get; init; }
+            }
+            """);
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget(
+                "Holder",
+                "IValue.get_Value",
+                0);
+            var selected = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target]));
+            var full = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.All(
+                [selected, full],
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.False(result.UsedCompileBackFloor, result.Detail);
+                    Assert.Contains(
+                        "int IValue.Value { get; init; }",
+                        result.Source,
+                        StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullAutoInitPropertySiblingStaysSkeletonNotRecursive()
     {
         // Issue #3000: under Full, a non-target auto init-property sibling was enriched by
@@ -3021,10 +3068,9 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains(
-                "Wrap<T>(",
+                "T INullableBox.Wrap<T>(T value) where T : class",
                 result.Source,
                 StringComparison.Ordinal);
-            Assert.Contains("where T : class", result.Source, StringComparison.Ordinal);
         }
         finally
         {

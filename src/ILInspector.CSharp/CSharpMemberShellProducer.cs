@@ -350,12 +350,15 @@ public static class CSharpMemberShellProducer
             or CSharpShellMemberKind.EventRemove;
         bool isValid = spec.BodyKind switch
         {
+            CSharpShellBodyKind.None => true,
+            CSharpShellBodyKind.Throw => spec.Kind != CSharpShellMemberKind.Field,
             CSharpShellBodyKind.ThrowGetSet
                 or CSharpShellBodyKind.ThrowGetInit
                 or CSharpShellBodyKind.AutoProperty
                 or CSharpShellBodyKind.AutoPropertyGetSet
                 or CSharpShellBodyKind.AutoPropertyGetInit
                 => isProperty,
+            CSharpShellBodyKind.TargetBody => true,
             CSharpShellBodyKind.TargetGetterWithSetter
                 or CSharpShellBodyKind.TargetGetterWithInitSetter
                 => spec.Kind == CSharpShellMemberKind.PropertyGet,
@@ -365,7 +368,7 @@ public static class CSharpMemberShellProducer
                 => spec.Kind == CSharpShellMemberKind.PropertySet,
             CSharpShellBodyKind.TargetEventAccessorWithSibling => isEvent,
             CSharpShellBodyKind.FieldInitializer => spec.Kind == CSharpShellMemberKind.Field,
-            _ => true,
+                _ => false,
         };
         if (!isValid)
         {

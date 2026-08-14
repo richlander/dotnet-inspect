@@ -1125,14 +1125,15 @@ public static class CompileBackSourceComposer
                 // A read-write auto-property targeted at its getter must render both accessors so
                 // the compiler-synthesized sibling accessor faithfully reproduces the original
                 // setter rather than being silently dropped while still reported Complete (issue
-                // #3000 class). An init-only setter renders a get/init auto-property under Full so
-                // the init accessor is represented; the getter-only A/B path (Selected) keeps the
-                // minimal get-only shell (records rely on this).
+                // #3000 class). An init-only setter renders a get/init auto-property under Full.
+                // Selected keeps ordinary properties minimal (records rely on this), but explicit
+                // implementations must retain init to satisfy the interface contract.
                 targetIsAutoProperty
                     ? accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.AutoProperty
                         : SetterIsInitOnly(reader, accessors.Setter)
                             ? bodyPolicy == RoundTripBodyPolicy.Full
+                                || explicitInterfaceMemberName is not null
                                 ? CompileBackStubBodyKind.AutoPropertyGetInit
                                 : CompileBackStubBodyKind.AutoProperty
                             : CompileBackStubBodyKind.AutoPropertyGetSet
