@@ -688,7 +688,7 @@ what the policies catch would quietly imply they are sufficient.
 The identifier audit handles that boundary separately from `TextPolicy`.
 Package IDs and assembly names have an identity role in which non-ASCII
 characters are useful evidence even though they are safe graphic text. The
-audit therefore reports every non-ASCII identifier and gives high-similarity
+audit therefore reports every non-ASCII identifier and gives exact folded
 `System`, `Microsoft`, and `Azure` candidates a bounded Greek/Cyrillic
 homoglyph classification. It does not change or contain the value, and it never
 echoes the identifier in the Signal or audit rows. Keeping this discriminator

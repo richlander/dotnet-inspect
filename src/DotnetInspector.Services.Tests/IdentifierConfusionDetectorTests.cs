@@ -31,8 +31,31 @@ public class IdentifierConfusionDetectorTests
         ReservedPrefixHomoglyphMatch match = Assert.IsType<ReservedPrefixHomoglyphMatch>(
             result.ReservedPrefixMatch);
         Assert.Equal(reservedPrefix, match.ReservedPrefix);
-        Assert.True(match.Similarity >= IdentifierConfusionDetector.MinimumReservedPrefixSimilarity);
+        Assert.True(match.Similarity > 0);
         Assert.Equal(new IdentifierHomoglyph(codePoint, looksLike), Assert.Single(match.Homoglyphs));
+    }
+
+    [Theory]
+    [InlineData("Ѕуѕtеm.Tools", "System", 4)]
+    [InlineData("Miсrοsoft.Tools", "Microsoft", 2)]
+    [InlineData("ΑΖurе.Tools", "Azure", 3)]
+    public void MultipleConfirmedHomoglyphsRemainReservedPrefixMatches(
+        string identifier,
+        string reservedPrefix,
+        int homoglyphCount)
+    {
+        IdentifierConfusion result = Assert.IsType<IdentifierConfusion>(
+            IdentifierConfusionDetector.Inspect(identifier));
+
+        ReservedPrefixHomoglyphMatch match =
+            Assert.IsType<ReservedPrefixHomoglyphMatch>(
+                result.ReservedPrefixMatch);
+        Assert.Equal(reservedPrefix, match.ReservedPrefix);
+        Assert.Equal(
+            1d - ((double)homoglyphCount / reservedPrefix.Length),
+            match.Similarity,
+            precision: 3);
+        Assert.Equal(homoglyphCount, match.Homoglyphs.Count);
     }
 
     [Theory]
@@ -40,7 +63,6 @@ public class IdentifierConfusionDetectorTests
     [InlineData("Σystem.Tools")]
     [InlineData("Δelta.Tools")]
     [InlineData("Ѕyxtem.Tools")]
-    [InlineData("Ѕуѕtеm.Tools")]
     public void OtherNonAsciiIdentifiersDoNotClaimAReservedPrefixHomoglyph(string identifier)
     {
         IdentifierConfusion result = Assert.IsType<IdentifierConfusion>(

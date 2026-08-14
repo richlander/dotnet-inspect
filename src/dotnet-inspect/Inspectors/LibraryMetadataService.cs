@@ -341,11 +341,6 @@ internal static class LibraryMetadataService
                     inspection.AssemblyReferenceFailureKind
                     ?? IdentifierConfusionAuditFailureKind.InspectionFailed;
                 inspection.IdentifierConfusionFailure = failure;
-                if (options.CollectIdentifierConfusionReferenceTree)
-                {
-                    throw new IdentifierConfusionReferenceTraversalException(
-                        failure);
-                }
             }
 
             // The query produces the flat direct-reference currency. Tree traversal remains a
@@ -375,14 +370,23 @@ internal static class LibraryMetadataService
                     inspection.AssemblyInfo.AssemblyName
                     ?? Path.GetFileNameWithoutExtension(path));
 
-                inspection.IdentifierConfusionReferenceClosure =
-                    BuildTransitiveReferences(
-                        auditReferences,
-                        path,
-                        visited,
-                        logger,
-                        deduplicate: true,
-                        failOnReadError: true);
+                try
+                {
+                    inspection.IdentifierConfusionReferenceClosure =
+                        BuildTransitiveReferences(
+                            auditReferences,
+                            path,
+                            visited,
+                            logger,
+                            deduplicate: true,
+                            failOnReadError: true);
+                }
+                catch (
+                    IdentifierConfusionReferenceTraversalException ex)
+                {
+                    inspection.IdentifierConfusionFailure =
+                        ex.FailureKind;
+                }
             }
 
             inspection.FileSize = pdbContext.FileSize;

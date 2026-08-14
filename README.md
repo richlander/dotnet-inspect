@@ -204,16 +204,16 @@ summary, single/multi-package parity, provenance, and listing.
 
 Library and package Signals also report `Identifier confusion` for assembly
 names and package IDs. Every non-ASCII identifier character is reported as an
-identity concern. Names whose leading characters are at least 80% similar to
-`System`, `Microsoft`, or `Azure` receive the more specific
-`reserved-prefix homoglyph` classification when a bounded Greek/Cyrillic
-homoglyph check confirms the apparent prefix. The summary reports only counts
-and matched prefixes. Select `Audit: Identifier Confusion` (or `@Audit`) for
-content-free locations, classifications, similarity, and code points; the
-Signal and audit rows never repeat the identifier value. This is separate from
-artifact-text containment: a homoglyph is ordinary graphic text and does not
-require `InertString` encoding, while an ASCII backslash triggers neither
-concern. Library Signals stays bounded to the selected assembly and its direct
+identity concern. Names whose leading characters exactly match `System`,
+`Microsoft`, or `Azure` after a bounded Greek/Cyrillic
+homoglyph fold receive the more specific `reserved-prefix homoglyph`
+classification. The summary reports only counts and matched prefixes. Select
+`Audit: Identifier Confusion` (or `@Audit`) for content-free locations,
+classifications, similarity, and code points; the Signal and audit rows never
+repeat the identifier value. This is separate from artifact-text containment:
+a homoglyph is ordinary graphic text and does not require `InertString`
+encoding, while an ASCII backslash triggers neither concern. Library Signals
+stays bounded to the selected assembly and its direct
 references. The explicit library audit additionally resolves and inspects the
 transitive reference closure.
 

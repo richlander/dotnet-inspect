@@ -91,14 +91,14 @@ rather than entering Signals.
 | `Unavailable` | Required assembly-reference metadata could not be inspected. The command returns nonzero rather than claiming a clean identity scope. |
 
 The detector first applies a non-ASCII filter. It then compares the leading
-characters of each candidate with `System`, `Microsoft`, and `Azure`. A raw
-Levenshtein similarity of at least 80% opens a bounded Greek/Cyrillic homoglyph
-check; the stronger `reserved-prefix homoglyph` classification is emitted only
-when each differing prefix character maps to the corresponding ASCII character.
-This is a deliberately high-confidence catalog, not an implementation of the
-complete Unicode confusables table. A non-ASCII identifier can therefore carry
-only the general classification, including when several substitutions lower
-the raw similarity below the threshold.
+characters of each candidate with `System`, `Microsoft`, and `Azure`. The
+stronger `reserved-prefix homoglyph` classification is emitted only when every
+prefix character is either the corresponding ASCII character or maps to it
+through the bounded Greek/Cyrillic homoglyph catalog. The reported similarity
+is raw Levenshtein evidence, not a classification gate. This is a deliberately
+high-confidence catalog, not an implementation of the complete Unicode
+confusables table. Additional confirmed substitutions therefore cannot remove
+an otherwise exact folded reserved-prefix match.
 
 Select `Audit: Identifier Confusion` for the detected cases, or select
 `@Audit` to include them with the other audit evidence:
@@ -110,7 +110,10 @@ dotnet-inspect package X -S "Signals,Audit: Identifier Confusion"
 
 For remotely acquired packages, the package audit performs bounded registry
 metadata acquisition so that alternate package IDs are part of the declared
-scope even when the identifier audit is selected by itself.
+scope even when the identifier audit is selected by itself. When a valid feed
+advertises no deprecation metadata resource, local package identifiers remain
+authoritative and Signals discloses that the alternate-package scope was not
+available from that source.
 
 The detail table reports `Location`, `Kind`, `Concern`, `Reserved Prefix`,
 `Similarity`, and `Characters`. `Characters` contains code-point evidence such
@@ -122,8 +125,9 @@ The filter is scoped to identifiers, so it does not reject ordinary non-English
 prose. An ASCII backslash is not non-ASCII and does not trigger this audit or
 artifact-text containment.
 
-`IdentifierConfusionDetectorTests` gates the similarity threshold, confirmed
-homoglyphs, generic non-ASCII cases, and ASCII close negatives.
+`IdentifierConfusionDetectorTests` gates single and multiple confirmed
+homoglyphs, raw similarity evidence, generic non-ASCII cases, and ASCII close
+negatives.
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates the content-free Markdown and JSONL shapes, and
 `PackageAudit_InspectsPackageAndDependencyIdentifierLocations` plus
@@ -150,6 +154,8 @@ and
 gates traversal of distinct typed AssemblyRefs that share a simple name;
 `LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
 gates visible traversal failure for absolute and bare relative library paths.
+That test also gates preservation of healthy `@Audit` sections when the
+identifier-confusion member fails.
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure.
@@ -166,6 +172,10 @@ content-free failure category on the public reference-tree projection.
 alternate-package metadata demand, producer result, and moderated network cost.
 `InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
 `Unavailable` result when that registry metadata cannot be established;
+`FetchAllMetadataAsync_FlatContainerOnlyCompletesOptionalMetadata` and
+`PackageCommand_FlatContainerOnlyPreservesLocalIdentifierDetection` gate that a
+feed which does not advertise optional deprecation endpoints is complete rather
+than failed;
 `FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
 version-specific authority for search deprecation metadata, and
 `FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a

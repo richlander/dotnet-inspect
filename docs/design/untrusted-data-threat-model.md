@@ -1037,14 +1037,16 @@ Identifier confusion is a separate semantic risk from rendering. Package IDs
 and assembly names containing non-ASCII characters remain safe to carry as
 graphic text, so `TextConcern` correctly stays empty. Package Signals and
 library Signals over the selected assembly plus direct references nevertheless
-report those identifiers for review, and a bounded high-similarity check
-confirms Greek/Cyrillic homoglyphs in the ecosystem prefixes `System`,
+report those identifiers for review, and a bounded exact homoglyph fold
+confirms Greek/Cyrillic lookalikes in the ecosystem prefixes `System`,
 `Microsoft`, and `Azure`. The explicit library
 `Audit: Identifier Confusion` section additionally resolves the transitive
 reference closure; the unbounded traversal requires that explicit gesture. The
 section exposes model locations, classifications, matched prefixes, similarity,
 and code points without echoing identifier content.
-`IdentifierConfusionDetectorTests` gates the detector boundary,
+`IdentifierConfusionDetectorTests` gates the detector boundary, including
+monotone classification when several confirmed homoglyphs compose one reserved
+prefix,
 `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
 gates the direct library producer demand,
 `PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
@@ -1065,6 +1067,7 @@ projection row per resolved identity when several reference paths converge,
 gates distinct typed AssemblyRefs that share a simple name,
 `LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
 gates visible traversal failure for absolute and bare relative library paths,
+including preservation of the other selected `@Audit` sections,
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure,
@@ -1087,6 +1090,10 @@ cost. `InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
 `Unavailable` result when registry acquisition cannot establish
 alternate-package metadata; a failed acquisition is not interpreted as an
 absent alternate ID.
+`FetchAllMetadataAsync_FlatContainerOnlyCompletesOptionalMetadata` and
+`PackageCommand_FlatContainerOnlyPreservesLocalIdentifierDetection` gate the
+complement: absence of optional deprecation resources in a valid service index
+is not an acquisition failure.
 `FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
 version-specific authority for search deprecation metadata, and
 `FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a

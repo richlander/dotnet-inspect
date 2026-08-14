@@ -609,6 +609,12 @@ public class LibraryCommand
 
                 inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
+                if (RejectFailedExactIdentifierAudit(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
@@ -749,10 +755,13 @@ public class LibraryCommand
                             sourceLinkAvailable,
                             cache: useEffectiveDiscoveryCache,
                             inspectedContentHash:
-                                inspectedContentHash));
+                                inspectedContentHash,
+                            reportIdentifierFailures:
+                                !identifierAuditIncomplete));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return IntegrityExitCode(
                         identifierAuditExitCode,
+                        !identifierAuditIncomplete,
                         inspections[0]);
                 if (options.Print)
                     return IntegrityExitCode(
@@ -761,6 +770,7 @@ public class LibraryCommand
                             await WriteLibraryPrintProjectionAsync(
                                 inspections[0],
                                 options)),
+                        !identifierAuditIncomplete,
                         inspections[0]);
                 if (options.Value || options.Urls || options.Paths)
                     return IntegrityExitCode(
@@ -769,6 +779,7 @@ public class LibraryCommand
                             WriteLibraryShapeProjection(
                                 inspections[0],
                                 options)),
+                        !identifierAuditIncomplete,
                         inspections[0]);
                 if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
@@ -787,6 +798,7 @@ public class LibraryCommand
 
                 return IntegrityExitCode(
                     identifierAuditExitCode,
+                    !identifierAuditIncomplete,
                     [.. inspections]);
             }
             else
@@ -851,6 +863,12 @@ public class LibraryCommand
                 }
 
                 inspection.Source = SourceKind.File;
+                if (RejectFailedExactIdentifierAudit(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, assemblyPath!, null, null, isPlatformAssembly: false,
@@ -908,6 +926,15 @@ public class LibraryCommand
     private static int IntegrityExitCode(
         int currentExitCode,
         params LibraryInspection[] inspections)
+        => IntegrityExitCode(
+            currentExitCode,
+            reportIdentifierFailures: true,
+            inspections);
+
+    private static int IntegrityExitCode(
+        int currentExitCode,
+        bool reportIdentifierFailures,
+        params LibraryInspection[] inspections)
     {
         var identifierFailures = inspections
             .Where(
@@ -918,11 +945,16 @@ public class LibraryCommand
                     inspection.IdentifierConfusionFailure!.Value)
             .Distinct()
             .ToList();
-        foreach (IdentifierConfusionAuditFailureKind failure in identifierFailures)
+        if (reportIdentifierFailures)
         {
-            CommandError.WriteWarning(
-                "Identifier audit failed: "
-                + IdentifierConfusionAudit.DescribeFailure(failure));
+            foreach (
+                IdentifierConfusionAuditFailureKind failure
+                in identifierFailures)
+            {
+                CommandError.WriteWarning(
+                    "Identifier audit failed: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
         }
 
         if (currentExitCode != 0)
@@ -934,6 +966,33 @@ public class LibraryCommand
             || identifierFailures.Count > 0
             ? 1
             : 0;
+    }
+
+    private static bool RejectFailedExactIdentifierAudit(
+        LibraryInspection inspection,
+        LibraryOptions options)
+    {
+        if (inspection.IdentifierConfusionFailure is not { } failure)
+            return false;
+
+        bool exactSelection =
+            options.IncludeSections is { Count: 1 } sections
+            && sections.Contains(SectionNames.IdentifierConfusion)
+            && options.ExactIncludeSections?.Contains(
+                SectionNames.IdentifierConfusion) == true;
+        bool exactDiscovery =
+            options.Discover is { Length: 1 }
+            && options.Discover[0].Equals(
+                SectionNames.IdentifierConfusion,
+                StringComparison.OrdinalIgnoreCase);
+        if (!exactSelection && !exactDiscovery)
+            return false;
+
+        CommandError.Write(
+            "Identifier audit could not inspect assembly references: "
+            + IdentifierConfusionAudit.DescribeFailure(failure)
+            + ".");
+        return true;
     }
 
     private static async Task<int> WriteILCoordinateBatchAsync(
@@ -2056,7 +2115,8 @@ public class LibraryCommand
         HashSet<string>? effectivenessScope,
         bool sourceLinkAvailable = false,
         bool cache = true,
-        string? inspectedContentHash = null)
+        string? inspectedContentHash = null,
+        bool reportIdentifierFailures = true)
     {
         // Seed the network-free SourceLink-availability fact so the SourceLink section family
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
@@ -2123,7 +2183,10 @@ public class LibraryCommand
             projection: options);
         return Math.Max(
             discoveryExitCode,
-            IntegrityExitCode(inspection));
+            IntegrityExitCode(
+                0,
+                reportIdentifierFailures,
+                inspection));
     }
 
     // ── Effective sections cache ──
@@ -2533,6 +2596,12 @@ public class LibraryCommand
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
+            }
+            if (options.CollectIdentifierConfusionReferenceTree
+                && inspection.IdentifierConfusionFailure is { } failure)
+            {
+                identifierAuditFailures.Add(
+                    (relativePath, failure));
             }
 
             // Populate TFM from path for multi-TFM display

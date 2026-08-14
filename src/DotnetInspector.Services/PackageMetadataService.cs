@@ -225,7 +225,7 @@ public static class PackageMetadataService
         string normalizedName,
         string normalizedVersion,
         bool registrationOnly) =>
-        $"v5-{(registrationOnly ? "published" : "full")}-"
+        $"v6-{(registrationOnly ? "published" : "full")}-"
         + $"{NuGetCache.GetSourceKey(source.Url)}-"
         + $"{normalizedName}@{normalizedVersion}";
 
@@ -263,6 +263,11 @@ public static class PackageMetadataService
             CompatibleResources(resources, "SearchQueryService");
         List<ServiceResource> vulnerabilityInfos =
             CompatibleResources(resources, "VulnerabilityInfo");
+        metadata.DeprecationMetadataSupported =
+            registrationResources.Count > 0
+            || searchQueryServices.Count > 0;
+        metadata.DeprecationMetadataAvailable =
+            !metadata.DeprecationMetadataSupported;
 
         bool found = false;
         bool sawExistenceEndpoint = false;

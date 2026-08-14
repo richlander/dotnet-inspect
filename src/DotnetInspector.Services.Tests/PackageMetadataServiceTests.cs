@@ -863,6 +863,54 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchAllMetadataAsync_FlatContainerOnlyCompletesOptionalMetadata()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" }
+                      ]
+                    }
+                    """),
+                "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
+                    Package(length: 42),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+
+        PackageMetadata cold =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [source] });
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [source] });
+
+        Assert.True(cold.DeprecationMetadataAvailable);
+        Assert.True(warm.DeprecationMetadataAvailable);
+        Assert.False(cold.DeprecationMetadataSupported);
+        Assert.False(warm.DeprecationMetadataSupported);
+        Assert.Null(cold.Deprecation);
+        Assert.Equal(coldRequests, handler.Requests.Count);
+    }
+
+    [Fact]
     public async Task FetchAllMetadataAsync_DoesNotCacheFailedSearchFetch()
     {
         const string source = "https://private.example/v3/index.json";

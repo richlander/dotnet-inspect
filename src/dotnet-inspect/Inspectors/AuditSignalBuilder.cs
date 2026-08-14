@@ -496,10 +496,15 @@ internal static class AuditSignalBuilder
                     IdentifierConfusionAudit.DescribeFailure(failure));
             }
 
-            return IdentifierConfusionAudit.Summarize(
-                    IdentifierConfusionAudit.InspectPackage(context.Result),
-                    "package IDs")
-                .ToSignalValue();
+            var summary = IdentifierConfusionAudit.Summarize(
+                IdentifierConfusionAudit.InspectPackage(context.Result),
+                "package IDs");
+            return context.Result.IdentifierConfusionRegistryScopeLimited
+                ? new(
+                    summary.Value,
+                    summary.Evidence
+                    + "; source advertises no deprecation metadata")
+                : summary.ToSignalValue();
         }
 
         private static SignalValue? ResolveDocumentationReadme(in PackageSignalContext context) =>

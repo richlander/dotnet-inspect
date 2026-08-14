@@ -32,8 +32,6 @@ public sealed record IdentifierConfusion(
 /// </summary>
 public static class IdentifierConfusionDetector
 {
-    public const double MinimumReservedPrefixSimilarity = 0.8;
-
     private static readonly string[] ReservedPrefixes =
         ["System", "Microsoft", "Azure"];
 
@@ -63,13 +61,8 @@ public static class IdentifierConfusionDetector
             if (candidate.Length != reservedPrefix.Length)
                 continue;
 
-            string candidateText = string.Concat(candidate.Select(static rune => rune.ToString()));
-            double similarity = StringDistance.Similarity(
-                candidateText.ToLowerInvariant(),
-                reservedPrefix.ToLowerInvariant());
-            if (similarity < MinimumReservedPrefixSimilarity)
-                continue;
-
+            string candidateText = string.Concat(
+                candidate.Select(static rune => rune.ToString()));
             List<IdentifierHomoglyph> homoglyphs = [];
             bool matches = true;
             for (int index = 0; index < candidate.Length; index++)
@@ -94,6 +87,10 @@ public static class IdentifierConfusionDetector
 
             if (!matches || homoglyphs.Count == 0)
                 continue;
+
+            double similarity = StringDistance.Similarity(
+                candidateText.ToLowerInvariant(),
+                reservedPrefix.ToLowerInvariant());
 
             if (bestMatch is null || similarity > bestMatch.Similarity)
             {

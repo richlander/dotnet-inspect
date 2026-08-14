@@ -17,8 +17,8 @@ internal static class MetadataFieldCache
 
     private const string Category = "metadata";
     private static readonly TimeSpan Ttl = TimeSpan.FromHours(1);
-    private static ReadOnlySpan<byte> PresentPrefix => "metadata-v5:present\n"u8;
-    private static ReadOnlySpan<byte> AbsentEntry => "metadata-v5:absent\n"u8;
+    private static ReadOnlySpan<byte> PresentPrefix => "metadata-v6:present\n"u8;
+    private static ReadOnlySpan<byte> AbsentEntry => "metadata-v6:absent\n"u8;
 
     /// <summary>
     /// Tries to load cached metadata. Returns null on cache miss or expiry.
@@ -53,6 +53,8 @@ internal static class MetadataFieldCache
             using var doc = FieldDocument.Parse(bytes[PresentPrefix.Length..]);
             var metadata = new PackageMetadata
             {
+                DeprecationMetadataSupported =
+                    doc.GetBool("deprecationMetadataSupported"),
                 DeprecationMetadataAvailable =
                     doc.GetBool("deprecationMetadataAvailable"),
                 IsVerified = doc.GetBool("isVerified") ? true : null,
@@ -152,7 +154,7 @@ internal static class MetadataFieldCache
 
             // Keep even an otherwise empty metadata result parseable. A feed may advertise a
             // package without any optional aggregate metadata fields.
-            WriteField(buf, "formatVersion"u8, "5");
+            WriteField(buf, "formatVersion"u8, "6");
 
             // Scalars
             if (metadata.Published.HasValue)
@@ -172,6 +174,13 @@ internal static class MetadataFieldCache
                 WriteField(
                     buf,
                     "deprecationMetadataAvailable"u8,
+                    "true");
+            }
+            if (metadata.DeprecationMetadataSupported)
+            {
+                WriteField(
+                    buf,
+                    "deprecationMetadataSupported"u8,
                     "true");
             }
 

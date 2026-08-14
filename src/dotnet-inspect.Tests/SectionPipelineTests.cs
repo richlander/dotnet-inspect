@@ -1987,7 +1987,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackageIntegrityExitCode_FailsForMismatchesAndAuditFailures()
+    public async Task PackageIntegrityExitCode_FailsForMismatchesAndAuditFailures()
     {
         var clean = new InspectionResult
         {
@@ -2013,16 +2013,25 @@ public class SectionPipelineTests
                     .PackageMetadataUnavailable,
         };
 
-        Assert.Equal(0, PackageCommand.PackageIntegrityExitCode(clean));
-        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(clean, mismatch));
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            Assert.Equal(0, PackageCommand.PackageIntegrityExitCode(clean));
+            Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(clean, mismatch));
+            Assert.Equal(
+                1,
+                PackageCommand.PackageIntegrityExitCode(
+                    clean,
+                    auditFailure));
+            Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(1, clean));
+            Assert.Equal(7, PackageCommand.PackageIntegrityExitCode(7, clean));
+            Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(0, mismatch));
+        });
+
         Assert.Equal(
-            1,
-            PackageCommand.PackageIntegrityExitCode(
-                clean,
-                auditFailure));
-        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(1, clean));
-        Assert.Equal(7, PackageCommand.PackageIntegrityExitCode(7, clean));
-        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(0, mismatch));
+            "Warning: Identifier audit failed for package input #2: "
+            + "package registry metadata unavailable"
+            + Environment.NewLine,
+            error);
     }
 
     [Theory]

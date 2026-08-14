@@ -345,6 +345,10 @@ internal static class PackageInspector
                 ? IdentifierConfusionAuditFailureKind
                     .PackageMetadataUnavailable
                 : null;
+        result.IdentifierConfusionRegistryScopeLimited =
+            requireIdentifierMetadata
+            && metadata.DeprecationMetadataAvailable
+            && !metadata.DeprecationMetadataSupported;
     }
 
     private static void PopulateLibraryFiles(string extractPath, InspectionResult result)

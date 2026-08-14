@@ -11877,6 +11877,25 @@ public partial class CommandExecutionTests
                 + Environment.NewLine,
                 error);
 
+            var category = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                "@Audit",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, category.Exit);
+            Assert.Contains("## Signals", category.Output);
+            Assert.Contains(
+                "## Audit: Identifier Confusion",
+                category.Output);
+            Assert.Contains("U+0405→S", category.Output);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                category.Error);
+
             var relative = await RunAppInDirectoryAsync(
                 tempDir,
                 "library",

@@ -83,6 +83,13 @@ public class InspectionResult
     internal IdentifierConfusionAuditFailureKind?
         IdentifierConfusionFailure { get; set; }
 
+    [JsonIgnore]
+    internal bool IdentifierConfusionRegistryScopeLimited
+    {
+        get;
+        set;
+    }
+
     /// <summary>
     /// Known security vulnerabilities for this package version.
     /// </summary>

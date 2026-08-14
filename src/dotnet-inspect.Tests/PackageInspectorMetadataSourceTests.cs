@@ -343,6 +343,78 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.DoesNotContain(packageId, discovered.Error);
     }
 
+    [Fact]
+    public async Task PackageCommand_FlatContainerOnlyPreservesLocalIdentifierDetection()
+    {
+        string packageId =
+            $"Private.Flat.{Guid.NewGuid():N}";
+        string normalizedId = packageId.ToLowerInvariant();
+        const string source =
+            "https://flat-audit.example/v3/index.json";
+        byte[] package = CreatePackage(
+            packageId,
+            dependencyId: "\u0405ystem.Text.Json");
+        using var client = new HttpClient(
+            new RoutingHandler(request =>
+                request.RequestUri!.AbsolutePath switch
+                {
+                    "/v3/index.json" => Json($$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            {
+                              "@id": "https://flat-audit.example/flat/",
+                              "@type": "PackageBaseAddress/3.0.0"
+                            }
+                          ]
+                        }
+                        """),
+                    var path when path
+                        == $"/flat/{normalizedId}/index.json" =>
+                        Json("""{ "versions": [ "1.0.0" ] }"""),
+                    var path when path
+                        == $"/flat/{normalizedId}/1.0.0/"
+                            + $"{normalizedId}.1.0.0.nupkg" =>
+                        Bytes(package),
+                    _ => new HttpResponseMessage(
+                        HttpStatusCode.NotFound),
+                }));
+
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    PackageArgs = [$"{packageId}@1.0.0"],
+                    ForceLatest = true,
+                    Verbosity = Verbosity.Normal,
+                    IncludeSections =
+                        new HashSet<string>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            PackageSections.Signals,
+                        },
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [source],
+                    },
+                },
+                new CommandContext(
+                    verbose: false,
+                    client)));
+
+        Assert.Equal(0, rendered.ExitCode);
+        Assert.Contains(
+            "| Identity | Identifier confusion | Detected |",
+            rendered.Output);
+        Assert.Contains(
+            "reserved-prefix homoglyph (System)",
+            rendered.Output);
+        Assert.Contains(
+            "source advertises no deprecation metadata",
+            rendered.Output);
+        Assert.Empty(rendered.Error);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -363,8 +435,17 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Content = new ByteArrayContent(content),
         };
 
-    private static byte[] CreatePackage(string packageId)
+    private static byte[] CreatePackage(
+        string packageId,
+        string? dependencyId = null)
     {
+        string dependencies = dependencyId is null
+            ? ""
+            : $"""
+                  <dependencies>
+                    <dependency id="{dependencyId}" version="1.0.0" />
+                  </dependencies>
+                """;
         using var stream = new MemoryStream();
         using (var archive = new ZipArchive(
             stream,
@@ -385,6 +466,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     <version>1.0.0</version>
                     <authors>Test</authors>
                     <description>Test package</description>
+                {{dependencies}}
                   </metadata>
                 </package>
                 """);
