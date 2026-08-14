@@ -399,7 +399,9 @@ unify only to the same or a newer
 platform version so an older-TFM target can compile against the running platform without
 authorizing a downgrade or a different identity. Authenticated external bases are spelled through
 generated reference aliases so a target-local type with the same structured name cannot shadow
-the resolved definition; metadata identifiers that are C# keywords are escaped after the alias.
+the resolved definition; an unavailable exact alias fails compile-back planning rather than
+falling back to that local lookalike. Metadata identifiers that are C# keywords are escaped
+after the alias.
 Selected targets may consume that evidence directly. An authenticated abstract external base does
 not change the target type's own abstract/concrete kind. Concrete target types retain their
 reuse-slot methods and properties as override stubs with metadata accessibility, so inherited
@@ -466,6 +468,8 @@ failed type lookup (`TransitiveDependencyOpenFailurePreservesResolvedIdentity`),
 evidence survives multiple kind-authentication hops
 (`MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity`). The builder defensively
 withholds kind-incomplete resolutions from catalog promotion. The reproduced transitive
+base-type path projects the same failure under `resolve external base type`
+(`MultiHopBaseKindFailureRemainsVisibleOnApiSurface`). The reproduced transitive
 missing-binding outcome retains typed kind-failure evidence rather than becoming a
 success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
 case. The equivalent unavailable arm is gated end-to-end by

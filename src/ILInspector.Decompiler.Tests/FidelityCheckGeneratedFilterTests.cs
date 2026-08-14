@@ -288,6 +288,76 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void MissingExternalExplicitInterfaceAliasFailsClosed()
+    {
+        string dependencyPath = CompileFixture(
+            """
+            namespace Collision;
+
+            public interface IProbe<T>
+            {
+                T Get();
+            }
+            """,
+            assemblyName: "MissingExplicitDependency");
+        string targetPath = "";
+        try
+        {
+            MetadataReference dependencyReference =
+                MetadataReference.CreateFromFile(
+                    dependencyPath,
+                    new MetadataReferenceProperties(
+                        MetadataImageKind.Assembly,
+                        aliases: ["external"]));
+            targetPath = CompileFixture(
+                """
+                extern alias external;
+
+                namespace Collision;
+
+                public interface IProbe<T>
+                {
+                    T Get();
+                }
+
+                public sealed class Target
+                    : external::Collision.IProbe<int>
+                {
+                    int external::Collision.IProbe<int>.Get() => 42;
+                }
+                """,
+                references:
+                [
+                    .. RoslynTestReferences.TrustedPlatform,
+                    dependencyReference,
+                ],
+                assemblyName: "MissingExplicitTarget");
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(targetPath),
+                candidate =>
+                    candidate.Type == "Collision.Target"
+                    && candidate.Method.EndsWith(
+                        ".Get",
+                        StringComparison.Ordinal));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.ContextFail,
+                result.Status);
+            Assert.Contains(
+                "external-explicit-interface-reference-unavailable",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (targetPath.Length != 0)
+                DeleteFixture(targetPath);
+            DeleteFixture(dependencyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_SkipsCompilerGeneratedRecordMethodsButKeepsAccessors()
     {
         var assemblyPath = CompileFixture("""

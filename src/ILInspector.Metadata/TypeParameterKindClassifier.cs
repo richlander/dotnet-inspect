@@ -452,6 +452,30 @@ internal static class TypeParameterKindClassifier
                 outcome,
                 subject.IsNil ? handle : subject,
                 purpose);
+            if (outcome is TypeResolutionOutcome.Resolved
+                {
+                    Definition.KindResolutionFailure: { } kindFailure
+                })
+            {
+                EntityHandle failureSubject =
+                    subject.IsNil ? handle : subject;
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        failureSubject,
+                        budget.Budget,
+                        purpose);
+                }
+                else
+                {
+                    RecordResolutionFailure(
+                        failureSubject,
+                        kindFailure,
+                        request,
+                        purpose: purpose);
+                }
+            }
             return outcome;
         }
 

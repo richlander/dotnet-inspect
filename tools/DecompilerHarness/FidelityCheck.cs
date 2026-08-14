@@ -712,6 +712,9 @@ static class FidelityCheck
         IReadOnlyDictionary<MetadataTypeDefinitionName, ApiType> TargetTypes,
         bool TargetApiIsResolutionAware);
 
+    sealed class CompileBackPlanningException(string detail)
+        : InvalidOperationException(detail);
+
     sealed record CompilerReference(
         ResolvedAssemblyReference Reference,
         string Alias,
@@ -1677,6 +1680,18 @@ static class FidelityCheck
         try { built = timings is null
             ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references)); }
+        catch (CompileBackPlanningException ex)
+        {
+            return new(
+                fullType,
+                e.Name,
+                e.Overload,
+                e.Signature,
+                CompileBackStatus.ContextFail,
+                e.OrigText,
+                "",
+                ex.Message);
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit");
@@ -5279,8 +5294,11 @@ static class FidelityCheck
         }
 
         return resolver.ResolveAlias(
-            assembly,
-            AssemblyResolutionScope.Any);
+                assembly,
+                AssemblyResolutionScope.Any)
+            ?? throw new CompileBackPlanningException(
+                "external-explicit-interface-reference-unavailable: "
+                    + assembly.Name);
     }
 
     static bool IsSourceDeclarableClassVirtual(MethodDefinition method)

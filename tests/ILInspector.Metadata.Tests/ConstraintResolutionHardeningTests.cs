@@ -1538,6 +1538,66 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void MultiHopBaseKindFailureRemainsVisibleOnApiSurface()
+    {
+        byte[] terminalImage =
+            BuildGenericType("Terminal", "Base`1");
+        byte[] middleImage =
+            BuildTypeWithExternalConstructedBase(
+                "Middle",
+                "Middle`1",
+                genericDefinition: true,
+                "Terminal",
+                "Base`1");
+        byte[] outerImage =
+            BuildTypeWithExternalConstructedBase(
+                "Outer",
+                "Outer",
+                genericDefinition: false,
+                "Middle",
+                "Middle`1");
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "Consumer",
+                "Outer",
+                "Outer");
+        ResolvedAssemblyReference terminal =
+            UnreadableDescriptor(terminalImage);
+        ResolvedAssemblyReference middle = Descriptor(middleImage);
+        ResolvedAssemblyReference outer = Descriptor(outerImage);
+        ResolvedAssemblyReference consumer = Descriptor(consumerImage);
+        var policy = new MappingPolicy(
+            outer,
+            middle,
+            terminal);
+
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            catalog,
+            policy,
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        Assert.Null(
+            Assert.Single(surface.Types).BaseTypeResolution);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Equal(
+            "Terminal",
+            failure.DependencyAssembly?.Name);
+        Assert.Contains(
+            "external base type could not be opened",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DiscoveryBudgetExhaustionIsVisibleOnApiSurface()
     {
         byte[] image = BuildTwoConstraintConsumer();
