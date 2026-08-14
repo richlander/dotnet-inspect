@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
@@ -22,6 +23,26 @@ public sealed class LayeringTests
         Assert.DoesNotContain(
             typeof(InstructionProducer).Assembly.GetReferencedAssemblies(),
             reference => reference.Name == "ILInspector.Metadata");
+    }
+
+    [Fact]
+    public void MetadataNameMatching_DoesNotDependOnFindingBackedText()
+    {
+        Assert.Equal(
+            "ILInspector.MetadataPrimitives",
+            typeof(StringDistance).Assembly.GetName().Name);
+
+        string project = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "ILInspector.Metadata",
+            "ILInspector.Metadata.csproj");
+        string[] closure = CommandErrorOwnershipTests.ProjectClosure(project)
+            .Select(path => Path.GetFileNameWithoutExtension(path)!)
+            .ToArray();
+
+        Assert.Contains("ILInspector.MetadataPrimitives", closure);
+        Assert.DoesNotContain("ILInspector.Text", closure);
     }
 
     [Fact]

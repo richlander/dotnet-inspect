@@ -3,6 +3,11 @@ using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
+// This harness deliberately holds ConsoleCapture across assertions. Isolate it from every
+// external test so acquiring the semaphore tests this class, not suite scheduling (#4141).
+[CollectionDefinition("ConsoleCaptureGuard", DisableParallelization = true)]
+public class ConsoleCaptureGuardCollection;
+
 /// <summary>
 /// Gates for the console-redirection invariant behind #3416. The flake there was not a
 /// wrong assertion in any one test; it was two tests redirecting the process-global
@@ -10,6 +15,7 @@ namespace DotnetInspector.Tests;
 /// excludes concurrent captures, and that no other file in this assembly redirects the
 /// console outside that lock.
 /// </summary>
+[Collection("ConsoleCaptureGuard")]
 public class ConsoleCaptureTests
 {
     /// <summary>
@@ -121,15 +127,11 @@ public class ConsoleCaptureTests
         var capture = ConsoleCapture.RunAsync(async () =>
         {
             captureEntered.SetResult();
-            await releaseCapture.Task.WaitAsync(
-                TimeSpan.FromSeconds(30),
-                TestContext.Current.CancellationToken);
+            await releaseCapture.Task.WaitAsync(TestContext.Current.CancellationToken);
             return 0;
         });
 
-        await captureEntered.Task.WaitAsync(
-            TimeSpan.FromSeconds(30),
-            TestContext.Current.CancellationToken);
+        await captureEntered.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         bool exclusive;
         int exitCode;
