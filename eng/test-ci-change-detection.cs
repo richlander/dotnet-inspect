@@ -226,6 +226,15 @@ AssertAll(
         failDecodeAt: 1),
     "true");
 
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "eng/ci-detect-changes.sh",
+        outputs),
+    "true");
+
 Dictionary<string, string> readme =
     RunDetection(repository, body, "pull_request", "README.md", outputs);
 if (readme["code"] != "false" || readme["docs"] != "true")
@@ -276,10 +285,62 @@ Dictionary<string, string> source = RunDetection(
     "pull_request",
     "src/dotnet-inspect/Program.cs",
     outputs);
-if (source["code"] != "true")
+if (source["code"] != "true" || source["web"] != "false")
 {
     throw new InvalidOperationException(
-        $"Source canary did not select code: {FormatValues(source)}");
+        $"CLI source canary did not select only code: {FormatValues(source)}");
+}
+
+Dictionary<string, string> webDependency = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+    outputs);
+if (webDependency["code"] != "true" || webDependency["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Web dependency canary did not select code and web: {FormatValues(webDependency)}");
+}
+
+Dictionary<string, string> sharedWebCompileInput = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/UnionPolyfill.cs",
+    outputs);
+if (sharedWebCompileInput["code"] != "true"
+    || sharedWebCompileInput["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Shared web compile-input canary did not select code and web: "
+        + FormatValues(sharedWebCompileInput));
+}
+
+Dictionary<string, string> globalAnalyzerInput = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "eng/BannedSymbols.txt",
+    outputs);
+if (globalAnalyzerInput["code"] != "true"
+    || globalAnalyzerInput["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Global analyzer input canary did not select code and web: "
+        + FormatValues(globalAnalyzerInput));
+}
+
+Dictionary<string, string> web = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "prototypes/inspect-web/engine/BrowserInspectionEngine.cs",
+    outputs);
+if (web["code"] != "false" || web["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Web canary did not select only web: {FormatValues(web)}");
 }
 AssertRouting(source, selected: "shipped", notSelected: "csharpdiff");
 AssertRouting(source, selected: "shipped", notSelected: "decompiler");
@@ -720,6 +781,7 @@ static (
         "ilroundtrip",
         "packaging",
         "shipped",
+        "web",
         "skills",
     ];
     if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
@@ -728,6 +790,41 @@ static (
         throw new InvalidOperationException(
             $"jobs.changes must declare exactly: {string.Join(", ", requiredOutputs)}.");
     }
+
+    YamlMappingNode inspectWeb =
+        GetRequiredMapping(jobs, "inspect-web", "jobs");
+    YamlSequenceNode inspectWebSteps = GetRequiredSequence(
+        inspectWeb,
+        "steps",
+        "jobs.inspect-web");
+    List<YamlMappingNode> webSdkSteps = [];
+    foreach (YamlNode stepNode in inspectWebSteps.Children)
+    {
+        YamlMappingNode step = RequireMapping(
+            stepNode,
+            "jobs.inspect-web step");
+        if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v5")
+            webSdkSteps.Add(step);
+    }
+    if (webSdkSteps.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Expected one inspect-web setup-dotnet step, found {webSdkSteps.Count}.");
+    }
+    YamlMappingNode webSdkWith = GetRequiredMapping(
+        webSdkSteps[0],
+        "with",
+        "jobs.inspect-web setup-dotnet");
+    RequireScalarValue(
+        webSdkWith,
+        "dotnet-version",
+        "11.0.x",
+        "jobs.inspect-web setup-dotnet.with");
+    RequireScalarValue(
+        webSdkWith,
+        "dotnet-quality",
+        "preview",
+        "jobs.inspect-web setup-dotnet.with");
 
     YamlSequenceNode steps = GetRequiredSequence(
         changes,
@@ -925,13 +1022,38 @@ static (
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["BASH_ENV"] = "",
+            ["CI_BEFORE_SHA"] = "${{ github.event.before }}",
+            ["CI_PR_NUMBER"] = "${{ github.event.pull_request.number }}",
             ["GH_TOKEN"] = "${{ github.token }}",
         },
         "Detect changes.env");
-    string body = GetRequiredScalar(detectionStep, "run", "Detect changes");
+    const string DetectionScript = "eng/ci-detect-changes.sh";
+    RequireScalarValue(
+        detectionStep,
+        "run",
+        DetectionScript,
+        "Detect changes");
+    string detectionScriptPath = Path.Combine(repository, DetectionScript);
+    string body = File.ReadAllText(detectionScriptPath);
     if (body.Length == 0)
     {
-        throw new InvalidOperationException("Detect changes has an empty run block.");
+        throw new InvalidOperationException("Detect changes has an empty script.");
+    }
+    if (!OperatingSystem.IsWindows()
+        && (File.GetUnixFileMode(detectionScriptPath)
+            & UnixFileMode.UserExecute) == 0)
+    {
+        throw new InvalidOperationException(
+            "Detect changes script must be executable.");
+    }
+    if (!body.StartsWith(
+            "#!/usr/bin/env bash\nset -e -o pipefail\n",
+            StringComparison.Ordinal)
+        || body.Contains("${{", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "Detect changes script must own its Bash failure mode and contain " +
+            "no unevaluated workflow expressions.");
     }
 
     return (
@@ -1615,18 +1737,7 @@ static Dictionary<string, string> RunDetection(
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
-    string rendered = body
-        .Replace("${{ github.event_name }}", eventName, StringComparison.Ordinal)
-        .Replace(
-            "${{ github.event.pull_request.number }}",
-            "3704",
-            StringComparison.Ordinal)
-        .Replace(
-            "${{ github.repository }}",
-            "richlander/dotnet-inspect",
-            StringComparison.Ordinal)
-        .Replace("${{ github.event.before }}", Before, StringComparison.Ordinal)
-        .Replace("${{ github.sha }}", Sha, StringComparison.Ordinal);
+    string rendered = body;
 
     string temporary = Path.Combine(
         Path.GetTempPath(),
@@ -1795,6 +1906,8 @@ static Dictionary<string, string> RunDetection(
         startInfo.ArgumentList.Add(standardErrorPath);
         startInfo.Environment["BASH_ENV"] = "";
         startInfo.Environment["CHANGED_FILES"] = files;
+        startInfo.Environment["CI_BEFORE_SHA"] = Before;
+        startInfo.Environment["CI_PR_NUMBER"] = "3704";
         startInfo.Environment["CHANGED_FILE_COUNT_IS_STRING"] =
             changedFileCountIsString.ToString().ToLowerInvariant();
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
@@ -1802,7 +1915,11 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["EMPTY_PUSH_RECORD"] =
             emptyPushRecord.ToString().ToLowerInvariant();
         startInfo.Environment["FILE_STATUS"] = fileStatus;
+        startInfo.Environment["GITHUB_EVENT_NAME"] = eventName;
         startInfo.Environment["GITHUB_OUTPUT"] = output;
+        startInfo.Environment["GITHUB_REPOSITORY"] =
+            "richlander/dotnet-inspect";
+        startInfo.Environment["GITHUB_SHA"] = Sha;
         startInfo.Environment["BASE64_DECODE_COUNT"] =
             Path.Combine(temporary, "base64-decode-count");
         startInfo.Environment["FAIL_DECODE_AT"] =

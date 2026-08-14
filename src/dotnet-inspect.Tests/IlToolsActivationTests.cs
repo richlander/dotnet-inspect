@@ -800,6 +800,21 @@ public class IlToolsActivationTests
     }
 
     [Fact]
+    public void ReleaseWorkflow_TagsResolvedCiCommit()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
+        int releaseStep = workflow.IndexOf(
+            "- name: Create GitHub Release",
+            StringComparison.Ordinal);
+
+        Assert.True(releaseStep >= 0);
+        Assert.Contains(
+            "target_commitish: ${{ needs.resolve.outputs.sha }}",
+            workflow[releaseStep..]);
+    }
+
+    [Fact]
     public void ReleaseWorkflow_OracleTestLaneBlocksAllPackageJobs()
     {
         string workflow = File.ReadAllText(
