@@ -505,10 +505,10 @@ round:
   still says `UNKNOWN`. Accept it only when `head.sha` is the expected head:
   `mergeable: true` satisfies the mergeability half of the gate, while
   `mergeable: false` blocks. A null REST result is still computing; yield for
-  60–90 seconds with small random jitter, then re-run the consolidated GraphQL
-  query. Continue this bounded self-recovery without asking the user to report
-  CI or mergeability; after three short attempts, fall back to the normal
-  ten-minute cadence until GitHub returns a definite result.
+  five minutes with small random jitter, then re-run the consolidated GraphQL
+  query and the REST fallback if it remains `UNKNOWN`. Continue that
+  five-minute self-recovery until GitHub returns a definite result; do not ask
+  the user to report CI or mergeability.
 
   Do not infer mergeability from green CI: #4032 reported successful checks
   while GitHub reported `CONFLICTING`/`DIRTY`. Do not read `mergeStateStatus` as
