@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -21,6 +22,567 @@ namespace CSharpText.Tests;
 /// </remarks>
 public class DeclarationIndexTests
 {
+    [Fact]
+    public void LineLimit_StopsLineDenseInputBeforeSplitting()
+    {
+        var source = new string('\n', 500_000);
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        var error = Assert.Throws<CSharpTextComplexityException>(
+            () => DeclarationIndex.Build(source));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(500_000, error.Limit);
+        Assert.Equal("lines", error.Unit);
+        Assert.True(
+            allocated < 256 * 1024,
+            $"line-limit failure allocated {allocated:N0} bytes before refusing the source");
+    }
+
+    [Fact]
+    public void CrLfAndCrOnlySource_UseTheSamePhysicalLineModel()
+    {
+        const string cr = "class C\r{\r    void M() { }\r}";
+        const string crlf = "class C\r\n{\r\n    void M() { }\r\n}";
+
+        foreach (var source in new[] { cr, crlf })
+        {
+            var method = Assert.Single(
+                DeclarationIndex.Build(source).FindByName(DeclarationKind.Method, "M"));
+            Assert.Equal(3, method.SignatureStartLine);
+            Assert.Equal(3, method.EndLine);
+        }
+
+        var error = Assert.Throws<CSharpTextComplexityException>(
+            () => DeclarationIndex.Build(new string('\r', 500_000)));
+        Assert.Equal(500_000, error.Limit);
+        Assert.Equal("lines", error.Unit);
+    }
+
+    [Fact]
+    public void ConditionalGroups_ReportNestedAndEmptyHalfOpenBranches()
+    {
+        const string source = """
+            class C
+            {
+            #if OUTER
+            #if INNER
+                int x;
+            #else
+            #endif
+            #elif OTHER
+                int y;
+            #else
+                int z;
+            #endif
+            }
+            """;
+
+        var index = DeclarationIndex.Build(source);
+
+        Assert.Collection(
+            index.ConditionalGroups,
+            outer =>
+            {
+                Assert.Equal(0, outer.Id);
+                Assert.Equal(-1, outer.ParentGroupId);
+                Assert.Equal(3, outer.IfDirectiveLine);
+                Assert.Equal(12, outer.EndIfDirectiveLine);
+                Assert.Collection(
+                    outer.Branches,
+                    branch => AssertBranch(branch, 0, 0, 3, 4, 8),
+                    branch => AssertBranch(branch, 3, 0, 8, 9, 10),
+                    branch => AssertBranch(branch, 4, 0, 10, 11, 12));
+            },
+            inner =>
+            {
+                Assert.Equal(1, inner.Id);
+                Assert.Equal(0, inner.ParentGroupId);
+                Assert.Equal(4, inner.IfDirectiveLine);
+                Assert.Equal(7, inner.EndIfDirectiveLine);
+                Assert.Collection(
+                    inner.Branches,
+                    branch => AssertBranch(branch, 1, 1, 4, 5, 6),
+                    branch => AssertBranch(branch, 2, 1, 6, 7, 7));
+            });
+
+        static void AssertBranch(
+            ConditionalBranchSpan branch,
+            int id,
+            int groupId,
+            int directiveLine,
+            int contentStartLine,
+            int contentEndLineExclusive)
+        {
+            Assert.Equal(id, branch.Id);
+            Assert.Equal(groupId, branch.GroupId);
+            Assert.Equal(directiveLine, branch.DirectiveLine);
+            Assert.Equal(contentStartLine, branch.ContentStartLine);
+            Assert.Equal(contentEndLineExclusive, branch.ContentEndLineExclusive);
+        }
+    }
+
+    [Fact]
+    public void AmbiguousConditionalTopology_WithholdsItsOpenAndLaterGroups()
+    {
+        const string source = """
+            #if OUTER
+            /*
+            #if HIDDEN
+            */
+            #endif
+            #if LATER
+            class C { }
+            #endif
+            """;
+
+        Assert.Empty(DeclarationIndex.Build(source).ConditionalGroups);
+    }
+
+    [Theory]
+    [InlineData("#if OUTER\n#if INNER\n#endif")]
+    [InlineData("#endif\n#if LATER\n#endif")]
+    public void UnclosedOrStrayConditionalTopology_WithholdsAffectedGroups(string source)
+    {
+        Assert.Empty(DeclarationIndex.Build(source).ConditionalGroups);
+    }
+
+    [Fact]
+    public void DuplicateElse_WithholdsThatGroupButNotALaterIndependentGroup()
+    {
+        const string source = """
+            #if FIRST
+            class A { }
+            #else
+            class B { }
+            #else
+            class C { }
+            #endif
+            #if LATER
+            class D { }
+            #endif
+            """;
+
+        var group = Assert.Single(DeclarationIndex.Build(source).ConditionalGroups);
+        Assert.Equal(8, group.IfDirectiveLine);
+        Assert.Equal(10, group.EndIfDirectiveLine);
+    }
+
+    [Fact]
+    public void SelectedConditionalBranch_ProjectsOnlyThatGroupAndPreservesPhysicalLines()
+    {
+        const string source = """
+            class C
+            {
+            #if FIRST
+                void Dead() { }
+            #else
+                void Live() { }
+            #endif
+            #if UNKNOWN
+                void Maybe() { }
+            #endif
+            }
+            """;
+        var index = DeclarationIndex.Build(source);
+        var selected = index.ConditionalGroups[0].Branches[1];
+
+        var projected = index.WithSelectedConditionalBranches([selected]);
+
+        var live = Assert.Single(projected.FindByName(DeclarationKind.Method, "Live"));
+        Assert.True(live.SpanKnown);
+        Assert.Equal(6, live.SignatureStartLine);
+        Assert.Empty(projected.FindByName(DeclarationKind.Method, "Dead"));
+        Assert.False(
+            Assert.Single(projected.FindByName(DeclarationKind.Method, "Maybe")).SpanKnown);
+    }
+
+    [Fact]
+    public void ConditionalProjection_RejectsABranchFromAnotherIndex()
+    {
+        const string source = "#if X\nclass A { }\n#else\nclass B { }\n#endif";
+        var first = DeclarationIndex.Build(source);
+        var second = DeclarationIndex.Build(source);
+
+        Assert.Throws<ArgumentException>(
+            () => first.WithSelectedConditionalBranches(
+                [second.ConditionalGroups[0].Branches[0]]));
+    }
+
+    [Fact]
+    public void ConditionalProjection_ManySelectionsAllocateLinearly()
+    {
+        var smaller = ProjectionFixture(512);
+        var larger = ProjectionFixture(1_024);
+
+        _ = smaller.Index.WithSelectedConditionalBranches(smaller.Selected);
+        _ = larger.Index.WithSelectedConditionalBranches(larger.Selected);
+
+        long smallAllocation = Measure(smaller);
+        long largeAllocation = Measure(larger);
+
+        Assert.True(
+            largeAllocation < smallAllocation * 3,
+            $"doubling groups changed projection allocation from "
+            + $"{smallAllocation:N0} to {largeAllocation:N0} bytes");
+
+        static long Measure(
+            (DeclarationIndex Index, ConditionalBranchSpan[] Selected) fixture)
+        {
+            GC.Collect();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            var projected = fixture.Index.WithSelectedConditionalBranches(fixture.Selected);
+            long allocation = GC.GetAllocatedBytesForCurrentThread() - before;
+            GC.KeepAlive(projected);
+            return allocation;
+        }
+
+        static (DeclarationIndex Index, ConditionalBranchSpan[] Selected) ProjectionFixture(
+            int groupCount)
+        {
+            var source = new StringBuilder("class C\n{\n");
+            for (int i = 0; i < groupCount; i++)
+            {
+                source.Append("#if X\n    void A");
+                source.Append(i);
+                source.Append("() { }\n#else\n    void B");
+                source.Append(i);
+                source.Append("() { }\n#endif\n");
+            }
+            source.Append('}');
+
+            var index = DeclarationIndex.Build(source.ToString());
+            return (
+                index,
+                [.. index.ConditionalGroups.Select(static group => group.Branches[0])]);
+        }
+    }
+
+    [Theory]
+    [InlineData("#line 200")]
+    [InlineData("\uFEFF  #line default")]
+    public void LineDirective_IsReportedForPdbCorrelationRefusal(string directive)
+    {
+        var index = DeclarationIndex.Build($"{directive}\nclass C {{ }}");
+
+        Assert.True(index.HasLineDirectives);
+    }
+
+    [Theory]
+    [InlineData('\u0085')]
+    [InlineData('\u2028')]
+    [InlineData('\u2029')]
+    public void UnicodeLineSeparators_UseTheCompilerPhysicalLineModel(char separator)
+    {
+        string source = "class C\n{\n    string S = @\"a"
+            + separator
+            + "b\";\n    void M() { }\n}";
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: cancellationToken);
+        Assert.DoesNotContain(
+            tree.GetDiagnostics(cancellationToken),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var syntax = Assert.Single(
+            tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>());
+        int compilerLine = syntax.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+
+        var method = Assert.Single(
+            DeclarationIndex.Build(source).FindByName(DeclarationKind.Method, "M"));
+
+        Assert.Equal(5, compilerLine);
+        Assert.Equal(compilerLine, method.SignatureStartLine);
+        Assert.Equal(compilerLine, method.EndLine);
+    }
+
+    [Fact]
+    public void ManyInitializerArguments_DoNotRescanTheAccumulatedHeader()
+    {
+        var source = new StringBuilder("class C { void M() { Register(");
+        for (int i = 0; i < 8_000; i++)
+            source.Append("new Item { A = ").Append(i).Append(" },");
+        source.Append("null); } }");
+
+        var timer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"indexing 8,000 initializer arguments took {timer.Elapsed}");
+    }
+
+    [Fact]
+    public void ManyDeclarators_DoNotRescanTheirSharedHeader()
+    {
+        var source = new StringBuilder("class C { int f0");
+        for (int i = 1; i < 16_000; i++)
+            source.Append(", f").Append(i);
+        source.Append("; void M() { } }");
+
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+
+        Assert.Equal(16_002, index.Declarations.Length);
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"indexing one declaration with 16,000 declarators took {timer.Elapsed}");
+    }
+
+    [Fact]
+    public void ManyUnclosedExtensionScopes_ApplyTrustInOneFinalPass()
+    {
+        var baselineSource = new StringBuilder("static class S {\n");
+        for (int i = 0; i < 80_000; i++)
+            baselineSource.Append("int f").Append(i).AppendLine(";");
+        baselineSource.AppendLine("}");
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder("static class S {\n");
+        for (int i = 0; i < 60_000; i++)
+            source.AppendLine("extension(){");
+        for (int i = 0; i < 80_000; i++)
+            source.Append("int f").Append(i).AppendLine(";");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(80_001, index.Declarations.Length);
+        Assert.Equal(60_000, index.TransparentScopes.Length);
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => declaration.Kind == DeclarationKind.Field && declaration.SpanKnown);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"scope case took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    [Fact]
+    public void ManyFileScopedNamespaces_ReuseOneSuffixSummary()
+    {
+        var baselineSource = new StringBuilder("class C {\n");
+        for (int i = 0; i < 150_000; i++)
+            baselineSource.Append("int f").Append(i).AppendLine(";");
+        baselineSource.AppendLine("void M() { }");
+        baselineSource.AppendLine("}");
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder();
+        for (int i = 0; i < 150_000; i++)
+            source.AppendLine("namespace N;");
+        source.AppendLine("class C {");
+        source.AppendLine("void M() { }");
+        source.AppendLine("}");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(150_002, index.Declarations.Length);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"namespace case took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    [Fact]
+    public void RelationalInitializerChain_DoesNotRescanEachRemainingSuffix()
+    {
+        var source = new StringBuilder("class C { static dynamic f = a");
+        for (int i = 0; i < 32_000; i++)
+            source.Append(" < a");
+        source.Append("; }");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"indexing 32,000 relational operators took {timer.Elapsed}");
+        Assert.True(
+            allocated < 128 * 1024 * 1024,
+            $"indexing 32,000 relational operators allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void ConditionalInitializerTail_ExaminesEachPendingTokenOnce()
+    {
+        const int count = 64_000;
+        var baselineSource = new StringBuilder("class C {\n");
+        for (int i = 0; i < count; i++)
+            baselineSource.Append("x ");
+        baselineSource.Append('x');
+        for (int i = 0; i < count; i++)
+            baselineSource.Append(" =");
+        baselineSource.AppendLine(";\n}");
+
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder("class C {\n#if X\n");
+        for (int i = 0; i < count; i++)
+            source.Append("x ");
+        source.AppendLine("\n#endif");
+        source.Append('x');
+        for (int i = 0; i < count; i++)
+            source.Append(" =");
+        source.AppendLine(";\n}");
+
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+
+        Assert.Equal(2, index.Declarations.Length);
+        Assert.False(Assert.Single(index.FindByName(DeclarationKind.Field, "x")).SpanKnown);
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"conditional header took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+    }
+
+    [Fact]
+    public void ConditionalNamespaceChainAndRepeatedTerminators_TraverseEachOutwardEdgeOnce()
+    {
+        // Each namespace contributes five retained tokens and each terminator contributes three,
+        // keeping both sources at 490,000 of the 500,000-token limit and 390,000 physical lines.
+        const int depth = 50_000;
+        const int terminators = 80_000;
+        var baselineSource = new StringBuilder();
+        for (int i = 0; i < depth; i++)
+            baselineSource.AppendLine("namespace N;\n#if X\n#endif");
+        for (int i = 0; i < terminators; i++)
+            baselineSource.AppendLine("#if X\n#endif\n;");
+
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder();
+        for (int i = 0; i < depth; i++)
+            source.AppendLine("#if X\nnamespace N;\n#endif");
+        for (int i = 0; i < terminators; i++)
+            source.AppendLine("#if X\n#endif\n;");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(depth, index.Declarations.Length);
+        Assert.All(index.Declarations, declaration => Assert.False(declaration.SpanKnown));
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 4 + TimeSpan.FromMilliseconds(500),
+            $"conditional namespace chain took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    [Fact]
+    public void ConditionalSiblingFanOut_RefusesEachSiblingOnce()
+    {
+        // Seven retained tokens and four physical lines per child keep both sources at 490,006
+        // tokens and 280,006 lines. The control puts the optional trailer before the empty group,
+        // so it performs the same lexical and row work without a terminator reaching backward.
+        const int count = 70_000;
+        var baselineSource = new StringBuilder("#if A\nclass Owner\n#endif\n{\n");
+        for (int i = 0; i < count; i++)
+            baselineSource.AppendLine("class T { };\n#if X\n#endif\n");
+        baselineSource.AppendLine("}");
+
+        var baselineTimer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(baselineSource.ToString());
+        baselineTimer.Stop();
+
+        var source = new StringBuilder("#if A\nclass Owner\n#endif\n{\n");
+        for (int i = 0; i < count; i++)
+            source.AppendLine("class T { }\n#if X\n#endif\n;");
+        source.AppendLine("}");
+
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var index = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(count + 1, index.Declarations.Length);
+        Assert.All(index.Declarations, declaration => Assert.False(declaration.SpanKnown));
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 4 + TimeSpan.FromMilliseconds(500),
+            $"conditional sibling fan-out took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+        Assert.True(
+            allocated < 384L * 1024 * 1024,
+            $"indexing allocated {allocated / (1024 * 1024)} MiB");
+    }
+
+    /// <summary>
+    /// Completing a parent's outward walk does not complete its sibling prefix. A later child must
+    /// still be refused before the memo stops at that parent; checking the memo first leaves
+    /// <c>B</c> incorrectly vouched.
+    /// </summary>
+    [Fact]
+    public void AChildAddedAfterAnOutwardRefusal_IsStillRefused()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            class P
+            #endif
+            {
+                class A { }
+            #if Y
+            #endif
+                ;
+                class B { }
+            #if Z
+            #endif
+                ;
+            }
+            """);
+
+        Assert.False(Assert.Single(index.FindByName(DeclarationKind.Class, "A")).SpanKnown);
+        Assert.False(Assert.Single(index.FindByName(DeclarationKind.Class, "B")).SpanKnown);
+    }
+
+    [Fact]
+    public void TheBodySlicerCannotAccessLexerInternals()
+    {
+        Assert.DoesNotContain(
+            typeof(DeclarationIndex).Assembly.GetCustomAttributesData(),
+            attribute =>
+                attribute.AttributeType == typeof(System.Runtime.CompilerServices.InternalsVisibleToAttribute)
+                && attribute.ConstructorArguments[0].Value is string assemblyName
+                && assemblyName.StartsWith(
+                    "DotnetInspector.CSharpBodySlicer",
+                    StringComparison.Ordinal));
+    }
+
     private const string StableConditionalCorpusFile = "ConditionalCorpusFixture.cs";
 
     [Fact]
@@ -271,8 +833,14 @@ public class DeclarationIndexTests
         Assert.True(offenders.Count == 0, string.Join("\n", offenders.Take(20)));
     }
 
+    /// <summary>
+    /// Containment runs from the signature, not the body, so a line selects the declaration a
+    /// reader would say it belongs to. Line 8 is <c>Deep</c>'s signature: it is inside
+    /// <c>Inner</c>'s body but not inside <c>Deep</c>'s, so body-only containment answered
+    /// <c>Inner</c> — the enclosing type — for a line that plainly declares a method.
+    /// </summary>
     [Fact]
-    public void FindByBodyLine_ReturnsTheInnermostDeclarationCoveringThatLine()
+    public void FindByLine_ReturnsTheInnermostDeclarationCoveringThatLine()
     {
         var index = DeclarationIndex.Build("""
             namespace N;
@@ -290,15 +858,305 @@ public class DeclarationIndexTests
             }
             """);
 
-        var deep = index.FindByBodyLine(9);
-        Assert.NotNull(deep);
-        Assert.Equal(DeclarationKind.Method, deep.Kind);
-        Assert.Equal("Deep", deep.Name);
+        // Inside the body.
+        var body = index.FindByLine(10);
+        Assert.NotNull(body);
+        Assert.Equal(DeclarationKind.Method, body.Kind);
+        Assert.Equal("Deep", body.Name);
 
-        var inner = index.FindByBodyLine(8);
+        // On the signature. Body-only containment answered "Inner" here.
+        var signature = index.FindByLine(8);
+        Assert.NotNull(signature);
+        Assert.Equal(DeclarationKind.Method, signature.Kind);
+        Assert.Equal("Deep", signature.Name);
+
+        // A line belonging to no member still resolves to the innermost type that owns it, so
+        // widening containment did not make every line answer with a member.
+        var inner = index.FindByLine(7);
         Assert.NotNull(inner);
         Assert.Equal(DeclarationKind.Class, inner.Kind);
         Assert.Equal("Inner", inner.Name);
+
+        var before = index.FindByLine(4);
+        Assert.NotNull(before);
+        Assert.Equal("Before", before.Name);
+    }
+
+    /// <summary>
+    /// The reason containment starts at the signature. A constructor's first sequence point can
+    /// land on its declaration line rather than inside its body — the compiler attributes
+    /// parameter capture and a base initializer there — so body-only containment falls through to
+    /// the enclosing type and names the type header as the constructor's source.
+    /// <para>
+    /// Both halves matter. The constructor's own signature line must select the constructor, and
+    /// the type's header line must still select the type — a selector that simply preferred the
+    /// deepest row overlapping anything would satisfy the first and break the second.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConstructorsSignatureLine_SelectsTheConstructorNotTheType()
+    {
+        var index = DeclarationIndex.Build("""
+            public class C
+            {
+                private readonly int _x;
+
+                private C(
+                    int x,
+                    int y)
+                {
+                    _x = x + y;
+                }
+            }
+            """);
+
+        var ctor = Assert.Single(index.Declarations, d => d.Kind == DeclarationKind.Constructor);
+        Assert.Equal(5, ctor.SignatureStartLine);
+        Assert.Equal(8, ctor.BodyStartLine);
+
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(5)?.Kind);
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(6)?.Kind);
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(9)?.Kind);
+        Assert.Equal(DeclarationKind.Class, index.FindByLine(1)?.Kind);
+
+        // A field's line selects the field, which is what a static constructor synthesized from
+        // field initializers reports its sequence point against.
+        Assert.Equal(DeclarationKind.Field, index.FindByLine(3)?.Kind);
+    }
+
+    [Fact]
+    public void AConstructorNamedExtension_IsNotAnExtensionBlock()
+    {
+        var index = DeclarationIndex.Build("""
+            class extension
+            {
+                extension()
+                {
+                    void Local() { }
+                }
+            }
+            """);
+
+        var constructor = Assert.Single(
+            index.Declarations,
+            declaration => declaration.Kind == DeclarationKind.Constructor);
+        Assert.Equal("extension", constructor.Name);
+        Assert.Equal(3, constructor.SignatureStartLine);
+        Assert.Equal(6, constructor.EndLine);
+        Assert.DoesNotContain(index.Declarations, declaration => declaration.Name == "Local");
+        Assert.Empty(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AnExtensionBlockInAPartialPartWithoutStatic_IsTransparent()
+    {
+        var index = DeclarationIndex.Build("""
+            partial class Ext
+            {
+                extension(int value)
+                {
+                    public int Doubled => value * 2;
+                }
+            }
+
+            static partial class Ext
+            {
+            }
+            """);
+
+        Assert.DoesNotContain(index.Declarations, declaration => declaration.Name == "extension");
+        var property = Assert.Single(index.FindByName(DeclarationKind.Property, "Doubled"));
+        Assert.True(property.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void APlainExtensionHeaderInANonStaticPartialTypeNamedExtension_IsAmbiguous()
+    {
+        var index = DeclarationIndex.Build("""
+            partial class extension
+            {
+                extension()
+                {
+                    void Local() { }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => !declaration.IsType && declaration.SpanKnown);
+        var local = Assert.Single(index.FindByName(DeclarationKind.Method, "Local"));
+        Assert.False(local.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AConditionalStaticModifierKeepsConstructorShapedExtensionSyntaxAmbiguous()
+    {
+        var index = DeclarationIndex.Build("""
+            #if STATIC_EXTENSION
+            static
+            #endif
+            class extension
+            {
+                extension(int value)
+                {
+                    public void M() { }
+                }
+            }
+            """);
+
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.False(method.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AnIncompleteGenericExtensionHeaderDoesNotBecomeATrustedOuterMethod()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                extension<T(int value)
+                {
+                    public void M() { }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => declaration.Name == "T" && declaration.SpanKnown);
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.False(method.SpanKnown);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Theory]
+    [InlineData(": base(new Options { Path = path })")]
+    [InlineData(": base(new object[] { path })")]
+    [InlineData(": base(() => { Use(path); })")]
+    [InlineData(": base(path is { Length: > 0 })")]
+    public void BracesInsideAConstructorInitializer_DoNotCloseTheConstructor(string initializer)
+    {
+        var index = DeclarationIndex.Build($$"""
+            class C
+            {
+                C(string path)
+                    {{initializer}}
+                {
+                    Use(path);
+                }
+            }
+            """);
+
+        var ctor = Assert.Single(index.Declarations, d => d.Kind == DeclarationKind.Constructor);
+        Assert.Equal(3, ctor.SignatureStartLine);
+        Assert.Equal(5, ctor.BodyStartLine);
+        Assert.Equal(7, ctor.BodyEndLine);
+        Assert.Equal(7, ctor.EndLine);
+        Assert.True(ctor.SpanKnown);
+        Assert.False(ctor.IsStatic);
+    }
+
+    [Fact]
+    public void ObjectInitializerFollowedByAnotherConstructorArgument_DoesNotCreateAPhantomRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                C(S value, int count) { }
+                C() : this(new S { Value = 1 }, 2) { }
+            }
+            """);
+
+        Assert.Equal(
+            2,
+            index.Declarations.Count(d => d.Kind == DeclarationKind.Constructor));
+        Assert.DoesNotContain(
+            index.Declarations,
+            d => d.ParentIndex >= 0 && d.Kind == DeclarationKind.Property);
+    }
+
+    [Fact]
+    public void AStaticConstructorCarriesStaticIdentity()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                C() { }
+                static C() { }
+            }
+            """);
+
+        var constructors = index.Declarations
+            .Where(d => d.Kind == DeclarationKind.Constructor)
+            .OrderBy(d => d.SignatureStartLine)
+            .ToArray();
+        Assert.False(constructors[0].IsStatic);
+        Assert.True(constructors[1].IsStatic);
+    }
+
+    [Fact]
+    public void SignatureColumnAndInitializerFacts_AreCarriedByTheIndex()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                /* closed */ static int Field = 1;
+                int Property { get; } = 2;
+                void M() { }
+            }
+            """);
+
+        var field = Assert.Single(index.Declarations, d => d.Name == "Field");
+        Assert.Equal(17, field.SignatureStartColumn);
+        Assert.Equal(17, field.FirstCodeColumn);
+        Assert.True(field.IsStatic);
+        Assert.True(field.HasInitializer);
+
+        var property = Assert.Single(index.Declarations, d => d.Name == "Property");
+        Assert.False(property.IsStatic);
+        Assert.True(property.HasInitializer);
+
+        var method = Assert.Single(index.Declarations, d => d.Name == "M");
+        Assert.False(method.HasInitializer);
+    }
+
+    [Fact]
+    public void StaticInAnExpressionBody_IsNotADeclarationModifier()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                Func<int> Factory;
+                C() => Factory = static () => 1;
+                static C() => Factory = static () => 2;
+            }
+            """);
+
+        var constructors = index.Declarations
+            .Where(d => d.Kind == DeclarationKind.Constructor)
+            .OrderBy(d => d.SignatureStartLine)
+            .ToArray();
+        Assert.False(constructors[0].IsStatic);
+        Assert.True(constructors[1].IsStatic);
+    }
+
+    [Fact]
+    public void ATypeTrailerExtendsTheDeclarationButNotItsBody()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            }
+            ;
+            """);
+
+        var type = Assert.Single(index.Declarations);
+        Assert.Equal(3, type.BodyEndLine);
+        Assert.Equal(4, type.EndLine);
     }
 
     /// <summary>
@@ -365,6 +1223,29 @@ public class DeclarationIndexTests
         Assert.Equal(
             ["A", "B", "C2", "P", "Q", "Map"],
             index.Declarations.Where(s => s.Kind == DeclarationKind.Field).Select(s => s.Name));
+    }
+
+    [Fact]
+    public void EachDeclaratorCarriesItsOwnInitializerFact()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                static int A, B = 1, C2;
+                event System.Action E1, E2 = null, E3;
+            }
+            """);
+
+        Assert.Equal(
+            [("A", false), ("B", true), ("C2", false)],
+            index.Declarations
+                .Where(declaration => declaration.Kind == DeclarationKind.Field)
+                .Select(declaration => (declaration.Name, declaration.HasInitializer)));
+        Assert.Equal(
+            [("E1", false), ("E2", true), ("E3", false)],
+            index.Declarations
+                .Where(declaration => declaration.Kind == DeclarationKind.Event)
+                .Select(declaration => (declaration.Name, declaration.HasInitializer)));
     }
 
     /// <summary>
@@ -519,6 +1400,174 @@ public class DeclarationIndexTests
         Assert.All(
             index.Declarations.Where(d => d.Kind is DeclarationKind.Method or DeclarationKind.Property),
             d => Assert.Equal(owner, index.ParentOf(d)));
+
+        Assert.Equal(
+            ["4-7", "9-13"],
+            index.TransparentScopes.Select(scope => scope.ToString()));
+        Assert.Equal(
+            [5, 10],
+            index.TransparentScopes.Select(scope => scope.BodyStartLine));
+    }
+
+    [Fact]
+    public void AnAttributeArrayInAnExtensionReceiver_DoesNotOpenTheExtensionBody()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                extension(
+                    [A(new int[] {
+                        1
+                    })]
+                    string receiver)
+                {
+                    public void M()
+                    {
+                    }
+                }
+            }
+            """);
+
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        var owner = Assert.Single(index.FindByName(DeclarationKind.Class, "C"));
+        Assert.Equal(owner, index.ParentOf(method));
+        Assert.Equal(9, method.SignatureStartLine);
+        Assert.Equal(11, method.EndLine);
+
+        var scope = Assert.Single(index.TransparentScopes);
+        Assert.Equal(3, scope.StartLine);
+        Assert.Equal(8, scope.BodyStartLine);
+        Assert.Equal(12, scope.EndLine);
+    }
+
+    [Fact]
+    public void ARelationalOperatorInAGenericExtensionAttribute_DoesNotHideTheExtensionBlock()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                extension<[A(1 > 0)] T>(T receiver)
+                {
+                    public void M() { }
+                }
+            }
+            """);
+
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        var owner = Assert.Single(index.FindByName(DeclarationKind.Class, "C"));
+        Assert.Equal(owner, index.ParentOf(method));
+        Assert.Equal(5, method.SignatureStartLine);
+        Assert.Equal(5, method.EndLine);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void AnUnknownExtensionHeader_DoesNotVouchForDeclarationsInsideItsBraces()
+    {
+        var conditional = DeclarationIndex.Build("""
+            static class C
+            {
+            #if EXT
+                extension(C receiver)
+            #else
+                int P
+            #endif
+                {
+                    get { return 1; }
+                }
+            }
+            """);
+        var malformed = DeclarationIndex.Build("""
+            static class C
+            {
+                extension([)] )
+                {
+                    public static void M()
+                    {
+                    }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            conditional.Declarations,
+            declaration => !declaration.IsType
+                && declaration.SpanKnown
+                && declaration.Contains(9));
+        Assert.DoesNotContain(
+            malformed.Declarations,
+            declaration => !declaration.IsType
+                && declaration.SpanKnown
+                && declaration.Contains(5));
+    }
+
+    [Fact]
+    public void AnUnknownExtensionScopeCarriesTrustIntoInPassParentDecisions()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                class Sh { }
+            #if X
+                extension(int x)
+            #else
+                int P
+            #endif
+                {
+                    public void M()
+                    {
+            #if Y
+                        int F = 1
+            #endif
+                        ;
+                    }
+                }
+            }
+            """);
+
+        var sibling = Assert.Single(index.FindByName(DeclarationKind.Class, "Sh"));
+        Assert.False(
+            sibling.SpanKnown,
+            "the in-pass reachability walk must not stop at a parent whose scope is unknown");
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.False(method.SpanKnown);
+    }
+
+    [Fact]
+    public void MismatchedHeaderDelimiters_DoNotProduceAKnownDeclaration()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                void M() ) [
+                {
+                    void N() { }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => declaration.SpanKnown && (declaration.Name is "M" or "N"));
+    }
+
+    [Theory]
+    [InlineData("() => { return 1; }")]
+    [InlineData("new Holder { Value = 1 }")]
+    [InlineData("value is { }")]
+    public void PrimaryConstructorBaseArgumentBraces_DoNotBecomeTheTypeBody(string argument)
+    {
+        var index = DeclarationIndex.Build($$"""
+            class C(object value) : B({{argument}})
+            {
+                void M() { }
+            }
+            """);
+
+        var type = Assert.Single(index.FindByName(DeclarationKind.Class, "C"));
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.Equal(4, type.EndLine);
+        Assert.Equal(type, index.ParentOf(method));
     }
 
     /// <summary>
@@ -565,11 +1614,12 @@ public class DeclarationIndexTests
                 public object F = Foo<int, string>.Bar, G = null;
                 public bool X = 1 < 2, Y = 3 > 2;
                 public bool P = A2 < B2, Q = C2 > D2;
+                public dynamic H = a < Broken + Foo<int, string, float>.Bar, I = null;
             }
             """);
 
         Assert.Equal(
-            ["A", "B", "F", "G", "X", "Y", "P", "Q"],
+            ["A", "B", "F", "G", "X", "Y", "P", "Q", "H", "I"],
             index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
     }
 
@@ -959,7 +2009,7 @@ public class DeclarationIndexTests
         var conditional = Assert.Single(index.Declarations, s => s.Name == "Debug");
         Assert.False(conditional.SpanKnown, "a row inside a branch is not known to compile");
 
-        Assert.Equal("Always", index.FindByBodyLine(6)?.Name);
+        Assert.Equal("Always", index.FindByLine(6)?.Name);
 
         // The same declarations without the directive resolve identically, so the group now costs
         // nothing outside itself.
@@ -976,7 +2026,88 @@ public class DeclarationIndexTests
             """);
 
         Assert.All(plain.Declarations, s => Assert.True(s.SpanKnown));
-        Assert.Equal("Always", plain.FindByBodyLine(3)?.Name);
+        Assert.Equal("Always", plain.FindByLine(3)?.Name);
+    }
+
+    /// <summary>
+    /// A branch-local attribute makes the branch-local declaration unknown, but that declaration
+    /// consumes the attribute in every build where either exists. Its unknownness must not leak
+    /// past a balanced <c>#endif</c> and withhold the next unconditional declaration. Serilog
+    /// 4.2.0's <c>Logger.Write(LogEvent)</c> has this exact shape immediately after a
+    /// FEATURE_SPAN-only attributed overload.
+    /// </summary>
+    [Fact]
+    public void ABranchLocalAttributedDeclaration_DoesNotPoisonTheFollowingRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if FEATURE
+                [Obsolete]
+                void Conditional() { }
+            #endif
+                void Always() { }
+            }
+            """);
+
+        var conditional = Assert.Single(index.Declarations, row => row.Name == "Conditional");
+        Assert.False(conditional.SpanKnown);
+
+        var always = Assert.Single(index.Declarations, row => row.Name == "Always");
+        Assert.True(always.SpanKnown);
+        Assert.Equal(always, index.FindByLine(7));
+    }
+
+    /// <summary>
+    /// A conditional attribute can attach to an unconditional declaration, making that
+    /// declaration's attribute set unknown. Its unconditional terminator still consumes the
+    /// complete declaration in every build, so the next header starts clean.
+    /// </summary>
+    [Fact]
+    public void AConditionalAttributeConsumedByAnUnconditionalDeclaration_DoesNotPoisonTheFollowingRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if FEATURE
+                [Obsolete]
+            #endif
+                int Field;
+                void Always() { }
+            }
+            """);
+
+        var field = Assert.Single(index.Declarations, row => row.Name == "Field");
+        Assert.False(field.SpanKnown);
+
+        var always = Assert.Single(index.Declarations, row => row.Name == "Always");
+        Assert.True(always.SpanKnown);
+        Assert.Equal(always, index.FindByLine(7));
+    }
+
+    /// <summary>
+    /// The positive case above is safe only when the attribute and declaration are consumed
+    /// together. If another branch consumes the attribute, one build still carries it to the
+    /// declaration after <c>#endif</c>, so that declaration must remain unknown.
+    /// </summary>
+    [Fact]
+    public void AnAttributeConsumedOnlyInAnotherBranch_StillPoisonsTheFollowingRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if FEATURE
+                [Obsolete]
+            #else
+                void Conditional() { }
+            #endif
+                void Always() { }
+            }
+            """);
+
+        var always = Assert.Single(index.Declarations, row => row.Name == "Always");
+        Assert.False(always.SpanKnown);
+        Assert.Equal(DeclarationKind.Class, index.FindByLine(8)?.Kind);
     }
 
     /// <summary>
@@ -2043,7 +3174,7 @@ public class DeclarationIndexTests
         // balance, so its end does not depend on which branch compiles. Brace balance is what
         // makes a *following* span knowable; it says nothing about a span whose terminator is
         // inside a branch, which is why P stays lost while C does not.
-        Assert.Equal("C", index.FindByBodyLine(3)?.Name);
+        Assert.Equal("C", index.FindByLine(3)?.Name);
 
         // Without the conditional the same shape resolves, so the directive is the whole cause and
         // the trailing-initializer path still extends the span it belongs to.
@@ -3195,10 +4326,10 @@ public class DeclarationIndexTests
     }
 
     private static string Format(Declaration d) =>
-        $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
+        $"{d.Kind} {d.Name} {d.SignatureStartLine}:{d.SignatureStartColumn}-{d.EndLine}";
 
     private static string Format(DeclarationSpan s) =>
-        $"{s.Kind} {s.Name} {s.SignatureStartLine}-{s.EndLine}";
+        $"{s.Kind} {s.Name} {s.SignatureStartLine}:{s.SignatureStartColumn}-{s.EndLine}";
 
     /// <summary>
     /// A multiset difference, not a set difference. Cardinality is the point: a builder that emits
@@ -3227,7 +4358,12 @@ public class DeclarationIndexTests
     }
 
     private sealed record Declaration(
-        DeclarationKind Kind, string Name, int TriviaStartLine, int SignatureStartLine, int EndLine)
+        DeclarationKind Kind,
+        string Name,
+        int TriviaStartLine,
+        int SignatureStartLine,
+        int SignatureStartColumn,
+        int EndLine)
     {
         public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
     }
@@ -3430,6 +4566,7 @@ public class DeclarationIndexTests
             name,
             TriviaStartLine(node),
             Line(node.SyntaxTree, signatureStart.SpanStart),
+            Column(node.SyntaxTree, signatureStart.SpanStart),
             EndLine(node))
         {
             AttributeLists = [.. attributes.Select(a => new LineRange(
@@ -3467,6 +4604,9 @@ public class DeclarationIndexTests
 
     private static int Line(SyntaxTree tree, int position) =>
         tree.GetLineSpan(new Microsoft.CodeAnalysis.Text.TextSpan(position, 0)).StartLinePosition.Line + 1;
+
+    private static int Column(SyntaxTree tree, int position) =>
+        tree.GetLineSpan(new Microsoft.CodeAnalysis.Text.TextSpan(position, 0)).StartLinePosition.Character;
 
     /// <summary>
     /// The last line of a declaration, from its span, which excludes trailing trivia. A file-scoped

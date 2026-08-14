@@ -304,12 +304,22 @@ public record MemberOptions : ApiOptions
     public bool MemberHasNoBody { get; init; }
 
     /// <summary>
-    /// True when the selected member has an IL body but no authored declaration of its own —
-    /// its sequence points map to the declaring type's header (positional record accessor,
-    /// primary constructor, field-initializer constructor). <see cref="MethodSource"/> is
-    /// absent because there is nothing to isolate, not because resolution failed.
+    /// True when the selected member has an IL body but its source range does not identify one
+    /// vouched authored declaration to isolate. <see cref="MethodSource"/> is absent because a
+    /// type header, initializer, ambiguous range, or structurally unknown span is not a valid
+    /// substitute, not because source acquisition failed.
     /// </summary>
     public bool MemberHasNoAuthoredDeclaration { get; init; }
+
+    /// <summary>
+    /// True when authored source was verified but exceeded the bounded lexical-complexity limit.
+    /// </summary>
+    public bool MemberSourceTooComplex { get; init; }
+
+    /// <summary>
+    /// True when portable-PDB sequence-point coordinates cannot address the verified source.
+    /// </summary>
+    public bool MemberSourceCoordinatesInvalid { get; init; }
 
     /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers
