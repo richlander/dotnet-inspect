@@ -174,8 +174,7 @@ public class PackageCommand
             if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
-            if (!options.Count
-                && !OutputFormatResolver.ValidateSingleSectionForTabular(
+            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
                     options.TabularExplicitlySet,
                     options.IncludeSections))
                 return 1;

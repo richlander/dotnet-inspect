@@ -18777,6 +18777,48 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiSectionCountRejectsTabularFormats()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiSectionCountFormat",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var single = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "@Files",
+                "--jsonl",
+                "--count");
+            var multiple = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "@Files",
+                "--tsv",
+                "--count");
+
+            Assert.Equal(1, single.Exit);
+            Assert.Equal(1, multiple.Exit);
+            Assert.Empty(single.Output);
+            Assert.Empty(multiple.Output);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                single.Error);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                multiple.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_LibraryModesAreRejected()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
