@@ -680,6 +680,25 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void TypeSpecificationRootRejectsTrailingSignatureBytes()
+    {
+        byte[] image = BuildTrailingConstraintConsumer();
+        using var pe = Reader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        Assert.Equal(
+            1,
+            reader.GetTableRowCount(TableIndex.TypeSpec));
+        TypeSpecificationHandle handle =
+            MetadataTokens.TypeSpecificationHandle(1);
+
+        Assert.False(
+            TypeSpecificationRoot.TryRead(
+                reader,
+                handle,
+                out _));
+    }
+
+    [Fact]
     public void ConstructedCoreConstraintWithoutResolutionStaysUndetermined()
     {
         byte[] image = BuildConstructedCoreEnumConsumer();
