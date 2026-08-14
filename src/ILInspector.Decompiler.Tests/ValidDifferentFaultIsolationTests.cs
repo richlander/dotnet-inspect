@@ -495,7 +495,14 @@ public sealed class ValidDifferentFaultIsolationTests
                 Overload: 0,
                 SignatureText: "",
                 ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
-                ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
+                ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>())
+            {
+                MemberSurfaceByDefinitionName = CompileBackSourceComposer.CreateMemberSurfaceIndex(
+                    ApiSurfaceExtractor.Extract(
+                        reader,
+                        includeAll: true,
+                        includeCompilerGenerated: true)),
+            };
             var sourceIndex = ReturnToSenderSourceIndex.FromCorrelatedMembers(
                 [
                     new ReturnToSenderSourceMember(

@@ -10,6 +10,7 @@ public enum CSharpShellMemberKind
     EventAdd,
     EventRemove,
     Constructor,
+    Finalizer,
     Method,
     Operator,
     Field,
@@ -83,7 +84,8 @@ public sealed record CSharpMemberShellSpec(
     int? GetterToken = null,
     int? SetterToken = null,
     int? AdderToken = null,
-    int? RemoverToken = null);
+    int? RemoverToken = null,
+    bool SuppressDestructorSyntax = false);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -194,7 +196,12 @@ public static class CSharpMemberShellProducer
                     CSharpBodyPolicy.Full,
                     TargetBlockBody(RequiredBody(spec), initializer)),
             CSharpShellBodyKind.TargetBody
-                => new(member, CSharpBodyPolicy.Full, TargetBlockBody(RequiredBody(spec))),
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    TargetBlockBody(
+                        RequiredBody(spec),
+                        suppressDestructorSyntax: spec.SuppressDestructorSyntax)),
             CSharpShellBodyKind.TargetGetterWithSetter
                 or CSharpShellBodyKind.TargetGetterWithInitSetter
                 => new(
@@ -256,6 +263,7 @@ public static class CSharpMemberShellProducer
                     CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet => "property",
                     CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove => "event",
                     CSharpShellMemberKind.Constructor => "constructor",
+                    CSharpShellMemberKind.Finalizer => "finalizer",
                     CSharpShellMemberKind.Method => "method",
                     CSharpShellMemberKind.Operator => "operator",
                     CSharpShellMemberKind.Field => "field",
@@ -269,6 +277,7 @@ public static class CSharpMemberShellProducer
             IsVirtual = spec.IsVirtual,
             IsOverride = spec.IsOverride,
             IsSealed = spec.IsSealed,
+            IsFinalizer = spec.Kind == CSharpShellMemberKind.Finalizer,
             Accessibility = spec.Accessibility switch
             {
                 CSharpShellAccessibility.Public => "public",
@@ -611,8 +620,13 @@ public static class CSharpMemberShellProducer
 
     static CSharpBlockBody TargetBlockBody(
         string source,
-        CSharpConstructorInitializer? constructorInitializer = null)
-        => new(source, constructorInitializer) { IsReplacementTarget = true };
+        CSharpConstructorInitializer? constructorInitializer = null,
+        bool suppressDestructorSyntax = false)
+        => new(source, constructorInitializer)
+        {
+            IsReplacementTarget = true,
+            SuppressDestructorSyntax = suppressDestructorSyntax,
+        };
 
     static CSharpAccessorBody TargetAccessorBody(string source)
         => CSharpAccessorBody.Block(source) with { IsReplacementTarget = true };

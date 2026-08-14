@@ -142,6 +142,840 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DoesNotRehomeExtensionMethodsOntoExtendedType()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                public int Run() => 42;
+            }
+
+            public static class TargetExtensions
+            {
+                public static int Extra(this Target target) => target.Run();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)]));
+
+            var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
+            Assert.DoesNotContain(target.Members, member => member.Name == "Extra");
+            Assert.DoesNotContain("int Extra(", result.Source, StringComparison.Ordinal);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesStandaloneAccessorPrefixedMethods()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                public int get_Value() => 7;
+                public int op_Custom() => 2;
+                public void op_AdditionAssignment(int value) { }
+                public int Helper()
+                {
+                    op_AdditionAssignment(1);
+                    return get_Value() + op_Custom();
+                }
+                public int Run() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
+            Assert.Contains(target.Members, member => member.Name == "get_Value");
+            Assert.Contains(target.Members, member => member.Name == "op_Custom");
+            Assert.Contains(target.Members, member => member.Name == "op_AdditionAssignment");
+            Assert.Contains(
+                "void op_AdditionAssignment(int value)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "operator +=",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsInstanceAssignmentOperatorCalls()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public void operator +=(Vec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator ++()
+                {
+                    X++;
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run(Vec other)
+                {
+                    var value = new Vec();
+                    value += other;
+                    value++;
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("void operator +=(Vec other)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("void operator ++()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("+= other;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("++;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_AdditionAssignment(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_IncrementAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsCheckedInstanceAssignmentOperatorCalls()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public void operator +=(Vec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator checked +=(Vec other)
+                {
+                    X = checked(X + other.X);
+                }
+
+                public void operator ++()
+                {
+                    X++;
+                }
+
+                public void operator checked ++()
+                {
+                    X = checked(X + 1);
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run(Vec other)
+                {
+                    var value = new Vec();
+                    checked
+                    {
+                        value += other;
+                        value++;
+                    }
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("void operator checked +=(Vec other)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("void operator checked ++()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("checked {", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_CheckedAdditionAssignment(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_CheckedIncrementAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsCrossAssemblyInstanceAssignmentOperators()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string operatorsPath = CompileFixture(
+            """
+            public struct ExternalVec
+            {
+                public int X;
+
+                public void operator +=(ExternalVec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator checked +=(ExternalVec other)
+                {
+                    X = checked(X + other.X);
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "ExternalOperators");
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class Target
+            {
+                public int Run(ExternalVec other)
+                {
+                    var value = new ExternalVec();
+                    value += other;
+                    checked
+                    {
+                        value += other;
+                    }
+                    return value.X;
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(operatorsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("+= other;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("checked {", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_AdditionAssignment(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_CheckedAdditionAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ResolvesGenericTypeSpecOperatorByDefinitionSignature()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string operatorsPath = CompileFixture(
+            """
+            public struct GenericVec<T>
+            {
+                public int X;
+
+                private void op_AdditionAssignment(T value)
+                {
+                    X = 1;
+                }
+
+                public void operator +=(int value)
+                {
+                    X += value;
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "GenericExternalOperators");
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class Target
+            {
+                public int Run(int amount)
+                {
+                    var value = new GenericVec<int>();
+                    value += amount;
+                    return value.X;
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(operatorsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("+= amount;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_AdditionAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PinsInstanceAssignmentOperatorRhsOverload()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public void operator +=(object? value)
+                {
+                    X = 1;
+                }
+
+                public void operator +=(string? value)
+                {
+                    X = 2;
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run()
+                {
+                    var value = new Vec();
+                    value += (object?)null;
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("+= (object)null;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesNestedUncheckedOperatorInsideCheckedAssignment()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public static Vec operator +(Vec left, Vec right)
+                    => new() { X = left.X + right.X };
+
+                public static Vec operator checked +(Vec left, Vec right)
+                    => new() { X = checked(left.X + right.X + 1) };
+
+                public void operator +=(Vec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator checked +=(Vec other)
+                {
+                    X = checked(X + other.X);
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run(Vec left, Vec right)
+                {
+                    var value = new Vec();
+                    checked
+                    {
+                        value += unchecked(left + right);
+                    }
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "+= unchecked(left + right);",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullPreservesFinalizerIdentity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                ~Target()
+                {
+                    System.GC.KeepAlive(this);
+                }
+
+                public int Run() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("~Target()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void Finalize()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FinalizerTargetPreservesFinalizerIdentity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                ~Target()
+                {
+                    System.GC.KeepAlive(this);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Finalize", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("~Target()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void Finalize()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotBorrowNonGenericOverloadTokenForGenericRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                public int Run() => M<int>(1);
+
+                public static int M<T>(int value) => value;
+
+                public static int M(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("M<T>(int value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("M(int value)", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CreateMemberSurfaceIndex_DefersDuplicateNameFailureUntilLookup()
+    {
+        var duplicateName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Duplicate"])).Name;
+        var uniqueName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Unique"])).Name;
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { DefinitionName = duplicateName, Name = "Duplicate" },
+                new ApiType { DefinitionName = duplicateName, Name = "Duplicate" },
+                new ApiType { DefinitionName = uniqueName, Name = "Unique" },
+            ],
+        };
+
+        var index = CompileBackSourceComposer.CreateMemberSurfaceIndex(surface);
+
+        Assert.True(index.TryGetValue(uniqueName, out var unique));
+        Assert.Equal("Unique", unique.Name);
+        Assert.Throws<InvalidOperationException>(
+            () => index.TryGetValue(duplicateName, out _));
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesUnownedSpecialNameAccessorMethod()
+    {
+        var assemblyPath = EmitUnownedSpecialNameAccessorFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
+            Assert.Contains(target.Members, member => member.Name == "get_Value");
+            var semantics = Assert.Single(result.Plan.Types, type => type.Name == "SemanticsFixture");
+            Assert.Contains(semantics.Members, member => member.Name == "OtherProperty");
+            Assert.Contains(semantics.Members, member => member.Name == "RaiseChanged");
+            Assert.Contains(semantics.Members, member => member.Name == "OtherEvent");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullBackfillsRequiredOperatorToken()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct Number
+            {
+                public Number(int value) => Value = value;
+                public int Value { get; }
+                public static Number operator +(Number left, Number right) =>
+                    new(left.Value + right.Value);
+            }
+
+            public static class Target
+            {
+                public static int Run() => (new Number(1) + new Number(2)).Value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var body = Assert.Single(result.FullBodies, candidate =>
+                candidate.Member == "Number.op_Addition");
+            Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+            Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullBackfillsExactOverloadTokens()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Worker
+            {
+                public int Convert(int value) => value + 1;
+                public int Convert(string value) => value.Length;
+                public int Run() => Convert("value");
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Worker", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("Convert(int value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Convert(string value)", result.Source, StringComparison.Ordinal);
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(body => body.Member == "Worker.Convert"
+                    && body.Status == MemberBodyProductionStatus.Complete));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullMaterializesUnrelatedOperators()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct Number
+            {
+                public Number(int value) => Value = value;
+                public int Value { get; }
+                public static Number operator +(Number left, Number right) =>
+                    new(left.Value + right.Value);
+            }
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("operator +", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.FullBodies,
+                body => body.Member == "Number.op_Addition"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DistinguishesDottedAndNestedTypeNames()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("N.C", "Top", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Source.Contains("int Top()", StringComparison.Ordinal),
+                $"{result.Status}: {result.Detail}");
+            Assert.DoesNotContain("int Nested()", result.Source, StringComparison.Ordinal);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RejectsAmbiguousDottedTypeTarget()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var exception = Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("N.C", "Shared", 0)]));
+
+            Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesSignatureToDisambiguateDottedTypeTarget()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "N.C",
+                    "SignatureShared",
+                    Overload: 0,
+                    Signature: "`0(int)")]));
+
+            Assert.Contains("int SignatureShared(int", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("int SignatureShared(string", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("`0(string)")]
+    [InlineData("() -> corelib:System.String")]
+    public void CompileBackTargets_FallsBackToOrdinalWhenSignatureDoesNotResolve(
+        string signature)
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "N.C",
+                    "Top",
+                    Overload: 0,
+                    Signature: signature)]));
+
+            Assert.Contains("int Top()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("int Nested()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("`0(bool)")]
+    [InlineData("(corelib:System.Boolean) -> corelib:System.Int32")]
+    public void CompileBackTargets_PreservesAmbiguityWhenSignatureDoesNotResolve(
+        string signature)
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "N.C",
+                        "SignatureShared",
+                        Overload: 0,
+                        Signature: signature)]));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ContainsMalformedBodyDuringSignatureDiscovery()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            CorruptMethodBody(assemblyPath, "N.C", "Shared");
+
+            Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "N.C",
+                        "Shared",
+                        Overload: 0,
+                        Signature: "() -> corelib:System.String")]));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullRejectsMultiplePrimaryTargets()
     {
         var exception = Assert.Throws<NotSupportedException>(() => ReturnToSender.CompileBackTargets(
@@ -7484,7 +8318,14 @@ public class ReturnToSenderPrototypeTests
             Overload: overload,
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
-            ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
+            ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>())
+        {
+            MemberSurfaceByDefinitionName = CompileBackSourceComposer.CreateMemberSurfaceIndex(
+                ApiSurfaceExtractor.Extract(
+                    reader,
+                    includeAll: true,
+                    includeCompilerGenerated: true)),
+        };
         ReturnToSenderSourceIndex? sourceIndex;
         if (useRawSourceIndex)
         {
@@ -10775,6 +11616,170 @@ public class ReturnToSenderPrototypeTests
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
+    }
+
+    static string EmitUnownedSpecialNameAccessorFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-special-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+        var type = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var accessorLikeMethod = type.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var accessorIl = accessorLikeMethod.GetILGenerator();
+        accessorIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_7);
+        accessorIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var run = type.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        var runIl = run.GetILGenerator();
+        runIl.Emit(System.Reflection.Emit.OpCodes.Call, accessorLikeMethod);
+        runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+
+        var semanticsType = module.DefineType(
+            "SemanticsFixture",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var getter = semanticsType.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        getter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        getter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var otherProperty = DefineVoidMethod(semanticsType, "OtherProperty", Type.EmptyTypes);
+        var property = semanticsType.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(int),
+            null);
+        property.SetGetMethod(getter);
+        property.AddOtherMethod(otherProperty);
+        var adder = DefineVoidMethod(semanticsType, "add_Changed", [typeof(Action)]);
+        var remover = DefineVoidMethod(semanticsType, "remove_Changed", [typeof(Action)]);
+        var raiser = DefineVoidMethod(semanticsType, "RaiseChanged", Type.EmptyTypes);
+        var otherEvent = DefineVoidMethod(semanticsType, "OtherEvent", Type.EmptyTypes);
+        var @event = semanticsType.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        @event.SetAddOnMethod(adder);
+        @event.SetRemoveOnMethod(remover);
+        @event.SetRaiseMethod(raiser);
+        @event.AddOtherMethod(otherEvent);
+        semanticsType.CreateType();
+
+        assembly.Save(path);
+        return path;
+
+        static System.Reflection.Emit.MethodBuilder DefineVoidMethod(
+            System.Reflection.Emit.TypeBuilder type,
+            string name,
+            Type[] parameters)
+        {
+            var method = type.DefineMethod(
+                name,
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                typeof(void),
+                parameters);
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            return method;
+        }
+    }
+
+    static string EmitTypeNameCollisionFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-type-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var outer = module.DefineType("N", TypeAttributes.Public | TypeAttributes.Class);
+        var nested = outer.DefineNestedType("C", TypeAttributes.NestedPublic | TypeAttributes.Class);
+        DefineConstantMethod(nested, "Nested", 2);
+        DefineConstantMethod(nested, "Shared", 3);
+        DefineConstantMethod(nested, "SignatureShared", 6, typeof(string));
+        nested.CreateType();
+        outer.CreateType();
+
+        var dotted = module.DefineType("N.C", TypeAttributes.Public | TypeAttributes.Class);
+        DefineConstantMethod(dotted, "Top", 1);
+        DefineConstantMethod(dotted, "Shared", 4);
+        DefineConstantMethod(dotted, "SignatureShared", 7, typeof(int));
+        dotted.CreateType();
+
+        var target = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        DefineConstantMethod(target, "Run", 5);
+        target.CreateType();
+
+        assembly.Save(path);
+        return path;
+
+        static void DefineConstantMethod(
+            System.Reflection.Emit.TypeBuilder type,
+            string name,
+            int value,
+            params Type[] parameterTypes)
+        {
+            var method = type.DefineMethod(
+                name,
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int),
+                parameterTypes);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, value);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+    }
+
+    static void CorruptMethodBody(
+        string assemblyPath,
+        string typeName,
+        string methodName)
+    {
+        var image = File.ReadAllBytes(assemblyPath);
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        var reader = pe.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle =>
+            {
+                var definition = reader.GetTypeDefinition(handle);
+                return reader.GetFullTypeName(definition) == typeName
+                    && definition.GetDeclaringType().IsNil
+                    && definition.GetMethods().Any(methodHandle =>
+                        reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName);
+            });
+        var methodHandle = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == methodName);
+        int rva = reader.GetMethodDefinition(methodHandle).RelativeVirtualAddress;
+        var section = pe.PEHeaders.SectionHeaders.Single(section =>
+            rva >= section.VirtualAddress
+            && rva < section.VirtualAddress + Math.Max(section.VirtualSize, section.SizeOfRawData));
+        int bodyOffset = section.PointerToRawData + rva - section.VirtualAddress;
+        image[bodyOffset] = 0;
+        File.WriteAllBytes(assemblyPath, image);
     }
 
     static void DeleteFixture(string assemblyPath)
