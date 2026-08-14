@@ -7,6 +7,30 @@ namespace ILInspector.Analysis.LookalikeFixtures
         public static int CallsFakeUnsafe() => System.Runtime.CompilerServices.Unsafe.As(41);
 
         public static byte CallsFakeBitConverter() => System.BitConverter.GetBytes(1)[0];
+
+#pragma warning disable CS8625
+        [System.Runtime.CompilerServices.AsyncStateMachine(null)]
+#pragma warning restore CS8625
+        public static int MalformedAsyncAttributeEvidence(
+            int value)
+        {
+            int captured = value;
+            Func<int> read = () => captured;
+            try
+            {
+                if (value < 0)
+                    throw new InvalidOperationException();
+                return read();
+            }
+            catch (InvalidOperationException)
+            {
+                return read();
+            }
+            finally
+            {
+                captured++;
+            }
+        }
     }
 
     // Calls user-defined Google.Protobuf.* lookalike types declared in THIS assembly

@@ -97,11 +97,17 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
                 == nameof(GenericSelfSiblingFixture<int>
-                    .ReadAsync));
+                    .ReadAsync)
+            && opportunity.Method.DeclaringType.Name
+                .StartsWith(
+                    "GenericSelfSiblingFixture",
+                    StringComparison.Ordinal));
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
                 == nameof(InterfaceSelfSiblingFixture
-                    .ReadAsync));
+                    .ReadAsync)
+            && opportunity.Method.DeclaringType.Name
+                == nameof(InterfaceSelfSiblingFixture));
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
                 == nameof(ConstrainedSiblingFixture
@@ -113,7 +119,10 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
                 == nameof(DerivedVirtualSelfSiblingFixture
-                    .ReadAsync));
+                    .ReadAsync)
+            && opportunity.Method.DeclaringType.Name
+                == nameof(
+                    DerivedVirtualSelfSiblingFixture));
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
                 == nameof(UnsupportedSignatureSiblingFixture
@@ -166,6 +175,26 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         UnrelatedOverrideSiblingConsumer));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        GenericNewSlotSiblingLeaf<int, string>
+                            .ReadAsync)
+                && opportunity.Method.DeclaringType.Name
+                    .StartsWith(
+                        "GenericNewSlotSiblingLeaf",
+                        StringComparison.Ordinal));
+        Assert.Single(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        GenericMatchingNewSlotSiblingLeaf<int>
+                            .ReadAsync)
+                && opportunity.Method.DeclaringType.Name
+                    .StartsWith(
+                        "GenericMatchingNewSlotSiblingLeaf",
+                        StringComparison.Ordinal));
 
         Assert.Single(
             opportunities,
@@ -766,10 +795,43 @@ public class LibraryBodyIndexTests
                     method => method.MetadataToken
                         == opportunity.EvidenceMethodToken).Name);
         }
+
         finally
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MalformedAsyncAttributePreservesIndependentEvidence()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisLookalike
+                .AssemblyPath());
+        const string MethodName =
+            "MalformedAsyncAttributeEvidence";
+        MethodIdentity method = Assert.Single(
+            index.Methods,
+            method => method.Name == MethodName);
+        MethodSignals signals =
+            index.GetMethodSignals()
+                .GetValueOrDefault(
+                    method.MetadataToken,
+                    MethodSignals.None);
+
+        Assert.Contains(
+            index.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                == method.MetadataToken);
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Method.MetadataToken
+                    == method.MetadataToken
+                && opportunity.Shape
+                    == "capturing-delegate");
+        Assert.True(signals.Throws >= 1);
+        Assert.True(signals.Catches >= 1);
+        Assert.True(signals.Finallys >= 1);
     }
 
     [Fact]
@@ -826,7 +888,7 @@ public class LibraryBodyIndexTests
                         == "AnalyzeAsync");
 
             foreach (byte unsupportedHeader
-                in new byte[] { 0x25, 0x60 })
+                in new byte[] { 0x25, 0x60, 0xA0 })
             {
                 File.WriteAllBytes(
                     path,
@@ -1256,6 +1318,395 @@ public class LibraryBodyIndexTests
             new MetadataRootBuilder(
                 metadata,
                 suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Theory]
+    [InlineData(
+        false,
+        ParameterAttributes.None,
+        ParameterAttributes.None,
+        true)]
+    [InlineData(
+        true,
+        ParameterAttributes.None,
+        ParameterAttributes.None,
+        true)]
+    [InlineData(
+        true,
+        ParameterAttributes.Out,
+        ParameterAttributes.Out,
+        true)]
+    [InlineData(
+        true,
+        ParameterAttributes.In,
+        ParameterAttributes.In,
+        true)]
+    [InlineData(
+        true,
+        ParameterAttributes.None,
+        ParameterAttributes.Out,
+        false)]
+    public void OptimizationOpportunities_ResolvedMemberRefUsesParamDirection(
+        bool byRef,
+        ParameterAttributes synchronousDirection,
+        ParameterAttributes asynchronousDirection,
+        bool expected)
+    {
+        byte[] dependency =
+            BuildDirectionProbeDependency(
+                byRef,
+                synchronousDirection,
+                asynchronousDirection);
+        byte[] caller =
+            BuildDirectionProbeCaller(byRef);
+
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DirectionProbeCaller.dll",
+                [.. caller],
+                LibraryBodyAnalysisFeatures
+                    .MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                new DirectionProbeResolver(dependency));
+
+        int count = index.OptimizationOpportunities.Count(
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "AnalyzeAsync");
+        Assert.Equal(expected ? 1 : 0, count);
+        Assert.Empty(index.Diagnostics);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_AmbiguousResolvedMemberRefDirectionFailsClosed()
+    {
+        byte[] dependency =
+            BuildDirectionProbeDependency(
+                byRef: true,
+                ParameterAttributes.None,
+                ParameterAttributes.None,
+                duplicateSynchronous: true);
+        byte[] caller =
+            BuildDirectionProbeCaller(byRef: true);
+        var index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DirectionProbeCaller.dll",
+                [.. caller],
+                LibraryBodyAnalysisFeatures.Default,
+                new DirectionProbeResolver(dependency));
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "AnalyzeAsync");
+        Assert.Empty(index.Diagnostics);
+    }
+
+    static byte[] BuildDirectionProbeDependency(
+        bool byRef,
+        ParameterAttributes synchronousDirection,
+        ParameterAttributes asynchronousDirection,
+        bool duplicateSynchronous = false)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "DirectionProbeDependency.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "DirectionProbeDependency"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle systemRuntime =
+            AddDirectionProbeSystemRuntime(metadata);
+        TypeReferenceHandle task =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                metadata.GetOrAddString("Task"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Api"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        ParameterHandle readParameter =
+            metadata.AddParameter(
+                synchronousDirection,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+        ParameterHandle asyncParameter =
+            metadata.AddParameter(
+                asynchronousDirection,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+        ParameterHandle duplicateParameter =
+            duplicateSynchronous
+                ? metadata.AddParameter(
+                    synchronousDirection,
+                    metadata.GetOrAddString("value"),
+                    sequenceNumber: 1)
+                : default;
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var readIl = new BlobBuilder();
+        readIl.WriteByte((byte)ILOpCode.Ret);
+        int readBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(readIl),
+            maxStack: 0);
+        var asyncIl = new BlobBuilder();
+        asyncIl.WriteByte((byte)ILOpCode.Ldnull);
+        asyncIl.WriteByte((byte)ILOpCode.Ret);
+        int asyncBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(asyncIl),
+            maxStack: 1);
+        const MethodAttributes Attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Static;
+
+        metadata.AddMethodDefinition(
+            Attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Read"),
+            AddDirectionProbeSignature(
+                metadata,
+                asynchronous: false,
+                byRef,
+                task),
+            readBody,
+            readParameter);
+        metadata.AddMethodDefinition(
+            Attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadAsync"),
+            AddDirectionProbeSignature(
+                metadata,
+                asynchronous: true,
+                byRef,
+                task),
+            asyncBody,
+            asyncParameter);
+        if (duplicateSynchronous)
+        {
+            metadata.AddMethodDefinition(
+                Attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Read"),
+                AddDirectionProbeSignature(
+                    metadata,
+                    asynchronous: false,
+                    byRef,
+                    task),
+                readBody,
+                duplicateParameter);
+        }
+        return SerializeDirectionProbe(
+            metadata,
+            bodies);
+    }
+
+    static byte[] BuildDirectionProbeCaller(bool byRef)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "DirectionProbeCaller.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "DirectionProbeCaller"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            AddDirectionProbeSystemRuntime(metadata);
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    "DirectionProbeDependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle task =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                metadata.GetOrAddString("Task"));
+        TypeReferenceHandle api =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Api"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Consumer"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        MemberReferenceHandle read =
+            metadata.AddMemberReference(
+                api,
+                metadata.GetOrAddString("Read"),
+                AddDirectionProbeSignature(
+                    metadata,
+                    asynchronous: false,
+                    byRef,
+                    task));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var il = new BlobBuilder();
+        StandaloneSignatureHandle localSignature =
+            default;
+        if (byRef)
+        {
+            localSignature =
+                metadata.AddStandaloneSignature(
+                    metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0x07, 0x01, 0x08,
+                        }));
+            il.WriteByte((byte)ILOpCode.Ldloca_s);
+            il.WriteByte(0);
+        }
+        else
+        {
+            il.WriteByte((byte)ILOpCode.Ldc_i4_0);
+        }
+        il.WriteByte((byte)ILOpCode.Call);
+        il.WriteInt32(MetadataTokens.GetToken(read));
+        il.WriteByte((byte)ILOpCode.Ldnull);
+        il.WriteByte((byte)ILOpCode.Ret);
+        int body = byRef
+            ? bodyEncoder.AddMethodBody(
+                new InstructionEncoder(il),
+                maxStack: 1,
+                localSignature,
+                MethodBodyAttributes.InitLocals)
+            : bodyEncoder.AddMethodBody(
+                new InstructionEncoder(il),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL
+                | (MethodImplAttributes)0x2000,
+            metadata.GetOrAddString("AnalyzeAsync"),
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0x00,
+                    0x00,
+                    0x12,
+                    (byte)CodedIndex
+                        .TypeDefOrRefOrSpec(task),
+                }),
+            body,
+            MetadataTokens.ParameterHandle(1));
+        return SerializeDirectionProbe(
+            metadata,
+            bodies);
+    }
+
+    static AssemblyReferenceHandle
+        AddDirectionProbeSystemRuntime(
+            MetadataBuilder metadata)
+        => metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xB0, 0x3F, 0x5F, 0x7F,
+                    0x11, 0xD5, 0x0A, 0x3A,
+                }),
+            default,
+            default);
+
+    static BlobHandle AddDirectionProbeSignature(
+        MetadataBuilder metadata,
+        bool asynchronous,
+        bool byRef,
+        TypeReferenceHandle task)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        if (asynchronous)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteByte(
+                (byte)CodedIndex
+                    .TypeDefOrRefOrSpec(task));
+        }
+        else
+        {
+            signature.WriteByte(0x01);
+        }
+        if (byRef)
+            signature.WriteByte(0x10);
+        signature.WriteByte(0x08);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static byte[] SerializeDirectionProbe(
+        MetadataBuilder metadata,
+        BlobBuilder bodies)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
             bodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
@@ -2396,6 +2847,38 @@ public class LibraryBodyIndexTests
             ResolveCalls++;
             return null;
         }
+    }
+
+    sealed class DirectionProbeResolver
+        : IAssemblyReferenceResolver
+    {
+        readonly ResolvedAssemblyReference _dependency;
+
+        public DirectionProbeResolver(byte[] image)
+        {
+            _dependency =
+                ResolvedAssemblyReference.Create(
+                    new AssemblyReferenceIdentity(
+                        "DirectionProbeDependency",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null),
+                    path: null,
+                    () => new MemoryStream(
+                        image,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local(
+                        "async sibling direction probe"));
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name.Equals(
+                    "DirectionProbeDependency",
+                    StringComparison.OrdinalIgnoreCase)
+                ? _dependency
+                : null;
     }
 
     sealed class ThirdOpenFailsResolver(
@@ -7776,6 +8259,59 @@ public sealed class NewSlotVirtualSiblingLeaf
         await Task.Yield();
         return ((NewSlotVirtualSiblingBase)this)
             .Load();
+    }
+}
+
+public class GenericNewSlotSiblingBase<TFirst, TSecond>
+{
+    public TFirst Read(TFirst value) => value;
+
+    public virtual Task<TFirst> ReadAsync(TFirst value)
+        => Task.FromResult(value);
+}
+
+public class GenericNewSlotSiblingMiddle<TFirst, TSecond>
+    : GenericNewSlotSiblingBase<TSecond, TFirst>
+{
+    public virtual Task<TFirst> ReadAsync(
+        TFirst value)
+        => Task.FromResult(value);
+}
+
+public sealed class GenericNewSlotSiblingLeaf<TFirst, TSecond>
+    : GenericNewSlotSiblingMiddle<TFirst, TSecond>
+{
+    public override async Task<TSecond> ReadAsync(
+        TSecond value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public class GenericMatchingNewSlotSiblingBase<T>
+{
+    public T Read(T value) => value;
+
+    public virtual Task<T> ReadAsync(T value)
+        => Task.FromResult(value);
+}
+
+public class GenericMatchingNewSlotSiblingMiddle<T>
+    : GenericMatchingNewSlotSiblingBase<T>
+{
+    public new virtual Task<T> ReadAsync(T value)
+        => Task.FromResult(value);
+}
+
+public sealed class GenericMatchingNewSlotSiblingLeaf<T>
+    : GenericMatchingNewSlotSiblingMiddle<T>
+{
+    public override async Task<T> ReadAsync(T value)
+    {
+        await Task.Yield();
+        return ((GenericMatchingNewSlotSiblingBase<T>)this)
+            .Read(value);
     }
 }
 

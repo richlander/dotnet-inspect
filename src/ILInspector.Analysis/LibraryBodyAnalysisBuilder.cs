@@ -715,17 +715,33 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                     result.Suppressed = true;
                 }
 
-                MethodIdentity? asyncSource = AsyncSourceMethod(
-                    caller,
-                    methodDef,
-                    typeSourceGenerated);
-                if (asyncSource is not null)
+                try
                 {
-                    opportunities.AddRange(
-                        CollectAsyncSiblingOpportunities(
-                            context,
-                            calls,
-                            asyncSource));
+                    MethodIdentity? asyncSource =
+                        AsyncSourceMethod(
+                            caller,
+                            methodDef,
+                            typeSourceGenerated);
+                    if (asyncSource is not null)
+                    {
+                        opportunities.AddRange(
+                            CollectAsyncSiblingOpportunities(
+                                context,
+                                calls,
+                                asyncSource));
+                    }
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.Diagnostic =
+                        new AnalysisDiagnostic(
+                            MetadataTokens.GetToken(
+                                methodHandle),
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}");
                 }
                 result.Opportunities = opportunities.ToImmutable();
             }
