@@ -700,6 +700,8 @@ public sealed class IrFunction : IrNode
 /// </summary>
 public sealed class BlockContainer : IrNode
 {
+    internal bool ContainsRetainedBranches { get; set; }
+
     public void Add(Block block) => AddChild(block);
 
     public IReadOnlyList<Block> Blocks => Children.Cast<Block>().ToList();

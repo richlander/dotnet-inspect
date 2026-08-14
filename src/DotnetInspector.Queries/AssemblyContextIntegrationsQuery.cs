@@ -93,30 +93,33 @@ public static class AssemblyContextIntegrationsQuery
         foreach (AssemblyContextParticipant participant
             in group.Participants)
         {
-            var subject =
-                new AssemblyContextSubject(participant.Assembly);
-            AssemblyImageAccessResult<AssemblyIntegrationsEntry> access =
-                group.UseAssemblySession(
-                    participant.Assembly,
-                    session => Inspect(subject, session));
-            entries.Add(
-                access switch
-                {
-                    AssemblyImageAccessResult<
-                        AssemblyIntegrationsEntry>.Available available =>
-                        available.Value,
-                    AssemblyImageAccessResult<
-                        AssemblyIntegrationsEntry>.Rejected rejected =>
-                        new AssemblyIntegrationsEntry.Rejected(
-                            subject,
-                            rejected.Failure),
-                    _ => throw new InvalidOperationException(
-                        "Unknown assembly image access result."),
-                });
+            entries.Add(ExecuteParticipantCore(group, participant));
         }
 
         return new AssemblyContextIntegrationsResult(
             entries.MoveToImmutable());
+    }
+
+    /// <summary>
+    /// Scans one participant without releasing its retained image, so a reusable group remains
+    /// available to later queries.
+    /// </summary>
+    public static AssemblyIntegrationsEntry ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        if (!group.Participants.Any(candidate => ReferenceEquals(
+                candidate.Assembly.Registration,
+                participant.Assembly.Registration)))
+        {
+            throw new ArgumentException(
+                "The requested participant is not a member of the assembly context group.",
+                nameof(participant));
+        }
+
+        return ExecuteParticipantCore(group, participant);
     }
 
     /// <summary>
@@ -201,6 +204,30 @@ public static class AssemblyContextIntegrationsQuery
                     "The selected image contains invalid metadata.",
                     ex));
         }
+    }
+
+    static AssemblyIntegrationsEntry ExecuteParticipantCore(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyImageAccessResult<AssemblyIntegrationsEntry> access =
+            group.UseAssemblySession(
+                participant.Assembly,
+                session => Inspect(subject, session));
+        return access switch
+        {
+            AssemblyImageAccessResult<
+                AssemblyIntegrationsEntry>.Available available =>
+                available.Value,
+            AssemblyImageAccessResult<
+                AssemblyIntegrationsEntry>.Rejected rejected =>
+                new AssemblyIntegrationsEntry.Rejected(
+                    subject,
+                    rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly image access result."),
+        };
     }
 
     internal static AssemblyIntegrationsEntry ExecuteParticipant(
