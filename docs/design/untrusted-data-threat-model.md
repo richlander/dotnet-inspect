@@ -278,6 +278,27 @@ and
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
 gate these seams.
 
+### Restored manifest paths remain within their owning roots
+
+Paths read from `.deps.json` and `project.assets.json` are relative artifact
+identity, not authority to choose a filesystem location. `StorePath` resolves
+each path one root at a time and rejects rooted values, traversal segments,
+volume-qualified segments, empty segments, and separator ambiguity before the
+filesystem is consulted. A `.deps.json` `localPath` remains under the target
+assembly directory. Package paths remain under the global packages root, and
+asset paths remain under their owning package directory rather than merely
+somewhere else in the package cache.
+
+Project-assets rejection diagnostics name the manifest field and containment
+rule without echoing the rejected value. The
+`AssemblyDependencyResolverTests.ResolveAll_DepsJsonLocalPathCannotEscapeTargetDirectory`,
+`AssemblyDependencyResolverTests.ResolveAll_DepsJsonPackagePathCannotEscapeGlobalPackagesRoot`,
+`ProjectAssetsParserTests.Parse_LibraryPathCannotEscapeGlobalPackagesRoot`,
+`ProjectAssetsParserTests.Parse_AssetPathCannotEscapeOwningPackageDirectory`,
+`ProjectAssetsParserTests.ParsePackageReferences_LibraryPathCannotEscapeGlobalPackagesRoot`,
+`ProjectAssetsParserTests.ParsePackageFileEntries_FilePathCannotEscapeOwningPackageDirectory`,
+and `StorePathTests` gates enforce this boundary.
+
 ### Package archives use traversal-aware extraction
 
 NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
