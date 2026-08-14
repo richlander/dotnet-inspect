@@ -6162,6 +6162,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_FieldRemovedByColumnProjectionIsDiagnosed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--fields", "Library", "--columns", "Type",
+            "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("1 field has no data: Library", error, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("api_info", out _));
+        Assert.Single(document.RootElement.GetProperty("classes").EnumerateArray());
+    }
+
+    [Fact]
     public async Task TypeListing_CountWithJsonFieldsDoesNotPromoteApiInfo()
     {
         var baseline = await RunAppAsync(
@@ -6259,6 +6274,21 @@ public partial class CommandExecutionTests
         using var document = JsonDocument.Parse(output);
         var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
         Assert.Equal("Kind", row.GetProperty("field").GetString());
+    }
+
+    [Fact]
+    public async Task SingleType_FieldSectionRemovedByColumnProjectionIsDiagnosed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Type Info,Methods", "--fields", "Kind", "--columns", "Name",
+            "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("1 field has no data: Kind", error, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("type_info", out _));
+        Assert.Single(document.RootElement.GetProperty("methods").EnumerateArray());
     }
 
     [Fact]
@@ -6364,6 +6394,21 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Section 'Call Graph' emitted a graph", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberDetail_ExceptionRegionsProjectedJsonDoesNotDuplicateRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberExceptionRegionsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberExceptionRegionsFixture.TryCatch) + ":1",
+            "-S", "Exception Regions", "--columns", "Region,Clause",
+            "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Single(document.RootElement.GetProperty("exception_regions").EnumerateArray());
     }
 
     [Fact]

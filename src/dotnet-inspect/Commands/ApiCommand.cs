@@ -848,13 +848,15 @@ public class ApiCommand
                 maxRows: options.Rows,
                 writerOptions);
             var fieldEvidence = options.Fields is { Length: > 0 }
-                ? OutputFormatter.RenderProjectedJsonDocument(
-                    columns: null,
-                    options.Fields,
-                    serialize,
-                    indented: false,
-                    maxRows: null,
-                    ApiOutputFormatter.BuildWriterOptions(api, options)).EmittedFields
+                ? OutputFormatter.CorrelateProjectedFields(
+                    document,
+                    OutputFormatter.RenderProjectedJsonDocument(
+                        columns: null,
+                        options.Fields,
+                        serialize,
+                        indented: false,
+                        maxRows: null,
+                        ApiOutputFormatter.BuildWriterOptions(api, options)))
                 : [];
             ProjectionDiagnostics.DiagnoseProjectedJson(
                 options.Fields,
@@ -1408,6 +1410,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is { } exceptionRegionsDllPath
+                && !ApiMemberSectionPipelines.UsesDetailPipeline(options)
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.ExceptionRegions)
                     || options.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {
@@ -1556,13 +1559,15 @@ public class ApiCommand
             {
                 var fieldWriterOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 ConfigureTypeSectionOrder(type, options, fieldWriterOptions);
-                fieldEvidence = OutputFormatter.RenderProjectedJsonDocument(
-                    columns: null,
-                    options.Fields,
-                    serialize,
-                    indented: false,
-                    maxRows: null,
-                    fieldWriterOptions).EmittedFields;
+                fieldEvidence = OutputFormatter.CorrelateProjectedFields(
+                    document,
+                    OutputFormatter.RenderProjectedJsonDocument(
+                        columns: null,
+                        options.Fields,
+                        serialize,
+                        indented: false,
+                        maxRows: null,
+                        fieldWriterOptions));
             }
             ProjectionDiagnostics.DiagnoseProjectedJson(
                 options.Fields,
@@ -2323,6 +2328,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath
+                && !ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                 && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.ExceptionRegions)
                     || renderOptions.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {

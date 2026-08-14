@@ -21,10 +21,33 @@ public record RenderDiagnostic(string Formatter, string Condition, string[] Sect
 /// </summary>
 public static class OutputFormatter
 {
+    internal sealed record ProjectedJsonFieldEvidence(string? Section, string Name);
+
     internal sealed record ProjectedJsonDocument(
         string Json,
-        IReadOnlyList<string> EmittedFields,
-        IReadOnlyList<string> EmittedColumns);
+        IReadOnlyList<ProjectedJsonFieldEvidence> EmittedFields,
+        IReadOnlyList<string> EmittedColumns,
+        IReadOnlyList<string> EmittedSections);
+
+    internal static IReadOnlyList<string> CorrelateProjectedFields(
+        ProjectedJsonDocument document,
+        ProjectedJsonDocument identityDocument)
+    {
+        var emitted = new HashSet<string>(
+            document.EmittedFields.Select(item => item.Name),
+            StringComparer.OrdinalIgnoreCase);
+        var emittedSections = new HashSet<string>(
+            document.EmittedSections,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in identityDocument.EmittedFields)
+        {
+            if (item.Section is not null && emittedSections.Contains(item.Section))
+                emitted.Add(item.Name);
+        }
+
+        return [.. emitted];
+    }
 
     public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
@@ -204,7 +227,8 @@ public static class OutputFormatter
         return new ProjectedJsonDocument(
             formatter.Finish(indented),
             formatter.EmittedFields,
-            formatter.EmittedColumns);
+            formatter.EmittedColumns,
+            formatter.EmittedSectionNames);
     }
 
     /// <summary>

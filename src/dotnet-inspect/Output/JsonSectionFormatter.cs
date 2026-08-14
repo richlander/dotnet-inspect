@@ -234,23 +234,30 @@ internal sealed class JsonSectionFormatter :
     /// </summary>
     internal IReadOnlyList<string> SectionNames => _sections.Select(section => section.Name).ToArray();
 
+    internal IReadOnlyList<string> EmittedSectionNames =>
+        [.. _sections.Where(section => section.HasContent).Select(section => section.Name)];
+
     internal IReadOnlyList<string> EmittedColumns =>
         [.. _sections
             .Where(section => section.Kind == SectionKind.Table)
             .SelectMany(section => section.Headers)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal IReadOnlyList<string> EmittedFields
+    internal IReadOnlyList<OutputFormatter.ProjectedJsonFieldEvidence> EmittedFields
     {
         get
         {
-            var fields = new HashSet<string>(
-                _rootFields.Select(item => item.Key),
-                StringComparer.OrdinalIgnoreCase);
+            var fields = new List<OutputFormatter.ProjectedJsonFieldEvidence>();
+            fields.AddRange(_rootFields.Select(
+                item => new OutputFormatter.ProjectedJsonFieldEvidence(null, item.Key)));
             foreach (var section in _sections)
             {
                 foreach (var item in section.Fields)
-                    fields.Add(item.Key);
+                {
+                    fields.Add(new OutputFormatter.ProjectedJsonFieldEvidence(
+                        section.Name,
+                        item.Key));
+                }
 
                 if (section.Kind != SectionKind.Table)
                     continue;
@@ -264,11 +271,15 @@ internal sealed class JsonSectionFormatter :
                 foreach (var row in section.Rows)
                 {
                     if (fieldIndex < row.Length)
-                        fields.Add(row[fieldIndex]);
+                    {
+                        fields.Add(new OutputFormatter.ProjectedJsonFieldEvidence(
+                            section.Name,
+                            row[fieldIndex]));
+                    }
                 }
             }
 
-            return [.. fields];
+            return fields;
         }
     }
 
