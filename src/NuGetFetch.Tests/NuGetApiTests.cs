@@ -301,10 +301,22 @@ public class NuGetApiTests
     }
 
     [Fact]
-    public async Task GetVersionIndexAsync_MalformedJson_ReturnsNull()
+    public async Task GetVersionIndexAsync_MalformedJson_Throws()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{broken"));
-        var result = await NuGetApi.GetVersionIndexAsync(stream, TestContext.Current.CancellationToken);
-        Assert.Null(result);
+        await Assert.ThrowsAsync<JsonException>(
+            async () => await NuGetApi.GetVersionIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetServiceIndexAsync_MalformedJson_Throws()
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{broken"));
+        await Assert.ThrowsAsync<JsonException>(
+            async () => await NuGetApi.GetServiceIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
     }
 }

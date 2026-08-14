@@ -108,7 +108,8 @@ public static class CommandLineHelpers
                 sourceOptions: sourceOptions);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException
-            or InvalidOperationException or TaskCanceledException)
+            or InvalidDataException or InvalidOperationException
+            or TaskCanceledException or TimeoutException)
         {
             // The command cannot proceed honestly: it does not know which packages the prefix
             // named. Reported as a clean CLI error rather than an escaping stack trace, and never

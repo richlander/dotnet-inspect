@@ -195,6 +195,77 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_OversizeSource_ReportsFailureAlongsideResults()
+    {
+        const string badIndex = "https://bad.example/v3/index.json";
+        const string badSearch = "https://bad.example/v3/query";
+        const string goodIndex = "https://good.example/v3/index.json";
+        const string goodSearch = "https://good.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [badIndex] = ServiceIndex(badSearch),
+            [goodIndex] = ServiceIndex(goodSearch),
+            [goodSearch] = """{"data":[{"id":"Good.Package","version":"1.0.0"}]}""",
+        };
+        handler.RespondWithAdvertisedLength(
+            badSearch,
+            NuGetApi.MaxMetadataResponseBytes + 1);
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig(
+            [("bad", badIndex), ("good", goodIndex)]);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "q",
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Equal("Good.Package", Assert.Single(outcome.Results).PackageId);
+        string failure = Assert.Single(outcome.Failures);
+        Assert.Contains("bad: search failed", failure);
+        Assert.Contains(nameof(InvalidDataException), failure);
+        Assert.Contains(
+            handler.Requested,
+            url => url.StartsWith(goodSearch + "?", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_TimedOutSource_ReportsFailureAlongsideResults()
+    {
+        const string badIndex = "https://bad.example/v3/index.json";
+        const string badSearch = "https://bad.example/v3/query";
+        const string goodIndex = "https://good.example/v3/index.json";
+        const string goodSearch = "https://good.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [badIndex] = ServiceIndex(badSearch),
+            [goodIndex] = ServiceIndex(goodSearch),
+            [goodSearch] = """{"data":[{"id":"Good.Package","version":"1.0.0"}]}""",
+        };
+        handler.RespondWithStalledBody(badSearch);
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+        using var config = new TempNuGetConfig(
+            [("bad", badIndex), ("good", goodIndex)]);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "q",
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Equal("Good.Package", Assert.Single(outcome.Results).PackageId);
+        string failure = Assert.Single(outcome.Failures);
+        Assert.Contains("bad: search failed", failure);
+        Assert.Contains(nameof(TimeoutException), failure);
+        Assert.Contains(
+            handler.Requested,
+            url => url.StartsWith(goodSearch + "?", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SearchAsync_DuplicateAcrossSources_ReturnedOnce()
     {
         const string indexA = "https://a.example/v3/index.json";
@@ -1403,6 +1474,8 @@ public class NuGetSearchSourcesTests
     {
         private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Func<HttpContent>> _contentRoutes =
+            new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Url, AuthenticationHeaderValue? Auth)> _requests = [];
 
         public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
@@ -1411,6 +1484,18 @@ public class NuGetSearchSourcesTests
 
         public void RespondWith(string url, HttpStatusCode status, string body = "") =>
             _routes[url] = (status, body);
+
+        public void RespondWithAdvertisedLength(string url, long contentLength) =>
+            _contentRoutes[url] = () =>
+            {
+                var content = new StringContent("{}");
+                content.Headers.ContentLength = contentLength;
+                return content;
+            };
+
+        public void RespondWithStalledBody(string url) =>
+            _contentRoutes[url] = static () =>
+                new StreamContent(new StalledStream());
 
         public AuthenticationHeaderValue? AuthFor(string url) =>
             _requests.FirstOrDefault(r => WithoutQuery(r.Url).Equals(url, StringComparison.OrdinalIgnoreCase)).Auth;
@@ -1432,6 +1517,13 @@ public class NuGetSearchSourcesTests
                 {
                     Content = new StringContent("""{"data":[]}""")
                 }
+                : _contentRoutes.TryGetValue(
+                    WithoutQuery(url),
+                    out Func<HttpContent>? content)
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content(),
+                }
                 : _routes.TryGetValue(
                     WithoutQuery(url),
                     out (HttpStatusCode Status, string Body) route)
@@ -1447,6 +1539,39 @@ public class NuGetSearchSourcesTests
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
         }
+    }
+
+    private sealed class StalledStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => 0;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class PrefixPagingHandler(

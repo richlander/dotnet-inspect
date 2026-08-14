@@ -371,7 +371,16 @@ becoming an empty version list or search result.
 `SearchServiceTests.SearchAsync_AdvertisedOversizeBody_Throws`,
 `SearchServiceTests.SearchAsync_UnadvertisedOversizeBody_Throws`,
 `SearchServiceTests.SearchAsync_StalledBody_ThrowsTimeout`, and
-`NuGetClientMetadataResponseTests` gate the HTTP and parser seams.
+`NuGetClientMetadataResponseTests` gate the HTTP and parser seams. Malformed
+service-index and version-index documents propagate as parse failures rather
+than empty responses, gated by
+`NuGetApiTests.GetServiceIndexAsync_MalformedJson_Throws` and
+`NuGetApiTests.GetVersionIndexAsync_MalformedJson_Throws`.
+`NuGetSearchSourcesTests.SearchAsync_OversizeSource_ReportsFailureAlongsideResults`
+and
+`NuGetSearchSourcesTests.SearchAsync_TimedOutSource_ReportsFailureAlongsideResults`
+gate per-source isolation so one hostile feed cannot suppress healthy-source
+results.
 
 ### SourceLink provenance is read off the URL source is fetched from
 
