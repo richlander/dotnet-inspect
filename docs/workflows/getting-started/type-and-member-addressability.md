@@ -169,9 +169,6 @@ Library: System.Text.Json
 
 > Goal: `Microsoft.*` qualified names resolve against the ASP.NET Core shared framework.
 
-Known issue: #3917 — bare fully qualified `WebApplication` routing reports
-false ambiguity. Preserve the intended successful platform lookup below.
-
 ```prompt
 Tell me about the WebApplication class.
 ```

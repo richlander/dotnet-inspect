@@ -46,15 +46,24 @@ Document-row renumbering does not make a comparison `Changed`.
 
 Member-source identity is the canonical `MemberAnchor` signature. Metadata
 extracts the raw member token, document row, path, range, primary-document
-choice, and finalizer fact. SourceLink decorates that record with canonical
-paths and URLs before `SourceLinkFindings` projects it. Token-scoped queries
-resolve requested MethodDef rows directly rather than scanning the assembly
-method table.
+choice, finalizer fact, and sorted distinct start lines of every visible
+sequence point in that document. SourceLink decorates that record with
+canonical paths and URLs before `SourceLinkFindings` projects it; it neither
+combines point lines across documents nor interprets their C# meaning.
+Token-scoped queries resolve requested MethodDef rows directly rather than
+scanning the assembly method table.
 
 For multi-document methods, the portable PDB's
-`MethodDebugInformation.Document` is primary when present. Otherwise the first
-visible sequence point is primary. Presentation consumers prefer that
-relationship and use document-row order only as a deterministic fallback.
+`MethodDebugInformation.Document` is primary when it has a visible point
+relationship. Otherwise the first visible sequence point is primary.
+Presentation consumers prefer that relationship and use document-row order
+only as a deterministic fallback.
+
+Member-source comparison treats the exact point-line set as a changeable
+payload facet. Its occurrence sort key includes every compared identity and
+coordinate facet, including the point set, so reversing duplicate mappings
+cannot pair unlike observations and manufacture changes. This is gated by
+`MetadataSourceFindingsTests.MemberSourceComparison_ReorderedDuplicateMappingsPairByComparedPayload`.
 
 Compilation-option identity is the option name. Compilation-reference identity
 is its normalized reference name; aliases, image kind, embedding, timestamp,
@@ -105,7 +114,16 @@ folds, not additional Findings.
 token. `AuthoredSourceAcquisition` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
-`FindingInspection<string>`.
+`FindingInspection<string>`. Conditional branch liveness is composed only at
+that slicing boundary: Metadata reports point lines, CSharpText reports lexical
+branch ranges, and the body slicer selects a branch only when exactly one range
+contains point evidence. It validates both the PDB range endpoints and every
+point line against the verified physical source. Because output remains a slice
+of the original authored text rather than projected text, a selected group
+wholly inside that slice is omitted from a second, boundary-only projection.
+The resulting declaration must remain sliceable with identical boundaries;
+otherwise the slicer refuses the result rather than include a sibling from an
+inactive branch.
 
 The same checksum evidence is carried through type, member-location, and
 IL-offset projections when those views can print or derive output from source

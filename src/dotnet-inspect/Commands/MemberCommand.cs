@@ -322,6 +322,7 @@ public static class MemberCommand
                     MemberHasNoBody = resolved.MemberHasNoBody,
                     MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
                     MemberSourceTooComplex = resolved.MemberSourceTooComplex,
+                    MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
                     PdbPath = resolved.PdbPath
                 };
             }

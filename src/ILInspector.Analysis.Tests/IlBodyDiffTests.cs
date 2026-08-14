@@ -277,7 +277,7 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void Compare_MethodReferenceVarargSentinelSplitChange_ReportsOperandChange()
+    public void Compare_MethodReferenceTerminalVarargSentinel_FailsClosed()
     {
         var oldImage = BuildSyntheticEntryImage(
             SyntheticTokenInstruction.Call,
@@ -313,7 +313,11 @@ public class IlBodyDiffTests
         var diff = SyntheticEntryDiff(oldImage, newImage);
 
         _ = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "(int32, ..., int32)");
-        _ = SingleTokenOperand(diff, IlDiffKind.Add, "call", "(int32, int32, ...)");
+        var added = SingleTokenOperand(diff, IlDiffKind.Add, "call", "::M()");
+        Assert.Contains(
+            "<unsupported-signature:",
+            added.Value,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -710,17 +710,18 @@ Research overlay bridge, and the application layer:
   member, calli-signature, and definition-token facts through
   `IMethodCallResolver`, appends calls and safety evidence incrementally, and
   delegates unsafe-call/opcode policy back to `MethodSafetyAnalysis`.
-  `MethodAllocationAnalysis` owns allocation interpretation for one decoded
+  `MethodAllocationFacts` owns allocation interpretation for one decoded
   body: occurrence discovery, allocation-shape classification, escape
   classification, and the private path-context/confidence/post-dominance indexes
   that produce its multiplicity reading. It receives metadata and raw-IL
   judgments through the narrow `IMethodAllocationResolver` contract the assembly
-  reader implements, and returns one `MethodAllocationResult` carrying the
-  discovered and escape-refined occurrences from a single scan.
+  reader implements, and binds the canonical context, discovered and
+  escape-refined occurrences, and Layer-1 queries in one object.
+  `FactsBundlesBindContextOccurrencesAndQueries` gates that coherence.
   `OptimizationOpportunityAnalysis` owns its per-method instruction walk,
   optimization-shape classification, lazy memoized reaching-definitions use,
   and allocation metadata projection. It reuses allocation discovery and the
-  allocation analysis's Layer-1 query methods rather than opening another
+  allocation facts' Layer-1 query methods rather than opening another
   allocation or decode path. The collector coordinates the ordered opportunity
   traversal and delegates focused evidence classification to
   `ArrayEscapeAnalysis`, `LoopInvariantMaterializerAnalysis`,
@@ -731,9 +732,15 @@ Research overlay bridge, and the application layer:
   `IOptimizationOpportunityResolver`; the producer does not own the metadata
   reader, generic scope, or raw IL. The assembly reader retains PE/body
   acquisition, the intentionally throwing decode path, method identity and
-  scope creation, metadata and raw-IL ownership through the shared narrow
-  method-analysis resolver, orchestration and diagnostics, resource/leak
-  analysis, and result aggregation.
+  scope creation, primary-image metadata and raw-IL ownership through the shared
+  narrow method-analysis resolver, orchestration and diagnostics, resource/leak
+  analysis, and result aggregation. Cross-assembly type-definition binding,
+  referenced-image metadata lifetime, and the registration-keyed cache belong
+  to `LibraryBodyReferenceMetadataResolver`, which composes
+  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.
+  `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
+  `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
+  forwarder and binding-scope behavior.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation

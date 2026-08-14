@@ -14,21 +14,16 @@ namespace ILInspector.Analysis;
 /// <summary>
 /// Decodes one assembly's IL bodies and metadata into a
 /// <see cref="LibraryBodyAnalysisResult"/> bundle. It consumes one caller-owned
-/// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the
-/// cross-assembly reference-resolution state created for that acquisition.
+/// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the lifetime
+/// of the cross-assembly reference-resolution service created for that
+/// acquisition.
 /// </summary>
 internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 {
     readonly string _path;
     readonly MetadataReader _reader;
     readonly PEReader _peReader;
-    readonly TypeResolutionCatalog? _resolutionCatalog;
-    readonly AssemblyReferenceBindingPolicy? _bindingPolicy;
-    readonly ResolvedAssemblyReference? _rootAssembly;
-    readonly Dictionary<
-        AssemblyAcquisitionRegistration,
-        ReferencedAssemblyMetadata?> _referencedAssemblyCache =
-            new(ReferenceEqualityComparer.Instance);
+    readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
@@ -42,194 +37,25 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         if (resolver is not null && reader.IsAssembly)
-        {
-            string fullPath = System.IO.Path.GetFullPath(path);
-            _rootAssembly = ResolvedAssemblyReference.Create(
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                fullPath,
-                () => File.OpenRead(fullPath),
-                AssemblyResolutionProvenance.Local(
-                    "LibraryBodyIndex"));
-            _bindingPolicy =
-                new AssemblyReferenceBindingPolicy(resolver);
-            _resolutionCatalog = new TypeResolutionCatalog();
-        }
+            _referenceMetadataResolver =
+                new LibraryBodyReferenceMetadataResolver(
+                    path,
+                    reader,
+                    resolver);
     }
 
-    public void Dispose()
-    {
-        foreach (var assembly in _referencedAssemblyCache.Values)
-            assembly?.Dispose();
-        _referencedAssemblyCache.Clear();
-        _resolutionCatalog?.Dispose();
-    }
+    public void Dispose() =>
+        _referenceMetadataResolver?.Dispose();
+
+    internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveExternalTypeDefinition(TypeReferenceHandle handle) =>
+        _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
+            handle);
 
     // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
     // when MemorySafetyRulesAttribute is applied (emitted [module:], like
     // RefSafetyRulesAttribute). Check the module and assembly scopes.
     public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
-
-    sealed class ReferencedAssemblyMetadata(Stream stream, PEReader peReader) : IDisposable
-    {
-        public MetadataReader Reader { get; } = peReader.GetMetadataReader();
-
-        internal static ReferencedAssemblyMetadata? TryOpen(
-            ResolvedAssemblyReference assembly)
-        {
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
-            {
-                stream = assembly.OpenRead();
-                peReader = new PEReader(stream);
-                if (!peReader.HasMetadata)
-                    return null;
-                var metadata =
-                    new ReferencedAssemblyMetadata(stream, peReader);
-                stream = null;
-                peReader = null;
-                return metadata;
-            }
-            catch (Exception ex) when (
-                ex is IOException
-                    or UnauthorizedAccessException
-                    or BadImageFormatException
-                    or InvalidOperationException
-                    or NotSupportedException
-                    or ArgumentException)
-            {
-                return null;
-            }
-            finally
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
-            }
-        }
-
-        public void Dispose()
-        {
-            peReader.Dispose();
-            stream.Dispose();
-        }
-    }
-
-    internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(TypeReferenceHandle handle)
-        => TryResolveExternalTypeDefinition(handle, new HashSet<TypeReferenceHandle>());
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(
-        TypeReferenceHandle handle,
-        HashSet<TypeReferenceHandle> visited)
-    {
-        if (handle.IsNil || !visited.Add(handle))
-            return null;
-
-        var typeRef = _reader.GetTypeReference(handle);
-        string name = _reader.GetString(typeRef.Name);
-        string ns = _reader.GetString(typeRef.Namespace);
-        return typeRef.ResolutionScope.Kind switch
-        {
-            HandleKind.AssemblyReference => TryResolveTopLevelExternalType(
-                (AssemblyReferenceHandle)typeRef.ResolutionScope,
-                ns,
-                name),
-            HandleKind.TypeReference => TryResolveNestedExternalType(
-                (TypeReferenceHandle)typeRef.ResolutionScope,
-                ns,
-                name,
-                visited),
-            _ => null,
-        };
-    }
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveTopLevelExternalType(
-        AssemblyReferenceHandle assemblyReference,
-        string ns,
-        string name)
-    {
-        if (_resolutionCatalog is null
-            || _bindingPolicy is null
-            || _rootAssembly is null
-            || MetadataTypeDefinitionName.Create(ns, [name])
-                is not MetadataTypeDefinitionNameResult.Valid valid)
-        {
-            return null;
-        }
-
-        var identity = AssemblyReferenceIdentity.From(_reader, assemblyReference);
-        var scope = ScopeForReference(assemblyReference);
-        var request = TypeResolutionRequest.FromReference(
-            identity,
-            AssemblyBindingOrigin.FromAssembly(_rootAssembly),
-            scope,
-            valid.Name);
-        using TypeResolutionContext context =
-            _resolutionCatalog.CreateContext(
-                _bindingPolicy,
-                [_rootAssembly],
-                [request]);
-        if (context.Resolve(request)
-            is not TypeResolutionOutcome.Resolved resolved)
-        {
-            return null;
-        }
-
-        ReferencedAssemblyMetadata? metadata =
-            OpenReferencedAssembly(
-                resolved.Definition.Assembly.Assembly);
-        return metadata is not null
-            && resolved.Definition.Address.TryResolve(
-                metadata.Reader,
-                out TypeDefinitionHandle definition)
-                ? (metadata.Reader, definition)
-                : null;
-    }
-
-    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveNestedExternalType(
-        TypeReferenceHandle declaringReference,
-        string ns,
-        string name,
-        HashSet<TypeReferenceHandle> visited)
-    {
-        var declaring = TryResolveExternalTypeDefinition(declaringReference, visited);
-        if (declaring is not { } resolvedDeclaring)
-            return null;
-
-        var declaringDefinition = resolvedDeclaring.DefiningReader.GetTypeDefinition(resolvedDeclaring.Definition);
-        foreach (var nestedHandle in declaringDefinition.GetNestedTypes())
-        {
-            var nested = resolvedDeclaring.DefiningReader.GetTypeDefinition(nestedHandle);
-            if ((ns.Length == 0 || resolvedDeclaring.DefiningReader.StringComparer.Equals(nested.Namespace, ns))
-                && resolvedDeclaring.DefiningReader.StringComparer.Equals(nested.Name, name))
-                return (resolvedDeclaring.DefiningReader, nestedHandle);
-        }
-
-        return null;
-    }
-
-    ReferencedAssemblyMetadata? OpenReferencedAssembly(
-        ResolvedAssemblyReference assembly)
-    {
-        lock (_referencedAssemblyCache)
-        {
-            if (_referencedAssemblyCache.TryGetValue(
-                    assembly.Registration,
-                    out ReferencedAssemblyMetadata? cached))
-            {
-                return cached;
-            }
-
-            ReferencedAssemblyMetadata? opened =
-                ReferencedAssemblyMetadata.TryOpen(assembly);
-            _referencedAssemblyCache[assembly.Registration] = opened;
-            return opened;
-        }
-    }
-
-    AssemblyResolutionScope ScopeForReference(AssemblyReferenceHandle handle)
-        => FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
-            ? AssemblyResolutionScope.Platform
-            : AssemblyResolutionScope.Any;
 
     static MethodInstructions DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
@@ -295,6 +121,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        bool includeOwnershipFlow = plan.Includes(
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -312,6 +140,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
         var exceptionPathCandidates =
             ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
+        var ownershipFlow =
+            ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var exceptionTypeNames = includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -321,9 +151,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         // method body. For a full (unscoped) build the analysis runs in parallel across cores;
         // each method writes only to method-local builders, and results are merged back in
         // metadata order below, so output is byte-identical to a sequential build. Metadata/PE
-        // reads are thread-safe on the immutable prefetched image (see Open); the two lazily
-        // populated caches touched during analysis are made concurrency-safe (AsyncStateMachineTypes
-        // is prewarmed here, _referencedAssemblyCache is lock-guarded).
+        // reads are thread-safe on the immutable prefetched image (see Open); the lazily
+        // populated AsyncStateMachineTypes cache is prewarmed here.
         var workItems = new List<(TypeDefinitionHandle TypeHandle, TypeDefinition TypeDef, bool TypeSourceGenerated, MethodDefinitionHandle MethodHandle)>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
@@ -353,7 +182,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 var w = workItems[i];
                 results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
                     includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, bodyScope, bodyTypeScope);
+                    includeLeakTriage, includeOwnershipFlow,
+                    bodyScope, bodyTypeScope);
             });
         }
         else
@@ -363,7 +193,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 var w = workItems[i];
                 results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
                     includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, bodyScope, bodyTypeScope);
+                    includeLeakTriage, includeOwnershipFlow,
+                    bodyScope, bodyTypeScope);
             }
         }
 
@@ -379,6 +210,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 leakCandidates.AddRange(leakTriage.Candidates);
                 exceptionPathCandidates.AddRange(
                     leakTriage.ExceptionPathCandidates);
+            }
+            if (r.OwnershipFlow is { } methodOwnership
+                && (!methodOwnership.Rents.IsEmpty
+                    || !methodOwnership.Parameters.IsEmpty
+                    || !methodOwnership.IsComplete))
+            {
+                ownershipFlow.Add(methodOwnership);
             }
             if (!r.HasCaller)
             {
@@ -453,6 +291,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 Opportunities: optimizationOpportunities.ToImmutable(),
                 SuppressedMethodTokens: suppressedOpportunityTokens,
                 ExceptionTypeNames: exceptionTypeNames),
+            OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
     }
@@ -484,17 +323,18 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         public bool HasSignals;
         public BodySignals Signals;
         public LeakTriageResult? LeakTriage;
+        public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
         public AnalysisDiagnostic? Diagnostic;
     }
 
     // Analyze a single method into a MethodBuildResult. Mirrors the original per-method loop body
     // statement-for-statement, writing to method-local builders instead of the shared Build()
     // builders. Safe to run concurrently: metadata/PE reads are thread-safe on the prefetched
-    // image, and the only lazily-populated shared caches it can touch are AsyncStateMachineTypes
-    // (prewarmed) and _referencedAssemblyCache (lock-guarded).
+    // image, and its lazily-populated AsyncStateMachineTypes cache is prewarmed.
     MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
         MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
         bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
+        bool includeOwnershipFlow,
         IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
     {
         if (!includeMethodEvidence)
@@ -576,11 +416,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 body.ExceptionRegions,
                 loopRegions,
                 localTypes);
-            // One allocation interpretation per decoded body. It owns the path,
-            // confidence, post-dominance, and multiplicity reading of the shared
-            // control flow, which call-site acquisition and optimization-opportunity
-            // collection query rather than rebuild.
-            var allocationAnalysis = new MethodAllocationAnalysis(context);
+            // Build allocation's Layer-1 indexes before other topic producers,
+            // then keep every result and query bound to this exact context.
+            var allocationFacts = MethodAllocationFacts.Create(context);
             var methodAnalysisResolver = new MethodAnalysisResolver(
                 this,
                 scope,
@@ -596,11 +434,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             // reuses the same discovered occurrences (it keys them by IL offset and does not read escape
             // state). Refining once and sharing the discovery scan avoids a second full instruction/
             // token scan per method whenever opportunities are computed.
-            var allocations = includeAllocations
-                ? allocationAnalysis.Collect(
-                    methodAnalysisResolver)
-                : MethodAllocationResult.Empty;
-            result.Allocations = allocations.ClassifiedOccurrences;
+            if (includeAllocations)
+            {
+                allocationFacts.Collect(methodAnalysisResolver);
+            }
+            result.Allocations =
+                allocationFacts.ClassifiedOccurrences;
             result.Unsafety = MethodSafetyAnalysis.CollectOccurrences(
                 context,
                 token => CalliReturnDetail(token, scope));
@@ -613,9 +452,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     && !IsBlazorRenderMethod(caller))
                     result.Opportunities =
                         OptimizationOpportunityAnalysis.Collect(
-                            context,
-                            allocations.DiscoveredOccurrences,
-                            allocationAnalysis,
+                            allocationFacts,
                             methodAnalysisResolver);
                 else
                     result.Suppressed = true;
@@ -633,10 +470,16 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             MethodCallAnalysis.Collect(
                 context,
                 new CallResolver(this, scope),
-                offset => allocationAnalysis.MultiplicityAt(offset),
+                offset => allocationFacts.MultiplicityAt(offset),
                 calls,
                 evidence,
                 includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
+            if (includeOwnershipFlow)
+            {
+                result.OwnershipFlow = ArrayPoolOwnershipFlow.Analyze(
+                    context,
+                    calls.ToImmutable());
+            }
         }
         catch (Exception ex) when (IsRecoverableMethodFailure(ex))
         {
@@ -1292,7 +1135,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (handle.Kind != HandleKind.StandaloneSignature)
                 return null;
             var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
-            if (!SignatureBlobGuard.IsSafeToDecode(_reader, standalone.Signature, SignatureBlobGuard.Kind.Method))
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    _reader,
+                    standalone.Signature,
+                    SignatureBlobGuard.Kind.StandaloneMethod))
                 return null;
             var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
             return signature.ReturnType.ToDisplayString();
@@ -1505,7 +1351,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (!SignatureBlobGuard.IsSafeToDecode(
                     _reader,
                     standalone.Signature,
-                    SignatureBlobGuard.Kind.Method))
+                    SignatureBlobGuard.Kind.StandaloneMethod))
             {
                 return MemberRef.Unsupported("calli signature unavailable");
             }

@@ -1,5 +1,61 @@
 # Release Notes
 
+## v0.18.0
+
+### Inspection correctness
+
+- Fixes fully qualified ASP.NET Core type and member routing when runtime
+  catalogs span multiple shared frameworks or a namespace prefix names a
+  non-owning assembly, while retaining real ambiguity errors (#4135).
+- Uses a bounded declaration index for authored `Original Source` and `Source
+  Diff` slicing. Accessors now select their enclosing property or event,
+  constructors retain their exact identity, and ambiguous or overly complex
+  source boundaries fail visibly instead of returning fragments or empty
+  output (#3927).
+- Uses document-scoped PDB sequence points to select live conditional branches
+  in authored source, and refuses invalid coordinates or unsafe declaration
+  boundaries instead of leaking inactive sibling declarations (#4158).
+- Resolves assembly references by metadata identity rather than derived paths,
+  preserving sibling/platform precedence, culture and token constraints, and
+  visible failure state for unreadable or mismatched candidates (#3928).
+- Uses structural keys for generated-member correspondence and exact IL
+  coordinate evidence for allocation, safety, and callsite rows (#3857,
+  #4107).
+- Bounds cumulative API member-anchor signature construction work and memoizes
+  repeated metadata type names, preventing long repeated names from amplifying
+  allocations before the safety budget rejects them (#4162).
+
+### Source and network safety
+
+- Verifies fetched SourceLink content against its portable-PDB checksum and
+  validates the final redirect origin before buffering the response. Source
+  reads are bounded, retry-aware, and fail closed when final-origin evidence is
+  unavailable (#4041).
+- Recognizes commit-pinned Azure SourceLink URLs as immutable and bounds NuGet
+  advisory JSON responses while retaining redacted diagnostics (#4104,
+  #4117).
+- Separates package-source policy by acquisition owner so package, symbol,
+  platform-pack, and related fetches retain their intended source boundaries
+  (#4136).
+- Contains restored dependency-manifest paths beneath their target,
+  global-packages, and owning-package roots, rejecting hostile entries without
+  echoing them (#4132).
+
+### Experimental analysis and decompilation fixes
+
+- Extends `ArrayPool<T>` ownership analysis across progressively acquired call
+  graphs while retaining bounded, exact path evidence and treating indirect
+  calls as incomplete rather than safe (#4081).
+- Orders named enum labels that share a switch body alphabetically by default;
+  `dotnet_inspect_style_enum_case_label_order = value` retains recovered
+  numeric order (#4072).
+- Improves generated-member and authored-source correspondence, body-inspection
+  session reuse, and full-body structural diagnostics used to find
+  decompilation fidelity regressions (#3857, #3927, #4037, #4092).
+- Raises local functions inside generic types through their generic type
+  definitions while continuing to decline unsupported generic iterator imports
+  visibly (#4116).
+
 ## v0.17.0
 
 ### Curated inspection and query model
