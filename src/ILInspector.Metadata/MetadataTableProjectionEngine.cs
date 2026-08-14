@@ -76,6 +76,21 @@ internal static class MetadataTableProjectionEngine
         new(TableIndex.MethodSpec, "MethodSpec", MethodSpecColumns, ReadMethodSpecRow),
     ];
 
+    internal static bool TryGetTableSpec(TableIndex table, out TableSpec spec)
+    {
+        foreach (var candidate in SupportedTables)
+        {
+            if (candidate.Index == table)
+            {
+                spec = candidate;
+                return true;
+            }
+        }
+
+        spec = default;
+        return false;
+    }
+
     /// <summary>
     /// Projects the supported metadata tables of an already-open <paramref name="reader"/>.
     /// Assumes the caller has already validated the source image has metadata.
@@ -107,28 +122,14 @@ internal static class MetadataTableProjectionEngine
     /// wider projection. Assumes the caller has already validated the source image has metadata
     /// and that <paramref name="rowId"/> is at least 1.
     ///
-    /// Returns <see langword="null"/> when <paramref name="table"/> is not one this projector
-    /// supports, or when <paramref name="rowId"/> is past the table's last row.
+    /// Returns <see langword="null"/> when <paramref name="rowId"/> is past the table's last row.
     /// </summary>
     internal static MetadataTableView? ProjectRow(
         MetadataReader reader,
-        TableIndex table,
+        TableSpec spec,
         int rowId,
         MetadataProjectionOptions options)
     {
-        TableSpec? match = null;
-        foreach (var candidate in SupportedTables)
-        {
-            if (candidate.Index == table)
-            {
-                match = candidate;
-                break;
-            }
-        }
-
-        if (match is not { } spec)
-            return null;
-
         int rowCount = reader.GetTableRowCount(spec.Index);
         if (rowId > rowCount)
             return null;

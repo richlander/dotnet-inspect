@@ -45,11 +45,9 @@ public static class MetadataTableProjector
     /// </summary>
     public static ImmutableArray<MetadataColumn> ColumnsFor(TableIndex table)
     {
-        foreach (var spec in MetadataTableProjectionEngine.SupportedTables)
-            if (spec.Index == table)
-                return spec.Columns;
-
-        return ImmutableArray<MetadataColumn>.Empty;
+        return MetadataTableProjectionEngine.TryGetTableSpec(table, out var spec)
+            ? spec.Columns
+            : ImmutableArray<MetadataColumn>.Empty;
     }
 
     /// <summary>
@@ -103,11 +101,12 @@ public static class MetadataTableProjector
         ArgumentOutOfRangeException.ThrowIfLessThan(rowId, 1);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!peReader.HasMetadata
+            || !MetadataTableProjectionEngine.TryGetTableSpec(table, out var spec))
             return null;
 
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
-        return MetadataTableProjectionEngine.ProjectRow(reader, table, rowId, options);
+        return MetadataTableProjectionEngine.ProjectRow(reader, spec, rowId, options);
     }
 
     /// <summary>
