@@ -915,12 +915,13 @@ public static class PackageExtractor
         string version,
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null)
-        => (await ProbeNuspecXmlAsync(
+        => (await ProbeNuspecXmlCoreAsync(
             client,
             packageId,
             version,
             log,
-            sourceOptions).ConfigureAwait(false)).Xml;
+            sourceOptions,
+            validateCoordinate: false).ConfigureAwait(false)).Xml;
 
     /// <summary>
     /// Probes a package's nuspec while preserving whether a missing document was
@@ -932,6 +933,21 @@ public static class PackageExtractor
         string version,
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null)
+        => await ProbeNuspecXmlCoreAsync(
+            client,
+            packageId,
+            version,
+            log,
+            sourceOptions,
+            validateCoordinate: true).ConfigureAwait(false);
+
+    private static async Task<NuspecProbeResult> ProbeNuspecXmlCoreAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions,
+        bool validateCoordinate)
     {
         string normalizedName = packageId.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
@@ -957,7 +973,8 @@ public static class PackageExtractor
                 string? cachedXml = await TryReadNuspecFileAsync(cachedNuspec)
                     .ConfigureAwait(false);
                 if (cachedXml != null
-                    && IsExpectedNuspec(cachedXml, packageId, version))
+                    && (!validateCoordinate
+                        || IsExpectedNuspec(cachedXml, packageId, version)))
                 {
                     return new NuspecProbeResult(
                         cachedXml,
@@ -994,7 +1011,8 @@ public static class PackageExtractor
                     && body.Bytes is { Length: > 0 })
                 {
                     string xml = Encoding.UTF8.GetString(body.Bytes);
-                    if (IsExpectedNuspec(xml, packageId, version))
+                    if (!validateCoordinate
+                        || IsExpectedNuspec(xml, packageId, version))
                     {
                         return new NuspecProbeResult(
                             xml,
