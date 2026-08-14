@@ -73,6 +73,20 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 }
 
 /// <summary>
+/// An extension block's inclusive source range and the line carrying its opening brace.
+/// </summary>
+public readonly record struct TransparentScopeSpan(
+    int StartLine,
+    int BodyStartLine,
+    int EndLine)
+{
+    /// <summary>Whether <paramref name="line"/> lies inside the scope's complete source range.</summary>
+    public bool Contains(int line) => line >= StartLine && line <= EndLine;
+
+    public override string ToString() => StartLine == EndLine ? $"{StartLine}" : $"{StartLine}-{EndLine}";
+}
+
+/// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
 /// All line numbers are <b>1-based physical lines of the file that was indexed</b>, so a caller
@@ -113,6 +127,12 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// caller slices from to include a member's documentation.
 /// </param>
 /// <param name="SignatureStartLine">The first line of the declaration itself.</param>
+/// <param name="SignatureStartColumn">The zero-based column of the declaration's first token.</param>
+/// <param name="FirstCodeColumn">
+/// The zero-based column of the first non-comment, non-directive token on
+/// <paramref name="SignatureStartLine"/>. This may precede
+/// <paramref name="SignatureStartColumn"/> when an attribute list shares that line.
+/// </param>
 /// <param name="SignatureEndLine">
 /// The last line of the signature: the line carrying the <c>{</c>, <c>=&gt;</c>, or <c>;</c> that
 /// ends it. A signature may span lines, so this is not always <see cref="SignatureStartLine"/>.
@@ -121,6 +141,11 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// The line the body opens on — the <c>{</c>, or the <c>=&gt;</c> of an expression-bodied member —
 /// or <c>-1</c> for a declaration with no body at all (abstract, interface, <c>extern</c>,
 /// <c>partial</c> without implementation, field, enum member, positional record).
+/// </param>
+/// <param name="BodyEndLine">
+/// The line carrying the closing brace of a brace-bodied declaration, or <c>-1</c> when the
+/// declaration has no closing brace. This remains the brace line when an optional trailing
+/// semicolon extends <see cref="EndLine"/>.
 /// </param>
 /// <param name="EndLine">The last line of the declaration, inclusive.</param>
 /// <param name="Depth">
@@ -212,8 +237,11 @@ public sealed record DeclarationSpan(
     string Name,
     int TriviaStartLine,
     int SignatureStartLine,
+    int SignatureStartColumn,
+    int FirstCodeColumn,
     int SignatureEndLine,
     int BodyStartLine,
+    int BodyEndLine,
     int EndLine,
     int Depth,
     int ParentIndex,
@@ -238,6 +266,15 @@ public sealed record DeclarationSpan(
     /// </summary>
     public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
 
+    /// <summary>True when the declaration carries a top-level <c>static</c> modifier.</summary>
+    public bool IsStatic { get; init; }
+
+    /// <summary>
+    /// True when this declared name has an initializer introduced by <c>=</c>. Rows for
+    /// comma-separated field or event declarators share a span but carry this fact independently.
+    /// </summary>
+    public bool HasInitializer { get; init; }
+
     /// <summary>True when this declaration can itself contain member declarations.</summary>
     public bool IsType => Kind is DeclarationKind.Class or DeclarationKind.Struct
         or DeclarationKind.Interface or DeclarationKind.Record or DeclarationKind.Enum;
@@ -249,12 +286,13 @@ public sealed record DeclarationSpan(
     public bool Contains(int line) => line >= SignatureStartLine && line <= EndLine;
 
     /// <summary>True when <paramref name="line"/> lies within the declaration's body.</summary>
-    public bool BodyContains(int line) => HasBody && line >= BodyStartLine && line <= EndLine;
+    public bool BodyContains(int line) =>
+        HasBody && line >= BodyStartLine && line <= (BodyEndLine >= 0 ? BodyEndLine : EndLine);
 }
 
 /// <summary>
-/// The declarations of one C# source file, recovered in a single forward pass over
-/// <see cref="CSharpLexer"/>'s token stream.
+/// The declarations of one C# source file, recovered in a forward lexical pass over
+/// <see cref="CSharpLexer"/>'s token stream followed by linear trust finalization.
 /// <para>
 /// This exists because locating a member's authored text is two questions, and only one of them
 /// has an exact answer. A portable PDB says exactly which lines a member's <i>body</i> occupies,
@@ -289,16 +327,24 @@ public sealed record DeclarationSpan(
 /// <para>
 /// Whole-file correctness is gated by
 /// <c>DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex</c>,
-/// which compares kind, name, first line, and last line against Roslyn over the real source of
-/// every PDB-bearing assembly beside the test binary; leading trivia is gated separately by
-/// <c>ADeclarationsTriviaStart_MatchesRoslynsLeadingTrivia</c>, and the nesting the containment
-/// lookup depends on by <c>RowsNestWithinTheirParentAndNeverOverlapASibling</c>. Roslyn is a
-/// test-only oracle; this library stays Roslyn-free.
+/// which compares kind, name, first line and column, and last line against Roslyn over the real
+/// source of every PDB-bearing assembly beside the test binary; leading trivia is gated separately
+/// by <c>ADeclarationsTriviaStart_MatchesRoslynsLeadingTrivia</c>, and the nesting the containment
+/// lookup depends on by <c>RowsNestWithinTheirParentAndNeverOverlapASibling</c>. Roslyn is a test-only
+/// oracle; this library stays Roslyn-free.
 /// </para>
 /// </summary>
 public sealed class DeclarationIndex
 {
-    private DeclarationIndex(ImmutableArray<DeclarationSpan> declarations) => Declarations = declarations;
+    private const int MaxLineCount = 500_000;
+
+    private DeclarationIndex(
+        ImmutableArray<DeclarationSpan> declarations,
+        ImmutableArray<TransparentScopeSpan> transparentScopes)
+    {
+        Declarations = declarations;
+        TransparentScopes = transparentScopes;
+    }
 
     /// <summary>
     /// Every declaration in the file, in source order of the point each was recognized. A
@@ -306,30 +352,64 @@ public sealed class DeclarationIndex
     /// </summary>
     public ImmutableArray<DeclarationSpan> Declarations { get; }
 
+    /// <summary>
+    /// Structural scope spans that do not own declaration rows.
+    /// </summary>
+    /// <remarks>
+    /// C# extension blocks are transparent for declaration parentage, but their opening and
+    /// closing lines remain structural boundaries for source slicing. Gated by
+    /// <c>DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne</c>.
+    /// </remarks>
+    public ImmutableArray<TransparentScopeSpan> TransparentScopes { get; }
+
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
-        Build(sourceText.Split('\n'));
+        Build(CSharpSourceText.SplitLines(sourceText, MaxLineCount));
 
     /// <summary>Builds the index for a file already split into lines.</summary>
-    public static DeclarationIndex Build(IReadOnlyList<string> lines) =>
-        new(DeclarationIndexBuilder.Build(lines));
+    public static DeclarationIndex Build(IReadOnlyList<string> lines)
+    {
+        if (lines.Count > MaxLineCount)
+            throw new CSharpTextComplexityException(MaxLineCount, "lines");
+
+        ImmutableArray<DeclarationSpan> declarations =
+            DeclarationIndexBuilder.Build(
+                lines,
+                out ImmutableArray<TransparentScopeSpan> transparentScopes);
+        return new DeclarationIndex(declarations, transparentScopes);
+    }
 
     /// <summary>
-    /// The innermost declaration whose <i>body</i> contains <paramref name="line"/>, which is how
-    /// a PDB sequence-point line selects the member it belongs to.
+    /// The innermost declaration containing <paramref name="line"/> — its signature or its body —
+    /// which is how a PDB sequence-point line selects the member it belongs to.
+    /// <para>
+    /// Containment starts at the signature, not the body, because a sequence point is not always
+    /// inside one. A constructor's first point can land on its <i>signature</i> line, so body-only
+    /// containment falls through to the enclosing type and reports the type header as the
+    /// constructor's source. Gated by
+    /// <c>DeclarationIndexTests.AConstructorsSignatureLine_SelectsTheConstructorNotTheType</c>.
+    /// </para>
     /// <para>
     /// Innermost is by <see cref="DeclarationSpan.Depth"/>, so a local function or lambda does not
-    /// hide the member that encloses it: only declarations are indexed, and a lambda is not one.
+    /// hide the member that encloses it: only declarations are indexed, and a lambda is not one. A
+    /// compiler-generated member therefore selects the authored member it was lifted out of, which
+    /// is the declaration a reader can actually be shown.
+    /// </para>
+    /// <para>
     /// A row whose span is not known is never returned, because a guessed span that happens to
-    /// contain the line is indistinguishable from a real match.
+    /// contain the line is indistinguishable from a real match. A caller that gets a
+    /// <see cref="DeclarationKind"/> naming a type rather than a member has landed on a type
+    /// header, which is what a positional record's accessor, a primary constructor, and a
+    /// constructor synthesized from field initializers all do; there is no authored member
+    /// declaration to show, and the caller must report absence rather than the header.
     /// </para>
     /// </summary>
-    public DeclarationSpan? FindByBodyLine(int line)
+    public DeclarationSpan? FindByLine(int line)
     {
         DeclarationSpan? best = null;
         foreach (var d in Declarations)
         {
-            if (!d.SpanKnown || !d.BodyContains(line))
+            if (!d.SpanKnown || !d.Contains(line))
                 continue;
             if (best is null || d.Depth > best.Depth)
                 best = d;
