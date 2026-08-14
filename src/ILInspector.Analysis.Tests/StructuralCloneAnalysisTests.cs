@@ -436,6 +436,7 @@ public class StructuralCloneAnalysisTests
             { new byte[] { 0x00, 0x01, 0x01, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x10, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1D, 0x01 } },
+            { new byte[] { 0x05, 0x01, 0x01, 0x41, 0x08 } },
             {
                 new byte[]
                 {
@@ -456,6 +457,7 @@ public class StructuralCloneAnalysisTests
         new()
         {
             { new byte[] { 0x05, 0x00, 0x01 } },
+            { new byte[] { 0x05, 0x01, 0x01, 0x08 } },
             { new byte[] { 0x00, 0x00, 0x0F, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1B, 0x00, 0x00, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1F, 0x05, 0x01 } },
@@ -628,6 +630,33 @@ public class StructuralCloneAnalysisTests
         Assert.Equal(0, localLimited.Receipt.LeftInstructions);
     }
 
+    [Fact]
+    public void Compare_InstructionLimitPrecedesMetadataOperandValidation()
+    {
+        byte[] calli =
+        [
+            0x16, 0xD3,
+            0x29, 0x01, 0x00, 0x00, 0x11,
+            0x2A,
+        ];
+        using PEReader image = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x08, 0x00, 0x01]));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2),
+                new StructuralCloneComparisonLimits(
+                    MaximumInstructions: 1));
+
+        AssertLimit(
+            comparison,
+            StructuralCloneBlockerKind.InstructionLimit);
+    }
+
     [Theory]
     [MemberData(nameof(InvalidLocalSignatures))]
     public void Compare_MalformedLocalSignatureFailsAndRetainsMeasuredReceiptCounts(
@@ -712,7 +741,64 @@ public class StructuralCloneAnalysisTests
         {
             { new byte[] { 0x07, 0x01 } },
             { new byte[] { 0x07, 0x01, 0x08, 0xFF } },
+            { new byte[] { 0x07, 0x01, 0x01 } },
+            { new byte[] { 0x07, 0x01, 0x10, 0x01 } },
+            { new byte[] { 0x07, 0x01, 0x1D, 0x01 } },
+            { new byte[] { 0x07, 0x01, 0x45, 0x01 } },
         };
+
+    [Fact]
+    public void Compare_CustomModifiedVoidLocalFails()
+    {
+        byte[] signature = [0x07, 0x01, 0x1F, 0x05, 0x01];
+        using PEReader image = OpenImage(
+            BuildReferencedLocalSignaturePairAssembly(
+                signature,
+                signature));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.MetadataReadFailure);
+    }
+
+    [Fact]
+    public void Compare_VoidPointerAndPinnedLocalsRemainSupported()
+    {
+        byte[] pointerSignature = [0x07, 0x01, 0x0F, 0x01];
+        using PEReader pointerImage = OpenImage(
+            BuildLocalSignaturePairAssembly(
+                pointerSignature,
+                pointerSignature));
+        byte[] pinnedSignature = [0x07, 0x01, 0x45, 0x08];
+        using PEReader pinnedImage = OpenImage(
+            BuildLocalSignaturePairAssembly(
+                pinnedSignature,
+                pinnedSignature));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            StructuralCloneAnalysis.Compare(
+                pointerImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2)).Relation);
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            StructuralCloneAnalysis.Compare(
+                pinnedImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2)).Relation);
+    }
 
     [Fact]
     public void Compare_NormalizesLocalSlotsWithExplicitTypedBijection()
@@ -1370,6 +1456,43 @@ public class StructuralCloneAnalysisTests
             metadata,
             "Right",
             AddBody(bodyEncoder, il, valueTypeLocals));
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildReferencedLocalSignaturePairAssembly(
+        byte[] firstSignature,
+        byte[] secondSignature)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("External"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        StandaloneSignatureHandle firstLocals =
+            AddLocalSignature(metadata, firstSignature);
+        StandaloneSignatureHandle secondLocals =
+            AddLocalSignature(metadata, secondSignature);
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        byte[] il = [0x14, 0x0A, 0x06, 0x26, 0x2A];
+        AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, il, firstLocals));
+        AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, il, secondLocals));
         return Serialize(metadata, bodies);
     }
 

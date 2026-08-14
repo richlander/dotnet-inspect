@@ -609,14 +609,17 @@ public static class StructuralCloneAnalysis
                         side,
                         "The method signature is incomplete or has trailing data."));
             }
-            if (HasVoidParameter(decodedSignature))
+            if (HasInvalidMethodTypePosition(decodedSignature)
+                || decodedSignature.RequiredParameterCount
+                    != decodedSignature.ParameterTypes.Length)
             {
                 return BodyProduction.NotCompleted(
                     StructuralCloneDisposition.Failed,
                     new StructuralCloneBlocker(
                         StructuralCloneBlockerKind.MetadataReadFailure,
                         side,
-                        "A method signature parameter cannot be void."));
+                        "The method definition signature contains a type or "
+                        + "sentinel that is invalid in its position."));
             }
             if (!ValidSignatureTypes(decodedSignature))
             {
@@ -726,6 +729,47 @@ public static class StructuralCloneAnalysis
                             + "trailing data."),
                         measurements);
                 }
+                ImmutableArray<StructuralCloneSignatureType> localShapes =
+                    localSignature.DecodeLocalSignature(
+                        new StructuralCloneSignatureTypeProvider(),
+                        GenericScope.Empty);
+                bool hasVoid = false;
+                bool hasUnsupportedShape = false;
+                foreach (StructuralCloneSignatureType type in localShapes)
+                {
+                    hasVoid |= type.IsVoid;
+                    hasUnsupportedShape |= !type.IsValid;
+                }
+                if (hasVoid)
+                {
+                    return BodyProduction.NotCompleted(
+                        StructuralCloneDisposition.Failed,
+                        new StructuralCloneBlocker(
+                            StructuralCloneBlockerKind.MetadataReadFailure,
+                            side,
+                            "A local variable type cannot be void."),
+                        measurements);
+                }
+                if (hasUnsupportedShape)
+                {
+                    return BodyProduction.NotCompleted(
+                        StructuralCloneDisposition.Unsupported,
+                        new StructuralCloneBlocker(
+                            StructuralCloneBlockerKind.UnsupportedLocalSignature,
+                            side,
+                            "The local signature contains a nested type shape "
+                            + "that exceeds the guarded decode policy."),
+                        measurements);
+                }
+                // Bind each recursive provider decode to its own prescan.
+                if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                        reader,
+                        localSignature.Signature,
+                        SignatureBlobGuard.Kind.LocalVariables))
+                {
+                    throw new BadImageFormatException(
+                        "The local signature changed between guarded decodes.");
+                }
                 locals = localSignature.DecodeLocalSignature(
                     TypeRefDecoder.Instance,
                     GenericScope.Empty);
@@ -736,6 +780,17 @@ public static class StructuralCloneAnalysis
                 instructions,
                 locals.Length,
                 bodyBytes);
+            if (instructions.Instructions.Length
+                > limits.MaximumInstructions)
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.LimitReached,
+                    InstructionLimitBlocker(
+                        instructions.Instructions.Length,
+                        limits.MaximumInstructions,
+                        side),
+                    measurements);
+            }
             if (InvalidMetadataOperand(
                     reader,
                     instructions,
@@ -914,6 +969,10 @@ public static class StructuralCloneAnalysis
         MethodInstructions body,
         StructuralCloneSide side)
     {
+        var validityByOperand =
+            new Dictionary<
+                (OperandKind Kind, long Value),
+                MetadataOperandValidity>();
         foreach (DecodedInstruction instruction in body.Instructions)
         {
             if (instruction.Operand is not (
@@ -930,14 +989,20 @@ public static class StructuralCloneAnalysis
             MetadataOperandValidity validity;
             try
             {
-                validity = instruction.Operand == OperandKind.InlineString
-                    ? ValidUserString(reader, instruction.OperandValue)
-                        ? MetadataOperandValidity.Valid
-                        : MetadataOperandValidity.Invalid
-                    : ValidateEntityOperand(
-                        reader,
-                        instruction.Operand,
-                        instruction.OperandValue);
+                var key =
+                    (instruction.Operand, instruction.OperandValue);
+                if (!validityByOperand.TryGetValue(key, out validity))
+                {
+                    validity = instruction.Operand == OperandKind.InlineString
+                        ? ValidUserString(reader, instruction.OperandValue)
+                            ? MetadataOperandValidity.Valid
+                            : MetadataOperandValidity.Invalid
+                        : ValidateEntityOperand(
+                            reader,
+                            instruction.Operand,
+                            instruction.OperandValue);
+                    validityByOperand.Add(key, validity);
+                }
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
@@ -1112,7 +1177,7 @@ public static class StructuralCloneAnalysis
             {
                 return MetadataOperandValidity.Invalid;
             }
-            if (HasVoidParameter(decoded))
+            if (HasInvalidMethodTypePosition(decoded))
                 return MetadataOperandValidity.Invalid;
             return ValidSignatureTypes(decoded)
                 ? MetadataOperandValidity.Valid
@@ -1866,11 +1931,10 @@ public static class StructuralCloneAnalysis
         }
         if (instructions > limits.MaximumInstructions)
         {
-            blockers.Add(new StructuralCloneBlocker(
-                StructuralCloneBlockerKind.InstructionLimit,
-                side,
-                $"Instruction count {instructions} exceeds "
-                + $"{limits.MaximumInstructions}."));
+            blockers.Add(InstructionLimitBlocker(
+                instructions,
+                limits.MaximumInstructions,
+                side));
         }
         if (blocks > limits.MaximumBlocks)
         {
@@ -1895,6 +1959,16 @@ public static class StructuralCloneAnalysis
         }
         return blockers.ToImmutable();
     }
+
+    static StructuralCloneBlocker InstructionLimitBlocker(
+        int instructions,
+        int maximumInstructions,
+        StructuralCloneSide side)
+        => new(
+            StructuralCloneBlockerKind.InstructionLimit,
+            side,
+            $"Instruction count {instructions} exceeds "
+            + $"{maximumInstructions}.");
 
     static StructuralCloneVerificationReceipt Receipt(
         StructuralCloneBodyFacts? left,
@@ -1950,9 +2024,11 @@ public static class StructuralCloneAnalysis
         => signature.ReturnType.IsValid
             && signature.ParameterTypes.All(static type => type.IsValid);
 
-    static bool HasVoidParameter(
+    static bool HasInvalidMethodTypePosition(
         MethodSignature<StructuralCloneSignatureType> signature)
-        => signature.ParameterTypes.Any(static type => type.IsVoid);
+        => signature.ReturnType.IsPinned
+            || signature.ParameterTypes.Any(
+                static type => type.IsVoid || type.IsPinned);
 
     internal static bool IsMalformedUnsafeSignature(
         MetadataReader reader,
@@ -2296,7 +2372,8 @@ internal sealed class StructuralCloneEdgeIndex
 
 readonly record struct StructuralCloneSignatureType(
     bool IsValid,
-    bool IsVoid)
+    bool IsVoid,
+    bool IsPinned = false)
 {
     public static StructuralCloneSignatureType Valid(bool isVoid = false)
         => new(true, isVoid);
@@ -2381,35 +2458,56 @@ sealed class StructuralCloneSignatureTypeProvider
 
     public StructuralCloneSignatureType GetSZArrayType(
         StructuralCloneSignatureType elementType)
-        => RequireNonVoid(elementType, "An array element cannot be void.");
+        => RequireNonVoid(
+            elementType,
+            "An array element cannot be void or pinned.");
 
     public StructuralCloneSignatureType GetArrayType(
         StructuralCloneSignatureType elementType,
         ArrayShape shape)
-        => RequireNonVoid(elementType, "An array element cannot be void.");
+        => RequireNonVoid(
+            elementType,
+            "An array element cannot be void or pinned.");
 
     public StructuralCloneSignatureType GetByReferenceType(
         StructuralCloneSignatureType elementType)
-        => RequireNonVoid(elementType, "A by-reference element cannot be void.");
+        => RequireNonVoid(
+            elementType,
+            "A by-reference element cannot be void or pinned.");
 
     public StructuralCloneSignatureType GetPointerType(
         StructuralCloneSignatureType elementType)
-        => StructuralCloneSignatureType.Combine(elementType);
+    {
+        if (elementType.IsPinned)
+        {
+            throw new BadImageFormatException(
+                "A pointer element cannot be pinned.");
+        }
+        return StructuralCloneSignatureType.Combine(elementType);
+    }
 
     public StructuralCloneSignatureType GetPinnedType(
         StructuralCloneSignatureType elementType)
-        => throw new BadImageFormatException(
-            "Pinned types are not valid in a method signature.");
+    {
+        if (elementType.IsVoid || elementType.IsPinned)
+        {
+            throw new BadImageFormatException(
+                "A pinned local has an invalid element type.");
+        }
+        return new(elementType.IsValid, false, true);
+    }
 
     public StructuralCloneSignatureType GetGenericInstantiation(
         StructuralCloneSignatureType genericType,
         ImmutableArray<StructuralCloneSignatureType> typeArguments)
     {
         if (genericType.IsVoid
-            || typeArguments.Any(static type => type.IsVoid))
+            || genericType.IsPinned
+            || typeArguments.Any(
+                static type => type.IsVoid || type.IsPinned))
         {
             throw new BadImageFormatException(
-                "A generic instantiation type cannot be void.");
+                "A generic instantiation type cannot be void or pinned.");
         }
         return new(
             genericType.IsValid
@@ -2435,10 +2533,12 @@ sealed class StructuralCloneSignatureTypeProvider
             throw new BadImageFormatException(
                 "A function pointer does not have a method signature.");
         }
-        if (signature.ParameterTypes.Any(static type => type.IsVoid))
+        if (signature.ReturnType.IsPinned
+            || signature.ParameterTypes.Any(
+                static type => type.IsVoid || type.IsPinned))
         {
             throw new BadImageFormatException(
-                "A function-pointer parameter cannot be void.");
+                "A function-pointer signature contains an invalid type position.");
         }
         return new(
             signature.ReturnType.IsValid
@@ -2451,15 +2551,23 @@ sealed class StructuralCloneSignatureTypeProvider
         StructuralCloneSignatureType modifier,
         StructuralCloneSignatureType unmodifiedType,
         bool isRequired)
-        => new(
+    {
+        if (modifier.IsVoid || modifier.IsPinned)
+        {
+            throw new BadImageFormatException(
+                "A custom modifier has an invalid type.");
+        }
+        return new(
             modifier.IsValid && unmodifiedType.IsValid,
-            unmodifiedType.IsVoid);
+            unmodifiedType.IsVoid,
+            unmodifiedType.IsPinned);
+    }
 
     static StructuralCloneSignatureType RequireNonVoid(
         StructuralCloneSignatureType type,
         string message)
     {
-        if (type.IsVoid)
+        if (type.IsVoid || type.IsPinned)
             throw new BadImageFormatException(message);
         return StructuralCloneSignatureType.Combine(type);
     }

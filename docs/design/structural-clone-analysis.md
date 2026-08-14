@@ -60,14 +60,17 @@ local type shapes, non-IL implementations, and methods without IL are
 unsupported. Malformed or incomplete bodies fail visibly, including invalid
 local/argument slots, invalid metadata or user-string operands, non-method
 or incomplete method, local, and `calli` signatures, standalone-only calling
-conventions on method definitions, non-method nested function-pointer
-signatures, and terminal fallthrough. Valid standalone unmanaged call sites,
-function-pointer signatures, and custom-modifier shapes remain supported
-within the guarded decode policy. Body-byte, instruction, block, CFG-edge,
-local, and witness-search limits produce `LimitReached`, not `Different`.
+conventions or sentinels on method definitions, position-invalid `void` types,
+non-method nested function-pointer signatures, and terminal fallthrough. Valid
+standalone unmanaged call sites, function-pointer signatures, `void` returns
+and pointers, pinned locals, and custom-modifier shapes remain supported within
+the guarded decode policy. Body-byte, instruction, block, CFG-edge, local, and
+witness-search limits produce `LimitReached`, not `Different`.
 The body-byte bound applies before instruction/CFG materialization; receipts
 retain every count measured before a comparison stops, including CFG edges,
 refinement rounds, and witness-search steps.
+`Compare_InstructionLimitPrecedesMetadataOperandValidation` gates that the
+instruction bound applies before per-instruction metadata work.
 
 `StructuralCloneAnalysisTests` gates this policy with compiler-produced and
 synthetic close-positive/close-negative cases.
