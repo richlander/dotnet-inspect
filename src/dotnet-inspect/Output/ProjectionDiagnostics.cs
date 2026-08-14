@@ -105,12 +105,81 @@ public static class ProjectionDiagnostics
     /// Writes a note to stderr for valid names that produced no data.
     /// </summary>
     public static void DiagnoseRendered(string[]? requestedNames, string renderedOutput)
+        => DiagnoseRendered(requestedNames, renderedOutput, "field");
+
+    /// <summary>
+    /// Compares field and column projections independently against rendered output.
+    /// </summary>
+    public static void DiagnoseRendered(string[]? fields, string[]? columns, string renderedOutput)
+    {
+        DiagnoseRendered(fields, renderedOutput, "field");
+        DiagnoseRendered(columns, renderedOutput, "column");
+    }
+
+    /// <summary>
+    /// Compares projections against row-windowed output without reporting schema-known names whose
+    /// data may simply fall outside the requested window.
+    /// </summary>
+    public static void DiagnoseRendered(
+        string[]? fields,
+        string[]? columns,
+        string renderedOutput,
+        RowWindow? rowWindow,
+        DocumentSchema schema)
+    {
+        if (rowWindow is null)
+        {
+            DiagnoseRendered(fields, columns, renderedOutput);
+            return;
+        }
+
+        DiagnoseWindowed(fields, renderedOutput, schema, "field");
+        DiagnoseWindowed(columns, renderedOutput, schema, "column");
+    }
+
+    private static void DiagnoseRendered(string[]? requestedNames, string renderedOutput, string kind)
+    {
+        var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
+        ReportMissing(missing, kind);
+    }
+
+    private static void DiagnoseWindowed(
+        string[]? requestedNames,
+        string renderedOutput,
+        DocumentSchema schema,
+        string kind)
     {
         var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
         if (missing.Length == 0)
             return;
 
-        var label = missing.Length == 1 ? "field has" : "fields have";
+        var candidates = new List<string>();
+        foreach (var section in schema.SectionNames)
+        {
+            foreach (var item in schema.Discover(section) ?? [])
+            {
+                if (string.Equals(item.Kind, kind, StringComparison.OrdinalIgnoreCase))
+                    candidates.Add(item.Name);
+            }
+        }
+
+        // Fact-table lowering synthesizes these columns from field sets; they are projectable even
+        // though the source schema describes fields rather than the lowered table.
+        if (string.Equals(kind, "column", StringComparison.Ordinal))
+            candidates.AddRange(["Field", "Value"]);
+
+        const string ProbeSection = "probe";
+        var probe = new DocumentSchema().Add(ProbeSection, kind, [.. candidates]);
+        var unresolved = probe.ValidateProjection(ProbeSection, missing).Unresolved;
+        ReportMissing(unresolved, kind);
+    }
+
+    private static void ReportMissing(string[] missing, string kind)
+    {
+        if (missing.Length == 0)
+            return;
+
+        var label = missing.Length == 1 ? $"{kind} has" : $"{kind}s have";
         CommandError.WriteNote($"{missing.Length} {label} no data: {string.Join(", ", missing)}");
     }
 

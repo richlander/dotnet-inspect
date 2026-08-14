@@ -190,6 +190,7 @@ public static class ApiOutputFormatter
         var includeSections = pipeline.ComputeIncludeSections(
             api, options.Verbosity, options.IncludeSections);
         if (options.JsonOutput
+            && !options.Count
             && options.Fields is { Length: > 0 }
             && includeSections is { } selected
             && !selected.Contains(SectionNames.ApiInfo))

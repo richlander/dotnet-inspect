@@ -71,4 +71,44 @@ public class ProjectionDiagnosticsTests
         Assert.DoesNotContain("'Fanin'", error);
         Assert.DoesNotContain("No fields matched projection", error);
     }
+
+    [Fact]
+    public async Task DiagnoseRendered_RowWindowSuppressesSchemaKnownColumn()
+    {
+        var schema = new DocumentSchema().Add("Methods", "column", "Name");
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                fields: null,
+                columns: ["Name"],
+                """{"methods":[]}""",
+                RowWindow.Range(100000, null),
+                schema);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task DiagnoseRendered_RowWindowStillReportsUnknownNames()
+    {
+        var schema = new DocumentSchema().Add("API Info", "field", "Types");
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                fields: ["Types"],
+                columns: ["Field", "Bogus"],
+                """{"api_info":[]}""",
+                RowWindow.Head(1),
+                schema);
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("1 column has no data: Bogus", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Types", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Field", error, StringComparison.Ordinal);
+    }
 }

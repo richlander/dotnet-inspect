@@ -6030,6 +6030,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_CombinedProjectedJsonReportsMissingColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--fields", "Types", "--columns", "Field,Bogus",
+            "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("1 column has no data: Bogus", error, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("api_info").EnumerateArray());
+        Assert.Equal("Types", row.GetProperty("field").GetString());
+    }
+
+    [Fact]
+    public async Task TypeListing_CountWithJsonFieldsDoesNotPromoteApiInfo()
+    {
+        var baseline = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--fields", "Types", "--count");
+        var json = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--fields", "Types", "--count", "--json");
+
+        Assert.Equal(0, baseline.Exit);
+        Assert.Equal(0, json.Exit);
+        Assert.Empty(baseline.Error);
+        Assert.Empty(json.Error);
+        Assert.Equal(baseline.Output, json.Output);
+    }
+
+    [Fact]
     public async Task SingleType_ProjectedJsonFieldsUseLoweredFactTable()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6042,6 +6074,30 @@ public partial class CommandExecutionTests
         var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
         Assert.Equal("Kind", row.GetProperty("field").GetString());
         Assert.Equal("class", row.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task SingleType_ProjectedJsonReportsFieldWithNoData()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Type Info",
+            "--fields", "Version", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("{}", output.Trim());
+        Assert.Contains("1 field has no data: Version", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SingleType_UnmatchedProjectedJsonFieldIsDiagnosed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "--fields", "Bogus", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Contains("1 field has no data: Bogus", error, StringComparison.Ordinal);
     }
 
     [Fact]

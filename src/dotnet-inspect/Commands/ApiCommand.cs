@@ -845,7 +845,12 @@ public class ApiCommand
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
                 writerOptions);
-            ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, json);
+            ProjectionDiagnostics.DiagnoseRendered(
+                options.Fields,
+                options.Columns,
+                json,
+                options.Rows,
+                ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema());
             if (!TryReportEmptyProjection(json == "{}" ? string.Empty : json, options))
                 return 1;
             Console.WriteLine(json);
@@ -1518,8 +1523,7 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             ConfigureTypeSectionOrder(type, options, writerOptions);
-            OutputFormatter.WriteProjectedJson(
-                sink,
+            var json = OutputFormatter.RenderProjectedJson(
                 options.Columns,
                 options.Fields,
                 (writer, formatter, projectedOptions) =>
@@ -1533,6 +1537,13 @@ public class ApiCommand
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
                 writerOptions);
+            ProjectionDiagnostics.DiagnoseRendered(
+                options.Fields,
+                options.Columns,
+                json,
+                options.Rows,
+                GetTypeDocumentSchema(options));
+            sink.WriteLine(json);
             ApiOutputFormatter.WriteSignatureDecodeWarning(view);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
