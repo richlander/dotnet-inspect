@@ -3574,8 +3574,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("# Microsoft.AspNetCore.Http.HttpContext", output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Http.Abstractions", output);
-        Assert.Contains("Source: Platform", output);
+        Assert.Contains("| Library | Microsoft.AspNetCore.Http.Abstractions |", output);
+        Assert.Contains("| Source | Platform |", output);
     }
 
     [Fact]
