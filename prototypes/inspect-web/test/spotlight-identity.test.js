@@ -669,6 +669,23 @@ test("dependency graph uses each cached package's product-selected group", () =>
     data.dependencyGroups[1]);
 });
 
+test("dependency graph uses the active package's explicitly selected group", () => {
+  const data = {
+    dependencyGroupError: "",
+    dependencyGroups: [
+      { index: 0, framework: "net8.0", isActive: false, dependencies: [] },
+      { index: 1, framework: "net9.0", isActive: true, dependencies: [] }
+    ]
+  };
+
+  assert.equal(
+    selectedDependencyGroup(data, 0),
+    data.dependencyGroups[0]);
+  assert.match(
+    appSource,
+    /selectedDependencyGroup\(\s*state\.packageDependencies,\s*resolveDependenciesGroupIndex\(groups\)\)/);
+});
+
 test("Mermaid labels contain grammar-significant metadata", () => {
   const encoded = mermaidLabel("A\"B\n<x>&\\\u2028");
 

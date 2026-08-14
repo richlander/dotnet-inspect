@@ -187,6 +187,7 @@ public static class NuspecParser
                         ungrouped = new DependencyGroup
                         {
                             TargetFramework = "any",
+                            IsImplicitManifestGroup = true,
                         };
                         result.DependencyGroups ??= [];
                         result.DependencyGroups.Add(ungrouped);

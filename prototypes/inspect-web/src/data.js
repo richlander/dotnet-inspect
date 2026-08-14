@@ -194,9 +194,11 @@ export function dependencyGroupSelectionMessage(data) {
   return data?.dependencyGroupError || "";
 }
 
-export function selectedDependencyGroup(data) {
+export function selectedDependencyGroup(data, selectedGroupIndex = null) {
   const groups = data?.dependencyGroups || [];
   if (!groups.length || data?.dependencyGroupError) return null;
+  const selected = groups.find(group => group.index === selectedGroupIndex);
+  if (selected) return selected;
   return groups.find(group => group.isActive) || null;
 }
 

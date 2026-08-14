@@ -6298,7 +6298,10 @@ function buildDependencyGraphMermaid() {
 
   const groupFor = pkg => {
     if (packageIdentityKey(pkg) === packageIdentityKey(state.package)) {
-      return selectedDependencyGroup(state.packageDependencies);
+      const groups = state.packageDependencies?.dependencyGroups || [];
+      return selectedDependencyGroup(
+        state.packageDependencies,
+        resolveDependenciesGroupIndex(groups));
     }
 
     const data = state.workspaceDependencies[workspaceDependencyKey(pkg)];

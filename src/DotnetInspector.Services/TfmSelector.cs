@@ -92,7 +92,33 @@ public static class TfmSelector
             }
         }
 
-        return value;
+        return NormalizeShortFormPlatformVersion(value);
+    }
+
+    private static string NormalizeShortFormPlatformVersion(string value)
+    {
+        int qualifierIndex = value.IndexOf('-');
+        if (qualifierIndex < 0)
+            return value;
+
+        int versionIndex = qualifierIndex + 1;
+        while (versionIndex < value.Length
+            && !char.IsAsciiDigit(value[versionIndex]))
+        {
+            versionIndex++;
+        }
+
+        if (versionIndex == value.Length
+            || !TryNormalizeVersion(
+                value[versionIndex..],
+                out _,
+                out string dotted,
+                out _))
+        {
+            return value;
+        }
+
+        return value[..versionIndex] + dotted;
     }
 
     private static string? AttributeValue(

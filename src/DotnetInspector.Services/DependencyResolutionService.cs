@@ -61,15 +61,16 @@ public static class DependencyResolutionService
     /// </summary>
     public static DependencyGroup? FindBestMatchingTfmGroup(List<DependencyGroup> groups, string targetTfm)
     {
-        var exact = FindNormalizedExactGroup(groups, targetTfm);
+        List<DependencyGroup> legacyGroups = LegacyResolutionGroups(groups);
+        var exact = FindNormalizedExactGroup(legacyGroups, targetTfm);
         if (exact != null) return exact;
 
         var targetPriority = TfmSelector.GetTfmPriority(targetTfm);
 
         return TfmSelector.OrderByTfmPriorityDescending(
-                groups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
-                                  g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                                  TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
+                legacyGroups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
+                                        g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
+                                        TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
                 g => g.TargetFramework)
             .FirstOrDefault();
     }
@@ -99,9 +100,45 @@ public static class DependencyResolutionService
                 : new DependencyGroupSelection(group, requestedTfm, DependencyGroupSelectionStatus.Selected, availableTfms);
         }
 
-        var highest = TfmSelector.OrderByTfmPriorityDescending(groups, g => g.TargetFramework)
+        IEnumerable<DependencyGroup> candidates =
+            allowCompatibleFallbackForRequestedTfm
+                ? LegacyResolutionGroups(groups)
+                : groups;
+        var highest = TfmSelector.OrderByTfmPriorityDescending(
+                candidates,
+                g => g.TargetFramework)
             .First();
         return new DependencyGroupSelection(highest, highest.TargetFramework, DependencyGroupSelectionStatus.Selected, availableTfms);
+    }
+
+    static List<DependencyGroup> LegacyResolutionGroups(
+        IEnumerable<DependencyGroup> groups)
+    {
+        var result = new List<DependencyGroup>();
+        List<PackageDependency>? implicitDependencies = null;
+        foreach (DependencyGroup group in groups)
+        {
+            if (!group.IsImplicitManifestGroup)
+            {
+                result.Add(group);
+                continue;
+            }
+
+            implicitDependencies ??= [];
+            implicitDependencies.AddRange(group.Dependencies);
+        }
+
+        if (implicitDependencies is not null)
+        {
+            result.Add(new DependencyGroup
+            {
+                TargetFramework = "any",
+                Dependencies = implicitDependencies,
+                IsImplicitManifestGroup = true,
+            });
+        }
+
+        return result;
     }
 
     static DependencyGroup? FindExactOrUniversalGroup(

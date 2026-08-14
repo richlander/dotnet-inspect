@@ -283,6 +283,60 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void FindBestMatchingTfmGroup_PreservesLegacyExplicitGroupPrecedence()
+    {
+        NuspecData nuspec = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata>
+                <dependencies>
+                  <dependency id="Before" version="1.0.0" />
+                  <group targetFramework="any">
+                    <dependency id="Middle" version="2.0.0" />
+                  </group>
+                  <dependency id="After" version="3.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        DependencyGroup? result =
+            DependencyResolutionService.FindBestMatchingTfmGroup(
+                nuspec.DependencyGroups!,
+                "net8.0");
+
+        Assert.Equal(
+            "Middle",
+            Assert.Single(result!.Dependencies).Id);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_MergesLegacyImplicitDependencies()
+    {
+        NuspecData nuspec = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata>
+                <dependencies>
+                  <dependency id="Before" version="1.0.0" />
+                  <group targetFramework="net9.0" />
+                  <dependency id="After" version="3.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        DependencyGroup? result =
+            DependencyResolutionService.FindBestMatchingTfmGroup(
+                nuspec.DependencyGroups!,
+                "net8.0");
+
+        Assert.Equal(
+            ["Before", "After"],
+            result!.Dependencies.Select(dependency => dependency.Id));
+    }
+
+    [Fact]
     public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
     {
         var result = DependencyResolutionService.SelectDependencyGroup(null, null);
@@ -388,6 +442,9 @@ public class DependencyResolutionServiceTests
     [InlineData(
         ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=7.0.0",
         "net8.0-windows7.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=10.0.19041.0",
+        "net8.0-windows10.0.19041.0")]
     public void SelectDependencyGroup_ExactMode_NormalizesNuGetLongForm(
         string declared,
         string requested)

@@ -274,9 +274,11 @@ rows and groups them by the returned integration name.
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
 exact group remains visible while the UI permits inspecting the groups that were
-actually declared. The selected compile participant's direct references come
-from the assembly-context query; the browser neither parses the nuspec nor opens
-an assembly session.
+actually declared. The dependency list and graph both follow that explicit UI
+selection for the active package; other open packages use their product-selected
+groups. The selected compile participant's direct references come from the
+assembly-context query; the browser neither parses the nuspec nor opens an
+assembly session.
 
 `QueryMemberCallGraph` projects `MemberCallGraphView` through
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
