@@ -769,7 +769,7 @@ public class AuthoredSourceValidityTests
     }
 
     [Fact]
-    public void RealPortablePdb_RefusesAConditionalGroupStraddlingTheDeclaration()
+    public void RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe()
     {
         const string SignatureStraddle = """
             class C
@@ -799,6 +799,21 @@ public class AuthoredSourceValidityTests
             #endif
             }
             """;
+        const string ContainedUnbalancedGroup = """
+            class C
+            {
+                public void M()
+                {
+            #if A
+                }
+                public void N() { }
+                public void M2() {
+            #else
+                    System.Console.WriteLine(1);
+            #endif
+                }
+            }
+            """;
         string directory = Path.Combine(
             Path.GetTempPath(),
             "dotnet-inspect-conditional-straddle-" + Guid.NewGuid().ToString("N"));
@@ -809,6 +824,8 @@ public class AuthoredSourceValidityTests
             AssertRefused(SignatureStraddle, "SignatureDefault", []);
             AssertRefused(EndStraddle, "EndDefined", ["A"]);
             AssertRefused(EndStraddle, "EndDefault", []);
+            AssertRefused(ContainedUnbalancedGroup, "ContainedDefined", ["A"]);
+            AssertRefused(ContainedUnbalancedGroup, "ContainedDefault", []);
         }
         finally
         {

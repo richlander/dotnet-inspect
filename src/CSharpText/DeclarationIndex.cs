@@ -138,12 +138,14 @@ public sealed class ConditionalGroupSpan
         int parentGroupId,
         int ifDirectiveLine,
         int endIfDirectiveLine,
+        bool branchesPreserveBraceDepth,
         ImmutableArray<ConditionalBranchSpan> branches)
     {
         Id = id;
         ParentGroupId = parentGroupId;
         IfDirectiveLine = ifDirectiveLine;
         EndIfDirectiveLine = endIfDirectiveLine;
+        BranchesPreserveBraceDepth = branchesPreserveBraceDepth;
         Branches = branches;
     }
 
@@ -158,6 +160,14 @@ public sealed class ConditionalGroupSpan
 
     /// <summary>The 1-based physical line carrying the closing <c>#endif</c>.</summary>
     public int EndIfDirectiveLine { get; }
+
+    /// <summary>
+    /// Whether every branch returns to the opening brace depth without crossing above it, including
+    /// nested conditional groups. This is only a lexical structure fact, not a claim that branches
+    /// are semantically equivalent. Gated by
+    /// <c>DeclarationIndexTests.ConditionalGroups_ReportBraceDepthPreservation</c>.
+    /// </summary>
+    public bool BranchesPreserveBraceDepth { get; }
 
     /// <summary>The group's branches in source order.</summary>
     public ImmutableArray<ConditionalBranchSpan> Branches { get; }

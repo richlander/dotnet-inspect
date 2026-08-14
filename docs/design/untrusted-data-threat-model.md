@@ -728,23 +728,28 @@ same untrusted file again.
 
 Conditional branch projection remains within those bounds. Metadata partitions
 visible sequence-point start lines by PDB document and sorts and deduplicates
-each set. `BodySlicer` accepts only positive, strictly increasing physical
-lines within the verified source, uses binary range queries rather than a
-group-by-point cross product, and refuses PDB correlation when a recognized
-`#line` directive can remap the coordinates. CSharpText applies only
-caller-selected branch objects produced by the same index; it blanks
-unselected half-open ranges with one difference array and rebuilds over the
-line-preserving projection. Before slicing the checksum-verified original
-text, the slicer refuses a selected group that crosses exactly one boundary of
-the projected declaration; otherwise projected-away text could expose
+each set. `BodySlicer` accepts only a positive, ordered PDB range within the
+verified source and positive, strictly increasing point lines within that
+range's physical file, uses binary range queries rather than a group-by-point
+cross product, and refuses PDB correlation when a recognized `#line` directive
+can remap the coordinates. CSharpText applies only caller-selected branch
+objects produced by the same index; it blanks unselected half-open ranges with
+one difference array and rebuilds over the line-preserving projection. Before
+slicing the checksum-verified original text, the slicer refuses a selected
+group that crosses exactly one boundary of the projected declaration. A group
+wholly inside the declaration is also refused unless CSharpText can vouch that
+every branch preserves brace depth; otherwise projected-away text could expose
 unmatched directives or an unrelated dead-branch member. These boundaries are
 gated by
 `DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
 `DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
+`DeclarationIndexTests.ConditionalGroups_ReportBraceDepthPreservation`,
 `ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
+`ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
+`ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
 `ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
 and
-`AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupStraddlingTheDeclaration`.
+`AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.
 The binary-search complexity itself is unverified by a dedicated performance
 gate.
 

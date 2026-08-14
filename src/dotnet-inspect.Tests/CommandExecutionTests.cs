@@ -5268,11 +5268,11 @@ public partial class CommandExecutionTests
         var resolved = ApiCommand.SliceResolvedMethodSource(
             source,
             startLine: 3,
-            endLine: 3,
+            endLine: 6,
             methodName: "M",
             sourceLocation: "fixture.cs",
             pdbPath: "fixture.pdb",
-            visibleSequencePointStartLines: [6]);
+            visibleSequencePointStartLines: [3]);
 
         Assert.True(resolved.MemberSourceCoordinatesInvalid);
         Assert.Null(resolved.Source);
@@ -5409,9 +5409,14 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource)]
-    [InlineData(SectionNames.SourceDiff)]
-    public async Task Member_ComplexSourceInNonCodeFormatsFailsVisibly(string section)
+    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
+    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    public async Task Member_SourceFailureInNonCodeFormatsFailsVisibly(
+        string section,
+        bool coordinatesInvalid,
+        string expectedFailure)
     {
         var type = new ApiType
         {
@@ -5426,13 +5431,15 @@ public partial class CommandExecutionTests
             new MemberOptions { Tabular = true },
             new MemberOptions { Tabular = true, Tsv = true },
             new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
         };
 
         foreach (var candidate in cases)
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = true,
+                MemberSourceTooComplex = !coordinatesInvalid,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };
@@ -5449,15 +5456,20 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains(expectedFailure, error);
             Assert.Contains("cannot represent this code-section failure", error);
         }
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource)]
-    [InlineData(SectionNames.SourceDiff)]
-    public async Task Member_ComplexSourceUnderBareWithEarlierRendererFailsVisibly(string section)
+    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
+    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    public async Task Member_SourceFailureUnderBareWithEarlierRendererFailsVisibly(
+        string section,
+        bool coordinatesInvalid,
+        string expectedFailure)
     {
         var type = new ApiType
         {
@@ -5476,7 +5488,8 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = true,
+                MemberSourceTooComplex = !coordinatesInvalid,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };
@@ -5493,7 +5506,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains(expectedFailure, error);
             Assert.Contains("cannot represent this code-section failure", error);
         }
     }

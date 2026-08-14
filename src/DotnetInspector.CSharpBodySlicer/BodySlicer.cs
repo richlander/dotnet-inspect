@@ -44,13 +44,15 @@ public static class BodySlicer
     /// When <paramref name="visibleSequencePointStartLines"/> is supplied, each complete
     /// conditional group with points in exactly one branch is projected to that branch before
     /// selecting the declaration. Zero or multiple matching branches retain the lexical fallback.
-    /// A selected group that crosses exactly one declaration boundary is refused: projected-away
-    /// text could otherwise make a span look valid while slicing the original returns unmatched
-    /// directives or an unrelated dead-branch member.
-    /// The lines must be positive, sorted, distinct, and within the physical source; a recognized
-    /// <c>#line</c> directive refuses correlation because PDB coordinates may then be remapped.
+    /// A selected group that crosses exactly one declaration boundary is refused. A selected group
+    /// wholly inside the declaration is also refused unless every branch preserves brace depth:
+    /// projected-away text could otherwise make a span look valid while slicing the original
+    /// returns unmatched directives or an unrelated dead-branch member. The PDB range endpoints
+    /// and point lines must be positive, ordered, and within the physical source; point lines must
+    /// also be distinct. A recognized <c>#line</c> directive refuses correlation because PDB
+    /// coordinates may then be remapped.
     /// Gated by <c>AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch</c>,
-    /// <c>AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupStraddlingTheDeclaration</c>,
+    /// <c>AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe</c>,
     /// <c>ExtractMethodBodyTests.PointsInMultipleBranches_DoNotGuessWhichBranchIsLive</c>, and
     /// <c>ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided</c>.
     /// </para>
@@ -69,7 +71,7 @@ public static class BodySlicer
             if (index.HasLineDirectives)
                 return null;
 
-            ValidateSequencePointLines(points, index.LineCount);
+            ValidateSequencePointCoordinates(startLine, endLine, points, index.LineCount);
             conditionalSelections = SelectUniquelyEvidencedBranches(index, points);
             if (conditionalSelections.Count > 0)
             {
@@ -97,7 +99,7 @@ public static class BodySlicer
         }
 
         if (conditionalSelections.Any(selection =>
-            StraddlesDeclarationBoundary(selection.Group, row)))
+            MakesOriginalSliceUnsafe(selection.Group, row)))
         {
             return null;
         }
@@ -136,10 +138,25 @@ public static class BodySlicer
         return string.Join('\n', dedented).TrimEnd();
     }
 
-    private static void ValidateSequencePointLines(
+    private static void ValidateSequencePointCoordinates(
+        int startLine,
+        int endLine,
         IReadOnlyList<int> points,
         int lineCount)
     {
+        if (startLine <= 0)
+        {
+            throw new InvalidSequencePointCoordinatesException(
+                "The portable-PDB sequence-point range must start on a positive physical line.",
+                nameof(startLine));
+        }
+        if (endLine < startLine || endLine > lineCount)
+        {
+            throw new InvalidSequencePointCoordinatesException(
+                "The portable-PDB sequence-point range cannot address the verified source text.",
+                nameof(endLine));
+        }
+
         int previous = 0;
         for (int i = 0; i < points.Count; i++)
         {
@@ -187,7 +204,7 @@ public static class BodySlicer
         return selected;
     }
 
-    private static bool StraddlesDeclarationBoundary(
+    private static bool MakesOriginalSliceUnsafe(
         ConditionalGroupSpan group,
         DeclarationSpan declaration)
     {
@@ -195,7 +212,8 @@ public static class BodySlicer
             && group.IfDirectiveLine <= declaration.EndLine;
         bool closingInside = group.EndIfDirectiveLine >= declaration.SignatureStartLine
             && group.EndIfDirectiveLine <= declaration.EndLine;
-        return openingInside != closingInside;
+        return openingInside != closingInside
+            || (openingInside && !group.BranchesPreserveBraceDepth);
     }
 
     private static bool ContainsPoint(

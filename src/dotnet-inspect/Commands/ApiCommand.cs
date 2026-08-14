@@ -1243,7 +1243,9 @@ public class ApiCommand
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
-        if (options is MemberOptions { MemberSourceTooComplex: true }
+        if (options is MemberOptions memberOptions
+            && (memberOptions.MemberSourceTooComplex
+                || memberOptions.MemberSourceCoordinatesInvalid)
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count
@@ -1264,9 +1266,13 @@ public class ApiCommand
             string guidance = options.Count
                 ? "Remove --count to render the section failure."
                 : "Use Markdown/plaintext output, or add --print to project the section payload.";
+            string failure = memberOptions.MemberSourceTooComplex
+                ? "Authored source extraction stopped because the source exceeds the lexical "
+                    + "complexity limit."
+                : "Authored source extraction stopped because the portable-PDB sequence-point "
+                    + "coordinates cannot address the verified source.";
             CommandError.Write(
-                "Authored source extraction stopped because the source exceeds the lexical "
-                + $"complexity limit. {format} cannot represent this code-section "
+                failure + $" {format} cannot represent this code-section "
                 + "failure. " + guidance);
             return 1;
         }

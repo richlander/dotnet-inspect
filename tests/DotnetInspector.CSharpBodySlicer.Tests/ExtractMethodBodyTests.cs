@@ -2033,6 +2033,26 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling()
+    {
+        var source = Lines(
+            "class C",                          // 1
+            "{",                                // 2
+            "    public void M()",              // 3
+            "    {",                            // 4
+            "#if A",                            // 5
+            "    }",                            // 6
+            "    public void N() { }",          // 7
+            "#else",                            // 8
+            "        System.Console.WriteLine(1);",// 9
+            "#endif",                           // 10
+            "    }",                            // 11
+            "}");                               // 12
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 11, "M", [9, 11]));
+    }
+
+    [Fact]
     public void LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided()
     {
         var source = Lines(
@@ -2056,6 +2076,18 @@ public class ExtractMethodBodyTests
 
         Assert.ThrowsAny<ArgumentException>(
             () => BodySlicer.ExtractMethodBody(source, 3, 3, "M", points));
+    }
+
+    [Theory]
+    [InlineData(0, 3)]
+    [InlineData(3, 2)]
+    [InlineData(3, 6)]
+    public void InvalidSequencePointRange_FailsVisibly(int startLine, int endLine)
+    {
+        const string source = "class C\n{\n    void M() { }\n}";
+
+        Assert.Throws<InvalidSequencePointCoordinatesException>(
+            () => BodySlicer.ExtractMethodBody(source, startLine, endLine, "M", [3]));
     }
 
 }
