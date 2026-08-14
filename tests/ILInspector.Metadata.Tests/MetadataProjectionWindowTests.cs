@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
@@ -301,6 +302,22 @@ public class MetadataProjectionWindowTests
     public void ProjectRow_ReturnsNull_ForATableTheProjectionDoesNotCover()
     {
         using var peReader = OpenSelfFromBytes();
+
+        Assert.Null(MetadataTableProjector.ProjectRow(peReader, TableIndex.InterfaceImpl, 1));
+    }
+
+    [Fact]
+    public void ProjectRow_RejectsAnUnsupportedTableBeforeReadingCorruptMetadata()
+    {
+        byte[] image = MetadataImageOverviewTests.SelfWithCorruptTableStream();
+
+        using (var canary = new PEReader(new MemoryStream(image)))
+        {
+            Assert.True(canary.HasMetadata);
+            Assert.Throws<BadImageFormatException>(() => canary.GetMetadataReader());
+        }
+
+        using var peReader = new PEReader(new MemoryStream(image));
 
         Assert.Null(MetadataTableProjector.ProjectRow(peReader, TableIndex.InterfaceImpl, 1));
     }
