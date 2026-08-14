@@ -21,8 +21,8 @@ Related documents:
   capabilities, and cost backpressure.
 - [Graph signal annotations](graph-signal-annotations.md) describes the current
   node-only `--fields` mechanism this design generalizes.
-- [Aspire and AI target demos](https://github.com/richlander/dotnet-inspect/pull/4127)
-  supply the motivating type-to-package and package-to-type experiences.
+- [IChatClient dual-lens demo](../workflows/discovery/aspire-ai-package-graph.md)
+  supplies the locked type-to-package and package-to-type experience.
 
 ## Status
 
@@ -109,8 +109,8 @@ integration opportunity, structural clone, or narrative link as a call.
 - Path characteristics in the first delivery. Ordered paths remain typed
   witnesses, such as `CallGraphCycleWitness`, until a path-target contract is
   justified.
-- Representing the narrative `provisions resources for` edge from the target
-  demos unless a producer owns evidence and semantics for it.
+- Representing a narrative or synthetic relationship unless a producer owns
+  evidence and semantics for it.
 
 ## Carrier and overlays
 
@@ -167,6 +167,8 @@ InspectionGraphDocument
   Occurrences[]
     Id
     Relationship
+    SourceSubject
+    TargetSubject
     Evidence
 
   Characteristics[]
@@ -267,8 +269,7 @@ A relationship descriptor defines:
 - whether the relation is observed, derived, or synthetic;
 - the occurrence evidence contract;
 - the occurrence identity and deduplication contract;
-- allowed aggregation and roll-up behavior; and
-- its default disclosure policy.
+- allowed aggregation and roll-up behavior.
 
 Illustrative relationship families include:
 
@@ -289,6 +290,11 @@ choose ids, endpoint constraints, and exactly one owner per descriptor before
 code depends on them. A Research relationship may reference a Metadata- or
 Analysis-owned Finding as evidence without sharing ownership of the graph
 relationship.
+
+Relationship display titles, categories, field aliases, and default disclosure
+belong to the L2 presentation binding, not this L1 semantic descriptor. L2 binds
+to the descriptor through a typed catalog; it does not rediscover relationship
+semantics from the stable id or a label.
 
 Relationship direction is semantic and does not change with traversal
 direction. A package-inward query may traverse incoming integration edges, but
@@ -330,6 +336,13 @@ invent a common coordinate system. A call-site IL offset stays scoped to its
 physical body; a metadata row stays scoped to its image; a Finding retains its
 descriptor, key, subject, and payload.
 
+An occurrence also retains the original producer-owned source and target
+subjects. The logical edge's node ids are the selected view endpoints; they may
+be aggregate type or package nodes. Occurrence endpoints remain the member,
+type, assembly, or package subjects that supplied the evidence. Several member
+pairs may therefore collapse onto one type-to-package edge without losing which
+members established it.
+
 Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
 assigning deterministic document-local occurrence ids. For `call`, the key is
@@ -350,21 +363,35 @@ pins that behavior.
 A characteristic is a typed description attached to a graph target. It is not
 topology, identity, completeness, or preformatted label text.
 
-### Descriptor contract
+### Semantic descriptor contract
 
-A characteristic descriptor defines:
+An L1 characteristic descriptor defines:
 
-- stable id and display title;
-- layer or category;
+- stable id;
 - admitted targets: node, group, logical edge, or occurrence;
 - typed value shape;
-- producer and query prerequisites;
+- producer and typed query prerequisites;
 - direct versus derived meaning;
-- aggregation policy for occurrence-to-edge and subject roll-up;
-- default disclosure and cost; and
-- structured-output field name.
+- aggregation policy for occurrence-to-edge and subject roll-up.
 
-Illustrative layers include:
+The prerequisite query definition owns cost and capabilities. The descriptor
+does not repeat them.
+
+### Presentation binding
+
+L2 binds a semantic descriptor into the section schema. That binding owns:
+
+- display title and topical category;
+- node, group, edge, or occurrence field name and aliases;
+- default disclosure and authored focused presets;
+- target-specific schema metadata; and
+- label-composition policy for graph renderers.
+
+The semantic descriptor remains useful to an L1-only browser consumer without
+bringing Markout, section categories, CLI field names, or disclosure policy
+downward. Conversely, L2 never reruns the producer or redefines aggregation.
+
+Illustrative L2 presentation layers include:
 
 | Layer | Target | Examples |
 | --- | --- | --- |
@@ -376,9 +403,11 @@ Illustrative layers include:
 | Integration | edge or occurrence | Aspire, AI, OpenTelemetry |
 | Finding | any supported target | descriptor/key reference, priority, confidence |
 
-The catalog is typed. It must not be a dictionary of display strings. Additive
-descriptor ids may be rendered by older consumers as unknown fields, but
-producers emit only registered descriptors and valid target/value combinations.
+Both catalogs are typed. Neither is a dictionary of display strings. Additive
+semantic descriptor ids may be rendered by older consumers as unknown fields,
+but producers emit only registered descriptors and valid target/value
+combinations. L2 field bindings are separately discoverable presentation
+contracts.
 
 ### Direct and rolled-up values
 
@@ -500,17 +529,21 @@ A type-outward query may:
 5. roll terminal subjects up to realized packages; and
 6. render the type and package subjects together.
 
-For the Aspire hosting demo, the visible result may be:
+For the locked `IChatClient` demo, the visible result may be:
 
 ```text
-IDistributedApplicationBuilder
-  -> Aspire.Hosting.OpenAI
-       api: AddOpenAI
-       integration: Aspire
+focus type: IChatClient
+
+OpenAI SDK
+  -> IChatClient
+       api: AsIChatClient
+       integration: AI
+       package: Microsoft.Extensions.AI.OpenAI
 ```
 
-The package edge is derived from extension/integration evidence. It is not a
-fabricated call from the interface to the package.
+The query reaches the package by traversing the evidence-backed adapter and
+ownership relationships. It is not a fabricated call from the interface to the
+package.
 
 ### Package inward
 
@@ -522,12 +555,13 @@ Reversing the query does not mint reverse evidence. It changes root selection,
 traversal, and roll-up:
 
 ```text
-focus package: Aspire.Hosting.OpenAI
+focus package: Microsoft.Extensions.AI.OpenAI
 
-IDistributedApplicationBuilder
-  -> Aspire.Hosting.OpenAI
-       api: AddOpenAI
-       integration: Aspire
+OpenAI SDK
+  -> IChatClient
+       api: AsIChatClient
+       integration: AI
+       package: Microsoft.Extensions.AI.OpenAI
 ```
 
 Whether the semantic edge points type-to-provider or provider-to-type is owned
@@ -542,21 +576,24 @@ where APIs converge, and package nodes where ecosystem ownership matters.
 Roll-up is not all-or-nothing. A projection may keep the focused member path
 expanded while collapsing distant terminal subjects to packages.
 
-Every collapse retains its source subject and occurrence set. Expanding a
-collapsed node is a new bounded projection over retained or reacquired evidence,
-not string parsing.
+Every collapse retains each occurrence's original endpoint subjects and
+evidence. Expanding a collapsed node is a new bounded projection over retained
+or reacquired evidence, not string parsing.
 
-## Applying analysis investments
+## Applying in-flight analysis investments
 
 The graph does not absorb analysis algorithms. It gives their typed results a
-shared carrier.
+shared carrier. The PRs in this section are open and are not part of the current
+product head. The examples describe how their proposed contracts could be
+adopted if they land; each owning PR remains authoritative for its final
+behavior.
 
 ### Async sibling calls (#4091)
 
-The `sync-call-in-async` analysis produces exact `analysis.call-site` Finding
-provenance plus a signature-compatible async sibling candidate. Research can
-project that as a specifically named
-`analysis.async-sibling-opportunity` relationship:
+PR #4091 proposes `sync-call-in-async` analysis with exact
+`analysis.call-site` Finding provenance plus a signature-compatible async
+sibling candidate. If that contract lands, Research can project it as a
+specifically named `analysis.async-sibling-opportunity` relationship:
 
 - the observed synchronous call remains a `call`;
 - the candidate relationship remains an opportunity;
@@ -567,20 +604,21 @@ The graph must not present the async sibling as a call that already occurred.
 
 ### Static performance triage (#4121)
 
-Performance triage contributes characteristics and Finding references over
-members and call occurrences. Priority and confidence remain distinct typed
-values. Static evidence remains static evidence: rolling a concern up to a type
-or package does not imply runtime heat, bytes, or impact.
+PR #4121 proposes separate priority and confidence values for Performance
+Triage. If that contract lands, it can contribute characteristics and Finding
+references over members and call occurrences. Static evidence remains static
+evidence: rolling a concern up to a type or package does not imply runtime heat,
+bytes, or impact.
 
 ### Structural clone comparison (#4114)
 
-An exact structural comparison contributes a typed
-`implementation.structural-match` relationship between member subjects,
-retaining its disposition, correspondence, and witness. The #4114 slice
-compares members in one retained image. A future comparison that establishes
-the same relation across artifacts could support a package-to-package clone
-view as a roll-up over those member relationships, not package equality or
-provenance inference.
+PR #4114 proposes an exact structural comparison between members in one
+retained image. If that contract lands, it can contribute a typed
+`implementation.structural-match` relationship retaining its disposition,
+correspondence, and witness. A future comparison that establishes the same
+relation across artifacts could support a package-to-package clone view as a
+roll-up over those member relationships, not package equality or provenance
+inference.
 
 ### Existing Integrations and touchpoints
 
@@ -600,8 +638,9 @@ The inspection workspace orchestrates graph production:
 inspection space = contexts x requested queries x execution policy
 ```
 
-Graph selection lowers into ordinary typed query demand. A requested
-characteristic declares its producer prerequisites and maximum transitive cost.
+Graph selection lowers into ordinary typed query demand. A requested L2 field
+binding selects its L1 semantic descriptor and producer prerequisite; that
+query definition declares its maximum transitive cost and capabilities.
 Selecting `edge.loop` may reuse already-acquired call occurrences; selecting
 structural matches or performance Findings may require additional Analysis
 features. Unselected layers do not execute merely because a renderer could show
@@ -649,8 +688,8 @@ projections of that contract.
 A renderer may combine selected values:
 
 ```text
-AddOpenAI | Integration: Aspire
-calls | loop | package: Aspire.Hosting
+AsIChatClient | Integration: AI
+calls | loop | package: Microsoft.Extensions.AI.OpenAI
 ```
 
 No consumer may parse those strings to recover relationship kind, package
@@ -708,19 +747,25 @@ presentation. Markout or the host renderer then escapes Markdown, Mermaid,
 JSON, TSV, HTML, and other output grammars. L1 never stores grammar-ready edge
 labels from untrusted artifact text.
 
-## Target-demo interpretation
+## Locked-demo interpretation
 
-The #4127 demos exercise one envelope with different producer mixes:
+The merged #4127 owner document locks one `IChatClient` dual-lens demo:
 
-| Demo | Topology and evidence |
+| Subject | Topology and evidence |
 | --- | --- |
-| Aspire hosting package web | type/package subjects; extension and integration occurrences |
-| `AddOpenAI` seed graph | member call topology with package groups and call characteristics |
-| Multi-provider `IChatClient` | adapter/integration relationships, call evidence where present, reference evidence, and explicit opportunities |
-| Two-plane AppHost/app view | composition of the preceding graphs; narrative edges excluded until modeled |
+| `IChatClient` | type focus and hub identity from `Microsoft.Extensions.AI.Abstractions` |
+| OpenAI and Bedrock | `AsIChatClient` adapter/integration occurrences, provider SDK subjects, and package ownership |
+| Azure OpenAI | metadata reference to OpenAI plus an explicit MEAI integration opportunity, never a fabricated adapter call |
 
-The demos may share one renderer and one document envelope. They do not share
-one relationship kind or pretend that every endpoint is a member.
+The type-outward and package-inward readings share those occurrences and keep
+their semantic edge directions. The pinned packages and normative target
+Mermaid in
+[the locked demo](../workflows/discovery/aspire-ai-package-graph.md) are the
+acceptance owner.
+
+Aspire hosting package webs, an `AddOpenAI` seed graph, and a two-plane AppHost
+and application view remain related but unlocked demos. They may later use the
+same envelope, but they are not acceptance fixtures for this design.
 
 ## Delivery slices
 
@@ -737,10 +782,11 @@ subject lenses it advances.
    from workspace provenance and realized coordinates; render the same package
    as a group or node without string-derived identity.
 4. **Type/package integration projection.** Compose extension and Integrations
-   evidence into the type-outward and package-inward views demonstrated by
-   #4127.
+   evidence into the locked `IChatClient` type-outward and package-inward views
+   demonstrated by #4127.
 5. **Findings and analysis adoption.** Add explicit adapters for #4091, #4121,
-   and #4114 without changing their native producer semantics.
+   and #4114 after their contracts land, without changing their native producer
+   semantics.
 6. **Ad hoc composition.** Apply the same envelope to #4133 multi-input mode;
    preserve seed-centric defaults and bounds.
 
@@ -750,6 +796,8 @@ Implementation is not complete until focused gates prove:
 
 - two physical calls between the same members produce one logical call edge and
   two retained occurrences;
+- several original member endpoint pairs can collapse onto one type/package
+  edge while every occurrence retains its original source and target subjects;
 - a call and another relationship between the same subjects remain distinct
   edges;
 - type-to-package and package-to-type projections retain the same evidence
@@ -769,8 +817,9 @@ Implementation is not complete until focused gates prove:
   units;
 - Markdown, Mermaid, table, JSON, and browser consumers derive from the same
   typed document without reparsing labels; and
-- the Aspire package-web and multi-provider fixtures contain no fabricated
-  call edge.
+- the locked `IChatClient` pin set preserves OpenAI and Bedrock adapter
+  occurrences, the Azure-to-OpenAI metadata reference, and the Azure MEAI
+  opportunity without fabricating a call edge.
 
 ## Deferred decisions
 
