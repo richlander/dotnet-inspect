@@ -9,13 +9,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// raises. Runs before <see cref="StructuringPass"/>, which leaves any
 /// container holding a back edge flat.
 ///
-/// Transactional and conservative: the loop is raised only when it is a clean
-/// single-entry region with one back edge, no EH leave inside, and exits only
-/// to its single canonical exit block — those exits raise to <c>break;</c> (an
-/// unconditional branch) or <c>if (cond) break;</c> (a conditional one). A
-/// second back edge (nested or irreducible) or a second distinct exit target
-/// (which would need a labeled break) keeps it flat. Innermost loops wrap
-/// first, so nested do-whiles compose across the fixpoint.
+/// Transactional and conservative: the loop is raised only when every external
+/// entry targets its header, it has one back edge, no EH leave inside, and exits
+/// only to its single canonical exit block — those exits raise to
+/// <c>break;</c> (an unconditional branch) or <c>if (cond) break;</c> (a
+/// conditional one). A structured transfer owned outside the region, a second
+/// back edge (nested or irreducible), or a second distinct exit target (which
+/// would need a labeled break) keeps it flat. Innermost loops wrap first, so
+/// nested do-whiles compose across the fixpoint. The entry and transfer
+/// boundaries are gated by <c>ExternalEntryToMultiBlockDoWhileHeader_Raises</c>,
+/// <c>ExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>, and
+/// <c>SwitchOwnedBreakExitingLateDoWhileCandidate_StaysOwnedBySwitch</c>;
+/// <c>NestedSwitchBreakInsideDoWhileCandidate_KeepsOwnerAndRaises</c> pins the
+/// accepted locally owned boundary.
 /// </summary>
 public sealed class DoWhileLoopPass : IIrPass
 {
@@ -66,10 +72,9 @@ public sealed class DoWhileLoopPass : IIrPass
     /// Pure shape check: the region [header, bottom] is a reducible loop whose
     /// only back edge is <paramref name="backEdge"/> and whose only exits are
     /// breaks to the single canonical exit block (the block right after the
-    /// loop, where the back edge's false path also lands). The ordinary shape is
-    /// single-entry; a single-block self-loop also permits external branches to
-    /// its header, because that is the loop's only entry and appears in csc's
-    /// partition-style nested scan loops.
+    /// loop, where the back edge's false path also lands). Every external entry
+    /// must target the header, and every existing structured transfer must keep
+    /// an owner inside the region after it moves.
     /// </summary>
     static bool Validate(
         IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex,
@@ -83,6 +88,10 @@ public sealed class DoWhileLoopPass : IIrPass
         for (int source = 0; source < blocks.Count; source++)
         {
             bool sourceInside = source >= header && source <= bottom;
+            if (sourceInside
+                && StructuredTransferOwnership.ContainsBreakOrContinueTargetingOutside(blocks[source]))
+                return false;
+
             foreach (var node in blocks[source].Children)
             {
                 // EH control flow inside the loop is outside this slice.
@@ -104,7 +113,7 @@ public sealed class DoWhileLoopPass : IIrPass
                     if (!sourceInside && targetInside)
                     {
                         if (target == header)
-                            continue;   // the region remains single-entry
+                            continue;   // every entry still reaches the loop header
                         return false;   // an external jump into the loop body
                     }
                     if (sourceInside && !ReferenceEquals(node, backEdge) && target <= source)
