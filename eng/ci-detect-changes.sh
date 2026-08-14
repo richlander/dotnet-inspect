@@ -309,6 +309,8 @@ while IFS= read -r -d '' file; do
     # `ci-required` passes on a `skipped`.
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
+    # Global analyzer input consumed by every product and Browser build.
+    eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw
     # string fixtures this lane exists to validate.
     .gitattributes) CODE=true ;;

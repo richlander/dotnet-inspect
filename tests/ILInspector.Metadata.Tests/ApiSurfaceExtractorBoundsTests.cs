@@ -80,12 +80,12 @@ public sealed class ApiSurfaceExtractorBoundsTests
     // An exhausted budget is a legal input: a caller spending one budget across several images
     // hands the next image nothing, and must get a refusal rather than an argument failure.
     [Fact]
-    public void AnExhaustedBudget_RefusesWithoutWalkingTheImage()
+    public void AnExhaustedTypeBudget_RefusesBeforeWalkingMembers()
     {
         var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
             Extract(new ApiSurfaceExtractionBounds(0, 0)));
 
-        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+        Assert.Equal(ApiSurfaceExtractionBound.Types, exceeded.Bound);
     }
 
     [Fact]

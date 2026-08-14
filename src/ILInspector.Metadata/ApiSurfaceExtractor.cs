@@ -175,7 +175,6 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
-            budget?.BeginType();
             int publicMethodCount = surface.PublicMethodCount;
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
@@ -216,6 +215,7 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
+            budget?.BeginType();
             var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
 
             var apiType = new ApiType
@@ -2713,8 +2713,13 @@ public static class ApiSurfaceExtractor
         int _members;
         int _pendingMembers;
 
-        /// <summary>Starts a new type, abandoning any uncommitted member count.</summary>
-        public void BeginType() => _pendingMembers = 0;
+        /// <summary>Starts a retained type, refusing before its model or members are built.</summary>
+        public void BeginType()
+        {
+            if (_types >= bounds.MaxTypes)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            _pendingMembers = 0;
+        }
 
         /// <summary>Counts one member of the type currently being built.</summary>
         public void RetainMember()

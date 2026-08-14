@@ -317,6 +317,20 @@ if (sharedWebCompileInput["code"] != "true"
         + FormatValues(sharedWebCompileInput));
 }
 
+Dictionary<string, string> globalAnalyzerInput = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "eng/BannedSymbols.txt",
+    outputs);
+if (globalAnalyzerInput["code"] != "true"
+    || globalAnalyzerInput["web"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Global analyzer input canary did not select code and web: "
+        + FormatValues(globalAnalyzerInput));
+}
+
 Dictionary<string, string> web = RunDetection(
     repository,
     body,
