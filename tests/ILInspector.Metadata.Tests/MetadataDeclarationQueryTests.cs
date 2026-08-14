@@ -140,14 +140,19 @@ public sealed class MetadataDeclarationQueryTests
     [Fact]
     public void TypeSurface_RecordsUnsafeBodylessSignatures()
     {
-        var surface = MetadataDeclarationQuery.GetTypeSurface(
+        var interfaceSurface = MetadataDeclarationQuery.GetTypeSurface(
             Reader,
             GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.IUnsafeSurface)));
+        var classSurface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.UnsafeFields)));
 
-        var method = Assert.Single(surface.Members, member => member.Name == "Consume");
+        var method = Assert.Single(interfaceSurface.Members, member => member.Name == "Consume");
 
         Assert.False(method.HasMethodBody);
         Assert.True(method.IsUnsafe);
+        Assert.True(Assert.Single(classSurface.Members, member => member.Name == "Pointer").IsUnsafe);
+        Assert.True(Assert.Single(classSurface.Members, member => member.Name == "Value").IsUnsafe);
     }
 
     [Fact]
@@ -479,6 +484,12 @@ public class MetadataDeclarationQueryFixtures
     public unsafe interface IUnsafeSurface
     {
         void Consume(int* pointer);
+    }
+
+    public unsafe class UnsafeFields
+    {
+        public int* Pointer;
+        public int* Value { get; set; }
     }
 
     public class Container<T>

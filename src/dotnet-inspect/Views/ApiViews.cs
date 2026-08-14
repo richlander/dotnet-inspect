@@ -231,7 +231,7 @@ public class TypeView
     [JsonIgnore]
     public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
 
-    [MarkoutSection(Name = "Unsafe Members")]
+    [MarkoutSection(Name = "Unsafe Members", EmptyText = "No unsafe members found on this type.")]
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 

@@ -629,7 +629,8 @@ public static class ApiSurfaceExtractor
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
-                    IsUnsafe = HasUnsafeSignature(propertySignature.Text),
+                    IsUnsafe = HasUnsafeSignature(propertySignature.Text)
+                        || AttributeReader.HasRequiresUnsafeAttribute(reader, prop.GetCustomAttributes()),
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -717,6 +718,8 @@ public static class ApiSurfaceExtractor
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
+                    IsUnsafe = HasUnsafeSignature(fieldType)
+                        || AttributeReader.HasRequiresUnsafeAttribute(reader, field.GetCustomAttributes()),
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -861,6 +864,8 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverrideEvent,
                     IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
+                    IsUnsafe = HasUnsafeSignature(eventType)
+                        || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
                     Accessibility = GetAccessibility(adderAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,

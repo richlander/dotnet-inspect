@@ -132,7 +132,8 @@ public static class MetadataDeclarationQuery
                 IsVirtual = declaration.IsVirtual,
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
-                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(signatureText),
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(signatureText)
+                    || AttributeReader.HasRequiresUnsafeAttribute(reader, property.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
                 GetterToken = declaration.Getter.IsNil ? null : MetadataTokens.GetToken(declaration.Getter),
@@ -201,6 +202,8 @@ public static class MetadataDeclarationQuery
                 IsStatic = declaration.IsStatic,
                 IsReadOnly = declaration.IsReadOnly,
                 IsConst = declaration.IsConst,
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(declaration.ReturnType)
+                    || AttributeReader.HasRequiresUnsafeAttribute(reader, field.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
             });

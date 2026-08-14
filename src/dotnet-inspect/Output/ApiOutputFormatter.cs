@@ -2203,7 +2203,7 @@ public static class ApiOutputFormatter
             .Concat(type.Members
                 .Where(member => member.IsUnsafe
                     || member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
-                .Where(member => member.MetadataToken is not { } token || !evidencedTokens.Contains(token))
+                .Where(member => !MemberEvidenceTokens(member).Any(evidencedTokens.Contains))
                 .Select(member =>
                 {
                     bool degraded = member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded;
@@ -2233,8 +2233,21 @@ public static class ApiOutputFormatter
             .ThenBy(entry => entry.Detail, StringComparer.Ordinal)
             .Select(entry => entry.Row)
             .ToList();
-        if (rows.Count > 0)
-            view.UnsafeMemberRows = rows;
+        view.UnsafeMemberRows = rows;
+    }
+
+    static IEnumerable<int> MemberEvidenceTokens(ApiMember member)
+    {
+        if (member.MetadataToken is { } method)
+            yield return method;
+        if (member.GetterToken is { } getter)
+            yield return getter;
+        if (member.SetterToken is { } setter)
+            yield return setter;
+        if (member.AdderToken is { } adder)
+            yield return adder;
+        if (member.RemoverToken is { } remover)
+            yield return remover;
     }
 
     internal static void PopulateTypeExceptionRegions(

@@ -180,6 +180,44 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task TypeUnsafeMembers_AccessorEvidenceSuppressesPropertyFallback()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            IncludeSections = [SectionNames.UnsafeMembers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("get_UnsafePointerProperty()", result.Output);
+        Assert.DoesNotContain("| `UnsafePointerProperty` | Unsafe declaration |", result.Output);
+    }
+
+    [Fact]
+    public async Task TypeUnsafeMembers_SafeTypeRendersEmptyState()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            AssemblyPath = typeof(SampleClassForTesting).Assembly.Location,
+            IncludeSections = [SectionNames.UnsafeMembers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Unsafe Members", result.Output);
+        Assert.Contains("No unsafe members found on this type.", result.Output);
+    }
+
+    [Fact]
     public void TypeUnsafeMembers_RendersDeclarationWhenAnalysisHasNoEvidence()
     {
         var type = new ApiType

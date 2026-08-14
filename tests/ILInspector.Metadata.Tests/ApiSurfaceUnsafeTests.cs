@@ -72,9 +72,13 @@ public sealed class ApiSurfaceUnsafeTests
         Assert.Equal(
             "delegate*<int, int>[]",
             members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.ArrayOf)).ReturnType);
+        Assert.All(
+            members.Where(member => member.Kind == "field"),
+            member => Assert.True(member.IsUnsafe));
         Assert.Equal(
             "delegate*<int, int> Ret(delegate*<int, int> f)",
             members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.Ret)).Signature);
+        Assert.True(members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.PointerProperty)).IsUnsafe);
     }
 
     [Fact]
@@ -110,6 +114,7 @@ public unsafe class FunctionPointerShapeFixture
     public delegate*<string, bool> Other;
     public delegate* unmanaged[Cdecl]<int, void> Unmanaged;
     public delegate*<int, int>[] ArrayOf = [];
+    public delegate*<int, int> PointerProperty { get; set; }
 
     public delegate*<int, int> Ret(delegate*<int, int> f) => f;
 }
