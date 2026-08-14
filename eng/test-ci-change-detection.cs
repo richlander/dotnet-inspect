@@ -1271,7 +1271,7 @@ static void ValidateConsumerStepGuards(
         ["test-windows/Run services tests"] =
             "${{ !cancelled() && steps.build.outcome == 'success' }}",
         ["test-windows/Check ilasm/ildasm result"] =
-            "${{ !cancelled() && steps.iltools.outcome == 'failure' }}",
+            "${{ !cancelled() && steps.iltools.outcome != 'success' }}",
         ["decompiler-gates/Upload gate report"] = "always()",
         ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
         ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
@@ -1301,10 +1301,16 @@ static void ValidateConsumerStepGuards(
         ["test-windows/Install ilasm/ildasm"] = "iltools",
         ["decompiler-gates/Run decompiler gates"] = "gates",
     };
+    var allowedTimeoutMinutes = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["test-windows/Install ilasm/ildasm"] = "5",
+        ["decompiler-gates/Run decompiler gates"] = "45",
+    };
     var seenIf = new HashSet<string>(StringComparer.Ordinal);
     var seenContinueOnError = new HashSet<string>(StringComparer.Ordinal);
     var seenShell = new HashSet<string>(StringComparer.Ordinal);
     var seenId = new HashSet<string>(StringComparer.Ordinal);
+    var seenTimeoutMinutes = new HashSet<string>(StringComparer.Ordinal);
 
     foreach (string jobName in jobNames)
     {
@@ -1345,6 +1351,12 @@ static void ValidateConsumerStepGuards(
                 key,
                 allowedId,
                 seenId);
+            ValidateOptionalStepValue(
+                step,
+                "timeout-minutes",
+                key,
+                allowedTimeoutMinutes,
+                seenTimeoutMinutes);
 
             string? continueOnError =
                 GetOptionalScalar(step, "continue-on-error");
@@ -1375,6 +1387,10 @@ static void ValidateConsumerStepGuards(
         seenId,
         allowedId.Keys,
         "consumer step ids");
+    RequireSeenExactly(
+        seenTimeoutMinutes,
+        allowedTimeoutMinutes.Keys,
+        "consumer step timeout minutes");
 }
 
 static void ValidateOptionalStepValue(

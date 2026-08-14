@@ -738,6 +738,11 @@ public class IlToolsActivationTests
         Assert.True(jobStart >= 0);
         Assert.True(jobStart < nextJob);
         string job = workflow[jobStart..nextJob];
+        int stepsStart = job.IndexOf(
+            "\n    steps:\n",
+            StringComparison.Ordinal);
+        Assert.True(stepsStart >= 0);
+        Assert.Contains("timeout-minutes: 40", job[..stepsStart]);
 
         int install = job.IndexOf(
             "- name: Install ilasm/ildasm",
@@ -759,6 +764,7 @@ public class IlToolsActivationTests
         string installStep = job[install..nextInstallStep];
         Assert.Contains("id: iltools", installStep);
         Assert.Contains("continue-on-error: true", installStep);
+        Assert.Contains("timeout-minutes: 5", installStep);
         Assert.Contains("shell: bash", installStep);
         Assert.Contains("ILTOOLS_BASH=", installStep);
         Assert.Contains(
@@ -767,7 +773,7 @@ public class IlToolsActivationTests
 
         string checkStep = job[terminalCheck..];
         Assert.Contains(
-            "if: ${{ !cancelled() && steps.iltools.outcome == 'failure' }}",
+            "if: ${{ !cancelled() && steps.iltools.outcome != 'success' }}",
             checkStep);
         Assert.Contains("exit 1", checkStep);
         Assert.DoesNotContain("continue-on-error:", checkStep);
