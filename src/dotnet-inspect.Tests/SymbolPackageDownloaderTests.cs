@@ -97,6 +97,518 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task AcquirePdbAsync_InMemoryStore_ReturnsRepeatableDottedNameContent()
+    {
+        var guid = Guid.Parse("11112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        byte[] snupkg =
+            SnupkgPdbReaderTests.MakeSnupkg(
+                ("lib/net10.0/System.Text.Json.pdb", pdbBytes));
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(snupkg),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var store = new InMemoryPdbStore();
+        var downloader = new SymbolPackageDownloader(client, store);
+
+        PortablePdbAcquisitionResult first =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "System.Text.Json.pdb",
+                isPortable: true,
+                assemblyName: "Wrong.Fallback.Name",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                first);
+        Assert.Null(acquired.Pdb.LocalPath);
+        Assert.Equal("nuget.org", acquired.Pdb.SymbolServer);
+        Assert.False(acquired.Pdb.FromCache);
+        await using (Stream content =
+                     await acquired.Pdb.OpenReadAsync(
+                         TestContext.Current.CancellationToken))
+        {
+            using var buffer = new MemoryStream();
+            await content.CopyToAsync(
+                buffer,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(pdbBytes, buffer.ToArray());
+        }
+
+        using var offlineClient =
+            new HttpClient(new ThrowingHandler());
+        var cachedDownloader =
+            new SymbolPackageDownloader(offlineClient, store);
+        PortablePdbAcquisitionResult second =
+            await cachedDownloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "System.Text.Json.pdb",
+                isPortable: true,
+                assemblyName: "Wrong.Fallback.Name",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cacheOnly: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var cached =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                second);
+        Assert.True(cached.Pdb.FromCache);
+        Assert.Equal("nuget.org", cached.Pdb.SymbolServer);
+    }
+
+    [Fact]
+    public async Task DownloadPdbAsync_FileSystemStore_PreservesPathContract()
+    {
+        var guid = Guid.Parse("21112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        byte[] snupkg =
+            SnupkgPdbReaderTests.MakeSnupkg(
+                ("lib/net10.0/System.Text.Json.pdb", pdbBytes));
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(snupkg),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        string root =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"pdb-download-{Guid.NewGuid():N}");
+        try
+        {
+            var downloader =
+                new SymbolPackageDownloader(
+                    client,
+                    new FileSystemPdbStore(root));
+
+            PdbDownloadResult result =
+                await downloader.DownloadPdbAsync(
+                    guid,
+                    pdbAge: 1,
+                    pdbFileName: "System.Text.Json.pdb",
+                    isPortable: true,
+                    assemblyPath: "/tmp/System.Text.Json.dll",
+                    packageName: "Example.Package",
+                    packageVersion: "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            Assert.NotNull(result.PdbFilePath);
+            Assert.Equal(
+                pdbBytes,
+                File.ReadAllBytes(result.PdbFilePath!));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_MsdlCachePreservesProvider()
+    {
+        var guid = Guid.Parse("31112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(pdbBytes),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var store = new InMemoryPdbStore();
+        var downloader = new SymbolPackageDownloader(client, store);
+
+        PortablePdbAcquisitionResult first =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Provider.pdb",
+                isPortable: true,
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                first);
+        Assert.Equal(
+            "msdl.microsoft.com",
+            acquired.Pdb.SymbolServer);
+        Assert.False(acquired.Pdb.FromCache);
+
+        using var offlineClient =
+            new HttpClient(new ThrowingHandler());
+        var cachedDownloader =
+            new SymbolPackageDownloader(offlineClient, store);
+        PortablePdbAcquisitionResult second =
+            await cachedDownloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Provider.pdb",
+                isPortable: true,
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cacheOnly: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var cached =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                second);
+        Assert.Equal(
+            "msdl.microsoft.com",
+            cached.Pdb.SymbolServer);
+        Assert.True(cached.Pdb.FromCache);
+    }
+
+    [Fact]
+    public async Task AcquiredPortablePdb_DifferentStampsRemainRepeatable()
+    {
+        var guid =
+            Guid.Parse(
+                "32112222-3333-4444-5555-666677778888");
+        const uint FirstStamp = 0x01020304;
+        const uint SecondStamp = 0x05060708;
+        var (firstBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(
+                guid,
+                FirstStamp);
+        var (secondBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(
+                guid,
+                SecondStamp);
+        int requestCount = 0;
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                byte[] content =
+                    Interlocked.Increment(ref requestCount) == 1
+                        ? firstBytes
+                        : secondBytes;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(content),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+
+        var first =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                await downloader.AcquirePdbAsync(
+                    guid,
+                    pdbAge: 1,
+                    pdbFileName: "Repeatable.pdb",
+                    isPortable: true,
+                    isPlatformAssembly: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    portablePdbStamp: FirstStamp));
+        var second =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                await downloader.AcquirePdbAsync(
+                    guid,
+                    pdbAge: 1,
+                    pdbFileName: "Repeatable.pdb",
+                    isPortable: true,
+                    isPlatformAssembly: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    portablePdbStamp: SecondStamp));
+
+        await using Stream firstContent =
+            await first.Pdb.OpenReadAsync(
+                TestContext.Current.CancellationToken);
+        await using Stream secondContent =
+            await second.Pdb.OpenReadAsync(
+                TestContext.Current.CancellationToken);
+        using var firstBuffer = new MemoryStream();
+        using var secondBuffer = new MemoryStream();
+        await firstContent.CopyToAsync(
+            firstBuffer,
+            TestContext.Current.CancellationToken);
+        await secondContent.CopyToAsync(
+            secondBuffer,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(firstBytes, firstBuffer.ToArray());
+        Assert.Equal(secondBytes, secondBuffer.ToArray());
+        Assert.Equal(2, requestCount);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider()
+    {
+        var guid =
+            Guid.Parse(
+                "41112222-3333-4444-5555-666677778888");
+        const uint Stamp = 0x04030201;
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(
+                guid,
+                Stamp);
+        var store = new InMemoryPdbStore();
+        string symbolKey =
+            guid.ToString("N").ToUpperInvariant()
+            + Stamp.ToString("X8");
+        string poisonedKey =
+            "servers/symbols.nuget.org/Provider.pdb/"
+            + $"{symbolKey}/Provider.pdb";
+        using (var poisoned =
+               new MemoryStream(
+                   [(byte)'B', (byte)'S', (byte)'J', (byte)'B'],
+                   writable: false))
+        {
+            await store.PutAsync(
+                poisonedKey,
+                poisoned,
+                TestContext.Current.CancellationToken);
+        }
+
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(pdbBytes),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                store);
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Provider.pdb",
+                isPortable: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                portablePdbStamp: Stamp);
+
+        var acquired =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                result);
+        Assert.Equal(
+            "msdl.microsoft.com",
+            acquired.Pdb.SymbolServer);
+        Assert.Contains(
+            handler.RequestUris,
+            uri => uri.Contains(
+                "symbols.nuget.org",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            handler.RequestUris,
+            uri => uri.Contains(
+                "msdl.microsoft.com",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches()
+    {
+        string configPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"symbol-browser-{Guid.NewGuid():N}.config");
+        File.WriteAllText(
+            configPath,
+            """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+        var handler =
+            new CountingHandler(
+                _ => new HttpResponseMessage(
+                    HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]));
+
+        try
+        {
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "Browser.pdb",
+                isPortable: true,
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                sourceOptions:
+                    new NuGetSourceOptions
+                    {
+                        ConfigFile = configPath,
+                    },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+            Assert.Contains(
+                handler.RequestUris,
+                uri => uri.Contains(
+                    ".snupkg",
+                    StringComparison.Ordinal));
+            Assert.False(
+                Directory.Exists(_cacheDir),
+                "The explicit-store path must not initialize the filesystem cache.");
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_StoreFailureIsVisible()
+    {
+        var guid =
+            Guid.Parse(
+                "51112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(pdbBytes),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new ThrowingPutPdbStore());
+
+        await Assert.ThrowsAsync<IOException>(
+            () => downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Failure.pdb",
+                isPortable: true,
+                isPlatformAssembly: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_UnusableNames_SkipEveryStoreKeyPath()
+    {
+        var handler =
+            new CountingHandler(
+                _ => new HttpResponseMessage(
+                    HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "/",
+                isPortable: true,
+                assemblyName: "../escape",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(
+            result);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
+    public async Task AcquiredPortablePdb_MissingStoreEntryFailsVisibly()
+    {
+        var acquired =
+            new AcquiredPortablePdb(
+                new InMemoryPdbStore(),
+                "missing.pdb",
+                "test",
+                fromCache: true);
+
+        IOException exception =
+            await Assert.ThrowsAsync<IOException>(
+                () => acquired.OpenReadAsync(
+                        TestContext.Current.CancellationToken)
+                    .AsTask());
+
+        Assert.Contains(
+            "no longer available",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DownloadPdbAsync_CancellationStopsSymbolRequest()
     {
         var handler = new BlockingHandler();
@@ -203,5 +715,32 @@ public class SymbolPackageDownloaderTests : IDisposable
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => throw new InvalidOperationException(
+                "No network request was expected.");
+    }
+
+    private sealed class ThrowingPutPdbStore : IPdbStore
+    {
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<Stream?>(null);
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromException(
+                new IOException("Injected store failure."));
+
+        public string? TryGetLocalPath(string key)
+            => null;
     }
 }

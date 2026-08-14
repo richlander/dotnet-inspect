@@ -307,6 +307,20 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+Portable-PDB acquisition now follows the same content-shaped boundary:
+`AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
+and `PdbAcquisitionService` can load it for a pathless
+`ResolvedAssemblyReference`. That explicit-capability descriptor overload
+requires the store and package-source authorization; the legacy desktop
+descriptor overload remains path-bound. The filesystem store supplies the
+compatibility path used by desktop decompiler callers; an in-memory store
+supplies the same validated PDB bytes to browser/Wasm hosts, paired with the
+same explicit `IPackageSourceAuthorization` used for package acquisition.
+Stored Portable PDB content is keyed by GUID plus stamp, so the content
+reference remains repeatable across otherwise-colliding symbol-server lookup
+keys. This capability does not itself add a group query; it is the symbol-input
+seam such a query consumes.
+
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates asynchronous host work over a retained descriptor without reopening its
 source.
