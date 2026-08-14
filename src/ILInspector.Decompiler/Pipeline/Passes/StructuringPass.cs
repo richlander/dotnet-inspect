@@ -683,6 +683,17 @@ public sealed class StructuringPass : IIrPass
                 continue;
             }
 
+            if (IsInlinableTerminator(ctx, target))
+            {
+                var clonedSnapshot = CloneTerminatorSnapshot(
+                    ctx,
+                    target,
+                    blocks[target].StartOffset);
+                if (LoopBodyOwnershipIsUnsafe(clonedSnapshot, retryTargetOffset, breakTargetOffsets))
+                    return true;
+                continue;
+            }
+
             if (cloneContinueTarget is { } cloneLoopHead
                 && IsLeaveRetryLoopHead(ctx, cloneLoopHead)
                 && TryClonePastRegionTerminator(ctx, target, out var clonedTerminator))
@@ -1619,6 +1630,14 @@ public sealed class StructuringPass : IIrPass
     static bool IsInlinableTerminator(Ctx ctx, int index) =>
         ctx.TerminatorSnapshots.ContainsKey(index);
 
+    static Block CloneTerminatorSnapshot(Ctx ctx, int index, int startOffset)
+    {
+        var clone = new Block(startOffset);
+        foreach (var statement in ctx.TerminatorSnapshots[index])
+            clone.Add(statement.Clone());
+        return clone;
+    }
+
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
     static bool FallsThrough(Block block) =>
         block.Children.Count == 0
@@ -1793,9 +1812,7 @@ public sealed class StructuringPass : IIrPass
                     // from the pre-mutation snapshot.
                     if (target > i && IsInlinableTerminator(ctx, target))
                     {
-                        var guardArm = new Block(block.StartOffset);
-                        foreach (var statement in ctx.TerminatorSnapshots[target])
-                            guardArm.Add(statement.Clone());
+                        var guardArm = CloneTerminatorSnapshot(ctx, target, block.StartOffset);
                         result.Add(new IfStatement(condition, guardArm, null));
                         i++;
                         break;

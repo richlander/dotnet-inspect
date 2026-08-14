@@ -462,6 +462,100 @@ public class InfiniteLoopStructuringTests
         Assert.Single(function.Descendants.OfType<Branch>());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SharedTerminatorCloneContainingSwitchOwnedBreak_StaysFlat(
+        bool nestedBranch)
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var exceptionType = TypeRef.CoreLib("System", "Exception");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var sectionBody = new BlockContainer();
+
+        var head = new Block(0x00);
+        head.Add(new ConditionalBranch(
+            new LoadArgument(1, "takeTail", boolType),
+            0x40));
+        sectionBody.Add(head);
+
+        var latch = new Block(0x10);
+        latch.Add(new Branch(0x00));
+        sectionBody.Add(latch);
+
+        var otherGuard = new Block(0x20);
+        otherGuard.Add(new ConditionalBranch(
+            new LoadArgument(2, "other", boolType),
+            0x40));
+        sectionBody.Add(otherGuard);
+
+        var branchDestination = new Block(0x30);
+        branchDestination.Add(new Return(null));
+        sectionBody.Add(branchDestination);
+
+        var breakArm = new Block();
+        breakArm.Add(new Break());
+        var sharedTerminator = new Block(0x40);
+        if (nestedBranch)
+        {
+            var nestedBranchArm = new Block();
+            nestedBranchArm.Add(new Branch(0x30));
+            sharedTerminator.Add(new IfStatement(
+                new LoadArgument(3, "jump", boolType),
+                nestedBranchArm,
+                elseArm: null));
+        }
+        sharedTerminator.Add(new IfStatement(
+            new LoadArgument(4, "stop", boolType),
+            breakArm,
+            elseArm: null));
+        sharedTerminator.Add(new Throw(new Constant(null, exceptionType)));
+        sectionBody.Add(sharedTerminator);
+
+        var body = new BlockContainer();
+        var entry = new Block(0x100);
+        entry.Add(new Switch(
+            new LoadArgument(0, "value", intType),
+            [
+                new SwitchSection(
+                    [new Constant(0, intType)],
+                    isDefault: false,
+                    sectionBody),
+            ]));
+        entry.Add(new Return(null));
+        body.Add(entry);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                voidType,
+                [
+                    new Parameter("value", intType),
+                    new Parameter("takeTail", boolType),
+                    new Parameter("other", boolType),
+                    new Parameter("jump", boolType),
+                    new Parameter("stop", boolType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        function.CheckInvariant();
+        var @switch = Assert.Single(function.Descendants.OfType<Switch>());
+        var before = Assert.Single(function.Descendants.OfType<Break>());
+        Assert.Same(@switch, StructuredTransferOwner(before));
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        var after = Assert.Single(function.Descendants.OfType<Break>());
+        Assert.Same(@switch, StructuredTransferOwner(after));
+    }
+
     static IrFunction InOuterLoop(BlockContainer loopBody)
     {
         var body = new BlockContainer();
