@@ -661,7 +661,7 @@ static (
         }
     }
 
-    ValidateDecompilerProjectSkipList(repository);
+    ValidateDecompilerProjectSkipList(Environment.CurrentDirectory);
 
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
