@@ -1579,6 +1579,50 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void RequestBudgetFailuresAreDistinctByPurpose()
+    {
+        byte[] image = BuildThreeReferenceConsumer();
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var pe = Reader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        Assert.Equal(
+            3,
+            reader.GetTableRowCount(TableIndex.TypeRef));
+        var plan = new TypeParameterKindClassifier.ResolutionPlan(
+            reader,
+            source,
+            maxTypeResolutionRequests: 1);
+        TypeDefinitionHandle subject =
+            MetadataTokens.TypeDefinitionHandle(2);
+
+        Assert.NotNull(
+            plan.Project(
+                MetadataTokens.TypeReferenceHandle(1),
+                subject));
+        Assert.Null(
+            plan.Project(
+                MetadataTokens.TypeReferenceHandle(2),
+                subject,
+                TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.BaseType));
+        Assert.Null(
+            plan.Project(
+                MetadataTokens.TypeReferenceHandle(3),
+                subject));
+
+        Assert.Collection(
+            plan.RequestBudgetFailures,
+            failure => Assert.Equal(
+                TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.BaseType,
+                failure.Purpose),
+            failure => Assert.Equal(
+                TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.Constraint,
+                failure.Purpose));
+    }
+
+    [Fact]
     public void DistinctResolutionFailuresKeepCompleteSubjectsButBoundOutput()
     {
         const int Count = 100;
@@ -2874,6 +2918,27 @@ public class ConstraintResolutionHardeningTests
             metadata.AddGenericParameterConstraint(
                 parameter,
                 constraint);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildThreeReferenceConsumer()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("ThreeReferences");
+        AssemblyReferenceHandle reference =
+            AddReference(metadata, "Dependency");
+        AddModule(metadata);
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        AddGenericParameter(metadata, consumer);
+        for (int i = 0; i < 3; i++)
+        {
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString($"Base{i}"));
         }
 
         return Serialize(metadata);

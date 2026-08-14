@@ -69,7 +69,8 @@ internal static class TypeParameterKindClassifier
             _resolutionFailureKeys = [];
         readonly List<RequestBudgetFailureInfo>
             _requestBudgetFailures = [];
-        readonly HashSet<int> _requestBudgetFailureSubjects = [];
+        readonly HashSet<(int SubjectToken, RequestPurpose Purpose)>
+            _requestBudgetFailureSubjects = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
         bool _requestBudgetExhausted;
@@ -158,8 +159,9 @@ internal static class TypeParameterKindClassifier
                 i--)
             {
                 _requestBudgetFailureSubjects.Remove(
-                    _requestBudgetFailures[i]
-                        .Failure.SubjectToken ?? 0);
+                    (_requestBudgetFailures[i]
+                        .Failure.SubjectToken ?? 0,
+                    _requestBudgetFailures[i].Purpose));
             }
             _requestBudgetFailures.RemoveRange(
                 checkpoint.BudgetFailureCount,
@@ -567,7 +569,8 @@ internal static class TypeParameterKindClassifier
             int subjectToken = handle.IsNil
                 ? 0
                 : MetadataTokens.GetToken(handle);
-            if (!_requestBudgetFailureSubjects.Add(subjectToken))
+            if (!_requestBudgetFailureSubjects.Add(
+                    (subjectToken, purpose)))
                 return;
 
             _requestBudgetFailures.Add(new RequestBudgetFailureInfo(

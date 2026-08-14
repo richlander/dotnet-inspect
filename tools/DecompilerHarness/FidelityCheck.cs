@@ -4130,7 +4130,14 @@ static class FidelityCheck
                 bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
                 if (!hasGet && !hasSet)
                     continue;
-                var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
+                MethodDefinitionHandle accessibilityAccessor =
+                    PropertyAccessibilityAccessor(
+                        reader,
+                        pa,
+                        hasGet,
+                        hasSet);
+                var accessorMethod =
+                    reader.GetMethodDefinition(accessibilityAccessor);
                 bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
                 bool isExplicit = pname.Contains('.');
                 // Preserve the accessor's call kind at a `?.X` site (receiver known
@@ -4146,7 +4153,7 @@ static class FidelityCheck
                     && accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
                     && !accessorMethod.Attributes.HasFlag(MethodAttributes.NewSlot);
                 string modifier = isExplicit
-                    ? ""
+                    ? isStatic ? "static " : ""
                     : isStatic
                         ? "static "
                         : emitOverride
@@ -4187,13 +4194,49 @@ static class FidelityCheck
                     string initializer = fieldInits.FirstOrDefault(init => init.Field == pname).Value is { } value
                         ? $" = {value};"
                         : "";
-                    string autoBody = " get;" + (hasSet ? " set;" : "");
-                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}{initializer}");
+                    string getAccessibility =
+                        PropertyAccessorAccessibility(
+                            reader,
+                            pa.Getter,
+                            accessibilityAccessor,
+                            emitOverride);
+                    string setAccessibility =
+                        PropertyAccessorAccessibility(
+                            reader,
+                            pa.Setter,
+                            accessibilityAccessor,
+                            emitOverride);
+                    string autoBody =
+                        $" {getAccessibility}get;"
+                            + (hasSet
+                                ? $" {setAccessibility}set;"
+                                : "");
+                    string autoAccessibilityPrefix = emitOverride
+                        ? MethodAccessibility(accessorMethod.Attributes)
+                        : "public ";
+                    sb.AppendLine($"{pad}{autoAccessibilityPrefix}{modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}{initializer}");
                     if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                     if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
                     continue;
                 }
-                string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
+                string getterAccessibility =
+                    PropertyAccessorAccessibility(
+                        reader,
+                        pa.Getter,
+                        accessibilityAccessor,
+                        emitOverride);
+                string setterAccessibility =
+                    PropertyAccessorAccessibility(
+                        reader,
+                        pa.Setter,
+                        accessibilityAccessor,
+                        emitOverride);
+                string body = (hasGet
+                        ? $" {getterAccessibility}get => throw null;"
+                        : "")
+                    + (hasSet
+                        ? $" {setterAccessibility}set => throw null;"
+                        : "");
                 string accessibilityPrefix = isExplicit
                     ? ""
                     : emitOverride
@@ -4309,7 +4352,26 @@ static class FidelityCheck
         var context = GenericContext.ForType(reader, typeDef);
         var sig = prop.DecodeSignature(SignatureDecoder.Instance, context);
         string ret = Clean(sig.ReturnType);
-        var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
+        bool hasGet = !pa.Getter.IsNil
+            && CanEmitAccessor(
+                reader,
+                typeDef,
+                pa.Getter,
+                accessibility);
+        bool hasSet = !pa.Setter.IsNil
+            && CanEmitAccessor(
+                reader,
+                typeDef,
+                pa.Setter,
+                accessibility);
+        MethodDefinitionHandle accessibilityAccessor =
+            PropertyAccessibilityAccessor(
+                reader,
+                pa,
+                hasGet,
+                hasSet);
+        var accessorMethod =
+            reader.GetMethodDefinition(accessibilityAccessor);
         bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
         bool emitOverride = preserveOverride
             && accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
@@ -4327,20 +4389,36 @@ static class FidelityCheck
         string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
         string propertyName = reader.GetString(prop.Name);
         bool isExplicit = propertyName.Contains('.');
-        bool hasGet = !pa.Getter.IsNil && CanEmitAccessor(reader, typeDef, pa.Getter, accessibility);
-        bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
+        string getterAccessibility =
+            PropertyAccessorAccessibility(
+                reader,
+                pa.Getter,
+                accessibilityAccessor,
+                emitOverride);
+        string setterAccessibility =
+            PropertyAccessorAccessibility(
+                reader,
+                pa.Setter,
+                accessibilityAccessor,
+                emitOverride);
         string getterBody = !pa.Getter.IsNil && targets.TryGetValue(pa.Getter, out var getterTarget)
-            ? $" get {{\n{getterTarget.Body}\n{pad}}}"
-            : (hasGet ? " get => throw null;" : "");
+            ? $" {getterAccessibility}get {{\n{getterTarget.Body}\n{pad}}}"
+            : (hasGet
+                ? $" {getterAccessibility}get => throw null;"
+                : "");
         string setterBody = !pa.Setter.IsNil && targets.TryGetValue(pa.Setter, out var setterTarget)
-            ? $" set {{\n{setterTarget.Body}\n{pad}}}"
-            : (hasSet ? " set => throw null;" : "");
+            ? $" {setterAccessibility}set {{\n{setterTarget.Body}\n{pad}}}"
+            : (hasSet
+                ? $" {setterAccessibility}set => throw null;"
+                : "");
         string accessibilityPrefix = isExplicit
             ? ""
             : emitOverride
                 ? MethodAccessibility(accessorMethod.Attributes)
                 : "public ";
-        string emittedModifier = isExplicit ? "" : modifier;
+        string emittedModifier = isExplicit
+            ? isStatic ? "static " : ""
+            : modifier;
         AssemblyReferenceIdentity? explicitAssembly =
             !pa.Getter.IsNil
                 && targets.TryGetValue(pa.Getter, out TargetBody getter)
@@ -4443,8 +4521,11 @@ static class FidelityCheck
             targetAccessor,
             explicitAssembly,
             resolver);
+        bool isStatic =
+            reader.GetMethodDefinition(accessors.Adder)
+                .Attributes.HasFlag(MethodAttributes.Static);
         sb.AppendLine(
-            $"{pad}event {eventType} "
+            $"{pad}{(isStatic ? "static " : "")}event {eventType} "
                 + $"{ExplicitMemberName(reader.GetString(eventDefinition.Name), explicitAlias)} "
                 + $"{{{addBody}{removeBody} }}");
     }
@@ -5602,11 +5683,70 @@ static class FidelityCheck
         || SyntaxFacts.GetContextualKeywordKind(name) != SyntaxKind.None
         ? "@" + name : name;
 
+    static MethodDefinitionHandle PropertyAccessibilityAccessor(
+        MetadataReader reader,
+        PropertyAccessors accessors,
+        bool hasGet,
+        bool hasSet)
+    {
+        MethodDefinitionHandle selected = hasGet
+            ? accessors.Getter
+            : accessors.Setter;
+        if (hasSet
+            && AccessibilityRank(
+                reader.GetMethodDefinition(accessors.Setter).Attributes)
+                > AccessibilityRank(
+                    reader.GetMethodDefinition(selected).Attributes))
+        {
+            selected = accessors.Setter;
+        }
+
+        return selected;
+    }
+
+    static string PropertyAccessorAccessibility(
+        MetadataReader reader,
+        MethodDefinitionHandle accessor,
+        MethodDefinitionHandle propertyAccessor,
+        bool preserveAccessibility)
+    {
+        if (!preserveAccessibility
+            || accessor.IsNil
+            || accessor == propertyAccessor)
+        {
+            return "";
+        }
+
+        MethodAttributes accessorAttributes =
+            reader.GetMethodDefinition(accessor).Attributes;
+        MethodAttributes propertyAttributes =
+            reader.GetMethodDefinition(propertyAccessor).Attributes;
+        return (accessorAttributes & MethodAttributes.MemberAccessMask)
+                == (propertyAttributes
+                    & MethodAttributes.MemberAccessMask)
+            ? ""
+            : MethodAccessibility(accessorAttributes);
+    }
+
+    static int AccessibilityRank(MethodAttributes attributes) =>
+        (attributes & MethodAttributes.MemberAccessMask) switch
+        {
+            MethodAttributes.Public => 6,
+            MethodAttributes.FamORAssem => 5,
+            MethodAttributes.Family => 4,
+            MethodAttributes.Assembly => 3,
+            MethodAttributes.FamANDAssem => 2,
+            _ => 1,
+        };
+
     static string MethodAccessibility(MethodAttributes attributes) =>
         (attributes & MethodAttributes.MemberAccessMask) switch
         {
             MethodAttributes.Family => "protected ",
             MethodAttributes.FamORAssem => "protected internal ",
+            MethodAttributes.Assembly => "internal ",
+            MethodAttributes.FamANDAssem => "private protected ",
+            MethodAttributes.Private => "private ",
             _ => "public ",
         };
 

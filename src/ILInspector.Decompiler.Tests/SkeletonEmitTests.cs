@@ -481,6 +481,131 @@ public class SkeletonEmitTests
     }
 
     [Fact]
+    public void SkeletonPreservesExternalPropertyOverrideAccessibility()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-property-access-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "PropertyAccessDependency.dll");
+        string targetPath =
+            Path.Combine(root, "PropertyAccessTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "PropertyAccessDependency",
+                """
+                namespace PropertyAccess;
+                public abstract class Base
+                {
+                    protected abstract int Required { get; set; }
+                    public abstract int Mixed { get; protected set; }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "PropertyAccessTarget",
+                """
+                namespace PropertyAccess;
+                public sealed class Derived : Base
+                {
+                    protected override int Required { get; set; }
+                    public override int Mixed
+                    {
+                        get => 42;
+                        protected set { }
+                    }
+
+                    public int Plain() => Required + Mixed;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var results = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "PropertyAccess.Derived",
+                method => method.Method is "Plain" or "get_Mixed");
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonEmitsStaticExplicitInterfaceAccessors()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-static-explicit-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "StaticExplicitDependency.dll");
+        string targetPath =
+            Path.Combine(root, "StaticExplicitTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "StaticExplicitDependency",
+                """
+                namespace StaticExplicit;
+                public delegate void ChangedHandler();
+                public interface IContract
+                {
+                    static abstract int Value { get; }
+                    static abstract event ChangedHandler Changed;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "StaticExplicitTarget",
+                """
+                namespace StaticExplicit;
+                public sealed class Implementation : IContract
+                {
+                    static int IContract.Value => 42;
+                    static event ChangedHandler IContract.Changed
+                    {
+                        add { }
+                        remove { }
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var results = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "StaticExplicit.Implementation",
+                method => method.Method is
+                    "StaticExplicit.IContract.get_Value"
+                    or "StaticExplicit.IContract.add_Changed");
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers()
     {
         string root = Path.Combine(
