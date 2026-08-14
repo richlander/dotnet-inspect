@@ -3559,6 +3559,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareQualifiedAspNetCoreType_RoutesPastNonOwningAssemblyPrefix()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpContext", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("# Microsoft.AspNetCore.Http.HttpContext", output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Http.Abstractions", output);
+        Assert.Contains("Source: Platform", output);
+    }
+
+    [Fact]
     public async Task BareQualifiedAspNetCoreMember_RoutesAcrossPlatformFrameworks()
     {
         SkipUnlessAspNetCoreAvailable();
