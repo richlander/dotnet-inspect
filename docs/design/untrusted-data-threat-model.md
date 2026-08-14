@@ -1051,8 +1051,12 @@ gates the direct library producer demand,
 gates survey-mode demand,
 `LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
 gates full-effective discovery,
+`LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure`
+gates nonzero failure propagation through Signals effective discovery,
 `LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
 gates direct/closure identity deduplication,
+`AssemblyReferenceTreeResolutionTests.DistinctSameNameReferences_DoNotSuppressResolvableIdentity`
+gates distinct typed AssemblyRefs that share a simple name,
 `LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
 gates visible traversal failure for absolute and bare relative library paths,
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`

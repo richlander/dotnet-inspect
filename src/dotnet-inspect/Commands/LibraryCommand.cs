@@ -2065,14 +2065,17 @@ public class LibraryCommand
             ? FilterSchemaToEffectiveFields(
                 inspection, allEffective, schemaMap, pipeline, allEffective.ToArray())
             : schemaMap;
-        if (cache)
+        bool hasIntegrityFailure =
+            inspection.SourceIntegrityMismatches is { Count: > 0 }
+            || inspection.IdentifierConfusionFailure is not null;
+        if (cache && !hasIntegrityFailure)
             CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
 
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
-        return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
+        int discoveryExitCode = DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
@@ -2080,12 +2083,15 @@ public class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options);
+        return Math.Max(
+            discoveryExitCode,
+            IntegrityExitCode(inspection));
     }
 
     // ── Effective sections cache ──
 
-    // Bumped to v22: effective catalogs can now include SourceLink: Diagnostics.
-    private const string EffectiveCategory = "effective-v22";
+    // Bumped to v23: failed effective inspections are no longer cached as successful catalogs.
+    private const string EffectiveCategory = "effective-v23";
 
     static LibraryCommand()
     {

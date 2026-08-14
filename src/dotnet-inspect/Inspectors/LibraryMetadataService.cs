@@ -715,25 +715,37 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null,
         int? maxDepth = null,
         bool failOnReadError = false)
     {
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
         var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
             OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
                 ? StringComparer.OrdinalIgnoreCase
                 : StringComparer.Ordinal);
         IAssemblyBindingPolicy bindingPolicy =
             ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
+        var visitedPaths = new HashSet<string>(
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal)
+        {
+            fullAssemblyPath
+        };
         return BuildTransitiveReferences(
             references,
             bindingPolicy,
             bindingPolicies,
+            Path.GetDirectoryName(fullAssemblyPath)
+                ?? throw new InvalidOperationException(
+                    "The assembly path has no containing directory."),
             visited,
+            visitedPaths,
             logger,
             depth,
             deduplicate,
-            globalSeen,
+            new Dictionary<AssemblyReferenceTraversalKey, int>(
+                AssemblyReferenceTraversalKeyComparer.Instance),
             maxDepth,
             failOnReadError);
     }
@@ -771,24 +783,20 @@ internal static class LibraryMetadataService
         IReadOnlyList<AssemblyReferenceIdentity> references,
         IAssemblyBindingPolicy bindingPolicy,
         Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+        string bindingScope,
         HashSet<string> visited,
+        HashSet<string> visitedPaths,
         VerboseLogger logger,
         int depth,
         bool deduplicate,
-        Dictionary<string, int>? globalSeen,
+        Dictionary<AssemblyReferenceTraversalKey, int> globalSeen,
         int? maxDepth,
         bool failOnReadError)
     {
-        globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
 
         foreach (var reference in references.OrderBy(r => r.Name))
         {
-            if (deduplicate && globalSeen.TryGetValue(reference.Name, out int seenDepth) && seenDepth <= depth)
-            {
-                continue;
-            }
-
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
@@ -796,23 +804,6 @@ internal static class LibraryMetadataService
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = depth
             };
-
-            if (visited.Contains(reference.Name))
-            {
-                if (!deduplicate)
-                {
-                    node.IsCyclic = true;
-                    nodes.Add(node);
-                }
-                continue;
-            }
-
-            if (deduplicate)
-            {
-                globalSeen[reference.Name] = depth;
-            }
-
-            visited.Add(reference.Name);
 
             AssemblyBindingSelection selection = bindingPolicy.Select(
                 new AssemblyBindingRequest(
@@ -860,6 +851,42 @@ internal static class LibraryMetadataService
                 : resolved is null
                     ? null
                     : "local";
+
+            string? resolvedPath = resolved?.Path is { } selectedPath
+                ? Path.GetFullPath(selectedPath)
+                : null;
+            bool isCyclic = resolved is not null
+                && (resolvedPath is not null
+                    ? visitedPaths.Contains(resolvedPath)
+                    : visited.Contains(resolved.Identity.Name));
+            if (isCyclic)
+            {
+                if (!deduplicate)
+                {
+                    node.IsCyclic = true;
+                    nodes.Add(node);
+                }
+                continue;
+            }
+
+            AssemblyReferenceTraversalKey traversalKey =
+                resolvedPath is not null
+                    ? AssemblyReferenceTraversalKey.ForResolvedPath(
+                        resolvedPath)
+                    : AssemblyReferenceTraversalKey.ForReference(
+                        reference,
+                        bindingScope);
+            if (deduplicate
+                && globalSeen.TryGetValue(
+                    traversalKey,
+                    out int seenDepth)
+                && seenDepth <= depth)
+            {
+                continue;
+            }
+            if (deduplicate)
+                globalSeen[traversalKey] = depth;
+
             nodes.Add(node);
 
             if (resolved != null)
@@ -872,18 +899,33 @@ internal static class LibraryMetadataService
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
-                        var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        var branchVisited = new HashSet<string>(
+                            visited,
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            resolved.Identity.Name
+                        };
+                        var branchVisitedPaths = new HashSet<string>(
+                            visitedPaths,
+                            visitedPaths.Comparer);
+                        if (resolvedPath is not null)
+                            branchVisitedPaths.Add(resolvedPath);
                         IAssemblyBindingPolicy childBindingPolicy =
-                            resolved.Path is { } resolvedPath
+                            resolved.Path is { } childPath
                                 ? ReferenceTreeBindingPolicyFor(
-                                    resolvedPath,
+                                    childPath,
                                     bindingPolicies)
                                 : bindingPolicy;
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
                             childBindingPolicy,
                             bindingPolicies,
+                            resolvedPath is not null
+                                ? Path.GetDirectoryName(resolvedPath)
+                                    ?? bindingScope
+                                : bindingScope,
                             branchVisited,
+                            branchVisitedPaths,
                             logger,
                             depth + 1,
                             deduplicate,
@@ -923,6 +965,92 @@ internal static class LibraryMetadataService
         }
 
         return nodes;
+    }
+
+    private readonly record struct AssemblyReferenceTraversalKey(
+        string? ResolvedPath,
+        AssemblyReferenceIdentity? Reference,
+        string? BindingScope)
+    {
+        public static AssemblyReferenceTraversalKey ForResolvedPath(
+            string resolvedPath) =>
+            new(resolvedPath, null, null);
+
+        public static AssemblyReferenceTraversalKey ForReference(
+            AssemblyReferenceIdentity reference,
+            string bindingScope) =>
+            new(null, reference, bindingScope);
+    }
+
+    private sealed class AssemblyReferenceTraversalKeyComparer
+        : IEqualityComparer<AssemblyReferenceTraversalKey>
+    {
+        private static readonly StringComparer PathComparer =
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+
+        public static AssemblyReferenceTraversalKeyComparer Instance
+        {
+            get;
+        } = new();
+
+        public bool Equals(
+            AssemblyReferenceTraversalKey x,
+            AssemblyReferenceTraversalKey y)
+        {
+            if (x.ResolvedPath is not null
+                || y.ResolvedPath is not null)
+            {
+                return x.ResolvedPath is not null
+                    && y.ResolvedPath is not null
+                    && PathComparer.Equals(
+                        x.ResolvedPath,
+                        y.ResolvedPath);
+            }
+
+            return x.Reference is { } xReference
+                && y.Reference is { } yReference
+                && PathComparer.Equals(
+                    x.BindingScope,
+                    y.BindingScope)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.Name,
+                    yReference.Name)
+                && EqualityComparer<Version?>.Default.Equals(
+                    xReference.Version,
+                    yReference.Version)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.Culture,
+                    yReference.Culture)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.PublicKeyToken,
+                    yReference.PublicKeyToken);
+        }
+
+        public int GetHashCode(AssemblyReferenceTraversalKey value)
+        {
+            var hash = new HashCode();
+            if (value.ResolvedPath is not null)
+            {
+                hash.Add(value.ResolvedPath, PathComparer);
+            }
+            else if (value.Reference is { } reference)
+            {
+                hash.Add(value.BindingScope, PathComparer);
+                hash.Add(
+                    reference.Name,
+                    StringComparer.OrdinalIgnoreCase);
+                hash.Add(reference.Version);
+                hash.Add(
+                    reference.Culture,
+                    StringComparer.OrdinalIgnoreCase);
+                hash.Add(
+                    reference.PublicKeyToken,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+            return hash.ToHashCode();
+        }
     }
 
     private static IdentifierConfusionAuditFailureKind

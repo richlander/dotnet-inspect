@@ -100,6 +100,62 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public void DistinctSameNameReferences_DoNotSuppressResolvableIdentity()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            const string concerningName = "Micr\u03BFsoft.Hidden";
+            File.WriteAllBytes(
+                Path.Combine(root, "Bridge.dll"),
+                BuildAssembly("Bridge", concerningName));
+
+            var mismatching = new AssemblyReferenceIdentity(
+                "Bridge",
+                new Version(1, 0, 0, 0),
+                null,
+                "0000000000000000");
+            var wildcard = new AssemblyReferenceIdentity(
+                "Bridge",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+            foreach (AssemblyReferenceIdentity[] references in new[]
+            {
+                new[] { mismatching, wildcard },
+                new[] { wildcard, mismatching },
+            })
+            {
+                string ownerPath = Path.Combine(
+                    root,
+                    $"Owner-{Guid.NewGuid():N}.dll");
+                File.WriteAllBytes(
+                    ownerPath,
+                    BuildAssembly(
+                        Path.GetFileNameWithoutExtension(ownerPath),
+                        new Version(1, 0, 0, 0),
+                        references));
+
+                List<AssemblyReferenceNode> nodes =
+                    BuildTree(ownerPath, maxDepth: 2);
+
+                Assert.Equal(
+                    2,
+                    nodes.Count(node => node.Name == "Bridge"));
+                Assert.Contains(
+                    nodes,
+                    node => node.Name == concerningName
+                        && node.Depth == 1);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task OmittedCultureReference_UsesCulturedSiblingThroughInspectionModel()
     {
         string root = Directory.CreateTempSubdirectory(

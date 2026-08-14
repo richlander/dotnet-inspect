@@ -11905,6 +11905,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-signals-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                var discovery = await RunAppAsync(
+                    "library",
+                    rootPath,
+                    "-D",
+                    SectionNames.Signals,
+                    "--effective",
+                    "--tips",
+                    "q");
+
+                Assert.Equal(1, discovery.Exit);
+                Assert.Contains("| Area | column |", discovery.Output);
+                Assert.Equal(
+                    "Warning: Identifier audit failed: invalid assembly metadata"
+                    + Environment.NewLine,
+                    discovery.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
     {
         string tempDir = Path.Combine(
