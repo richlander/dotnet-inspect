@@ -79,6 +79,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
             handle);
 
+    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveExternalTypeDefinition(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope,
+            MetadataTypeDefinitionName type) =>
+        _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
+            identity,
+            scope,
+            type);
+
+    AssemblyResolutionScope ScopeForReference(
+        AssemblyReferenceHandle handle) =>
+        FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
+            ? AssemblyResolutionScope.Platform
+            : AssemblyResolutionScope.Any;
+
     // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
     // when MemorySafetyRulesAttribute is applied (emitted [module:], like
     // RefSafetyRulesAttribute). Check the module and assembly scopes.

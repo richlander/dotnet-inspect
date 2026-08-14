@@ -111,11 +111,30 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                 _reader,
                 assemblyReference);
         var scope = ScopeForReference(assemblyReference);
+        return TryResolveExternalTypeDefinition(
+            identity,
+            scope,
+            valid.Name);
+    }
+
+    internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveExternalTypeDefinition(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope,
+            MetadataTypeDefinitionName type)
+    {
+        if (_resolutionCatalog is null
+            || _bindingPolicy is null
+            || _rootAssembly is null)
+        {
+            return null;
+        }
+
         var request = TypeResolutionRequest.FromReference(
             identity,
             AssemblyBindingOrigin.FromAssembly(_rootAssembly),
             scope,
-            valid.Name);
+            type);
         using TypeResolutionContext context =
             _resolutionCatalog.CreateContext(
                 _bindingPolicy,
