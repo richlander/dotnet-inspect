@@ -33,17 +33,17 @@ public static partial class BrowserInspectionEngine
         "no product acquisition owner produces runtime-pack participants from content, so no "
         + "platform workspace can be opened in a browser";
 
-    const string NoResearchSourceQuery =
-        "no group-scoped query resolves SourceLink or decompiled whole-member source, and no "
-        + "browser workspace acquires a symbol package";
+    const string NoBrowserSourceCapabilities =
+        "the group-scoped source query exists, but the browser workspace does not yet supply "
+        + "symbol and source acquisition capabilities or adapt its typed results";
 
     static NotSupportedException Unavailable(string operation, string capability) =>
         new($"{operation} is not available in this engine build: {capability}");
 
     /// <summary>
-    /// Authored and decompiled whole-member source. No browser workspace acquires a symbol
-    /// package, and <c>SourceLinkDocumentsQuery</c> and <c>PdbAcquisitionService</c> take
-    /// filesystem paths rather than group participants.
+    /// Authored and decompiled whole-member source. <c>AssemblyContextSourceQuery</c> now owns
+    /// the group participant and pathless acquisition, but this host has not yet supplied its
+    /// Browser HTTP, authorization, PDB-store, source-store, and result-adapter capabilities.
     /// </summary>
     [JSExport]
     public static Task<string> QueryMemberSource(
@@ -55,7 +55,7 @@ public static partial class BrowserInspectionEngine
         string memberName,
         string memberSignature,
         string styleOptionsJson) =>
-        throw Unavailable("Member source", NoResearchSourceQuery);
+        throw Unavailable("Member source", NoBrowserSourceCapabilities);
 
     /// <inheritdoc cref="QueryMemberSource"/>
     [JSExport]
@@ -66,7 +66,7 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string styleOptionsJson) =>
-        throw Unavailable("Type source", NoResearchSourceQuery);
+        throw Unavailable("Type source", NoBrowserSourceCapabilities);
 
     /// <inheritdoc cref="QueryMemberSource"/>
     [JSExport]
@@ -80,7 +80,7 @@ public static partial class BrowserInspectionEngine
         string selectorKey,
         int metadataToken,
         string styleOptionsJson) =>
-        throw Unavailable("Type member source", NoResearchSourceQuery);
+        throw Unavailable("Type member source", NoBrowserSourceCapabilities);
 
     /// <summary>
     /// Declared NuGet dependency groups plus the active assembly's direct references.

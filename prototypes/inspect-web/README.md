@@ -289,15 +289,15 @@ ambiguity and diagnostic cases gate these host behaviors.
 
 ## Unsupported
 
-Each remaining gap is a missing public query that takes an `AssemblyContextGroup`
-(or a group participant) and owns its own session, the way the six supported
-queries do. Each export keeps the signature the browser bridge binds and throws a
-`NotSupportedException` naming the gap, so the site reports the engine's refusal
-rather than fixture results or success-shaped empty output.
+Each remaining gap is either a missing public query that owns its own group
+session or missing Browser host capability and adapter wiring around such a
+query. Each export keeps the signature the browser bridge binds and throws a
+`NotSupportedException` naming the gap, so the site reports the engine's
+refusal rather than fixture results or success-shaped empty output.
 
-| Unsupported export | Missing query |
+| Unsupported export | Missing product or host wiring |
 | --- | --- |
-| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | SourceLink and decompiled whole-member source over a group participant, plus symbol acquisition that yields group participants |
+| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | `AssemblyContextSourceQuery` now owns pathless SourceLink and decompiled source; the Browser host still needs symbol/source clients, authorization, in-memory stores, and typed-result adaptation |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackageDependencies` | direct assembly references over a group (`AssemblyReferencesQuery` binds to a host-opened session today), plus a declared-dependency-group projection |

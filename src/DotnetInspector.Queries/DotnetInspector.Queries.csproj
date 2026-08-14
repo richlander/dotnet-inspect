@@ -28,8 +28,8 @@
     <!--
       The companion query assembly reuses the participant loop and the group's snapshot access so
       Research projections keep session and snapshot ownership inside the query layer. Keeping
-      Research and Decompiler dependencies out of core query consumers is why it is a separate
-      assembly rather than a namespace here.
+      Research out of core query consumers is why it is a separate assembly rather than a namespace
+      here; core Queries owns its Decompiler dependency for the group source fallback.
     -->
     <InternalsVisibleTo Include="DotnetInspector.ResearchQueries" />
   </ItemGroup>
