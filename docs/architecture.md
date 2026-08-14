@@ -737,14 +737,23 @@ Research overlay bridge, and the application layer:
   method-local calls and safety evidence. It consumes one
   `ILibraryMethodAnalysisInfrastructure` implemented by the assembly builder;
   that contract supplies the caller-owned primary-image reader/PE pair,
-  method identity and generic scope, and the existing narrow metadata
-  resolvers without exposing them to topic producers.
+  while delegating method identity, generic scope, and the existing narrow
+  metadata resolvers to `LibraryBodyPrimaryMetadataResolver` without exposing
+  them to topic producers.
   `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates partial failure
   publication, and
   `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
-  scoped decode through the runner. The assembly builder retains the
-  metadata-ordered work list, parallel scheduling, primary-image metadata
-  judgments, and result aggregation. Cross-assembly type-definition binding,
+  scoped decode through the runner. `LibraryBodyPrimaryMetadataResolver` owns
+  primary-image method identity, unsafe/generated attribute judgments,
+  token/member/type/field/calli/value-type/delegate facts, async-state-machine
+  caching, and the allocation/optimization/call resolver adapters.
+  `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
+  `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
+  `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
+  representative identity, cached classification, and token-shape behavior.
+  The assembly builder retains the metadata-ordered work list, parallel
+  scheduling, assembly-level projections, and result aggregation.
+  Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
   `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.
