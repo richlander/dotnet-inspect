@@ -46,8 +46,13 @@ concurrency:
 
 jobs:
   # Detect what changed to determine which jobs to run
+  #
+  # This entry job uses the GA image deliberately. Every workflow run waits on
+  # it before path-gated jobs can be selected, so preview-image capacity must
+  # not serialize the entire PR queue. Specialized jobs below retain
+  # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
@@ -446,8 +451,9 @@ jobs:
               # Deliberately NOT mapped to this lane, though an earlier revision of this
               # PR mapped all four here on the premise that "the sweep builds the EVIL
               # pool this gate is run over". Measured, and false: `--gate pre-merge`
-              # selects ByteNeutralityGateTests, ClusterCaptureTests, FidelityGateTests,
-              # GateExpectedClassesTests, LoweredFidelityGateTests and
+              # selects ByteNeutralityGateTests, ByteDivergentGateTests,
+              # ClusterCaptureTests, FidelityGateTests, GateExpectedClassesTests,
+              # LoweredFidelityGateTests and
               # PrinterPrecedenceTests, none of which read the EVIL pool, and this
               # job never runs eng/prepare-evil-corpus.sh. The mapping scheduled a
               # fifteen-minute job that validated nothing about the file that triggered it.
@@ -610,6 +616,10 @@ jobs:
   # most expensive leg) and to reduce queued-job contention when many agents
   # have PRs in flight at once. Release packages are built by release.yml at
   # publish time, not here.
+  #
+  # Keep the primary Linux lane on the GA image so ordinary code PRs do not
+  # compete for preview-image capacity. Path-gated specialist jobs, Deep
+  # Inspect, and release publishing continue to exercise ubuntu-26.04.
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
@@ -617,7 +627,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-26.04
+          - os: ubuntu-24.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
     env:
@@ -1013,15 +1023,15 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
-      # Serializing the ten fidelity workload classes (#3827, #3872) removes the
+      # Serializing the fidelity workload classes (#3827, #3872) removes the
       # Roslyn reference-binding overlap but necessarily raises wall time. The
       # first PR run measured the former 45-test preset at 27m24s on this runner
       # (build 2m38s, discovery 1s, checker 4s, job total 30m37s), up from
       # 21m30s in parallel. The four theory-bearing classes contribute only 42
       # cases in 2.4s locally. SkeletonEmitTests adds eight cases, but method
       # selection reduced that class from 374.25s to 13.31s locally while
-      # retaining whole-module emit. The resulting 94-case serialized preset
-      # completes in 729.56s locally. The 45-minute step therefore remains well
+      # retaining whole-module emit. That measured serialized preset completed
+      # in 729.56s locally. The 45-minute step therefore remains well
       # below the 65-minute job timeout, which is what keeps a hang loud.
       #
       # Re-measure and re-tune both numbers together whenever the preset or its
@@ -1432,6 +1442,10 @@ jobs:
   # skipped, so a check that looked only at the gated jobs would see nothing but
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
   # `failure` or `skipped` is what closes that path.
+  #
+  # Like `changes`, this always-run terminal gate uses the GA image so preview
+  # capacity cannot leave an otherwise-complete PR waiting for its required
+  # status. Path-gated jobs retain ubuntu-26.04 coverage.
   ci-required:
     needs:
       - changes
@@ -1448,7 +1462,7 @@ jobs:
       - il-diff-smoke
       - pack
     if: always()
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       # Defined once and consumed by both the self-test and the real check, so
