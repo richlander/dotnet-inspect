@@ -1339,13 +1339,15 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
         if (stateMachineName is null)
             return false;
+        string metadataTypeName =
+            stateMachineName.Replace('+', '.');
 
         foreach (TypeDefinitionHandle typeHandle in _reader.TypeDefinitions)
         {
             if (TypeResolver.GetTypeNameFromDefinition(
                     _reader,
                     typeHandle)
-                != stateMachineName)
+                != metadataTypeName)
             {
                 continue;
             }

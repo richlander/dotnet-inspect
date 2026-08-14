@@ -4422,6 +4422,42 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_ClassicAsyncTopLevelLocalFunction_IsReported()
+    {
+        string path =
+            FixtureCatalog.AnalysisTopLevelClassicAsync.AssemblyPath();
+        using (var stream = File.OpenRead(path))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinition owner = reader.MethodDefinitions
+                .Select(reader.GetMethodDefinition)
+                .Single(method =>
+                    reader.StringComparer.Equals(method.Name, "<Main>$"));
+            Assert.False(
+                owner.ImplAttributes.HasFlag(MethodImplAttributes.Async));
+            Assert.Contains(
+                owner.GetCustomAttributes(),
+                handle =>
+                    AttributeDecoder.GetAttributeTypeName(
+                        reader,
+                        reader.GetCustomAttribute(handle).Constructor)
+                    == "System.Runtime.CompilerServices.AsyncStateMachineAttribute");
+        }
+
+        var index = LibraryBodyIndex.Open(path);
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(
+            opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelClassicAsyncEqual",
+                    StringComparison.Ordinal)));
+
+        Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_TopLevelNameWithoutEntryPoint_IsSuppressed()
     {
         string directory = Path.Combine(
