@@ -814,6 +814,29 @@ registry is exhaustive against the enum and agrees with its knobs' own
 nor a misfiled knob is silent. `Order` is deliberately not the enum ordinal, so
 presentation order and declaration order can move independently.
 
+The selectable level is product-owned too
+([#3517](https://github.com/richlander/dotnet-inspect/issues/3517)).
+`StyleOptionCatalog.Choices` flattens every non-default value into a
+`StyleOptionChoice` carrying its stable persisted `Id`, complete display title
+and summary, owning option/value ids, tier and byte-divergence contract, both
+endorsement facets, and its optional single-select `ConflictGroup`. Existing
+browser ids are preserved: a choice that was the only non-default value on its
+axis keeps the option id, while the already-multi-value axes keep
+`option-id:value-token`. The id is stored explicitly on the value rather than
+derived from the current number of siblings, so adding another value cannot
+silently rename a persisted selection. When an option has multiple selectable
+values, each carries the option id as its conflict group; a picker therefore
+single-selects those rows without inventing grouping semantics.
+
+`StyleOptionCatalog.ResolveChoices` applies a set of those ids to
+`DefaultOptions`. Unknown ids and two distinct ids from one conflict group fail
+visibly instead of degrading to default or input-order-dependent output; duplicate
+copies of one id are harmless. Choice ids are the host/persistence vocabulary,
+not `.dotnet-inspectconfig` keys: the CLI's file parser continues to resolve the
+separate `ConfigKey` / `ValueConfigKey` vocabulary because independent keys such
+as the three `var` categories may compose even though a compact picker presents
+one value from that family at a time.
+
 `OracleEndorsed` records **declared**-oracle endorsement specifically — the value
 has a `.editorconfig` rule behind it. `CorpusEndorsed` records **revealed**
 endorsement — the runtime's own source corpus reveals a dominant practice for the
@@ -835,9 +858,8 @@ fold declared ∪ revealed while "full taste" stays declared-only
 
 This makes the option surface discoverable and drift-proof for every host, not
 just the CLI: the config resolver derives its recognized keys from every value's
-`ConfigKey` and descriptor's `ValueConfigKey`, a Wasm UI can enumerate the knobs
-(presenting each axis's `Values` as a mutually-exclusive choice and driving it
-through `GetValue`/`WithValue`), and the
+`ConfigKey` and descriptor's `ValueConfigKey`, a Wasm UI can enumerate
+`Choices` and drive the selection through `ResolveChoices`, and the
 "full taste" aggregate is exactly the endorsed value of each participating axis.
 The catalog exposes the participating knobs as `OracleEndorsedOptions` and applies
 the aggregate with `ApplyFullTaste(PrinterOptions, enabled)` — selecting each
