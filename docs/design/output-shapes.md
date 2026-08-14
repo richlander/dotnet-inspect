@@ -413,7 +413,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) selects **lowered** vocabulary — computed table columns such as `Return Type` have no counterpart in the typed object model — so naming one opts into the lowered display view instead of the pre-lowered typed document (#3494). On `find`, that combination renders the projected sections as JSON, using the same machine key names `--jsonl` and the pre-lowered `--json` use (`type`, not the `Type` heading Markdown shows) so the flag keeps one vocabulary whether or not a projection was requested, and honoring `--rows`/`--compact` like every other format. Elsewhere the lowered JSON view is not wired yet, so the combination is still rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) selects **lowered** vocabulary — computed table columns such as `Return Type` have no counterpart in the typed object model — so naming one opts into the lowered display view instead of the pre-lowered typed document (#3494). On `find`, `type`, and `member`, that combination renders the projected sections as JSON, using the same machine key names `--jsonl` and the pre-lowered `--json` use (`type`, not the `Type` heading Markdown shows) so the flag keeps one vocabulary whether or not a projection was requested, and honoring `--rows`/`--compact` like every other format. Other commands still reject the combination rather than silently dropping it unless they explicitly implement the lowered view — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
@@ -428,6 +428,12 @@ the caller made.
 `--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
 Table-or-narrower selection; multi-section (Document) output stays in Markdown or
 JSON.
+
+The lowered JSON formatter fails closed when a selected Markout shape cannot be
+represented without losing data. In particular, inline fields whose values are
+written directly to the text stream and streaming tree nodes that carry only a
+rendered prefix are not silently omitted. Select their table or field-set
+section when one exists, or use the typed JSON document.
 
 ### URL-shape modifiers (orthogonal to the ladder)
 

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using System.Net;
 using DotnetInspector.CSharpBodySlicer;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -823,19 +822,34 @@ public class ApiCommand
                 + "use normal verbosity or JSON for failure details.");
         }
 
-        if (options.JsonOutput && !options.Count)
+        bool projectedJson = options.JsonOutput
+            && !options.Count
+            && IsColumnProjectionRequested(options);
+        if (options.JsonOutput && !options.Count && !projectedJson)
         {
-            // --fields/--columns select table columns; document JSON has no column-slicing
-            // facility, so the combination is rejected rather than silently dropped.
-            if (IsColumnProjectionRequested(options))
-                return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
             return 0;
         }
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
 
-        if (options.Count)
+        if (projectedJson)
+        {
+            var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            var json = OutputFormatter.RenderProjectedJson(
+                options.Columns,
+                options.Fields,
+                (writer, formatter, projectedOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view, writer, formatter, ApiViewContext.Default, projectedOptions),
+                indented: !options.CompactJson,
+                maxRows: options.Rows,
+                writerOptions);
+            if (!TryReportEmptyProjection(json == "{}" ? string.Empty : json, options))
+                return 1;
+            Console.WriteLine(json);
+        }
+        else if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
@@ -1184,24 +1198,10 @@ public class ApiCommand
     private static bool IsProjectionRequested(ApiOptions options)
         => options.Print || options.Value || options.Urls || options.Paths;
 
-    // --fields/--columns select table columns. They compose with the row-oriented formats
-    // (--table/--tsv/--jsonl) and, when paired with a scalar payload projection, pick which
-    // column feeds --value/--print. They do not compose with document --json, which renders the
-    // whole typed graph and has no column-slicing (jq-style) facility, so the combination is
-    // rejected rather than silently dropped. See dotnet-inspect#3386 and richlander/markout#173.
+    // --fields/--columns select lowered Markout vocabulary. With document --json they opt into
+    // the lowered JSON view; without either flag, --json retains the typed object graph.
     private static bool IsColumnProjectionRequested(ApiOptions options)
         => options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
-
-    private static int RejectColumnProjectionUnderJson(bool suggestPayloadProjection)
-    {
-        var hint = suggestPayloadProjection
-            ? " Use --tsv, --jsonl, or --table to project columns, or add --value/--print to project a payload."
-            : " Use --tsv, --jsonl, or --table to project columns.";
-        CommandError.Write(
-            "--fields/--columns select table columns and cannot be combined with --json, "
-            + "which renders the whole document." + hint);
-        return 1;
-    }
 
     private static int RejectSurfacePayloadProjection(ApiOptions options)
     {
@@ -1277,13 +1277,17 @@ public class ApiCommand
             return 1;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
+        bool projectedJson = options.JsonOutput
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && !sourceDocumentJson
+            && IsColumnProjectionRequested(options);
+        if (options.JsonOutput
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && !sourceDocumentJson
+            && !projectedJson)
         {
-            // --fields/--columns select table columns; document JSON has no column-slicing
-            // facility, so the combination is rejected rather than silently dropped. A scalar
-            // payload projection (--value/--print) does compose, and is handled above.
-            if (IsColumnProjectionRequested(options))
-                return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
             WriteJsonTypeOutput(type, options);
             return 0;
         }
@@ -1509,6 +1513,30 @@ public class ApiCommand
             return result;
         }
 
+        if (projectedJson)
+        {
+            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            ConfigureTypeSectionOrder(type, options, writerOptions);
+            OutputFormatter.WriteProjectedJson(
+                sink,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, projectedOptions) =>
+                {
+                    var markoutWriter = new MarkoutWriter(writer, formatter, projectedOptions);
+                    ApiOutputFormatter.SerializeTypeDocument(
+                        view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                        explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
+                    markoutWriter.Flush();
+                },
+                indented: !options.CompactJson,
+                maxRows: options.Rows,
+                writerOptions);
+            ApiOutputFormatter.WriteSignatureDecodeWarning(view);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+        }
+
         if (options.Count)
         {
             // A call graph declares edge rows in its projection. Count those rows directly
@@ -1619,16 +1647,7 @@ public class ApiCommand
             }
             else
             {
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
-                }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    writerOptions.SectionOrder = pipeline.InfoSectionNames;
-                }
+                ConfigureTypeSectionOrder(type, options, writerOptions);
 
                 writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
@@ -1644,6 +1663,21 @@ public class ApiCommand
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
+    }
+
+    private static void ConfigureTypeSectionOrder(
+        ApiType type, ApiOptions options, MarkoutWriterOptions writerOptions)
+    {
+        if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        {
+            var pipeline = ApiMemberSectionPipelines.Create(options);
+            writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
+        }
+        else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+        {
+            var pipeline = ApiMemberSectionPipelines.Create(options);
+            writerOptions.SectionOrder = pipeline.InfoSectionNames;
+        }
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)
@@ -1794,18 +1828,7 @@ public class ApiCommand
     }
 
     private static string? Uncode(string? value)
-    {
-        if (value is null)
-            return null;
-        if (value is { Length: > 1 } && value[0] == '`' && value[^1] == '`')
-            return WebUtility.HtmlDecode(value[1..^1]);
-        const string open = "<code>";
-        const string close = "</code>";
-        return value.StartsWith(open, StringComparison.OrdinalIgnoreCase)
-            && value.EndsWith(close, StringComparison.OrdinalIgnoreCase)
-                ? WebUtility.HtmlDecode(value[open.Length..^close.Length])
-                : WebUtility.HtmlDecode(value);
-    }
+        => value is null ? null : MarkoutInline.ToPlainText(value);
 
     private static List<PrintableDocument> CodeSectionDocument(string section, string label, string? url, string? content)
         => string.IsNullOrEmpty(content)

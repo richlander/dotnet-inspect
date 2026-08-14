@@ -143,6 +143,17 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void HeadingWithoutProjectedContent_DoesNotCreateSuccessShapedSection()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+
+        Assert.Equal("{}", formatter.Finish());
+    }
+
+    [Fact]
     public void SameKindContentInOneSection_Accumulates()
     {
         // The negative case that keeps the guard honest: appending content of the kind a section

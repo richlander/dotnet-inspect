@@ -532,6 +532,8 @@ dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect type Command --project ./src/App
 dotnet-inspect member Command --project ./src/App -S "Member Index"
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S Methods --columns Name --json
+dotnet-inspect member JsonSerializer --platform System.Text.Json -S "Member Index" --columns Stable --json
 dotnet-inspect project ./src/App -S Skills --jsonl
 dotnet-inspect project ./src/App -S Skills --paths
 dotnet-inspect project ./src/App -S Skills --print --row 1

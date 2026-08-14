@@ -1,4 +1,5 @@
 using ILInspector.CSharp;
+using System.Net;
 
 namespace DotnetInspector.Output;
 
@@ -23,6 +24,22 @@ internal static class MarkoutInline
     /// </remarks>
     public static string Code(string value)
         => $"<code>{EscapeXmlText(CSharpIdentifier.ContainRenderedText(value))}</code>";
+
+    /// <summary>
+    /// Converts the inline representation to the plain cell value table formats expose.
+    /// </summary>
+    public static string ToPlainText(string value)
+    {
+        if (value is { Length: > 1 } && value[0] == '`' && value[^1] == '`')
+            return WebUtility.HtmlDecode(value[1..^1]);
+
+        const string open = "<code>";
+        const string close = "</code>";
+        return value.StartsWith(open, StringComparison.OrdinalIgnoreCase)
+            && value.EndsWith(close, StringComparison.OrdinalIgnoreCase)
+                ? WebUtility.HtmlDecode(value[open.Length..^close.Length])
+                : WebUtility.HtmlDecode(value);
+    }
 
     private static string EscapeXmlText(string value)
         => value

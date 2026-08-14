@@ -5884,18 +5884,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task TypeListing_ColumnProjectionWithJson_IsRejected()
+    public async Task TypeListing_ColumnProjectionWithJson_LowersToProjectedView()
     {
-        // #3386: --columns/--fields select table columns; document --json has no column-slicing
-        // facility. The combination used to silently drop the column filter and emit the whole
-        // typed document; it now fails closed instead.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--json");
+            "type", "--platform", "System.Runtime", "-S", "Interfaces",
+            "--columns", "Type", "--json", "--rows", "2");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
         Assert.DoesNotContain("produced unprojected output", error);
+
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("interfaces").EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        foreach (var row in rows)
+            Assert.Equal(["type"], row.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]
@@ -5914,27 +5917,154 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task SingleType_ColumnProjectionWithJson_IsRejected()
+    public async Task SingleType_ColumnProjectionWithJson_LowersToProjectedView()
     {
-        // #3386: the same rejection applies on the single-type path.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods",
+            "--columns", "Name", "--json", "--rows", "2");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("methods").EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        foreach (var row in rows)
+            Assert.Equal(["name"], row.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]
-    public async Task Member_ColumnProjectionWithJson_IsRejected()
+    public async Task Member_ColumnProjectionWithJson_LowersToProjectedView()
     {
-        // #3386: the member path shares the single-type writer, so it inherits the rejection.
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+            "member", "System.String", "--platform", "System.Runtime", "-S", "Methods",
+            "--columns", "Name", "--json", "--rows", "2");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("methods").EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        foreach (var row in rows)
+            Assert.Equal(["name"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task MemberDetail_ProjectedJson_MatchesSingleTableJsonlShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone:1", "--platform", "System.Runtime",
+            "-S", "Signature", "--columns", "Signature", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("summary", out _));
+        var rows = document.RootElement.GetProperty("signature").EnumerateArray().ToArray();
+        Assert.Single(rows);
+        Assert.Equal(
+            ["signature"],
+            rows[0].EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("public virtual object Clone()", rows[0].GetProperty("signature").GetString());
+    }
+
+    [Fact]
+    public async Task TypeListing_ProjectedJsonRows_CarryTheSameContentAsJsonl()
+    {
+        var json = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--columns", "Type,Members", "--json", "--rows", "3");
+        var jsonl = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--columns", "Type,Members", "--jsonl", "--rows", "3");
+
+        Assert.Equal(0, json.Exit);
+        Assert.Equal(0, jsonl.Exit);
+
+        static string Pairs(JsonElement row) =>
+            string.Join("\u001f", row.EnumerateObject()
+                .Select(property => $"{property.Name}={property.Value.GetString()}"));
+
+        var expected = jsonl.Output.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return Pairs(row.RootElement);
+            })
+            .ToArray();
+        using var document = JsonDocument.Parse(json.Output);
+        var actual = document.RootElement.GetProperty("classes")
+            .EnumerateArray().Select(Pairs).ToArray();
+
+        Assert.Equal(3, expected.Length);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task SingleType_ProjectedJsonFieldsUseLoweredFactTable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Type Info",
+            "--fields", "Kind", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal("Kind", row.GetProperty("field").GetString());
+        Assert.Equal("class", row.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task SingleType_EmptyRowWindowUnderProjectedJsonRemainsParsable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods",
+            "--columns", "Name", "--json", "--rows", "100000..");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Empty(document.RootElement.GetProperty("methods").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task TypeListing_CompactUnderProjectedJsonIsHonored()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--columns", "Type", "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("\n  ", output, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        Assert.Single(document.RootElement.GetProperty("classes").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task TypeListing_JsonWithoutProjectionKeepsTypedShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("types", out var types));
+        Assert.Equal(JsonValueKind.Array, types.ValueKind);
+        Assert.False(document.RootElement.TryGetProperty("classes", out _));
+    }
+
+    [Fact]
+    public async Task UnsupportedInlineFieldShapeUnderProjectedJsonFailsAtomically()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-v:q", "--fields", "Kind", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Contains("without its value at the formatter seam", error, StringComparison.Ordinal);
     }
 
     [Fact]

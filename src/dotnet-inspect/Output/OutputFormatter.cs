@@ -160,15 +160,22 @@ public static class OutputFormatter
     /// The serialize callback is handed <see cref="TextWriter.Null"/> because JSON is assembled by
     /// the formatter rather than written linearly; the rendered text stream carries no content.
     /// </para>
+    /// <para>
+    /// A supplied <paramref name="writerOptions"/> retains the caller's section selection and
+    /// ordering. This method replaces only its projection, row window, and table vocabulary.
+    /// </para>
     /// </remarks>
     public static string RenderProjectedJson(
         string[]? columns,
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         bool indented = true,
-        RowWindow? maxRows = null)
+        RowWindow? maxRows = null,
+        MarkoutWriterOptions? writerOptions = null)
     {
-        var writerOptions = CreateProjectedWriterOptions(columns, fields, maxRows);
+        writerOptions ??= new MarkoutWriterOptions();
+        writerOptions.Projection = BuildProjection(columns, fields);
+        writerOptions.RowWindow = RowWindow.ToMarkout(maxRows);
         // Ask Markout for the JSONL flavor of the header names. The formatter is ours, so this
         // does not change who renders the table -- it changes the vocabulary handed to the
         // renderer, which is how --jsonl and the pre-lowered --json both get machine keys
@@ -195,8 +202,10 @@ public static class OutputFormatter
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         bool indented = true,
-        RowWindow? maxRows = null) =>
-        output.WriteLine(RenderProjectedJson(columns, fields, serialize, indented, maxRows));
+        RowWindow? maxRows = null,
+        MarkoutWriterOptions? writerOptions = null) =>
+        output.WriteLine(RenderProjectedJson(
+            columns, fields, serialize, indented, maxRows, writerOptions));
 
     /// <summary>
     /// Serializes a view with <c>--rows</c> applied at the writer seam and writes the result.

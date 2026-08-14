@@ -52,16 +52,17 @@ public static class ApiOutputFormatter
         // what bare -S started doing once it began selecting API Info. Quiet keeps the line because
         // at quiet there are no sections to carry it. See #3547.
         //
-        // An active --fields/--columns projection is the exception, and not as a special case for
-        // its own sake: markout renders the document title alongside these scalars, so once a
-        // projection is active and no scalar survives it drops the H1 as well. Emptying them
-        // therefore did not merely hide a line -- it turned `--fields Types` into the Classes table
-        // with no title, and `--columns Type` into a headless table. Suppressing the line is a
-        // decision about the DEFAULT view, so a caller who names fields or columns opts out of it.
-        var projectionActive = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
-        var showCompactFields = options.Verbosity == Verbosity.Quiet
-            ? options.IncludeSections is not { Count: > 0 }
-            : projectionActive;
+        // An active --fields/--columns projection is the Markdown exception: markout renders the
+        // document title alongside these scalars, so once a projection leaves no scalar it drops
+        // the H1 too. Lowered JSON deliberately keeps the exception narrower. It cannot consume
+        // Markout's single-field callback without losing the directly-written value, and it has no
+        // title to preserve. The identity facts remain available in projectable API Info.
+        var projectionActive =
+            options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+        var showCompactFields = !options.JsonOutput
+            && (options.Verbosity == Verbosity.Quiet
+                ? options.IncludeSections is not { Count: > 0 }
+                : projectionActive);
 
         var view = new CliApiSurface
         {
@@ -127,13 +128,14 @@ public static class ApiOutputFormatter
             var showDocs = options.ShowDocs
                 || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)
                     || c.Equals("Kind", StringComparison.OrdinalIgnoreCase)) == true;
-            PopulateTypeSections(view, api.Types, showDocs);
+            PopulateTypeSections(view, api.Types, showDocs, sortRows: options.JsonOutput);
         }
 
         return (view, truncatedCount);
     }
 
-    private static void PopulateTypeSections(CliApiSurface view, List<ApiType> types, bool showDocs)
+    private static void PopulateTypeSections(
+        CliApiSurface view, List<ApiType> types, bool showDocs, bool sortRows)
     {
         var byKind = types
             .GroupBy(t => t.Kind)
@@ -142,7 +144,12 @@ public static class ApiOutputFormatter
 
         foreach (var group in byKind)
         {
-            var rows = group.Select(t =>
+            // JSONL sorts its flattened type table by full name. Keep lowered JSON byte-order
+            // compatible without changing the historical Markdown document order.
+            IEnumerable<ApiType> orderedTypes = sortRows
+                ? group.OrderBy(t => t.FullName, StringComparer.Ordinal)
+                : group;
+            var rows = orderedTypes.Select(t =>
             {
                 var fullName = FormatGenericFullName(t);
                 var members = t.Members.Count.ToString();

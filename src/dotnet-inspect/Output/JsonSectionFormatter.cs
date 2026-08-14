@@ -62,6 +62,7 @@ internal sealed class JsonSectionFormatter :
 
         public string Name { get; } = name;
         public SectionKind Kind { get; private set; } = kind;
+        public bool HasContent => _hasContent;
         public string[] Headers { get; private set; } = [];
         public List<string[]> Rows { get; } = [];
         public List<MarkoutField> Fields { get; } = [];
@@ -79,9 +80,8 @@ internal sealed class JsonSectionFormatter :
         ///
         /// That case is a gap in this projection, not a caller error, and the repository rule is to
         /// keep failure visible rather than emit success-shaped output that quietly lost data. It is
-        /// unreachable from the single-table views wired today (dotnet-inspect#3494); throwing is
-        /// what forces the mixed-content shape to be designed when a multi-section view first needs
-        /// it, instead of shipping silent truncation.
+        /// Throwing forces each newly wired multi-section view to account for the shape instead of
+        /// shipping silent truncation.
         /// </remarks>
         public void Adopt(SectionKind incoming)
         {
@@ -137,13 +137,13 @@ internal sealed class JsonSectionFormatter :
                 ValidateRowWidth(row.Length);
 
             foreach (var row in rows)
-                Rows.Add(row);
+                Rows.Add([.. row.Select(MarkoutInline.ToPlainText)]);
         }
 
         public void AddRow(ReadOnlySpan<string> values)
         {
             ValidateRowWidth(values.Length);
-            Rows.Add(values.ToArray());
+            Rows.Add([.. values.ToArray().Select(MarkoutInline.ToPlainText)]);
         }
 
         private void ValidateRowWidth(int width)
@@ -216,13 +216,13 @@ internal sealed class JsonSectionFormatter :
         if (_current is null)
         {
             foreach (var field in fields)
-                _rootFields.Add(field);
+                _rootFields.Add(field with { Value = MarkoutInline.ToPlainText(field.Value) });
             return;
         }
 
         _current.Adopt(SectionKind.Fields);
         foreach (var field in fields)
-            _current.Fields.Add(field);
+            _current.Fields.Add(field with { Value = MarkoutInline.ToPlainText(field.Value) });
     }
 
     public void FormatTable(
@@ -271,7 +271,7 @@ internal sealed class JsonSectionFormatter :
 
         var section = RequireSection(SectionKind.List);
         foreach (var value in values)
-            section.Items.Add(value);
+            section.Items.Add(MarkoutInline.ToPlainText(value));
     }
 
     public void FormatListItem(TextWriter writer, string item)
@@ -279,7 +279,7 @@ internal sealed class JsonSectionFormatter :
         RequireNoActiveStreamingTable("format a list item");
 
         var section = RequireSection(SectionKind.List);
-        section.Items.Add(item);
+        section.Items.Add(MarkoutInline.ToPlainText(item));
     }
 
     public void FormatTree(TextWriter writer, ReadOnlySpan<TreeNode> nodes, MarkoutWriterOptions options)
@@ -326,7 +326,9 @@ internal sealed class JsonSectionFormatter :
             foreach (var field in _rootFields)
                 json.WriteString(RequireUniqueKey(emitted, field.Key), field.Value);
 
-            foreach (var section in _sections)
+            // A heading whose projected body emitted nothing is not itself data. Explicit empty
+            // fields, tables, lists, and trees still call Adopt and retain their shape.
+            foreach (var section in _sections.Where(section => section.HasContent))
                 WriteSection(json, section, RequireUniqueKey(emitted, section.Name));
 
             json.WriteEndObject();
