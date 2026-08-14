@@ -17,6 +17,7 @@ using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.DecompilerHarness;
@@ -159,7 +160,7 @@ static class FidelityCheck
                 break;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(path)); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             using (pe)
             {
                 if (!pe.HasMetadata)
@@ -168,7 +169,7 @@ static class FidelityCheck
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(path, context: metadata); }
-                catch { continue; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
                 var references = RuntimeReferences(path);
                 using (source)
@@ -187,6 +188,7 @@ static class FidelityCheck
                         zeroSignal?.Observe(total, exact, opcodeDiff + operandDiff, recompileFail, contextFail, recompileFailCodes);
                     }
                 }
+
             }
         }
 
@@ -356,7 +358,8 @@ static class FidelityCheck
         CaptureMode Capture = CaptureMode.WholeModule,
         string? CaptureDetail = null,
         IlBodyDiffResult? FidelityDiff = null,
-        string? Annotated = null);
+        string? Annotated = null,
+        bool UsedProductWholeMember = false);
 
     internal static CompileBackStatus ClassifyStatus(
         bool isFull,
@@ -589,7 +592,7 @@ static class FidelityCheck
 
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             using (pe)
             {
                 if (!pe.HasMetadata)
@@ -598,7 +601,7 @@ static class FidelityCheck
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(assemblyPath, context: metadata); }
-                catch { continue; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)
                 {
@@ -923,7 +926,7 @@ static class FidelityCheck
                 break;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             using (pe)
             {
                 if (!pe.HasMetadata)
@@ -938,7 +941,7 @@ static class FidelityCheck
                         ? MetadataSource.Open(assemblyPath, context: metadata)
                         : MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata);
                 }
-                catch { continue; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)
                 {
@@ -1244,7 +1247,7 @@ static class FidelityCheck
             string? chain;
             IReadOnlyList<(string Field, string Value)> fieldInits;
             try { var printed = render(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             if (body is null)
                 continue;
             var requiredNamespaces = MemberBodyFacts.ReferencedNamespaces(function);
@@ -1256,7 +1259,12 @@ static class FidelityCheck
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             bool requiresAsync = function.RequiresAsyncBodyModifier
                 || function.IsRuntimeAsync == MetadataFactState.Yes;
-            var wholeMember = TryRenderTargetMember(pe, source, mh, targeted: methodFilter is not null);
+            var wholeMember = TryRenderTargetMember(
+                pe,
+                source,
+                mh,
+                targeted: methodFilter is not null,
+                isPrimaryConstructor: primaryConstructor is not null);
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -1523,11 +1531,12 @@ static class FidelityCheck
         // them once at the field), so any ctor entry's lifted inits serve the group.
         var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
 
-        string unit;
-        try { unit = timings is null
+        BuiltUnit built;
+        try { built = timings is null
             ? BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)); }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return false; }
+        string unit = built.Source;
 
         var tree = timings is null
             ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -1545,8 +1554,8 @@ static class FidelityCheck
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var disassembled = timings is null
-            ? DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries)
-            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries));
+            ? DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries, built.ProductWholeMembers)
+            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries, built.ProductWholeMembers));
         if (disassembled is null)
             return false;   // a method that compiled but cannot be found — fall to isolation
         results.AddRange(disassembled);
@@ -1558,7 +1567,8 @@ static class FidelityCheck
         MetadataReader originalReader,
         PEReader recompiledPe,
         string fullType,
-        IReadOnlyList<Entry> entries)
+        IReadOnlyList<Entry> entries,
+        IReadOnlySet<MethodDefinitionHandle> productWholeMembers)
     {
         var disassembled = new List<CompileBackResult>(entries.Count);
         foreach (var e in entries)
@@ -1575,7 +1585,12 @@ static class FidelityCheck
                 fullType,
                 e.Name,
                 e.Overload);
-            disassembled.Add(Classify(fullType, e, rOps, fidelityDiff));
+            disassembled.Add(Classify(
+                fullType,
+                e,
+                rOps,
+                fidelityDiff,
+                productWholeMembers.Contains(e.Handle)));
         }
         return disassembled;
     }
@@ -1586,11 +1601,16 @@ static class FidelityCheck
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, Entry e, FidelityPhaseTimings? timings)
     {
-        string unit;
-        try { unit = timings is null
+        BuiltUnit built;
+        try { built = timings is null
             ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)); }
-        catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit");
+        }
+        string unit = built.Source;
+        bool usedProductWholeMember = built.ProductWholeMembers.Contains(e.Handle);
 
         var tree = timings is null
             ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -1612,7 +1632,17 @@ static class FidelityCheck
                 File.WriteAllText(path, unit);
                 Console.Error.WriteLine($"{path}: {err}");
             }
-            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", FormatDiagnostic(err), Annotated: RenderAnnotatedFailure(unit, err));
+            return new(
+                fullType,
+                e.Name,
+                e.Overload,
+                e.Signature,
+                CompileBackStatus.RecompileFail,
+                e.OrigText,
+                "",
+                FormatDiagnostic(err),
+                Annotated: RenderAnnotatedFailure(unit, err),
+                UsedProductWholeMember: usedProductWholeMember);
         }
         ms.Position = 0;
         using var rpe = new PEReader(ms);
@@ -1620,12 +1650,22 @@ static class FidelityCheck
             ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
             : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
         return rOps is null
-            ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
+            ? new(
+                fullType,
+                e.Name,
+                e.Overload,
+                e.Signature,
+                CompileBackStatus.ContextFail,
+                e.OrigText,
+                "",
+                "method-not-found",
+                UsedProductWholeMember: usedProductWholeMember)
             : Classify(
                 fullType,
                 e,
                 rOps,
-                CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload));
+                CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload),
+                usedProductWholeMember);
     }
 
     // ---- Reconstruction-closure (cluster) capture (#1412, opt-in via CB_CLUSTER) ----
@@ -1960,15 +2000,17 @@ static class FidelityCheck
         Diagnostic? firstError = null;
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            string unit;
-            try { unit = timings is null
+            BuiltUnit built;
+            try { built = timings is null
                 ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)
                 : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)); }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 captureDetail = "cluster-source-build-failed";
                 return null; // fall back to the whole-module build
             }
+            string unit = built.Source;
+            bool usedProductWholeMember = built.ProductWholeMembers.Contains(e.Handle);
 
             var tree = timings is null
                 ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -1999,7 +2041,8 @@ static class FidelityCheck
                     fullType,
                     e,
                     rOps,
-                    CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload));
+                    CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload),
+                    usedProductWholeMember);
             }
 
             var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
@@ -2242,11 +2285,13 @@ static class FidelityCheck
         string fullType,
         Entry e,
         IReadOnlyList<string> rOps,
-        IlBodyDiffResult fidelityDiff) =>
+        IlBodyDiffResult fidelityDiff,
+        bool usedProductWholeMember) =>
         new(fullType, e.Name, e.Overload, e.Signature,
             ClassifyStatus(e.IsFull, e.OrigOps.SequenceEqual(rOps), fidelityDiff),
             e.OrigText, string.Join(" ", rOps), fidelityDiff.Failure,
-            FidelityDiff: fidelityDiff);
+            FidelityDiff: fidelityDiff,
+            UsedProductWholeMember: usedProductWholeMember);
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)
     {
@@ -2759,7 +2804,7 @@ static class FidelityCheck
         bool RequiresAsync,
         PrimaryConstructorShape? PrimaryConstructor = null,
         IReadOnlySet<string>? RequiredNamespaces = null,
-        // pr5a (#2996): the product's whole-member render (signature + body) for a
+        // The product's whole-member render (signature + body) for a
         // migrated target, replacing the harness's self-spelled signature. Null
         // keeps the legacy EmitMethod path. WholeMemberNamespaces are the imports
         // the render shortened against, hoisted into the compile-back unit usings.
@@ -2770,8 +2815,12 @@ static class FidelityCheck
         string Parameters,
         IReadOnlyList<(string Field, string Value)> FieldInitializers);
 
+    readonly record struct BuiltUnit(
+        string Source,
+        IReadOnlySet<MethodDefinitionHandle> ProductWholeMembers);
+
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
-    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, TargetBody targetBody,
+    static BuiltUnit BuildUnit(MetadataReader reader, MethodDefinitionHandle target, TargetBody targetBody,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
         SignatureSpellability accessibility,
         IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
@@ -2791,12 +2840,13 @@ static class FidelityCheck
     /// them); they only change constructor IL, so non-constructor targets are
     /// indifferent to them.
     /// </summary>
-    static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+    static BuiltUnit BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
         SignatureSpellability accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
         IReadOnlySet<string>? isolatedTargetNamespaces = null)
     {
         var sb = new StringBuilder();
+        var productWholeMembers = new HashSet<MethodDefinitionHandle>();
         sb.AppendLine("#pragma warning disable");
         // The product printer spells framework types by their short name
         // (`List<T>`, `PEReader`, `AssemblyReferenceHandle`), assuming the standard
@@ -2809,7 +2859,7 @@ static class FidelityCheck
         if (isolatedTargetNamespaces is not null)
             foreach (var ns in isolatedTargetNamespaces)
                 usings.Add(ns);
-        // pr5a (#2996): a target rendered by the product (ProduceMember) shortens
+        // A target rendered by the product (ProduceMember) shortens
         // qualified type names against the decompiler's assumed imports; add the
         // namespaces it harvested so those short names bind in the compile-back unit.
         foreach (var t in targets.Values)
@@ -2817,7 +2867,7 @@ static class FidelityCheck
                 foreach (var ns in wholeMemberNamespaces)
                     usings.Add(ns);
         foreach (var ns in usings)
-            sb.AppendLine($"using {ns};");
+            sb.AppendLine($"using {EscapeNamespace(ns)};");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -2835,24 +2885,43 @@ static class FidelityCheck
             {
                 sb.AppendLine($"namespace {EscapeNamespace(ns)}");
                 sb.AppendLine("{");
-                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 1);
+                EmitType(
+                    reader,
+                    typeHandle,
+                    targets,
+                    fieldInits,
+                    fieldInitType,
+                    accessibility,
+                    productWholeMembers,
+                    sb,
+                    1);
                 sb.AppendLine("}");
             }
             else
             {
-                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 0);
+                EmitType(
+                    reader,
+                    typeHandle,
+                    targets,
+                    fieldInits,
+                    fieldInitType,
+                    accessibility,
+                    productWholeMembers,
+                    sb,
+                    0);
             }
         }
-        return sb.ToString();
+        return new BuiltUnit(sb.ToString(), productWholeMembers);
     }
 
     /// <summary>
     /// A <c>: Base</c> clause for a class whose base is a non-generic type in
     /// this assembly (so its constructors are visible to a lifted
     /// <c>: base(args)</c> initializer). Object and value-type bases need no
-    /// clause; generic bases (TypeSpec) and out-of-assembly bases are skipped —
-    /// the skeleton cannot always spell those, and an absent clause only costs a
-    /// base-call diff, never a miscompile.
+    /// clause; generic bases (TypeSpec) and out-of-assembly bases are skipped
+    /// except for framework bases the skeleton must preserve for C# semantics.
+    /// <see cref="System.Attribute"/> keeps reconstructed custom-attribute types
+    /// usable, and <see cref="System.Exception"/> preserves constructor chains.
     /// </summary>
     static string BaseClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind)
     {
@@ -2870,7 +2939,8 @@ static class FidelityCheck
         {
             return GenericBaseClause(reader, typeDef.BaseType);
         }
-        else if (typeDef.BaseType.Kind != HandleKind.TypeReference || BaseTypeName(reader, typeDef.BaseType) is not "System.Exception")
+        else if (typeDef.BaseType.Kind != HandleKind.TypeReference
+            || BaseTypeName(reader, typeDef.BaseType) is not ("System.Attribute" or "System.Exception"))
         {
             return ""; // most TypeReference bases — not reliably spellable
         }
@@ -2878,14 +2948,14 @@ static class FidelityCheck
         string baseName = BaseTypeName(reader, typeDef.BaseType);
         if (baseName is "System.Object")
             return "";
-        return $" : {Clean(baseName)}";
+        return $" : global::{Clean(baseName)}";
     }
 
     static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
     {
         TypeRef type;
         try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)handle, 0); }
-        catch { return ""; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return ""; }
 
         if (type is not
             {
@@ -2977,7 +3047,7 @@ static class FidelityCheck
 
         TypeRef type;
         try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)handle, 0); }
-        catch { return null; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
 
         if (type is not
             {
@@ -3129,7 +3199,10 @@ static class FidelityCheck
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureSpellability accessibility, StringBuilder sb, int indent)
+        SignatureSpellability accessibility,
+        ISet<MethodDefinitionHandle> productWholeMembers,
+        StringBuilder sb,
+        int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -3226,14 +3299,23 @@ static class FidelityCheck
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
             if (hasTarget && target.WholeMember is { } wholeMember)
-                EmitPrerenderedMember(wholeMember, sb, pad + "    ");
-            else
-                EmitMethod(reader, typeHandle, mh,
-                    hasTarget ? target.Body : null,
-                    hasTarget ? target.Chain : null,
-                    hasTarget && target.RequiresAsync,
-                    accessibility,
-                    sb, pad + "    ");
+            {
+                string methodName = reader.GetString(reader.GetMethodDefinition(mh).Name);
+                if (methodName != ".ctor"
+                    || TryForcePublicConstructorAccessibility(wholeMember, out wholeMember))
+                {
+                    EmitPrerenderedMember(wholeMember, sb, pad + "    ");
+                    productWholeMembers.Add(mh);
+                    continue;
+                }
+            }
+
+            EmitMethod(reader, typeHandle, mh,
+                hasTarget ? target.Body : null,
+                hasTarget ? target.Chain : null,
+                hasTarget && target.RequiresAsync,
+                accessibility,
+                sb, pad + "    ");
         }
 
         // A reconstructed class whose base type has no parameterless constructor
@@ -3260,7 +3342,16 @@ static class FidelityCheck
             if (reader.GetString(nestedDef.Name).Contains('<')
                 || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue; // compiler-generated (display class, iterator) — not valid C#
-            EmitType(reader, nested, targets, fieldInits, fieldInitType, accessibility, sb, indent + 1);
+            EmitType(
+                reader,
+                nested,
+                targets,
+                fieldInits,
+                fieldInitType,
+                accessibility,
+                productWholeMembers,
+                sb,
+                indent + 1);
         }
 
         static bool TypeHasAwaitTarget(
@@ -3299,7 +3390,7 @@ static class FidelityCheck
                 ret = Clean(sig.ReturnType);
                 parameters = Parameters(reader, m, sig);
             }
-            catch { }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
             break;
         }
         sb.AppendLine($"{pad}public unsafe delegate {ret} {Identifier(name)}{genParams}({parameters}){whereClauses};");
@@ -3337,7 +3428,7 @@ static class FidelityCheck
                 string body = (!pa.Getter.IsNil ? " get;" : "") + (!pa.Setter.IsNil ? " set;" : "");
                 sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(pname)} {{{body} }}");
             }
-            catch { }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
         }
 
         foreach (var mh in typeDef.GetMethods())
@@ -3351,7 +3442,7 @@ static class FidelityCheck
                 continue;
             MethodSignature<string> sig;
             try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
-            catch { continue; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             string mGen = GenericParamList(reader, method.GetGenericParameters());
             string mWhere = WhereClauses(reader, method.GetGenericParameters());
             sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(mn)}{mGen}({Parameters(reader, method, sig)}){mWhere};");
@@ -3363,7 +3454,16 @@ static class FidelityCheck
             if (reader.GetString(nestedDef.Name).Contains('<')
                 || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue;
-            EmitType(reader, nested, NoTargets, [], default, accessibility, sb, indent + 1);
+            EmitType(
+                reader,
+                nested,
+                NoTargets,
+                [],
+                default,
+                accessibility,
+                new HashSet<MethodDefinitionHandle>(),
+                sb,
+                indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -3482,7 +3582,7 @@ static class FidelityCheck
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
             }
-            catch { }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
         }
     }
 
@@ -3534,7 +3634,7 @@ static class FidelityCheck
             {
                 return Clean(field.DecodeSignature(SignatureDecoder.Instance, context)) == propertyType;
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return false;
             }
@@ -3649,7 +3749,7 @@ static class FidelityCheck
             return; // compiler-generated backing field
         string type;
         try { type = field.DecodeSignature(SignatureDecoder.Instance, context); }
-        catch { return; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return; }
         if (!accessibility.CanSpellField(reader, field, context)
             && !fieldInits.Any(init => string.Equals(init.Field, name, StringComparison.Ordinal)))
             return;
@@ -3678,7 +3778,7 @@ static class FidelityCheck
         string suffix = initializer is not null && !isStatic ? $" = {initializer}" : "";
         bool isVolatile = false;
         try { isVolatile = MetadataDeclarationQuery.IsVolatileField(reader, field, context); }
-        catch { /* signature already decoded above; treat as non-volatile */ }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { /* signature already decoded above; treat as non-volatile */ }
         string fieldType = Clean(type);
         string unsafeModifier = RequiresUnsafeSignature(fieldType) ? "unsafe " : "";
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{(isVolatile ? "volatile " : "")}{fieldType} {Identifier(name)}{suffix};");
@@ -3731,29 +3831,40 @@ static class FidelityCheck
                         if (member.MetadataToken is { } token)
                             index[token] = (type, member);
             }
-            catch { /* honest degradation: targets fall back to the harness signature path */ }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Honest degradation: targets fall back to the harness signature path.
+            }
             return index;
         });
 
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
-    /// replacing the harness's self-spelled signature (#2996 pr5a). Returns null
-    /// (keeping the legacy <see cref="EmitMethod"/> path) for member kinds not yet
-    /// migrated — constructors interact with lifted field initializers, and
-    /// accessors are emitted as whole properties — or when production does not
-    /// complete. Broad evaluation renders the whole type once and memoizes the
-    /// batch; method-filtered evaluation uses the product's targeted member path
-    /// so unselected siblings are not rendered.
+    /// replacing the harness's self-spelled signature. Ordinary constructors are
+    /// safe to migrate because the scaffold already applies the decompiler's
+    /// separately captured lifted field initializers to the reconstructed fields.
+    /// Non-essential custom attributes are omitted because the skeleton does not
+    /// reproduce arbitrary attribute inheritance; compilation-required attributes
+    /// such as <c>SkipLocalsInit</c> remain.
+    /// A detected primary constructor remains type-header-owned and therefore
+    /// declines the member render. Accessors still decline because the product
+    /// renders their containing property. Broad evaluation renders the whole type
+    /// once and memoizes the batch; method-filtered evaluation uses the product's
+    /// targeted member path so unselected siblings are not rendered.
     /// </summary>
-    static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
-        PEReader pe, MetadataSource source, MethodDefinitionHandle mh, bool targeted)
+    internal static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
+        PEReader pe,
+        MetadataSource source,
+        MethodDefinitionHandle mh,
+        bool targeted,
+        bool isPrimaryConstructor)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
-        // Slice 1 migrates plain methods and operators only.
-        if (entry.Member.Kind is not ("method" or "operator"))
+        if (isPrimaryConstructor
+            || entry.Member.Kind is not ("method" or "operator" or "constructor"))
             return null;
 
         var result = targeted
@@ -3761,6 +3872,12 @@ static class FidelityCheck
             : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
         if (result is null || !result.IsComplete || result.Text is null)
             return null;
+        if (entry.Member.Kind == "constructor"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not ConstructorDeclarationSyntax)
+        {
+            return null;
+        }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
     }
 
@@ -3769,10 +3886,22 @@ static class FidelityCheck
         try
         {
             return SourceContextCache.TryGetValue(source, out var context)
-                ? MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null, context.Resolver, context)
-                : MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null);
+                ? MemberBodyProducer.ProduceMember(
+                    type,
+                    member,
+                    source.Path,
+                    pdbPath: null,
+                    context.Resolver,
+                    context,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired)
+                : MemberBodyProducer.ProduceMember(
+                    type,
+                    member,
+                    source.Path,
+                    pdbPath: null,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return null;
         }
@@ -3796,10 +3925,20 @@ static class FidelityCheck
         try
         {
             return SourceContextCache.TryGetValue(source, out var context)
-                ? MemberBodyProducer.ProduceMembers(type, source.Path, pdbPath: null, context.Resolver, context)
-                : MemberBodyProducer.ProduceMembers(type, source.Path, pdbPath: null);
+                ? MemberBodyProducer.ProduceMembers(
+                    type,
+                    source.Path,
+                    pdbPath: null,
+                    context.Resolver,
+                    context,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired)
+                : MemberBodyProducer.ProduceMembers(
+                    type,
+                    source.Path,
+                    pdbPath: null,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return new Dictionary<ApiMember, MemberRenderResult>();
         }
@@ -3808,10 +3947,16 @@ static class FidelityCheck
     /// <summary>
     /// Splices the product's whole-member text into the compile-back unit,
     /// re-indenting from the product's one-level (4-space) base to the member's
-    /// position in the reconstructed type. C# ignores indentation, so this is
-    /// cosmetic; only the token stream matters for the opcode comparison.
+    /// position in the reconstructed type. Constructor accessibility is normalized
+    /// to public, preserving the skeleton's same-assembly binding policy while the
+    /// product continues to own the rest of the declaration. C# ignores
+    /// indentation, so that part is cosmetic; only the token stream matters for
+    /// the opcode comparison.
     /// </summary>
-    static void EmitPrerenderedMember(string wholeMember, StringBuilder sb, string pad)
+    static void EmitPrerenderedMember(
+        string wholeMember,
+        StringBuilder sb,
+        string pad)
     {
         int shift = pad.Length - 4;
         string prefix = shift > 0 ? new string(' ', shift) : "";
@@ -3822,6 +3967,39 @@ static class FidelityCheck
             else
                 sb.Append(prefix).Append(line).Append('\n');
         }
+    }
+
+    internal static bool TryForcePublicConstructorAccessibility(
+        string wholeMember,
+        out string normalized)
+    {
+        normalized = wholeMember;
+        if (SyntaxFactory.ParseMemberDeclaration(wholeMember)
+            is not ConstructorDeclarationSyntax constructor)
+        {
+            return false;
+        }
+
+        var accessibility = constructor.Modifiers
+            .Where(token => token.IsKind(SyntaxKind.PublicKeyword)
+                || token.IsKind(SyntaxKind.PrivateKeyword)
+                || token.IsKind(SyntaxKind.ProtectedKeyword)
+                || token.IsKind(SyntaxKind.InternalKeyword))
+            .ToArray();
+        if (accessibility.Length == 0)
+            return false;
+
+        var publicToken = SyntaxFactory.Token(
+            accessibility[0].LeadingTrivia,
+            SyntaxKind.PublicKeyword,
+            accessibility[^1].TrailingTrivia);
+        var remaining = constructor.Modifiers
+            .Where(token => !accessibility.Contains(token))
+            .ToArray();
+        normalized = constructor
+            .WithModifiers(SyntaxFactory.TokenList([publicToken, .. remaining]))
+            .ToFullString();
+        return true;
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
@@ -3847,7 +4025,7 @@ static class FidelityCheck
             return;
         MethodSignature<string> sig;
         try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
-        catch { return; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return; }
 
         bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
         bool isAbstractStub = method.RelativeVirtualAddress == 0
@@ -4001,7 +4179,7 @@ static class FidelityCheck
                 if (method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method)).ParameterTypes.Length == 0)
                     return true;
             }
-            catch { return true; }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { return true; }
         }
         return false;
     }
@@ -4282,7 +4460,7 @@ static class FidelityCheck
             case HandleKind.TypeSpecification:
                 TypeRef type;
                 try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, genericScope, (TypeSpecificationHandle)handle, 0); }
-                catch { return null; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
                 return IsProtobufIMessageConstraint(type)
                     ? (Clean(FullyQualifiedTypeName(type)), true)
                     : null;
@@ -4519,7 +4697,7 @@ static class FidelityCheck
                 _ => null,
             };
         }
-        catch { return null; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
     }
 
     static string Invariant(double d) => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
