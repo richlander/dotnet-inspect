@@ -4,6 +4,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using DotnetInspector.Core;
+using InertText;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;

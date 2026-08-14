@@ -372,7 +372,8 @@ public static class HttpRetryHelper
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
-        long maxDownloadSize = 500_000_000)
+        long maxDownloadSize = 500_000_000,
+        Action<HttpRequestMessage>? configureRequest = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -399,6 +400,7 @@ public static class HttpRetryHelper
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     if (auth != null)
                         request.Headers.Authorization = auth;
+                    configureRequest?.Invoke(request);
                     request.Options.Set(BrowserStreamingResponse, true);
 
                     using var response = await client.SendAsync(
@@ -586,7 +588,8 @@ public static class HttpRetryHelper
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
-        long maxDownloadSize = DefaultMaxTextResponseBytes)
+        long maxDownloadSize = DefaultMaxTextResponseBytes,
+        Action<HttpRequestMessage>? configureRequest = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadSize);
 
@@ -600,6 +603,7 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
+                configureRequest?.Invoke(request);
                 return request;
             },
             HttpCompletionOption.ResponseHeadersRead,
