@@ -103,6 +103,57 @@ public static class AssemblyReader
     }
 
     /// <summary>
+    /// Extracts the compact public API summary used for trusted platform assemblies.
+    /// Type identities and member-kind counts are retained without decoding full signatures.
+    /// </summary>
+    public static ApiSurface? ExtractApiSummarySurface(string dllPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(dllPath);
+            var surface = ExtractApiSummarySurface(stream);
+            if (surface != null)
+            {
+                foreach (var type in surface.Types)
+                    type.SourceAssemblyPath = dllPath;
+            }
+            return surface;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extracts the compact public API summary from a trusted platform image stream.
+    /// </summary>
+    public static ApiSurface? ExtractApiSummarySurface(Stream stream)
+    {
+        try
+        {
+            using var peReader = new PEReader(stream);
+
+            if (!peReader.HasMetadata)
+                return null;
+
+            return ApiSurfaceExtractor.ExtractSummary(peReader);
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Finds the unique public type matching a full, simple, or generic-aware type query.
     /// Returns null when the assembly cannot be read, has no metadata, has no match,
     /// or has multiple matches.

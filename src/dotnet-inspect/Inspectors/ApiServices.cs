@@ -18,7 +18,8 @@ internal static class ApiServices
     internal sealed record LoadedApiSurface(
         ApiSurface Api,
         string ApiDllPath,
-        string PdbLookupPath);
+        string PdbLookupPath,
+        bool IsSummary = false);
 
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
@@ -106,6 +107,36 @@ internal static class ApiServices
         {
             return null;
         }
+    }
+
+    internal static LoadedApiSurface? LoadPlatformApiSummary(
+        string searchPath,
+        string runtimeAssemblyPath,
+        string? apiSource,
+        string? apiVersion,
+        string? selectedTfm,
+        VerboseLogger logger)
+    {
+        logger.Log($"Extracting compact API summary from: {Path.GetFileName(searchPath)}");
+        var api = AssemblyReader.ExtractApiSummarySurface(searchPath);
+        if (api == null)
+            return null;
+
+        ResolveForwardedTypes(
+            api,
+            searchPath,
+            logger,
+            includeAll: false,
+            isPlatformAssembly: true,
+            targetFramework: selectedTfm,
+            summaryOnly: true);
+
+        api.Name = Path.GetFileNameWithoutExtension(searchPath);
+        api.Tfm = selectedTfm;
+        api.Source = apiSource;
+        api.Version = apiVersion;
+        api.Library = Path.GetFileName(searchPath);
+        return new LoadedApiSurface(api, searchPath, runtimeAssemblyPath, IsSummary: true);
     }
 
     // ===== Type Lookup =====
@@ -211,10 +242,23 @@ internal static class ApiServices
         bool includeAll,
         bool isPlatformAssembly = false,
         ApiOptions? options = null,
-        string? targetFramework = null)
+        string? targetFramework = null,
+        bool summaryOnly = false)
     {
         if (api.TypeForwarders.Count == 0)
             return;
+
+        if (summaryOnly)
+        {
+            ResolveSummaryForwardedTypes(
+                api,
+                dllPath,
+                logger,
+                isPlatformAssembly,
+                options,
+                targetFramework);
+            return;
+        }
 
         using var resolution = new TypeDefinitionResolutionSession(
             dllPath,
@@ -525,5 +569,254 @@ internal static class ApiServices
                         ? []
                         : [forwarder.DefinitionName],
             });
+    }
+
+    static void ResolveSummaryForwardedTypes(
+        ApiSurface api,
+        string dllPath,
+        VerboseLogger logger,
+        bool isPlatformAssembly,
+        ApiOptions? options,
+        string? targetFramework)
+    {
+        TypeDefinitionResolutionSession? resolution = null;
+        var adjacentSummaries =
+            new Dictionary<string, ApiSurface?>(
+                StringComparer.OrdinalIgnoreCase);
+        HashSet<MetadataTypeDefinitionName> adjacentEligibleTypes =
+            api.TypeForwarders
+                .Where(forwarder => forwarder.DefinitionName is not null)
+                .GroupBy(forwarder => forwarder.DefinitionName!)
+                .Where(group => group.Count() == 1)
+                .Select(group => group.Key)
+                .ToHashSet();
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            (ResolvedAssemblyReference Assembly,
+                HashSet<MetadataTypeDefinitionName> Types)> byAssembly = [];
+        int resolvedCount = 0;
+
+        try
+        {
+            foreach (TypeForwarder forwarder in api.TypeForwarders)
+            {
+                if (forwarder.DefinitionName is null)
+                {
+                    logger.Log(
+                        $"Forwarded type '{forwarder.TypeName}' has no valid structured metadata name.");
+                    continue;
+                }
+
+                bool added = false;
+                bool handledAdjacent =
+                    adjacentEligibleTypes.Contains(forwarder.DefinitionName)
+                    && TryResolveAdjacentSummaryForwarder(
+                        api,
+                        dllPath,
+                        forwarder,
+                        adjacentSummaries,
+                        [],
+                        out added);
+                if (handledAdjacent)
+                {
+                    if (added)
+                        resolvedCount++;
+                    continue;
+                }
+
+                resolution ??= new TypeDefinitionResolutionSession(
+                    dllPath,
+                    isPlatformAssembly,
+                    options?.ProjectAssetsPath,
+                    options?.Tfm ?? targetFramework,
+                    options?.PlatformFramework);
+                TypeResolutionOutcome outcome =
+                    resolution.Resolve(forwarder.DefinitionName);
+                if (outcome is not TypeResolutionOutcome.Resolved resolved
+                    || resolved.Hops.IsDefaultOrEmpty)
+                {
+                    logger.Log(
+                        $"Could not resolve forwarded type '{forwarder.TypeName}': {outcome.GetType().Name}.");
+                    continue;
+                }
+
+                ResolvedAssemblyReference assembly =
+                    resolved.Definition.Assembly.Assembly;
+                if (!byAssembly.TryGetValue(
+                        assembly.Registration,
+                        out var group))
+                {
+                    group = (assembly, []);
+                    byAssembly.Add(assembly.Registration, group);
+                }
+                group.Types.Add(resolved.Definition.Type);
+            }
+
+            logger.Log(
+                $"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} acquired libraries...");
+            foreach (var (_, group) in byAssembly)
+            {
+                try
+                {
+                    using Stream stream = group.Assembly.OpenRead();
+                    ApiSurface? targetApi =
+                        AssemblyReader.ExtractApiSummarySurface(stream);
+                    if (targetApi is null)
+                        continue;
+
+                    foreach (ApiType type in targetApi.Types)
+                    {
+                        if (type.DefinitionName is not null
+                            && group.Types.Contains(type.DefinitionName))
+                        {
+                            AddForwardedType(
+                                api,
+                                type,
+                                group.Assembly.Path);
+                            resolvedCount++;
+                        }
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or BadImageFormatException
+                        or InvalidOperationException
+                        or NotSupportedException
+                        or ArgumentException)
+                {
+                    logger.Log(
+                        $"Error reading resolved assembly '{group.Assembly.Identity.Name}': {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            resolution?.Dispose();
+        }
+
+        if (resolvedCount > 0)
+        {
+            AssemblyResolutionProvenance provenance = isPlatformAssembly
+                ? AssemblyResolutionProvenance.Platform(
+                    "InstalledPlatform",
+                    frameworkVersion: null,
+                    "ApiServices")
+                : AssemblyResolutionProvenance.Local("ApiServices");
+            api.SurfaceClassification =
+                AssemblySurfaceClassifier.Classify(dllPath, provenance);
+            api.SurfaceClassificationInspection =
+                MetadataFindings.InspectAssemblySurface(
+                    api.SurfaceClassification,
+                    new FindingSubject(
+                        Path.GetFullPath(dllPath),
+                        Path.GetFileName(dllPath)));
+            api.IsTypeForwardingAssembly =
+                api.SurfaceClassification
+                    is AssemblySurfaceClassificationOutcome.Classified classified
+                && classified.Classification.Kind
+                    == AssemblySurfaceKind.Facade;
+            if (api.SurfaceClassification
+                is AssemblySurfaceClassificationOutcome.Rejected rejected)
+            {
+                logger.Log(
+                    $"Could not classify the forwarding surface: {rejected.Failure.Kind}.");
+            }
+            api.PublicTypeCount = api.Types.Count;
+            api.Types = api.Types.OrderBy(t => t.FullName).ToList();
+            logger.Log(
+                $"Resolved {resolvedCount} types from forwarded libraries.");
+        }
+    }
+
+    private static bool TryResolveAdjacentSummaryForwarder(
+        ApiSurface api,
+        string dllPath,
+        TypeForwarder forwarder,
+        Dictionary<string, ApiSurface?> adjacentSummaries,
+        HashSet<string> visitedPaths,
+        out bool added)
+    {
+        added = false;
+        if (!IsSafeAdjacentAssemblyName(forwarder.TargetAssembly))
+            return false;
+
+        string? directory = Path.GetDirectoryName(dllPath);
+        if (directory is null)
+            return false;
+
+        string targetPath = Path.Combine(directory, forwarder.TargetAssembly + ".dll");
+        if (!File.Exists(targetPath) || !visitedPaths.Add(targetPath))
+            return false;
+
+        if (!adjacentSummaries.TryGetValue(targetPath, out var targetApi))
+        {
+            targetApi = AssemblyReader.ExtractApiSummarySurface(targetPath);
+            adjacentSummaries.Add(targetPath, targetApi);
+        }
+
+        if (targetApi is null)
+            return false;
+
+        var matchingTypes = targetApi.Types
+            .Where(candidate => candidate.DefinitionName == forwarder.DefinitionName)
+            .Take(2)
+            .ToArray();
+        if (matchingTypes.Length == 1)
+        {
+            if (api.Types.Any(
+                candidate => candidate.DefinitionName == forwarder.DefinitionName))
+            {
+                return true;
+            }
+
+            AddForwardedType(api, matchingTypes[0], targetPath);
+            added = true;
+            return true;
+        }
+        if (matchingTypes.Length > 1)
+            return false;
+
+        var matchingForwarders = targetApi.TypeForwarders
+            .Where(candidate => candidate.DefinitionName == forwarder.DefinitionName)
+            .Take(2)
+            .ToArray();
+        if (matchingForwarders.Length == 1)
+        {
+            return TryResolveAdjacentSummaryForwarder(
+                api,
+                targetPath,
+                matchingForwarders[0],
+                adjacentSummaries,
+                visitedPaths,
+                out added);
+        }
+        if (matchingForwarders.Length > 1)
+            return false;
+
+        // The adjacent target was readable and contains neither a visible definition nor another
+        // hop. The full extractor would not add this forwarded type to the public surface either.
+        return true;
+    }
+
+    private static bool IsSafeAdjacentAssemblyName(string assemblyName) =>
+        !string.IsNullOrEmpty(assemblyName)
+        && assemblyName is not "." and not ".."
+        && assemblyName.IndexOfAny(['/', '\\']) < 0
+        && !Path.IsPathRooted(assemblyName);
+
+    private static void AddForwardedType(
+        ApiSurface api,
+        ApiType type,
+        string? sourceAssemblyPath)
+    {
+        type.IsForwarded = true;
+        type.SourceAssemblyPath = sourceAssemblyPath;
+        api.Types.Add(type);
+        api.PublicMethodCount += type.Members.Count(
+            DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
+        api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
+        api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
+        api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
     }
 }

@@ -975,6 +975,43 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Fact]
+    public void ApiServices_SummaryDoesNotOpenTraversalTarget()
+    {
+        string parent = CreateDirectory();
+        string directory = Path.Combine(parent, "input");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly("Facade", new AssemblyReferenceIdentity(
+                    "../payload",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)));
+            File.WriteAllBytes(
+                Path.Combine(parent, "payload.dll"),
+                BuildAssembly("../payload", definesType: true));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false,
+                summaryOnly: true);
+
+            Assert.Empty(api.Types);
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
     static MetadataTypeDefinitionName TypeName() =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("N", ["Type"])).Name;
