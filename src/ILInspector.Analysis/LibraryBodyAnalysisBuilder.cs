@@ -659,7 +659,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     if (!typeSourceGenerated
                         && !sourceGenerated
                         && compilerGenerated
-                        && hasSourceOwner)
+                        && hasSourceOwner
+                        && sourceOwner is not null
+                        && !IsBlazorRenderMethod(caller)
+                        && !IsBlazorRenderMethod(sourceOwner))
                     {
                         result.Opportunities =
                         [
@@ -1180,7 +1183,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
         var definition = _reader.GetMethodDefinition(ownerHandle);
         sourceGenerated =
-            HasGeneratedCodeAttribute(definition.GetCustomAttributes());
+            HasGeneratedCodeAttribute(definition.GetCustomAttributes())
+            || HasCompilerGeneratedAttribute(definition.GetCustomAttributes());
         sourceOwner = CreateMethodIdentity(
             ownerType,
             ownerHandle,
@@ -1224,17 +1228,28 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 _reader,
                 MetadataTokens.EntityHandle(operandToken),
                 CreateScope(ownerType, ownerMethod));
-            TypeRef targetDefinition =
-                target.DeclaringType.Kind == TypeRefKind.GenericInstance
-                    ? target.DeclaringType.ElementType!
-                    : target.DeclaringType;
-            if (target.Name == liftedIdentity.Name
-                && targetDefinition.Equals(liftedIdentity.DeclaringType))
+            if (MethodReferenceMatchesIdentity(target, liftedIdentity))
             {
                 return true;
             }
         }
         return false;
+    }
+
+    static bool MethodReferenceMatchesIdentity(
+        MemberRef target,
+        MethodIdentity identity)
+    {
+        TypeRef targetDefinition =
+            target.DeclaringType.Kind == TypeRefKind.GenericInstance
+                ? target.DeclaringType.ElementType!
+                : target.DeclaringType;
+        return target.Name == identity.Name
+            && targetDefinition.Equals(identity.DeclaringType)
+            && target.GenericArity == identity.GenericArity
+            && target.HasThis == !identity.IsStatic
+            && target.OpenSignatureReturn.Equals(identity.ReturnType)
+            && target.OpenSignatureParameters.SequenceEqual(identity.ParameterTypes);
     }
 
     // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]

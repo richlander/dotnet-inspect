@@ -3148,6 +3148,14 @@ public class LibraryBodyIndexTests
 
         Assert.DoesNotContain(index.OptimizationOpportunities, o =>
             o.Method.Name == "RenderWithDelegateLoop");
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name.Contains(
+                "RenderGenericEqualityFragment",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name.Contains(
+                "RenderGenericEqualityLocal",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -4405,6 +4413,9 @@ public class LibraryBodyIndexTests
                     StringComparison.Ordinal)
                 || opportunity.Method.Name.Contains(
                     "GeneratedCore",
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures.CompilerGeneratedOwner),
                     StringComparison.Ordinal)));
 
         Assert.Contains(index.OptimizationOpportunities, opportunity =>
@@ -4413,6 +4424,46 @@ public class LibraryBodyIndexTests
                 "AuthoredCore",
                 StringComparison.Ordinal)
             && opportunity.SourceOwner?.Name == "Handle");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MemberRefLiftedOverloads_MatchFullSignature()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-lifted-overloads-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LiftedOverloads.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                typeof(MemberRefLiftedOverloadFixture<>).Assembly.Location);
+            ReplaceUniqueAscii(
+                image,
+                "<Owner>g__Core|1_0",
+                "<Owner>g__Core|0_0");
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+            var rows = index.OptimizationOpportunities
+                .Where(opportunity =>
+                    opportunity.Shape == "generic-parameter-object-box"
+                    && opportunity.Method.DeclaringType.Name.Contains(
+                        nameof(MemberRefLiftedOverloadFixture<object>),
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(2, rows.Length);
+            Assert.Equal(
+                2,
+                rows.Select(row => row.SourceOwner?.MetadataToken)
+                    .Distinct()
+                    .Count());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact(Timeout = 10_000)]
@@ -4453,6 +4504,27 @@ public class LibraryBodyIndexTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    static void ReplaceUniqueAscii(
+        byte[] image,
+        string oldValue,
+        string newValue)
+    {
+        Assert.Equal(oldValue.Length, newValue.Length);
+        byte[] oldBytes = System.Text.Encoding.ASCII.GetBytes(oldValue);
+        byte[] newBytes = System.Text.Encoding.ASCII.GetBytes(newValue);
+        int replacements = 0;
+        for (int i = 0; i <= image.Length - oldBytes.Length; i++)
+        {
+            if (!image.AsSpan(i, oldBytes.Length).SequenceEqual(oldBytes))
+                continue;
+
+            newBytes.CopyTo(image.AsSpan(i, newBytes.Length));
+            replacements++;
+        }
+
+        Assert.Equal(1, replacements);
     }
 
     [Theory]
@@ -5780,6 +5852,14 @@ public class OptimizationOpportunityFixtures
         T right)
         => left!.Equals(right);
 
+    [System.Runtime.CompilerServices.CompilerGenerated]
+    public static bool CompilerGeneratedOwner<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
     public static bool GenericTypedEquals<T>(T left, T right)
         where T : System.IEquatable<T>
         => left.Equals(right);
@@ -6249,6 +6329,23 @@ public class MixedGeneratedOverloadFixtures
         return AuthoredCore(left, right);
 
         static bool AuthoredCore(T x, T y) => x!.Equals(y);
+    }
+}
+
+public static class MemberRefLiftedOverloadFixture<TOuter>
+{
+    public static bool Owner<T>(T left, T right, int marker)
+    {
+        return Core(left, right);
+
+        static bool Core(T x, T y) => x!.Equals(y);
+    }
+
+    public static bool Owner<T>(T left, T right, string marker)
+    {
+        return Core(left, right, marker.Length);
+
+        static bool Core(T x, T y, int ignored) => x!.Equals(y);
     }
 }
 
