@@ -391,6 +391,31 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
+    public void ExecuteParticipant_DoesNotReleaseTheReusableGroup()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly integration = TestAssembly.Create(
+            "ReusableIntegration",
+            "Microsoft.Extensions.Logging.CustomLogger",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([integration.Participant]);
+
+        AssemblyIntegrationsEntry first =
+            AssemblyContextIntegrationsQuery.ExecuteParticipant(
+                group,
+                integration.Participant);
+        AssemblyContextIntegrationsResult second =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(first);
+        Assert.True(second.IsComplete);
+        Assert.Equal(1, integration.OpenCount);
+    }
+
+    [Fact]
     public void Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
     {
         var policy = new TestBindingPolicy(
