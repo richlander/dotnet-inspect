@@ -18,6 +18,8 @@ public sealed class MemberCallGraphSessionTests
 {
     static string CallerPath =>
         FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+    static string OwnershipPath =>
+        FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
     static string TargetPath =>
         FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
     static string TargetV2Path =>
@@ -186,9 +188,9 @@ public sealed class MemberCallGraphSessionTests
     public void AnnotatedOwnershipProgressesWithoutReacquiringGraphWork()
     {
         using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
+            GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
-            CallerPath,
+            OwnershipPath,
             "Entry",
             "RentAndReturnThroughHelper");
         using var graph = new MemberCallGraphSession(
@@ -201,7 +203,7 @@ public sealed class MemberCallGraphSessionTests
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
             });
-        using var source = MetadataSource.Open(CallerPath);
+        using var source = MetadataSource.Open(OwnershipPath);
 
         MemberCallGraphView firstView = graph.Callees();
         var first =
@@ -290,8 +292,8 @@ public sealed class MemberCallGraphSessionTests
         int firstCalleeParameterIndex)
     {
         using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
-        int root = MemberToken(CallerPath, "Entry", methodName);
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(OwnershipPath, "Entry", methodName);
         using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
@@ -303,7 +305,7 @@ public sealed class MemberCallGraphSessionTests
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
             });
         MemberCallGraphView view = graph.Callers();
-        using var source = MetadataSource.Open(CallerPath);
+        using var source = MetadataSource.Open(OwnershipPath);
 
         var complete =
             Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
@@ -331,9 +333,9 @@ public sealed class MemberCallGraphSessionTests
     public void OwnershipWitnessBudgetPreservesPhysicalCallIdentity()
     {
         using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
+            GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
-            CallerPath,
+            OwnershipPath,
             "Entry",
             "RentAndReturnAtTwoSites");
         using var graph = new MemberCallGraphSession(
@@ -385,9 +387,9 @@ public sealed class MemberCallGraphSessionTests
     public void OwnershipPathBudgetLeavesForwardedPathIncomplete()
     {
         using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
+            GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
-            CallerPath,
+            OwnershipPath,
             "Entry",
             "RentAndForwardToReturn");
         using var graph = new MemberCallGraphSession(
@@ -423,9 +425,9 @@ public sealed class MemberCallGraphSessionTests
     public void OwnershipForwardedToABodilessCalleeIsIncomplete()
     {
         using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
+            GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
-            CallerPath,
+            OwnershipPath,
             "Entry",
             "RentAndForwardExternally");
         using var graph = new MemberCallGraphSession(
@@ -463,8 +465,8 @@ public sealed class MemberCallGraphSessionTests
         string methodName)
     {
         using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
-        int root = MemberToken(CallerPath, "Entry", methodName);
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(OwnershipPath, "Entry", methodName);
         using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,

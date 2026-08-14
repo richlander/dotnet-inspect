@@ -5,7 +5,7 @@ namespace ILInspector.Analysis.Tests;
 public sealed class ArrayPoolOwnershipFlowTests
 {
     static string CallerPath =>
-        FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
 
     [Fact]
     public void ScopedOwnershipFlowRetainsTheRentBoundary()
