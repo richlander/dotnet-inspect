@@ -676,26 +676,21 @@ internal sealed record ReturnToSenderSourceMember(
     string SourcePath,
     string? Body,
     int? MetadataToken = null,
-    Guid? ModuleVersionId = null);
+    Guid? ModuleVersionId = null,
+    string? SignatureUnavailableReason = null);
 
 internal sealed class ReturnToSenderSourceIndex
 {
     readonly Dictionary<string, ReturnToSenderSourceMember> _members;
-    readonly Dictionary<string, ReturnToSenderSourceMember> _membersBySignature;
-    readonly HashSet<string> _ambiguousSignatures;
     readonly Dictionary<string, RecordSourceInfo> _recordSources;
     readonly Dictionary<int, ReturnToSenderSourceMember> _correlatedMembersByToken;
 
     ReturnToSenderSourceIndex(
         Dictionary<string, ReturnToSenderSourceMember> members,
-        Dictionary<string, ReturnToSenderSourceMember> membersBySignature,
-        HashSet<string> ambiguousSignatures,
         Dictionary<string, RecordSourceInfo> recordSources,
         Dictionary<int, ReturnToSenderSourceMember>? correlatedMembersByToken = null)
     {
         _members = members;
-        _membersBySignature = membersBySignature;
-        _ambiguousSignatures = ambiguousSignatures;
         _recordSources = recordSources;
         _correlatedMembersByToken = correlatedMembersByToken ?? [];
     }
@@ -703,8 +698,6 @@ internal sealed class ReturnToSenderSourceIndex
     public static ReturnToSenderSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
     {
         var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
-        var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
-        var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
         var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
         var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
         var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
@@ -717,9 +710,9 @@ internal sealed class ReturnToSenderSourceIndex
 
         var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
         foreach (var sourceFile in sourceFiles)
-            AddSourceFile(members, membersBySignature, ambiguousSignatures, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+            AddSourceFile(members, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
 
-        return new ReturnToSenderSourceIndex(members, membersBySignature, ambiguousSignatures, recordSources);
+        return new ReturnToSenderSourceIndex(members, recordSources);
     }
 
     public static ReturnToSenderSourceIndex? TryCreate(string assemblyPath)
@@ -771,8 +764,6 @@ internal sealed class ReturnToSenderSourceIndex
         MetadataReader reader)
     {
         var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
-        var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
-        var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
         var correlatedMembersByToken = new Dictionary<int, ReturnToSenderSourceMember>();
         Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         if (moduleVersionId == Guid.Empty)
@@ -789,24 +780,10 @@ internal sealed class ReturnToSenderSourceIndex
             int metadataToken = member.MetadataToken!.Value;
             if (!correlatedMembersByToken.TryAdd(metadataToken, member))
                 throw new InvalidDataException($"Duplicate correlated MethodDef token 0x{metadataToken:x8}.");
-
-            if (string.IsNullOrEmpty(member.Signature))
-                continue;
-
-            var signatureKey = SigKey(member.Type, member.Method, member.Signature);
-            if (ambiguousSignatures.Contains(signatureKey))
-                continue;
-            if (!membersBySignature.TryAdd(signatureKey, member))
-            {
-                membersBySignature.Remove(signatureKey);
-                ambiguousSignatures.Add(signatureKey);
-            }
         }
 
         return new ReturnToSenderSourceIndex(
             members,
-            membersBySignature,
-            ambiguousSignatures,
             new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal),
             correlatedMembersByToken);
     }
@@ -852,10 +829,28 @@ internal sealed class ReturnToSenderSourceIndex
             type,
             methodName,
             methodHandle);
+        bool signatureMatches;
+        if (string.IsNullOrEmpty(member.Signature))
+        {
+            signatureMatches = signature is null;
+        }
+        else
+        {
+            MemberSignatureShapeResult memberShape =
+                MemberSignatureShapeCodec.Normalize(member.Signature, out string? canonical);
+            signatureMatches = signature is not null
+                && memberShape.Shape is not null
+                && (member.Signature.StartsWith("mss1:", StringComparison.Ordinal)
+                    ? string.Equals(canonical, signature, StringComparison.Ordinal)
+                    : MetadataMemberSignatureShape.LegacyShapeCanDescribe(
+                        reader,
+                        methodHandle,
+                        memberShape.Shape));
+        }
         if (!string.Equals(member.Type, fullType, StringComparison.Ordinal)
             || !string.Equals(member.Method, methodName, StringComparison.Ordinal)
             || member.Overload != overload
-            || !string.Equals(member.Signature, signature ?? "", StringComparison.Ordinal))
+            || !signatureMatches)
         {
             throw new InvalidDataException(
                 $"Correlated MethodDef token 0x{metadataToken:x8} does not match "
@@ -893,17 +888,43 @@ internal sealed class ReturnToSenderSourceIndex
 
     public bool TryFind(ReturnToSender.RequestedTarget target, out ReturnToSenderSourceMember member)
     {
-        if (target.Signature is { } signature)
+        MemberSignatureCorrespondence<ReturnToSenderSourceMember> correspondence =
+            ResolveBySignature(target);
+        if (correspondence.Kind == MemberSignatureCorrespondenceKind.Unique)
         {
-            var signatureKey = SigKey(target.Type, target.Method, signature);
-            if (!_ambiguousSignatures.Contains(signatureKey)
-                && _membersBySignature.TryGetValue(signatureKey, out member!))
-            {
-                return true;
-            }
+            member = correspondence.Match!;
+            return true;
         }
 
         return _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
+    }
+
+    internal MemberSignatureCorrespondence<ReturnToSenderSourceMember> ResolveBySignature(
+        ReturnToSender.RequestedTarget target)
+    {
+        if (target.Signature is null)
+        {
+            return MemberSignatureCorrespondence<ReturnToSenderSourceMember>.Unavailable(
+                "The target carries no signature shape.");
+        }
+
+        MemberSignatureShapeResult targetShape =
+            MemberSignatureShapeCodec.Decode(target.Signature);
+        // Preserve the complete same-type, same-name sibling set. The shape matcher treats
+        // every unavailable sibling as evidence that uniqueness cannot be established.
+        var candidates = _members.Values
+            .Where(member =>
+                string.Equals(member.Type, target.Type, StringComparison.Ordinal)
+                && string.Equals(member.Method, target.Method, StringComparison.Ordinal))
+            .Select(member => (
+                Candidate: member,
+                Shape: string.IsNullOrEmpty(member.Signature)
+                    ? MemberSignatureShapeResult.Unavailable(
+                        member.SignatureUnavailableReason
+                        ?? "The source signature shape is unavailable.")
+                    : MemberSignatureShapeCodec.Decode(member.Signature)))
+            .ToArray();
+        return MemberSignatureShapeMatcher.Match(targetShape, candidates);
     }
 
     /// <summary>
@@ -965,8 +986,6 @@ internal sealed class ReturnToSenderSourceIndex
 
     static void AddSourceFile(
         Dictionary<string, ReturnToSenderSourceMember> members,
-        Dictionary<string, ReturnToSenderSourceMember> membersBySignature,
-        HashSet<string> ambiguousSignatures,
         Dictionary<string, RecordSourceInfo> recordSources,
         Dictionary<string, Dictionary<string, int>> overloads,
         string sourcePath,
@@ -974,23 +993,10 @@ internal sealed class ReturnToSenderSourceIndex
         CSharpSourceIdentityContext sourceIdentity)
     {
         foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
-        {
             members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
-
-            var signatureKey = SigKey(member.Type, member.Method, member.Signature);
-            if (ambiguousSignatures.Contains(signatureKey))
-                continue;
-            if (!membersBySignature.TryAdd(signatureKey, member))
-            {
-                membersBySignature.Remove(signatureKey);
-                ambiguousSignatures.Add(signatureKey);
-            }
-        }
     }
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
-
-    static string SigKey(string type, string method, string signature) => $"{type}::{method}{signature}";
 
     static IReadOnlySet<string> RecordSynthesizedMembers(RecordDeclarationSyntax record)
     {
@@ -1077,7 +1083,17 @@ internal sealed class ReturnToSenderSourceIndex
             foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
             {
                 int overload = NextOverload(overloads, sourceMember.MetadataName);
-                yield return new ReturnToSenderSourceMember(fullType, sourceMember.MetadataName, overload, sourceMember.Signature, path, sourceMember.Body);
+                string signature = sourceMember.SignatureShape.Shape is { } shape
+                    ? MemberSignatureShapeCodec.Encode(shape)
+                    : "";
+                yield return new ReturnToSenderSourceMember(
+                    fullType,
+                    sourceMember.MetadataName,
+                    overload,
+                    signature,
+                    path,
+                    sourceMember.Body,
+                    SignatureUnavailableReason: sourceMember.SignatureShape.UnavailableReason);
             }
         }
 
@@ -1214,20 +1230,28 @@ static partial class ReturnToSenderSourceProbe
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
 
-    static string SigKey(string type, string method, string signature) => $"{type}::{method}{signature}";
-
-    // Only carry a signature identity that unambiguously round-trips to this exact
-    // metadata member. A lossy or ambiguous normalized signature is dropped so both
-    // metadata resolution and source correlation fall back to the ordinal.
+    // Only carry a shape that unambiguously round-trips to this exact metadata member.
     internal static string? UniqueTargetSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
         string methodName,
         MethodDefinitionHandle handle)
-        => SignatureIdentity.ForMetadataMethod(reader, typeDef, handle) is { } signature
-            && ReturnToSender.ResolvesUniquelyBySignature(reader, typeDef, methodName, signature, handle)
-                ? signature
-                : null;
+    {
+        MemberSignatureShapeResult result =
+            MetadataMemberSignatureShape.Create(reader, handle);
+        if (result.Shape is null)
+            return null;
+
+        string signature = MemberSignatureShapeCodec.Encode(result.Shape);
+        return ReturnToSender.ResolvesUniquelyBySignature(
+            reader,
+            typeDef,
+            methodName,
+            signature,
+            handle)
+            ? signature
+            : null;
+    }
 
     static string OutcomeId(ReturnToSenderSourceOutcome outcome)
         => outcome switch

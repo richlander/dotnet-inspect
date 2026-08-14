@@ -227,10 +227,9 @@ public sealed class ValidDifferentFaultIsolationTests
             using var pe = new PEReader(File.OpenRead(assemblyPath));
             var reader = pe.GetMetadataReader();
             var (typeHandle, methodHandle) = FidelityFixture.FindMethod(reader, fullType, methodName);
-            string signature = SignatureIdentity.ForMetadataMethod(
-                reader,
-                reader.GetTypeDefinition(typeHandle),
-                methodHandle) ?? "";
+            string signature = MetadataMemberSignatureShape.Create(reader, methodHandle).Shape is { } shape
+                ? MemberSignatureShapeCodec.Encode(shape)
+                : "";
             var sourceIndex = ReturnToSenderSourceIndex.FromCorrelatedMembers(
                 [
                     new ReturnToSenderSourceMember(
@@ -480,7 +479,9 @@ public sealed class ValidDifferentFaultIsolationTests
             var function = IrImporter.Import(source, fullType, methodName, 0)
                 ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
             var type = reader.GetTypeDefinition(typeHandle);
-            string? signature = SignatureIdentity.ForMetadataMethod(reader, type, methodHandle);
+            string? signature = MetadataMemberSignatureShape.Create(reader, methodHandle).Shape is { } shape
+                ? MemberSignatureShapeCodec.Encode(shape)
+                : null;
             var target = new ReturnToSender.RequestedTarget(fullType, methodName, 0, signature);
             var request = new MethodArtifactRequest(
                 AssemblyPath: assemblyPath,

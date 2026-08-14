@@ -57,6 +57,16 @@ planning state. This keeps assembly identity, modifiers, primary-constructor
 shape, closure membership, references, and every non-target source byte fixed
 between the experiment and its control.
 
+ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
+operation. It may use `CSharpText.MemberSignatureShape` to discriminate
+same-named candidates, but correspondence remains typed as unique, ambiguous,
+or unavailable and may fall back to the recorded ordinal. It cannot turn a
+shape match into fault-attribution identity; attribution still requires the
+exact MVID and MethodDef token. The close gates are
+`ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers`,
+`SourceSignatureCorrespondence_ReportsAmbiguousCandidates`, and
+`SourceSignatureCorrespondence_ReportsUnavailableCandidate`.
+
 ## The gauntlet
 
 | Stage | Boss | Current implementation | What it proves | Does not prove |

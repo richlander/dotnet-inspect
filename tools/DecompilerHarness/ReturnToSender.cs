@@ -1126,9 +1126,9 @@ static class ReturnToSender
     }
 
     /// <summary>
-    /// Resolves the target metadata method by normalized signature when the target
+    /// Resolves the target metadata method by canonical shape when the target
     /// carries one (ordinal-independent), falling back to the count-all overload
-    /// ordinal when no signature is supplied or the signature is missing/ambiguous.
+    /// ordinal when no shape is supplied or correspondence is unavailable/ambiguous.
     /// </summary>
     static MethodDefinitionHandle? TryFindMethod(
         MetadataReader reader,
@@ -1150,30 +1150,35 @@ static class ReturnToSender
         string methodName,
         string signature)
     {
-        MethodDefinitionHandle? found = null;
+        MemberSignatureShapeResult target = MemberSignatureShapeCodec.Decode(signature);
+        var candidates =
+            new List<(MethodDefinitionHandle Candidate, MemberSignatureShapeResult Shape)>();
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) != methodName
-                || method.RelativeVirtualAddress == 0
-                || SignatureIdentity.ForMetadataMethod(reader, typeDef, methodHandle) != signature)
+                || method.RelativeVirtualAddress == 0)
             {
                 continue;
             }
 
-            if (found is not null)
-                return null;
-            found = methodHandle;
+            candidates.Add((
+                methodHandle,
+                MetadataMemberSignatureShape.Create(reader, methodHandle)));
         }
 
-        return found;
+        MemberSignatureCorrespondence<MethodDefinitionHandle> correspondence =
+            MemberSignatureShapeMatcher.Match(target, candidates);
+        return correspondence.Kind == MemberSignatureCorrespondenceKind.Unique
+            ? correspondence.Match
+            : null;
     }
 
     /// <summary>
     /// True when <paramref name="signature"/> resolves to exactly <paramref name="expected"/>
     /// among body-bearing same-name methods. Target discovery uses this to only attach a
-    /// signature that unambiguously round-trips, so a lossy/ambiguous normalized signature
-    /// is dropped and both metadata and source correlation fall back to the ordinal.
+    /// shape that unambiguously round-trips; otherwise metadata and source correspondence
+    /// retain their explicit unavailable/ambiguous result and callers may use the ordinal.
     /// </summary>
     internal static bool ResolvesUniquelyBySignature(
         MetadataReader reader,

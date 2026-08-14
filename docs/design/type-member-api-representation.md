@@ -57,12 +57,20 @@ of repeated in every row.
 | `MetadataMethodAddress` | MVID plus validated MethodDef handle/token | Where to re-locate a method after reopening and revalidating its module | Cryptographic artifact identity or cross-module correspondence |
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
 
+#### `CSharpText`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `MemberSignatureShape` | One same-named source/metadata candidate set | Whether generic arity, parameter type shapes, and a conversion return shape discriminate one candidate | Member identity, named-type binding through using/alias context, or proof that source belongs to a MethodDef |
+| `MemberSignatureShapeResult` and `MemberSignatureCorrespondence<T>` | One shape projection or candidate comparison | Available, unique, ambiguous, or unavailable evidence without collapsing refusal into absence | Permission to treat a unique shape match as authoritative identity |
+
 #### `ILInspector.Metadata`
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | Raw MethodDef token | One independently known physical module | Which MethodDef row to address | Assembly identity or durable location by itself |
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
+| `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 
@@ -197,6 +205,9 @@ Conversions are operations with an owner, not implicit casts:
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
 | `UnresolvedBindingReference` | `UnresolvedBindingKeyProjection` | `TypeResolutionCatalog.ProjectUnresolvedBindingKey` issues a key only for a current-generation reference minted on `UnboundBinding` or genuine policy `Unavailable`; cross-catalog and stale references remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
+| C# declaration text | `MemberSignatureShapeResult` | `CSharpText.SourceMemberSignatureShape` parses the bounded declaration header and refuses unresolved named types |
+| MethodDef signature | `MemberSignatureShapeResult` | Metadata decodes with SRM and projects positional generics, arrays, pointers, nullable/tuple shapes, and function pointers into the shared leaf model |
+| Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
 | `ResolvedMemberTarget` / `MethodIdentity` | Research subject | `ResearchMemberIdentity` owns API-to-body aliasing |
