@@ -192,6 +192,12 @@ public static class TypeCommand
                     if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
                         return 1;
 
+                    if (options.Select is { Length: > 0 }
+                        && !ApiCommand.ValidateResolvedSingleTypeSelection(options))
+                    {
+                        return 1;
+                    }
+
                     // Check each member filter before producing output
                     if (options.MemberFilter.Count > 0)
                     {
@@ -349,14 +355,13 @@ public static class TypeCommand
                 }
                 else if (options.EffectiveDiscovery)
                 {
-                    // A deferred select belongs to this listing, and discovery filters by it, so it
-                    // has to be resolved before the filter is applied rather than after.
-                    if (options.SelectDeferredToListing)
-                    {
-                        if (ApiCommand.ReresolveSectionsForListing(options) is not { } discoveryOptions)
-                            return 1;
-                        options = discoveryOptions;
-                    }
+                    // This is a listing regardless of how the type-shaped request resolved its
+                    // selector in the preamble. Re-resolve even overlapping names: the exact-type
+                    // and listing catalogs can assign the same wildcard or category to different
+                    // sections, and discovery must filter by the catalog it reports.
+                    if (ApiCommand.ReresolveSectionsForListing(options) is not { } discoveryOptions)
+                        return 1;
+                    options = discoveryOptions;
 
                     // Discovery is a schema query about the surface's sections; it is independent
                     // of which (unmatched) type was requested. The main listing and platform-prefix

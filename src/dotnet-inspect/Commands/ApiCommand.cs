@@ -118,7 +118,8 @@ public class ApiCommand
             && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
             return null;
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+        if (listingOptions.Discover == null
+            && !OutputFormatResolver.ValidateSingleSectionForTabular(
                 listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
             return null;
 
@@ -218,6 +219,42 @@ public class ApiCommand
             selectDefault: options.SelectDefault);
         SelectOutput.WriteUnresolved(result);
         return true;
+    }
+
+    /// <summary>
+    /// Validates an explicit type selector after lookup has established that the exact-type view,
+    /// rather than a fallback listing, owns it.
+    /// </summary>
+    internal static bool ValidateResolvedSingleTypeSelection(TypeOptions options)
+    {
+        if (options.Discover != null)
+            return true;
+
+        var sections = options.IncludeSections;
+        if (options is { JsonOutput: true, Count: false }
+            && !IsProjectionRequested(options)
+            && sections is { Count: > 0 }
+            && !ValidateTypeJsonSections(sections))
+        {
+            return false;
+        }
+
+        if (options.Count && !CountOutput.ValidateSingleSection(sections))
+            return false;
+
+        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+        if (shapeCount == 1)
+        {
+            var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+            if (!ShapeProjectionOutput.ValidateSingleSection(sections, optionName))
+                return false;
+        }
+
+        if (options.Print && !ValidateApiPrintSelection(sections))
+            return false;
+
+        return OutputFormatResolver.ValidateSingleSectionForTabular(
+            options.TabularExplicitlySet, sections);
     }
 
     internal record PreambleResult(
@@ -334,6 +371,14 @@ public class ApiCommand
                 options = options with { IncludeSections = selectResult.Sections };
         }
 
+        // An explicit selector on a type-shaped request may ultimately belong to either the exact
+        // type or a fallback listing. Both catalogs can resolve the same wildcard or category to
+        // different section sets, so validation has to wait until lookup chooses the rendering
+        // view. Resolution itself still happens here so exact-type execution retains its sections.
+        bool deferTypeSelectionValidation = options is TypeOptions
+            && singleTypeMode
+            && options.Select is { Length: > 0 };
+
         // A Markdown column projection without -S historically targets the listing's type rows.
         // The curated minimal preset is API Info, whose fact-table columns cannot satisfy that
         // projection, so make the implicit row scope explicit without changing tabular formats.
@@ -346,7 +391,9 @@ public class ApiCommand
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
-        if (singleTypeMode
+        if (!deferTypeSelectionValidation
+            && options.Discover == null
+            && singleTypeMode
             && options is TypeOptions { JsonOutput: true, Count: false }
             && !IsProjectionRequested(options)
             && selectionSections is { Count: > 0 }
@@ -355,7 +402,8 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
+        if (!deferTypeSelectionValidation
+            && options.Discover == null && options.Count && !options.SelectDeferredToListing
             && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
 
@@ -371,7 +419,8 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // Discovery renders its own payload and refuses the shape projections itself with
             // an accurate reason; demanding -S first reports a requirement that is not the problem.
-            if (options.Discover == null && !options.SelectDeferredToListing
+            if (!deferTypeSelectionValidation
+                && options.Discover == null && !options.SelectDeferredToListing
                 && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
@@ -398,7 +447,8 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Print && options.Discover == null && !options.SelectDeferredToListing
+        if (!deferTypeSelectionValidation
+            && options.Print && options.Discover == null && !options.SelectDeferredToListing
             && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
@@ -414,7 +464,9 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (!options.SelectDeferredToListing
+        if (!deferTypeSelectionValidation
+            && options.Discover == null
+            && !options.SelectDeferredToListing
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 

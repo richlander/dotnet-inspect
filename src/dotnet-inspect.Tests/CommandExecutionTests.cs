@@ -3940,6 +3940,55 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Enums", discoverOutput, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Type_PrefixBrowse_OverlappingSelector_IsValidatedAndDiscoveredAsListing()
+    {
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "type", "System.A", "--platform", "System.Runtime",
+            "-S", "*g*s", "--count", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+        Assert.True(int.TryParse(countOutput.Trim(), out _), $"expected a bare count, got: {countOutput}");
+        Assert.Contains("best-effort prefix matches", countError, StringComparison.Ordinal);
+
+        var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
+            "type", "System.A", "--platform", "System.Runtime",
+            "-S", "*g*s", "-D", "--tips", "q");
+
+        Assert.Equal(0, discoverExit);
+        Assert.Contains("Delegates", discoverOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Method Groups", discoverOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exception Regions", discoverOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Selection matches", discoverError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_ExactType_OverlappingSelector_IsValidatedAsExactType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", nameof(OutputFormatterTests), "--library", TestAssemblyPath,
+            "-S", "*g*s", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count requires -S/--select to match exactly one section.", error);
+    }
+
+    [Theory]
+    [InlineData("Called Types", "--json")]
+    [InlineData("@Surface", "--tsv")]
+    public async Task Type_EffectiveDiscovery_OwnsFormatValidation(string section, string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", nameof(OutputFormatterTests), "--library", TestAssemblyPath,
+            "-S", section, "-D", format, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.DoesNotContain("cannot be represented as raw type JSON", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Selection matches", error, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Section arity for <c>--count</c> is still judged against what the listing will actually
     /// render, so a deferred select naming two sections fails the same way a direct one does.
