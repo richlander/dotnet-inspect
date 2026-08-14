@@ -115,6 +115,15 @@ public sealed record StyleOptionValue
     /// </summary>
     public required string Token { get; init; }
 
+    /// <summary>
+    /// Stable persisted id for this selectable value, or <see langword="null"/>
+    /// for the axis default, which is not an opt-in choice. This id is explicit
+    /// rather than derived from the current number of sibling values: adding a
+    /// second non-default value to an existing two-state knob must not rename the
+    /// choice users already stored.
+    /// </summary>
+    public string? ChoiceId { get; init; }
+
     /// <summary>Short human-facing label for a picker, or null to fall back to <see cref="Token"/>.</summary>
     public string? Title { get; init; }
 
@@ -167,6 +176,51 @@ public sealed record StyleOptionValue
 }
 
 /// <summary>
+/// One product-owned opt-in choice projected from a
+/// <see cref="StyleOptionDescriptor"/> and one of its non-default values. This is
+/// the host-facing picker contract: stable persisted identity, complete display
+/// text and fidelity metadata, the owning option/value identities, and
+/// single-select conflict semantics all come from the product catalog rather
+/// than being reconstructed by each consumer.
+/// </summary>
+public sealed record StyleOptionChoice
+{
+    /// <summary>Stable persisted choice id (never localized).</summary>
+    public required string Id { get; init; }
+
+    /// <summary>The owning <see cref="StyleOptionDescriptor.Id"/>.</summary>
+    public required string OptionId { get; init; }
+
+    /// <summary>The selected <see cref="StyleOptionValue.Token"/>.</summary>
+    public required string ValueToken { get; init; }
+
+    /// <summary>Complete human-facing label for a flat picker row.</summary>
+    public required string Title { get; init; }
+
+    /// <summary>One-sentence description inherited from the owning option.</summary>
+    public required string Summary { get; init; }
+
+    /// <summary>The owning option's fidelity/presentation tier.</summary>
+    public required StyleOptionTier Tier { get; init; }
+
+    /// <summary>Whether selecting this choice may change emitted IL bytes.</summary>
+    public required bool ByteDivergent { get; init; }
+
+    /// <summary>Whether the declared runtime style oracle endorses this value.</summary>
+    public required bool OracleEndorsed { get; init; }
+
+    /// <summary>Whether the revealed runtime corpus endorses this value.</summary>
+    public required bool CorpusEndorsed { get; init; }
+
+    /// <summary>
+    /// Product-owned single-select group, or <see langword="null"/> when the
+    /// option currently has only one selectable value. Choices with the same
+    /// non-null group conflict; the group is the owning option id.
+    /// </summary>
+    public string? ConflictGroup { get; init; }
+}
+
+/// <summary>
 /// The single, library-owned source of truth describing one opt-in
 /// <see cref="PrinterOptions"/> knob: its identity, human-facing text, tier and
 /// contract, and the value domain it ranges over (its <see cref="Values"/>). A
@@ -175,11 +229,10 @@ public sealed record StyleOptionValue
 ///
 /// <para>All accessors are explicit delegates (never reflection) so the catalog is
 /// enumerable from any host — including a Wasm build — without breaking the
-/// product's NativeAOT constraint. A UI can list every option, present each
-/// axis's <see cref="Values"/> as a mutually-exclusive choice, filter the
-/// oracle-endorsed value of each axis for the "full taste" aggregate, and read or
-/// set the axis through <see cref="GetValue"/>/<see cref="WithValue"/> without
-/// knowing the concrete backing property.</para>
+/// product's NativeAOT constraint. Hosts consume the flattened
+/// <see cref="StyleOptionCatalog.Choices"/> projection and resolve its stable ids
+/// through <see cref="StyleOptionCatalog.ResolveChoices"/> rather than deriving
+/// selectability, identity, or conflicts from <see cref="Values"/>.</para>
 /// </summary>
 public sealed record StyleOptionDescriptor
 {
@@ -317,6 +370,10 @@ public sealed record StyleOptionDescriptor
 /// </summary>
 public static class StyleOptionCatalog
 {
+    private const string GuardedReturnId = "guarded-boolean-return-style";
+    private const string VarStyleId = "var-spelling-style";
+    private const string EnumLabelOrderId = "enum-case-label-order";
+
     // Value tokens for the guarded-boolean-return family axis.
     private const string GuardedReturnDefault = "flat";
     private const string GuardedReturnConditional = "conditional-expression";
@@ -508,6 +565,16 @@ public static class StyleOptionCatalog
     public static PrinterOptions DefaultOptions { get; } = ApplyDefaults();
 
     /// <summary>
+    /// Every selectable non-default style value as a product-owned picker row, in
+    /// stable option/value presentation order. Choice ids preserve the browser's
+    /// existing persisted vocabulary: a lone non-default value keeps the option
+    /// id, while existing multi-value choices use
+    /// <c>option-id:value-token</c>. The ids are stored explicitly on values so
+    /// future catalog growth cannot rename an existing choice.
+    /// </summary>
+    public static IReadOnlyList<StyleOptionChoice> Choices { get; } = CreateChoices();
+
+    /// <summary>
     /// The oracle-endorsed subset of <see cref="Options"/> — the knobs whose axis
     /// carries a value the runtime <c>.editorconfig</c>/IDE oracle prefers — that
     /// the "full taste" aggregate selects the endorsed value of. A host lists these
@@ -559,6 +626,130 @@ public static class StyleOptionCatalog
         return options;
     }
 
+    /// <summary>
+    /// Resolves product-owned picker <see cref="Choices"/> ids into user-facing
+    /// <see cref="DefaultOptions"/> plus the selected values. This is deliberately
+    /// separate from the composable <see cref="StyleOptionValue.ConfigKey"/>
+    /// vocabulary consumed by configuration files. Unknown ids and two distinct
+    /// choices from one non-null
+    /// <see cref="StyleOptionChoice.ConflictGroup"/> are rejected rather than
+    /// silently producing default or order-dependent output. Duplicate copies of
+    /// the same id are harmless, matching set semantics.
+    /// </summary>
+    public static PrinterOptions ResolveChoices(IEnumerable<string> choiceIds)
+    {
+        ArgumentNullException.ThrowIfNull(choiceIds);
+
+        var options = DefaultOptions;
+        var applied = new HashSet<string>(StringComparer.Ordinal);
+        var selectedByGroup = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var id in choiceIds)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                throw new ArgumentException(
+                    "A style choice id cannot be null or whitespace.",
+                    nameof(choiceIds));
+            }
+
+            var choice = Choices.FirstOrDefault(
+                candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
+            if (choice is null)
+            {
+                throw new ArgumentException(
+                    $"'{id}' is not a style choice in the product catalog.",
+                    nameof(choiceIds));
+            }
+
+            if (!applied.Add(id))
+                continue;
+
+            if (choice.ConflictGroup is { } group)
+            {
+                if (selectedByGroup.TryGetValue(group, out var existing))
+                {
+                    throw new ArgumentException(
+                        $"Style choices '{existing}' and '{id}' conflict in group '{group}'.",
+                        nameof(choiceIds));
+                }
+
+                selectedByGroup.Add(group, id);
+            }
+
+            var option = Options.Single(candidate =>
+                string.Equals(candidate.Id, choice.OptionId, StringComparison.Ordinal));
+            options = option.WithValue(options, choice.ValueToken);
+        }
+
+        return options;
+    }
+
+    private static IReadOnlyList<StyleOptionChoice> CreateChoices()
+    {
+        var choices = new List<StyleOptionChoice>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var option in Options)
+        {
+            var selectable = option.Values
+                .Where(value => !string.Equals(
+                    value.Token,
+                    option.DefaultValue,
+                    StringComparison.Ordinal))
+                .ToArray();
+            string? conflictGroup = selectable.Length > 1 ? option.Id : null;
+
+            foreach (var value in option.Values)
+            {
+                bool isDefault = string.Equals(
+                    value.Token,
+                    option.DefaultValue,
+                    StringComparison.Ordinal);
+                if (isDefault)
+                {
+                    if (value.ChoiceId is not null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Default value '{option.Id}:{value.Token}' cannot be a selectable style choice.");
+                    }
+
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(value.ChoiceId))
+                {
+                    throw new InvalidOperationException(
+                        $"Non-default value '{option.Id}:{value.Token}' has no stable style choice id.");
+                }
+
+                if (!ids.Add(value.ChoiceId))
+                {
+                    throw new InvalidOperationException(
+                        $"Style choice id '{value.ChoiceId}' is registered more than once.");
+                }
+
+                choices.Add(new StyleOptionChoice
+                {
+                    Id = value.ChoiceId,
+                    OptionId = option.Id,
+                    ValueToken = value.Token,
+                    Title = selectable.Length > 1
+                        ? $"{option.Title} · {value.Title ?? value.Token}"
+                        : option.Title,
+                    Summary = option.Summary,
+                    Tier = option.Tier,
+                    ByteDivergent = option.ByteDivergent,
+                    OracleEndorsed = value.OracleEndorsed,
+                    CorpusEndorsed = value.CorpusEndorsed,
+                    ConflictGroup = conflictGroup,
+                });
+            }
+        }
+
+        return choices.AsReadOnly();
+    }
+
     // Builds a two-state (boolean) knob: a false/true value domain where the
     // config key (when present) lives on the "true" value and its SetSelected both
     // sets and clears the backing property, exactly matching how a plain boolean
@@ -593,6 +784,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = "true",
+                    ChoiceId = id,
                     OracleEndorsed = oracleEndorsed,
                     CorpusEndorsed = corpusEndorsed,
                     ConfigKey = configKey,
@@ -619,7 +811,7 @@ public static class StyleOptionCatalog
     private static StyleOptionDescriptor GuardedBooleanReturnStyle()
         => new()
         {
-            Id = "guarded-boolean-return-style",
+            Id = GuardedReturnId,
             Title = "Guarded boolean return style",
             Summary = "How to render a declined guarded boolean return: the byte-faithful flat if/return (default), the oracle-preferred ternary return c ? A : B; (byte-divergent), or the compact short-circuit \"bool hack\" (byte-divergent, not oracle-endorsed).",
             Tier = StyleOptionTier.Lens,
@@ -640,6 +832,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = GuardedReturnConditional,
+                    ChoiceId = $"{GuardedReturnId}:{GuardedReturnConditional}",
                     Title = "Conditional expression (ternary)",
                     OracleEndorsed = true,
                     ConfigKey = "dotnet_style_prefer_conditional_expression_over_return",
@@ -649,6 +842,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = GuardedReturnBranchless,
+                    ChoiceId = $"{GuardedReturnId}:{GuardedReturnBranchless}",
                     Title = "Branchless \"bool hack\"",
                     OracleEndorsed = false,
                     ConfigKey = "dotnet_inspect_style_prefer_branchless_boolean",
@@ -679,7 +873,7 @@ public static class StyleOptionCatalog
     private static StyleOptionDescriptor VarSpellingStyle()
         => new()
         {
-            Id = "var-spelling-style",
+            Id = VarStyleId,
             Title = "var vs. explicit type",
             Summary = "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
             Tier = StyleOptionTier.Spelling,
@@ -700,6 +894,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = VarStyleBuiltInTypes,
+                    ChoiceId = $"{VarStyleId}:{VarStyleBuiltInTypes}",
                     Title = "var for built-in types",
                     OracleEndorsed = false,
                     ConfigKey = "csharp_style_var_for_built_in_types",
@@ -709,6 +904,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = VarStyleWhenApparent,
+                    ChoiceId = $"{VarStyleId}:{VarStyleWhenApparent}",
                     Title = "var when the type is apparent",
                     OracleEndorsed = false,
                     ConfigKey = "csharp_style_var_when_type_is_apparent",
@@ -718,6 +914,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = VarStyleElsewhere,
+                    ChoiceId = $"{VarStyleId}:{VarStyleElsewhere}",
                     Title = "var elsewhere",
                     OracleEndorsed = false,
                     ConfigKey = "csharp_style_var_elsewhere",
@@ -730,7 +927,7 @@ public static class StyleOptionCatalog
     private static StyleOptionDescriptor EnumCaseLabelOrderStyle()
         => new()
         {
-            Id = "enum-case-label-order",
+            Id = EnumLabelOrderId,
             ValueConfigKey = "dotnet_inspect_style_enum_case_label_order",
             Title = "Shared enum case-label order",
             Summary = "Order named enum labels that share one switch body alphabetically (default) or by recovered numeric value. Byte-neutral; mixed or unnamed labels keep value order.",
@@ -751,6 +948,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = EnumLabelValue,
+                    ChoiceId = EnumLabelOrderId,
                     Title = "Recovered numeric value order",
                     IsSelected = static o => o.EnumCaseLabelOrder == EnumCaseLabelOrder.Value,
                     SetSelected = static (o, on) => on
