@@ -77,9 +77,19 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         // hide the failure behind a successful-looking zero-result search. The
         // endpoint is not named: it is feed-declared metadata that can carry a
         // signature, and this message reaches a caller's failure list.
-        return parsed?.Data
+        IReadOnlyList<SearchResult> results = parsed?.Data
             ?? throw new InvalidOperationException(
                 "The search response was not a valid NuGet search document.");
+        if (results.Any(result =>
+                result is null
+                || string.IsNullOrWhiteSpace(result.Id)
+                || string.IsNullOrWhiteSpace(result.Version)))
+        {
+            throw new InvalidOperationException(
+                "The search response contained an invalid result identity.");
+        }
+
+        return results;
     }
 
     /// <summary>

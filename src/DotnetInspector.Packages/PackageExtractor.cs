@@ -1041,7 +1041,7 @@ public static class PackageExtractor
 
         string indexUrl = source.Url;
         var indexUri = new Uri(source.Url, UriKind.Absolute);
-        if (!indexUri.AbsolutePath.EndsWith(
+        if (!indexUri.AbsolutePath.TrimEnd('/').EndsWith(
                 "index.json",
                 StringComparison.OrdinalIgnoreCase))
         {

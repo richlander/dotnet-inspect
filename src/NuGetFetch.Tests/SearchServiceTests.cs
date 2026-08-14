@@ -102,6 +102,28 @@ public class SearchServiceTests
             await service.SearchAsync("q", cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Theory]
+    [InlineData("""{"data":[null]}""")]
+    [InlineData("""{"data":[{"id":null,"version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"","version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":null}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":""}]}""")]
+    public async Task SearchAsync_MissingResultIdentity_Throws(string body)
+    {
+        var handler = new CapturingHandler(body);
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await service.SearchAsync(
+                "q",
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("result identity", exception.Message);
+    }
+
     [Fact]
     public async Task SearchAsync_ErrorStatus_Throws()
     {

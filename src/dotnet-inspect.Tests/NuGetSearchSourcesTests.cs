@@ -168,16 +168,19 @@ public class NuGetSearchSourcesTests
                 client, "Contoso", sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
     }
 
-    [Fact]
-    public async Task SearchAsync_NuGetOrgMalformedBody_UsesStandardDiscoveryAndFailure()
+    [Theory]
+    [InlineData(NuGetOrgIndexUrl)]
+    [InlineData(NuGetOrgIndexUrl + "/")]
+    public async Task SearchAsync_NuGetOrgMalformedBody_UsesStandardDiscoveryAndFailure(
+        string indexUrl)
     {
         var handler = new RouteHandler
         {
-            [NuGetOrgIndexUrl] = ServiceIndex(SearchUrl),
+            [indexUrl] = ServiceIndex(SearchUrl),
             [SearchUrl] = "<html>sign in</html>"
         };
         using var client = new HttpClient(handler);
-        using var config = new TempNuGetConfig([("nuget.org", NuGetOrgIndexUrl)]);
+        using var config = new TempNuGetConfig([("nuget.org", indexUrl)]);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await NuGetSearchService.SearchAsync(
@@ -191,8 +194,30 @@ public class NuGetSearchSourcesTests
         Assert.DoesNotContain("<html>", exception.Message);
         Assert.Collection(
             handler.Requested,
-            requested => Assert.Equal(NuGetOrgIndexUrl, requested),
+            requested => Assert.Equal(indexUrl, requested),
             requested => Assert.StartsWith(SearchUrl + "?", requested, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_MissingResultIdentity_ReportsSourceFailure()
+    {
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = ServiceIndex(SearchUrl),
+            [SearchUrl] = """{"data":[{"id":null,"version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig([("contoso", IndexUrl)]);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Contains("contoso: search failed", exception.Message);
+        Assert.Contains(nameof(InvalidOperationException), exception.Message);
+        Assert.DoesNotContain("Value cannot be null", exception.Message);
     }
 
     [Fact]
