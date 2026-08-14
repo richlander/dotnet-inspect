@@ -60,6 +60,215 @@ public class DeclarationIndexTests
         Assert.Equal("lines", error.Unit);
     }
 
+    [Fact]
+    public void ConditionalGroups_ReportNestedAndEmptyHalfOpenBranches()
+    {
+        const string source = """
+            class C
+            {
+            #if OUTER
+            #if INNER
+                int x;
+            #else
+            #endif
+            #elif OTHER
+                int y;
+            #else
+                int z;
+            #endif
+            }
+            """;
+
+        var index = DeclarationIndex.Build(source);
+
+        Assert.Collection(
+            index.ConditionalGroups,
+            outer =>
+            {
+                Assert.Equal(0, outer.Id);
+                Assert.Equal(-1, outer.ParentGroupId);
+                Assert.Equal(3, outer.IfDirectiveLine);
+                Assert.Equal(12, outer.EndIfDirectiveLine);
+                Assert.Collection(
+                    outer.Branches,
+                    branch => AssertBranch(branch, 0, 0, 3, 4, 8),
+                    branch => AssertBranch(branch, 3, 0, 8, 9, 10),
+                    branch => AssertBranch(branch, 4, 0, 10, 11, 12));
+            },
+            inner =>
+            {
+                Assert.Equal(1, inner.Id);
+                Assert.Equal(0, inner.ParentGroupId);
+                Assert.Equal(4, inner.IfDirectiveLine);
+                Assert.Equal(7, inner.EndIfDirectiveLine);
+                Assert.Collection(
+                    inner.Branches,
+                    branch => AssertBranch(branch, 1, 1, 4, 5, 6),
+                    branch => AssertBranch(branch, 2, 1, 6, 7, 7));
+            });
+
+        static void AssertBranch(
+            ConditionalBranchSpan branch,
+            int id,
+            int groupId,
+            int directiveLine,
+            int contentStartLine,
+            int contentEndLineExclusive)
+        {
+            Assert.Equal(id, branch.Id);
+            Assert.Equal(groupId, branch.GroupId);
+            Assert.Equal(directiveLine, branch.DirectiveLine);
+            Assert.Equal(contentStartLine, branch.ContentStartLine);
+            Assert.Equal(contentEndLineExclusive, branch.ContentEndLineExclusive);
+        }
+    }
+
+    [Fact]
+    public void AmbiguousConditionalTopology_WithholdsItsOpenAndLaterGroups()
+    {
+        const string source = """
+            #if OUTER
+            /*
+            #if HIDDEN
+            */
+            #endif
+            #if LATER
+            class C { }
+            #endif
+            """;
+
+        Assert.Empty(DeclarationIndex.Build(source).ConditionalGroups);
+    }
+
+    [Theory]
+    [InlineData("#if OUTER\n#if INNER\n#endif")]
+    [InlineData("#endif\n#if LATER\n#endif")]
+    public void UnclosedOrStrayConditionalTopology_WithholdsAffectedGroups(string source)
+    {
+        Assert.Empty(DeclarationIndex.Build(source).ConditionalGroups);
+    }
+
+    [Fact]
+    public void DuplicateElse_WithholdsThatGroupButNotALaterIndependentGroup()
+    {
+        const string source = """
+            #if FIRST
+            class A { }
+            #else
+            class B { }
+            #else
+            class C { }
+            #endif
+            #if LATER
+            class D { }
+            #endif
+            """;
+
+        var group = Assert.Single(DeclarationIndex.Build(source).ConditionalGroups);
+        Assert.Equal(8, group.IfDirectiveLine);
+        Assert.Equal(10, group.EndIfDirectiveLine);
+    }
+
+    [Fact]
+    public void SelectedConditionalBranch_ProjectsOnlyThatGroupAndPreservesPhysicalLines()
+    {
+        const string source = """
+            class C
+            {
+            #if FIRST
+                void Dead() { }
+            #else
+                void Live() { }
+            #endif
+            #if UNKNOWN
+                void Maybe() { }
+            #endif
+            }
+            """;
+        var index = DeclarationIndex.Build(source);
+        var selected = index.ConditionalGroups[0].Branches[1];
+
+        var projected = index.WithSelectedConditionalBranches([selected]);
+
+        var live = Assert.Single(projected.FindByName(DeclarationKind.Method, "Live"));
+        Assert.True(live.SpanKnown);
+        Assert.Equal(6, live.SignatureStartLine);
+        Assert.Empty(projected.FindByName(DeclarationKind.Method, "Dead"));
+        Assert.False(
+            Assert.Single(projected.FindByName(DeclarationKind.Method, "Maybe")).SpanKnown);
+    }
+
+    [Fact]
+    public void ConditionalProjection_RejectsABranchFromAnotherIndex()
+    {
+        const string source = "#if X\nclass A { }\n#else\nclass B { }\n#endif";
+        var first = DeclarationIndex.Build(source);
+        var second = DeclarationIndex.Build(source);
+
+        Assert.Throws<ArgumentException>(
+            () => first.WithSelectedConditionalBranches(
+                [second.ConditionalGroups[0].Branches[0]]));
+    }
+
+    [Fact]
+    public void ConditionalProjection_ManySelectionsAllocateLinearly()
+    {
+        var smaller = ProjectionFixture(512);
+        var larger = ProjectionFixture(1_024);
+
+        _ = smaller.Index.WithSelectedConditionalBranches(smaller.Selected);
+        _ = larger.Index.WithSelectedConditionalBranches(larger.Selected);
+
+        long smallAllocation = Measure(smaller);
+        long largeAllocation = Measure(larger);
+
+        Assert.True(
+            largeAllocation < smallAllocation * 3,
+            $"doubling groups changed projection allocation from "
+            + $"{smallAllocation:N0} to {largeAllocation:N0} bytes");
+
+        static long Measure(
+            (DeclarationIndex Index, ConditionalBranchSpan[] Selected) fixture)
+        {
+            GC.Collect();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            var projected = fixture.Index.WithSelectedConditionalBranches(fixture.Selected);
+            long allocation = GC.GetAllocatedBytesForCurrentThread() - before;
+            GC.KeepAlive(projected);
+            return allocation;
+        }
+
+        static (DeclarationIndex Index, ConditionalBranchSpan[] Selected) ProjectionFixture(
+            int groupCount)
+        {
+            var source = new StringBuilder("class C\n{\n");
+            for (int i = 0; i < groupCount; i++)
+            {
+                source.Append("#if X\n    void A");
+                source.Append(i);
+                source.Append("() { }\n#else\n    void B");
+                source.Append(i);
+                source.Append("() { }\n#endif\n");
+            }
+            source.Append('}');
+
+            var index = DeclarationIndex.Build(source.ToString());
+            return (
+                index,
+                [.. index.ConditionalGroups.Select(static group => group.Branches[0])]);
+        }
+    }
+
+    [Theory]
+    [InlineData("#line 200")]
+    [InlineData("\uFEFF  #line default")]
+    public void LineDirective_IsReportedForPdbCorrelationRefusal(string directive)
+    {
+        var index = DeclarationIndex.Build($"{directive}\nclass C {{ }}");
+
+        Assert.True(index.HasLineDirectives);
+    }
+
     [Theory]
     [InlineData('\u0085')]
     [InlineData('\u2028')]
