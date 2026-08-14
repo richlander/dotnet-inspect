@@ -106,6 +106,8 @@ change ready to merge.
 | Package resolution and caches | `docs/design/version-resolution.md` |
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
 | Analysis, Findings, and Research | `docs/design/finding-adoption.md` |
+| Inspection graphs and characteristics | `docs/design/inspection-graph-document.md`, plus the contributing relationship producer's docs |
+| Inspection-graph modes | `docs/design/inspection-graph-modes.md` |
 | Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
