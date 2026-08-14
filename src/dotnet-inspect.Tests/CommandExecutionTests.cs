@@ -18564,11 +18564,19 @@ public partial class CommandExecutionTests
                 "--count",
                 "--columns",
                 "Field");
+            var rendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "--columns",
+                "Field");
 
             Assert.Equal(1, count.Exit);
             Assert.Equal(0, renderedColumn.Exit);
+            Assert.Equal(0, rendered.Exit);
             Assert.Empty(count.Output);
             Assert.Empty(renderedColumn.Error);
+            Assert.Empty(rendered.Error);
             Assert.Contains(
                 "No fields matched projection: Bogus",
                 count.Error);
@@ -18578,6 +18586,9 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "| Signature | 0 |",
                 renderedColumn.Output);
+            Assert.Contains(
+                "| Field |",
+                rendered.Output);
         }
         finally
         {
@@ -19101,12 +19112,24 @@ public partial class CommandExecutionTests
                 "--fields",
                 "Owners;Version",
                 "--tsv");
+            var valueOnly = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Version",
+                "--columns",
+                "Value",
+                "--tsv");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, rendered.Exit);
             Assert.Equal(0, column.Exit);
             Assert.Equal(0, ordered.Exit);
             Assert.Equal(0, absent.Exit);
+            Assert.Equal(0, valueOnly.Exit);
             Assert.Empty(count.Error);
             Assert.Contains(
                 "Note: 1 field has no data: Ver*",
@@ -19116,6 +19139,12 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "Note: 1 field has no data: Owners",
                 absent.Error);
+            Assert.Empty(valueOnly.Error);
+            Assert.Equal(
+                ["value", "1.0.0", "1.0.0"],
+                valueOnly.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
             Assert.Equal("2", count.Output.Trim());
             string[] rows = rendered.Output.Split(
                 '\n',
