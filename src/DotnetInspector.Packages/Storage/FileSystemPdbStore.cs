@@ -53,9 +53,46 @@ public sealed class FileSystemPdbStore : IPdbStore
     {
         ArgumentNullException.ThrowIfNull(content);
         var path = ResolvePath(key);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var destination = File.Create(path);
-        await content.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+        string directory = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(directory);
+        string stagingPath =
+            Path.Combine(
+                directory,
+                $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            await using (var destination = new FileStream(
+                             stagingPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None))
+            {
+                await content.CopyToAsync(
+                    destination,
+                    cancellationToken).ConfigureAwait(false);
+                await destination.FlushAsync(
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            File.Move(stagingPath, path, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(stagingPath);
+            }
+            catch (IOException)
+            {
+                // Publication already succeeded or another process still has
+                // the abandoned staging file open.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Publication already succeeded or the host owns cleanup.
+            }
+        }
     }
 
     /// <inheritdoc />

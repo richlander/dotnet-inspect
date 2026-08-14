@@ -90,6 +90,187 @@ public class StyleOptionCatalogTests
     }
 
     [Fact]
+    public void Choices_AreExactlyTheNonDefaultCatalogValues()
+    {
+        var expected = Options
+            .SelectMany(option => option.Values
+                .Where(value => !string.Equals(
+                    value.Token,
+                    option.DefaultValue,
+                    StringComparison.Ordinal))
+                .Select(value => (OptionId: option.Id, ValueToken: value.Token)))
+            .ToArray();
+        var actual = StyleOptionCatalog.Choices
+            .Select(choice => (choice.OptionId, choice.ValueToken))
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+        Assert.All(
+            StyleOptionCatalog.Choices,
+            choice => Assert.False(string.IsNullOrWhiteSpace(choice.Id)));
+        Assert.Equal(
+            StyleOptionCatalog.Choices.Count,
+            StyleOptionCatalog.Choices.Select(choice => choice.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+        Assert.All(Options, option =>
+        {
+            Assert.Null(option.Values.Single(
+                value => value.Token == option.DefaultValue).ChoiceId);
+            Assert.All(
+                option.Values.Where(value => value.Token != option.DefaultValue),
+                value => Assert.False(string.IsNullOrWhiteSpace(value.ChoiceId)));
+        });
+    }
+
+    [Fact]
+    public void ChoiceIds_PreserveTheExistingBrowserPersistenceContract()
+    {
+        // Literal ids are the compatibility gate. In particular, a currently
+        // two-state option keeps its bare id even if a future value joins that
+        // axis; the id is stored on the value rather than recomputed from the
+        // axis's current cardinality.
+        Assert.Equal(
+            new[]
+            {
+                "slot-local-names",
+                "wrap-splittable-expressions",
+                "disable-one-liner-wrapping",
+                "wrap-expression-body-arrow",
+                "qualify-field-access",
+                "qualify-property-access",
+                "qualify-method-access",
+                "qualify-event-access",
+                "guarded-boolean-return-style:conditional-expression",
+                "guarded-boolean-return-style:branchless",
+                "var-spelling-style:var-for-built-in-types",
+                "var-spelling-style:var-when-type-apparent",
+                "var-spelling-style:var-elsewhere",
+                "enum-case-label-order",
+                "prefer-long-literal-suffix",
+            },
+            StyleOptionCatalog.Choices.Select(choice => choice.Id).ToArray());
+    }
+
+    [Fact]
+    public void Choices_CannotBeMutatedThroughTheirRuntimeCollection()
+    {
+        var mutable = StyleOptionCatalog.Choices as IList<StyleOptionChoice>;
+
+        Assert.True(mutable is null || mutable.IsReadOnly);
+        if (mutable is not null)
+            Assert.Throws<NotSupportedException>(mutable.Clear);
+    }
+
+    [Fact]
+    public void Choices_ProjectProductOwnedPresentationAndConflictSemantics()
+    {
+        foreach (var choice in StyleOptionCatalog.Choices)
+        {
+            var option = Options.Single(candidate => candidate.Id == choice.OptionId);
+            var value = option.Values.Single(candidate => candidate.Token == choice.ValueToken);
+            int selectableCount = option.Values.Count(candidate =>
+                candidate.Token != option.DefaultValue);
+
+            Assert.Equal(value.ChoiceId, choice.Id);
+            Assert.Equal(
+                selectableCount > 1
+                    ? $"{option.Title} · {value.Title ?? value.Token}"
+                    : option.Title,
+                choice.Title);
+            Assert.Equal(option.Summary, choice.Summary);
+            Assert.Equal(option.Tier, choice.Tier);
+            Assert.Equal(option.ByteDivergent, choice.ByteDivergent);
+            Assert.Equal(value.OracleEndorsed, choice.OracleEndorsed);
+            Assert.Equal(value.CorpusEndorsed, choice.CorpusEndorsed);
+            Assert.Equal(selectableCount > 1 ? option.Id : null, choice.ConflictGroup);
+        }
+    }
+
+    [Fact]
+    public void ResolveChoices_StartsFromProductDefaults_AndAppliesSelections()
+    {
+        Assert.Equal(
+            StyleOptionCatalog.DefaultOptions,
+            StyleOptionCatalog.ResolveChoices([]));
+
+        var resolved = StyleOptionCatalog.ResolveChoices(
+        [
+            "slot-local-names",
+            "qualify-field-access",
+            "guarded-boolean-return-style:branchless",
+        ]);
+
+        Assert.False(resolved.ReadableLocalNames);
+        Assert.True(resolved.QualifyFieldAccess);
+        Assert.True(resolved.PreferBranchlessBoolean);
+        Assert.False(resolved.PreferConditionalExpressionReturn);
+    }
+
+    [Fact]
+    public void EveryChoice_ResolvesItsOwningValue_WithoutMovingOtherOptions()
+    {
+        foreach (var choice in StyleOptionCatalog.Choices)
+        {
+            var resolved = StyleOptionCatalog.ResolveChoices([choice.Id]);
+
+            foreach (var option in Options)
+            {
+                Assert.Equal(
+                    option.Id == choice.OptionId
+                        ? choice.ValueToken
+                        : option.GetValue(StyleOptionCatalog.DefaultOptions),
+                    option.GetValue(resolved));
+            }
+        }
+    }
+
+    [Fact]
+    public void ResolveChoices_IsOrderIndependentAcrossOptions_AndIgnoresDuplicates()
+    {
+        var first = StyleOptionCatalog.ResolveChoices(
+        [
+            "qualify-field-access",
+            "prefer-long-literal-suffix",
+            "qualify-field-access",
+        ]);
+        var second = StyleOptionCatalog.ResolveChoices(
+        [
+            "prefer-long-literal-suffix",
+            "qualify-field-access",
+        ]);
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void ResolveChoices_RejectsUnknownAndConflictingIds()
+    {
+        var unknown = Assert.Throws<ArgumentException>(() =>
+            StyleOptionCatalog.ResolveChoices(["not-a-style-choice"]));
+        Assert.Contains("not a style choice", unknown.Message, StringComparison.Ordinal);
+
+        var conflict = Assert.Throws<ArgumentException>(() =>
+            StyleOptionCatalog.ResolveChoices(
+            [
+                "guarded-boolean-return-style:conditional-expression",
+                "guarded-boolean-return-style:branchless",
+            ]));
+        Assert.Contains("conflict", conflict.Message, StringComparison.Ordinal);
+        Assert.Contains("guarded-boolean-return-style", conflict.Message, StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentException>(() =>
+            StyleOptionCatalog.ResolveChoices(
+            [
+                "var-spelling-style:var-for-built-in-types",
+                "var-spelling-style:var-elsewhere",
+            ]));
+
+        Assert.Throws<ArgumentException>(() =>
+            StyleOptionCatalog.ResolveChoices([null!]));
+    }
+
+    [Fact]
     public void ConfigKeys_WherePresent_AreUnique()
     {
         var keys = AllValues.Select(v => v.ConfigKey)
