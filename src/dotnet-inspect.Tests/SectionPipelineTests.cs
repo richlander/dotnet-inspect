@@ -5450,6 +5450,10 @@ public class SectionPipelineTests
     [Fact]
     public void SigningSection_FieldCatalogMatchesCombinedRows()
     {
+        var schema = InspectionContext.Default
+            .GetSchemaInfo<InspectionResultView>()!
+            .ToDocumentSchema()
+            .GetSection(PackageSections.Signature);
         var section = new SigningSection
         {
             AuthorVerified = "Yes",
@@ -5463,6 +5467,9 @@ public class SectionPipelineTests
         Assert.Equal(
             SigningSection.FieldNames,
             section.ToMarkoutFields().Select(field => field.Key));
+        Assert.Equal(
+            SigningSection.FieldNames,
+            schema!.Items.Select(item => item.Name));
     }
 
     [Fact]

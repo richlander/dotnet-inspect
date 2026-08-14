@@ -538,6 +538,10 @@ public class InspectionResultView
 
 public class SigningSection
 {
+    private string? _publisher;
+    private string? _repository;
+    private string? _status;
+
     internal static readonly string[] FieldNames =
     [
         "Author Verified",
@@ -550,12 +554,24 @@ public class SigningSection
 
     [MarkoutPropertyName("Author Verified")]
     public string? AuthorVerified { get; init; }
-    public string? Publisher { get; init; }
-    public string? Repository { get; init; }
+    public string? Publisher
+    {
+        get => _publisher;
+        init => _publisher = PackageViewText.Contain(value);
+    }
+    public string? Repository
+    {
+        get => _repository;
+        init => _repository = PackageViewText.Contain(value);
+    }
     [MarkoutPropertyName("Repository Verified")]
     public string? RepositoryVerified { get; init; }
     public string Signed { get; init; } = "Unknown";
-    public string? Status { get; init; }
+    public string? Status
+    {
+        get => _status;
+        init => _status = PackageViewText.Contain(value);
+    }
 
     internal IEnumerable<MarkoutField> ToMarkoutFields()
     {

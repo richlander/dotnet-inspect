@@ -2548,22 +2548,26 @@ public class PackageCommand
             return;
         }
 
-        bool countPackageInfoRows =
-            string.Equals(
-                    selectedSection,
-                    PackageSections.PackageInfo,
-                    StringComparison.OrdinalIgnoreCase)
+        bool countPackageFieldRows =
+            IsMultiPackageFieldSection(selectedSection)
                 || (selectedSection == null
                     && options.IncludeSections is not { Count: > 0 }
                     && !options.FixedOverview);
-        if (countPackageInfoRows)
+        if (countPackageFieldRows)
         {
+            string fieldSection =
+                selectedSection ?? PackageSections.PackageInfo;
             string[]? selectedFields =
-                ResolvePackageInfoFields(options.Fields);
-            int count = SelectedColumnsMatch(PackageSections.PackageInfo)
+                ResolvePackageFieldSectionFields(
+                    fieldSection,
+                    options.Fields);
+            int count = SelectedColumnsMatch(fieldSection)
                 ? results.Sum(
                     result =>
-                        SelectPackageInfoFields(result, selectedFields).Count())
+                        SelectPackageFieldSectionFields(
+                            new InspectionResultView(result),
+                            fieldSection,
+                            selectedFields).Count())
                 : 0;
             CountOutput.WriteCount(
                 ApplyRowWindow(count, options.Rows),
@@ -2606,18 +2610,18 @@ public class PackageCommand
 
             foreach (string section in orderedSections)
             {
-                if (string.Equals(
-                        section,
-                        PackageSections.PackageInfo,
-                        StringComparison.OrdinalIgnoreCase))
+                if (IsMultiPackageFieldSection(section))
                 {
                     string[]? selectedFields =
-                        ResolvePackageInfoFields(options.Fields);
+                        ResolvePackageFieldSectionFields(
+                            section,
+                            options.Fields);
                     counts[section] =
                         SelectedColumnsMatch(section)
                             ? results.Sum(
-                                result => SelectPackageInfoFields(
-                                    result,
+                                result => SelectPackageFieldSectionFields(
+                                    new InspectionResultView(result),
+                                    section,
                                     selectedFields).Count())
                             : 0;
                 }
@@ -2972,16 +2976,20 @@ public class PackageCommand
         string[]? selectedFields =
             ResolvePackageFieldSectionFields(section, options.Fields);
         var rows = results
-            .SelectMany(result => SelectPackageFieldSectionFields(
-                    result,
-                    section,
-                    selectedFields)
-                .Select(field => new[]
+            .SelectMany(result =>
+            {
+                var view = new InspectionResultView(result);
+                return SelectPackageFieldSectionFields(
+                        view,
+                        section,
+                        selectedFields)
+                    .Select(field => new[]
                 {
-                    result.PackageName,
+                    view.PackageName,
                     field.Key,
                     field.Value?.ToString() ?? "",
-                }))
+                });
+            })
             .ToArray();
 
         string rendered = OutputFormatter.RenderProjectedTable(
@@ -3058,7 +3066,7 @@ public class PackageCommand
     }
 
     private static IEnumerable<MarkoutField> SelectPackageFieldSectionFields(
-        InspectionResult result,
+        InspectionResultView view,
         string section,
         IReadOnlyList<string>? selectedFields)
     {
@@ -3066,9 +3074,8 @@ public class PackageCommand
             section.Equals(
                 PackageSections.PackageInfo,
                 StringComparison.OrdinalIgnoreCase)
-                ? new InspectionResultView(result).Metadata
-                : new InspectionResultView(result)
-                    .SigningSectionData?
+                ? view.Metadata
+                : view.SigningSectionData?
                     .ToMarkoutFields()
                     ?? [];
         if (selectedFields == null)

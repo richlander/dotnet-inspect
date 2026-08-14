@@ -19215,6 +19215,24 @@ public partial class CommandExecutionTests
                 "--fields",
                 "Signed",
                 "--jsonl");
+            var overlappingFields = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed;*",
+                "--tsv");
+            var overlappingCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed;*",
+                "--count");
 
             Assert.Equal(0, json.Exit);
             Assert.Equal(0, defaultFormat.Exit);
@@ -19223,6 +19241,8 @@ public partial class CommandExecutionTests
             Assert.Equal(0, table.Exit);
             Assert.Equal(0, tsvRows.Exit);
             Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, overlappingFields.Exit);
+            Assert.Equal(0, overlappingCount.Exit);
             Assert.Empty(json.Error);
             Assert.Empty(defaultFormat.Error);
             Assert.Empty(tsv.Error);
@@ -19230,6 +19250,8 @@ public partial class CommandExecutionTests
             Assert.Empty(table.Error);
             Assert.Empty(tsvRows.Error);
             Assert.Empty(jsonl.Error);
+            Assert.Empty(overlappingFields.Error);
+            Assert.Empty(overlappingCount.Error);
             Assert.Equal(json.Output, defaultFormat.Output);
             Assert.Equal(json.Output, tsv.Output);
             Assert.True(
@@ -19259,6 +19281,11 @@ public partial class CommandExecutionTests
                     "No",
                     document.RootElement.GetProperty("value").GetString());
             }
+            Assert.Equal(
+                SplitOutputLines(overlappingFields.Output).Length - 1,
+                int.Parse(
+                    overlappingCount.Output,
+                    CultureInfo.InvariantCulture));
         }
         finally
         {
