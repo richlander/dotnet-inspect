@@ -180,7 +180,12 @@ public static class FqnParser
             var backtickIdx = memberName.LastIndexOf('`');
             if (backtickIdx > 0
                 && backtickIdx < memberName.Length - 1
-                && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0)
+                && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0
+                && int.TryParse(
+                    memberName.AsSpan((backtickIdx + 1)..),
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out _))
                 memberName = memberName[..backtickIdx];
         }
 

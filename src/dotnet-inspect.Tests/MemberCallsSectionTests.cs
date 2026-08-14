@@ -145,3 +145,27 @@ public sealed class MemberPropertyCallsFixture
         _ = fixture["one"];
     }
 }
+
+public abstract class MemberAbstractCallsFixture
+{
+    public abstract void Mixed(int value);
+    public void Mixed(string value) { }
+
+    public static void CallsMixed(MemberAbstractCallsFixture fixture)
+    {
+        fixture.Mixed(1);
+        fixture.Mixed("one");
+    }
+}
+
+public abstract class MemberAbstractPropertyCallsFixture
+{
+    public abstract int this[int index] { get; }
+    public abstract int this[string key] { get; }
+
+    public static void CallsIndexers(MemberAbstractPropertyCallsFixture fixture)
+    {
+        _ = fixture[1];
+        _ = fixture["one"];
+    }
+}

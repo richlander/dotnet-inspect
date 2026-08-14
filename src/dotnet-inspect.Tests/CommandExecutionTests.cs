@@ -8200,6 +8200,76 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_BareSelectSingleOverloadCallerScope_DoesNotAnalyzeOtherMembers()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.NoCalls), "--bin", testDirectory,
+            "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Callers", output);
+        Assert.Contains("No callers found", output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_MultipleNamesCallerScope_AnalyzesOnlySelectedMembers()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            "-m", nameof(MemberCallGraphFixture.Mid),
+            "-m", nameof(MemberCallGraphFixture.NoCalls),
+            "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_AbstractMethodFamilyCallerScope_IncludesAbstractOverloads()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberAbstractCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberAbstractCallsFixture.Mixed), "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            output.Split(
+                nameof(MemberAbstractCallsFixture.CallsMixed),
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("## Callers", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_AbstractPropertyFamilyCallerScope_IncludesAbstractAccessors()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberAbstractPropertyCallsFixture).FullName!,
+            "--library", TestAssemblyPath,
+            "Item", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            output.Split(
+                nameof(MemberAbstractPropertyCallsFixture.CallsIndexers),
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("## Callers", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Member_ForwardedTypeCallerScope_UsesImplementationAssembly()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
@@ -16004,6 +16074,19 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("GenericChoice<T>(T value)", output);
         Assert.DoesNotContain("GenericChoice(string value)", output);
+    }
+
+    [Fact]
+    public async Task Member_OverflowingGenericArity_DoesNotBroadenSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "ToString`999999999999999999999:1",
+            "--platform", "System.Private.CoreLib",
+            "-S", SectionNames.Signature, "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No members matched filter", error);
     }
 
     [Fact]

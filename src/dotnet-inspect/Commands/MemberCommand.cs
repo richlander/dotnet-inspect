@@ -265,22 +265,16 @@ public static class MemberCommand
             if (effectiveOptions is
                 {
                     CallerScopeSectionImplicitlySelected: true,
-                    OverloadIndex: null,
-                    MemberFilter.Count: 1
+                    OverloadIndex: null
                 })
             {
-                var memberName = effectiveOptions.MemberFilter.First();
-                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
-                if (overloads.Count > 1)
+                effectiveOptions = effectiveOptions with
                 {
-                    effectiveOptions = effectiveOptions with
-                    {
-                        ImplicitCallerMemberTokens = overloads
-                            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
-                            .SelectMany(member => BodyMethodTokens(apiType, member))
-                            .ToHashSet()
-                    };
-                }
+                    ImplicitCallerMemberTokens = GetImplicitCallerMembers(apiType, effectiveOptions)
+                        .Where(ApiMemberSectionDescriptors.IsBodyBacked)
+                        .SelectMany(member => BodyMethodTokens(apiType, member))
+                        .ToHashSet()
+                };
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -647,9 +641,26 @@ public static class MemberCommand
 
         foreach (var accessor in ApiOutputFormatter.AccessorMethods(member, type))
         {
-            if (!accessor.IsAbstract && accessor.MetadataToken is { } token)
+            if (accessor.MetadataToken is { } token)
                 yield return token;
         }
+    }
+
+    private static IEnumerable<ApiMember> GetImplicitCallerMembers(
+        ApiType type,
+        MemberOptions options)
+    {
+        IEnumerable<ApiMember> members = ApiOutputFormatter
+            .GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter)
+            .SelectMany(group => group.Value);
+        if (options.MemberGenericArity.HasValue && options.MemberFilter.Count == 1)
+        {
+            var memberName = options.MemberFilter.First();
+            var arityCandidates = GetCandidateMembers(type, options, memberName).ToHashSet();
+            members = members.Where(arityCandidates.Contains);
+        }
+
+        return members;
     }
 
     private static readonly string[] SingleOverloadSectionNames =

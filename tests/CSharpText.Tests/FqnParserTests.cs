@@ -219,6 +219,14 @@ public class FqnParserTests
         Assert.Equal("System.Collections.Generic.List`1", result.TypeName);
     }
 
+    [Fact]
+    public void NormalizeMemberName_OverflowingMetadataArityPreservesMalformedSuffix()
+    {
+        const string malformed = "ToString`999999999999999999999";
+
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+    }
+
     // ── ParseMemberFilter tests ──────────────────────────────────────────
 
     [Theory]

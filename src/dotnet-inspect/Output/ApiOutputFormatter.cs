@@ -1439,12 +1439,11 @@ public static class ApiOutputFormatter
         ApiOptions? options = null)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
-        var methods = type.Members
-            .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
-            .ToList();
+        List<ApiMember> methods;
         if (options is MemberOptions { ImplicitCallerMemberTokens: { } tokens })
         {
-            methods = methods
+            methods = type.Members
+                .Where(ApiMemberSectionDescriptors.IsMethodLike)
                 .Where(member => member.MetadataToken is { } token && tokens.Contains(token))
                 .ToList();
             var methodTokens = methods
@@ -1454,10 +1453,16 @@ public static class ApiOutputFormatter
             methods.AddRange(type.Members
                 .Where(ApiMemberSectionDescriptors.HasAccessorTokens)
                 .SelectMany(member => AccessorMethods(member, type))
-                .Where(member => (!member.IsAbstract || includeAbstract)
-                    && member.MetadataToken is { } token
+                .Where(member => member.MetadataToken is { } token
                     && tokens.Contains(token)
                     && methodTokens.Add(token)));
+        }
+        else
+        {
+            methods = type.Members
+                .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m)
+                    && (!m.IsAbstract || includeAbstract))
+                .ToList();
         }
 
         if (methods.Count == 0
