@@ -245,7 +245,7 @@ generic scope. The producer appends to caller-owned call and safety-evidence
 builders so results emitted before a later recoverable metadata failure survive,
 and delegates unsafe-call/opcode classification to `MethodSafetyAnalysis`
 without a second body scan.
-`MethodAllocationAnalysis` owns the allocation topic for one decoded body:
+`MethodAllocationFacts` owns the allocation topic for one decoded body:
 allocation occurrence discovery, allocation-shape classification, escape
 classification, and the private path-context, path-confidence, and
 post-dominance indexes behind its multiplicity reading. It consumes the shared
@@ -255,11 +255,16 @@ delegate-constructor, value-type-box, non-heap-construction, in-assembly
 element, field-owner) and the raw-IL reaching-definitions analysis arrive
 through the narrow `IMethodAllocationResolver` contract implemented by the
 assembly reader, so no metadata reader, `PEReader`, generic scope, IL buffer, or
-reader-bound body reaches allocation analysis. One scan produces a
-`MethodAllocationResult` carrying both the discovered occurrences and the
-escape-refined occurrences: the published allocation facts take the latter,
-and `OptimizationOpportunityAnalysis` reuses the former plus the query methods
+reader-bound body reaches allocation analysis. One `MethodAllocationFacts`
+object binds the canonical context and Layer-1 query methods before other topic
+producers run. When allocation collection is selected, one scan populates that
+same object with both the discovered and escape-refined occurrences. The
+published allocation facts take the classified occurrences, and
+`OptimizationOpportunityAnalysis` reuses the discovered occurrences plus the
+query methods
 (`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
+`FactsBundlesBindContextOccurrencesAndQueries` gates the bundle's context,
+occurrence, and query coherence.
 That service owns the per-method optimization instruction walk, shape
 classification, lazy memoized reaching-definitions use, and allocation metadata
 projection without opening another allocation or decode path. Its traversal may
