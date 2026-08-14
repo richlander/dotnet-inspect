@@ -14,7 +14,7 @@ internal enum NewObjectConstructionKind
 }
 
 /// <summary>
-/// The metadata- and IL-dependent judgments <see cref="MethodAllocationAnalysis"/>
+/// The metadata- and IL-dependent judgments <see cref="MethodAllocationFacts"/>
 /// cannot make from the shared Layer-0 context. The assembly reader that owns the
 /// metadata reader, the caller's generic scope, and the raw IL bytes implements
 /// this, so none of them reach allocation analysis and no second decode or
@@ -76,22 +76,9 @@ internal interface IMethodAllocationResolver
 }
 
 /// <summary>
-/// One method's allocation occurrences from a single scan: the discovered
-/// occurrences that optimization-opportunity collection reuses, and the
-/// escape-refined occurrences the allocation output publishes. Discovery may
-/// already identify an allocation on a throw path.
-/// </summary>
-internal sealed record MethodAllocationResult(
-    ImmutableArray<AllocationOccurrence> DiscoveredOccurrences,
-    ImmutableArray<AllocationOccurrence> ClassifiedOccurrences)
-{
-    internal static readonly MethodAllocationResult Empty = new([], []);
-}
-
-/// <summary>
-/// Owns allocation interpretation for one decoded method body: where allocations
-/// occur, what shape they are, how often a call executes them, and whether the
-/// produced value escapes.
+/// One method's allocation facts from a single interpretation: the canonical
+/// body context, discovered and escape-refined occurrences, and the allocation
+/// Layer-1 queries consumed by call and optimization analysis.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -107,15 +94,19 @@ internal sealed record MethodAllocationResult(
 /// collection and call-site acquisition consume them through the query methods
 /// rather than rebuilding them.
 /// </para>
+/// <para>
+/// <c>MethodAllocationFactsTests.FactsBundlesBindContextOccurrencesAndQueries</c>
+/// gates the context, occurrence, and query coherence.
+/// </para>
 /// </remarks>
-internal sealed class MethodAllocationAnalysis
+internal sealed class MethodAllocationFacts
 {
     readonly MethodBodyAnalysisContext _context;
     readonly AllocationPathContextIndex _pathContexts;
     readonly AllocationPathConfidenceIndex _pathConfidences;
     readonly AllocationPostDominanceIndex _postDominances;
 
-    internal MethodAllocationAnalysis(MethodBodyAnalysisContext context)
+    MethodAllocationFacts(MethodBodyAnalysisContext context)
     {
         _context = context;
         _pathContexts = AllocationPathContextIndex.Create(context);
@@ -125,17 +116,37 @@ internal sealed class MethodAllocationAnalysis
             AllocationPostDominanceIndex.Create(context, _pathContexts);
     }
 
+    internal MethodBodyAnalysisContext Context => _context;
+
+    internal ImmutableArray<AllocationOccurrence> DiscoveredOccurrences
+    {
+        get;
+        private set;
+    } = [];
+
+    internal ImmutableArray<AllocationOccurrence> ClassifiedOccurrences
+    {
+        get;
+        private set;
+    } = [];
+
+    internal static MethodAllocationFacts Create(
+        MethodBodyAnalysisContext context)
+        => new(context);
+
     /// <summary>
     /// Scans the body once for allocation occurrences and returns both the raw
     /// occurrences and their escape-refined form. One scan feeds both the
     /// published allocation facts and optimization-opportunity collection.
     /// </summary>
-    internal MethodAllocationResult Collect(IMethodAllocationResolver resolver)
+    internal void Collect(
+        IMethodAllocationResolver resolver)
     {
         var raw = CollectOccurrences(resolver);
-        return new MethodAllocationResult(
-            raw,
-            raw.IsDefaultOrEmpty ? raw : ClassifyEscapes(raw, resolver));
+        var classified =
+            raw.IsDefaultOrEmpty ? raw : ClassifyEscapes(raw, resolver);
+        DiscoveredOccurrences = raw;
+        ClassifiedOccurrences = classified;
     }
 
     internal AllocationPathContext PathContextAt(
